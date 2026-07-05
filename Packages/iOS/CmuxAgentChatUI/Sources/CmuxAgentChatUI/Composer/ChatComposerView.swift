@@ -27,6 +27,7 @@ public struct ChatComposerView: View {
     @State private var isStagingAttachments = false
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
+    @State private var isAttachmentPickerPresented = false
     @State private var attachments: [ChatComposerAttachment] = []
     @State private var dictation = ComposerDictationController()
     #endif
@@ -97,19 +98,12 @@ public struct ChatComposerView: View {
     }
 
     #if os(iOS)
-    @ViewBuilder
-    private var composerSurface: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                composerStack
-            }
-        } else {
-            composerStack
-        }
+    @MainActor private var composerSurface: some View {
+        MobileGlassEffectContainer { composerStack }
     }
     #endif
 
-    private var composerStack: some View {
+    @MainActor private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
                 endedRow
@@ -166,7 +160,7 @@ public struct ChatComposerView: View {
 
     // MARK: - Field row
 
-    private var fieldRow: some View {
+    @MainActor private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
             attachButton
@@ -375,22 +369,25 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
-    private var attachButton: some View {
-        PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            MobileComposerIconLabel(
-                systemImage: "paperclip",
-                foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
-                size: controlHeight
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("ChatComposerAttach")
-        .accessibilityLabel(
-            String(
+    @MainActor private var attachButton: some View {
+        MobileComposerIconButton(
+            systemImage: "paperclip",
+            foregroundStyle: AnyShapeStyle(Color.secondary.opacity(0.8)),
+            size: controlHeight,
+            accessibilityIdentifier: "ChatComposerAttach",
+            accessibilityLabel: String(
                 localized: "chat.composer.attach.accessibility",
                 defaultValue: "Add attachment",
                 bundle: .module
             )
+        ) {
+            isAttachmentPickerPresented = true
+        }
+        .photosPicker(
+            isPresented: $isAttachmentPickerPresented,
+            selection: $pickedItems,
+            maxSelectionCount: 4,
+            matching: .images
         )
         .onChange(of: pickedItems) {
             let items = pickedItems
@@ -398,7 +395,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    private var micButton: some View {
+    @MainActor private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
             systemImage: "mic",

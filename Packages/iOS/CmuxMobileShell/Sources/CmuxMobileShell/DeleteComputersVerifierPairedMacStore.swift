@@ -40,6 +40,10 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -57,6 +61,16 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
         if let index = records.firstIndex(where: { $0.macDeviceID == macDeviceID }) {
             records[index].displayName = displayName
             records[index].routes = routes
+            if let attachToken {
+                records[index].attachToken = attachToken
+            }
+            if let attachTokenExpiresAt {
+                records[index].attachTokenExpiresAt = attachTokenExpiresAt
+            }
+            if attachToken != nil {
+                records[index].attachTokenWorkspaceID = attachTokenWorkspaceID
+                records[index].attachTokenTerminalID = attachTokenTerminalID
+            }
             records[index].lastSeenAt = now
             records[index].isActive = markActive
             records[index].stackUserID = stackUserID
@@ -66,6 +80,10 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
                 macDeviceID: macDeviceID,
                 displayName: displayName,
                 routes: routes,
+                attachToken: attachToken,
+                attachTokenExpiresAt: attachTokenExpiresAt,
+                attachTokenWorkspaceID: attachTokenWorkspaceID,
+                attachTokenTerminalID: attachTokenTerminalID,
                 createdAt: now,
                 lastSeenAt: now,
                 isActive: markActive,
@@ -73,6 +91,23 @@ actor DeleteComputersVerifierPairedMacStore: MobilePairedMacStoring {
                 teamID: teamID
             ))
         }
+    }
+
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        guard let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID
+                && isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID)
+        }) else { return }
+        records[index].displayName = displayName
+        records[index].routes = routes
+        records[index].lastSeenAt = now
     }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {

@@ -101,8 +101,30 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return try await sendAuthenticatedRequest(
                 requestData,
                 deadline: deadline,
-                allowAuthRetry: true
+                allowAuthRetry: true,
+                forceStackAuthFallback: false
             )
+        } catch let error as MobileCoreRPCAttachTokenAuthorizationFailure {
+            guard shouldRetryAttachTokenAuthorizationFailureWithStackAuth(error.underlying) else {
+                throw error.underlying
+            }
+            do {
+                return try await sendAuthenticatedRequest(
+                    requestData,
+                    deadline: deadline,
+                    allowAuthRetry: false,
+                    forceStackAuthFallback: true
+                )
+            } catch let stackError as MobileShellConnectionError {
+                guard shouldRetryStackAuthorizationFailure(stackError) else { throw stackError }
+                try await forceRefreshStackTokenForRetry(deadline: deadline)
+                return try await sendAuthenticatedRequest(
+                    requestData,
+                    deadline: deadline,
+                    allowAuthRetry: false,
+                    forceStackAuthFallback: true
+                )
+            }
         } catch let error as MobileShellConnectionError {
             // The host rejected this request on Stack-auth grounds. Before
             // surfacing it (which drives the re-auth prompt), force exactly one
@@ -112,18 +134,40 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // stale token. An `account_mismatch` rejection is deliberately NOT
             // retried here — it means the Mac is signed in to a different
             // account, so retrying with a fresh token of THIS account cannot
-            // help and would only weaken the same-account gate; it surfaces as
-            // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
-            guard case .authorizationFailed = error else { throw error }
+            // help and would only weaken the same-account gate.
+            guard shouldRetryStackAuthorizationFailure(error) else { throw error }
             try await forceRefreshStackTokenForRetry(deadline: deadline)
             // Re-run with retry disabled so a fresh token that is still rejected
             // surfaces as a definitive auth failure instead of looping.
             return try await sendAuthenticatedRequest(
                 requestData,
                 deadline: deadline,
-                allowAuthRetry: false
+                allowAuthRetry: false,
+                forceStackAuthFallback: false
             )
         }
+    }
+
+    private func shouldRetryAttachTokenAuthorizationFailureWithStackAuth(
+        _ error: MobileShellConnectionError
+    ) -> Bool {
+        guard case let .rpcError(code, _) = error else { return false }
+        return normalizedRPCCode(code) == "unauthorized"
+    }
+
+    private func shouldRetryStackAuthorizationFailure(_ error: MobileShellConnectionError) -> Bool {
+        switch error {
+        case .authorizationFailed:
+            return true
+        case let .rpcError(code, _):
+            return normalizedRPCCode(code) == "unauthorized"
+        default:
+            return false
+        }
+    }
+
+    private func normalizedRPCCode(_ code: String?) -> String? {
+        code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     /// Force a single Stack token refresh ahead of a retry.
@@ -156,7 +200,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func sendAuthenticatedRequest(
         _ requestData: Data,
         deadline: RPCRequestDeadline,
-        allowAuthRetry: Bool
+        allowAuthRetry: Bool,
+        forceStackAuthFallback: Bool
     ) async throws -> Data {
         // Multiplexed over a persistent transport: each request gets a unique
         // id, the session's reader task routes the response back here. No
@@ -169,14 +214,23 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         let authenticated = try await requestDataWithAuth(
             augmented,
-            deadline: deadline
+            deadline: deadline,
+            forceStackAuthFallback: forceStackAuthFallback
         )
         try Task.checkCancellation()
-        return try await session.send(
-            payload: authenticated,
-            requestID: id,
-            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
-        )
+        do {
+            return try await session.send(
+                payload: authenticated.data,
+                requestID: id,
+                deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+            )
+        } catch let error as MobileShellConnectionError {
+            if authenticated.usedAttachToken,
+               shouldRetryAttachTokenAuthorizationFailureWithStackAuth(error) {
+                throw MobileCoreRPCAttachTokenAuthorizationFailure(underlying: error)
+            }
+            throw error
+        }
     }
 
     private static func requestWithGuaranteedID(
@@ -197,12 +251,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return (id, data)
     }
 
-    private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
+    private func requestDataWithAuth(
+        _ requestData: Data,
+        deadline: RPCRequestDeadline,
+        forceStackAuthFallback: Bool
+    ) async throws -> MobileCoreRPCAuthenticatedRequest {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
-            return requestData
+            return MobileCoreRPCAuthenticatedRequest(data: requestData, usedAttachToken: false)
         }
-        let requestNeedsAuth = Self.requestRequiresAuth(request)
-        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let requestMethod = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestNeedsAuth = requestMethod != "mobile.host.status"
+        let requestIsCoveredByAttachTicket = !forceStackAuthFallback && !requestNeedsStackAuthFallback(request, ticket: ticket)
+        let routeAllowsBearerAuth = MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+        let routeAllowsStackAuthFallback = allowsStackAuthFallback && routeAllowsBearerAuth
         var auth: [String: Any] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
@@ -213,24 +274,22 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // Expiry is enforced only here, where the RPC-minted attach token
             // is actually used. QR-decoded tickets carry no token (and no
             // expiry), so they never reach this branch.
-            if !ticket.isExpired(at: runtime.now()) {
+            if ticket.isExpired(at: runtime.now()) {
+                if !routeAllowsStackAuthFallback {
+                    throw MobileShellConnectionError.attachTicketExpired
+                }
+            } else if routeAllowsBearerAuth {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
-                throw MobileShellConnectionError.attachTicketExpired
             }
         }
-        // The host treats Stack auth as the SOLE authorization gate: EVERY
-        // authorized request must carry the owner's stack_access_token, even when
-        // an attach_token is also present. The attach ticket is route-discovery
-        // and workspace-selection only and never authorizes on its own, so a
-        // request that ships attach_token-only (e.g. ticket-covered workspace.list)
-        // is rejected host-side with `missingStackTokens`. Always present the
-        // Stack token for authorized requests; attach_token rides along as
-        // supplementary route/workspace context.
-        let shouldSendStackAuth = requestNeedsAuth
+        // A non-expired attach token is the local authorization credential for
+        // ticket-covered attach/reconnect/session-restore requests. Stack auth is
+        // the fallback for tokenless pairing flows, requests outside the ticket's
+        // scope, and trusted routes whose attach token has expired locally.
+        let requestHasAttachAuth = auth["attach_token"] != nil
+        let shouldSendStackAuth = requestNeedsAuth && (forceStackAuthFallback || !requestHasAttachAuth)
         if shouldSendStackAuth {
-            guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            guard routeAllowsStackAuthFallback else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
@@ -258,15 +317,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
         if !requestNeedsAuth,
            isHostStatusRequest(request),
-           allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+           routeAllowsStackAuthFallback,
            let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
             auth["stack_access_token"] = stackAccessToken
         }
         if !auth.isEmpty {
             request["auth"] = auth
         }
-        return try JSONSerialization.data(withJSONObject: request)
+        return try MobileCoreRPCAuthenticatedRequest(
+            data: JSONSerialization.data(withJSONObject: request),
+            usedAttachToken: requestHasAttachAuth
+        )
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
@@ -290,14 +351,37 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
-        guard requestRequiresAuth(request) else {
+    private func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
+        // attach token yet (it mints the ticket), so requiring auth routes it through
+        // the Stack Auth account token: a ticket can only be created by a signed-in user.
+        guard method != "mobile.host.status" else {
             return false
         }
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let params = request["params"] as? [String: Any] ?? [:]
-        let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
-        let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
+        let stringParamSelection: ([String]) -> StringParamSelection = { keys in
+            var selected: String?
+            for key in keys {
+                if let value = params[key] as? String {
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        if let selected, selected != trimmed {
+                            return StringParamSelection(value: selected, hasConflict: true)
+                        }
+                        selected = selected ?? trimmed
+                    }
+                }
+            }
+            return StringParamSelection(value: selected, hasConflict: false)
+        }
+        let workspaceSelection = stringParamSelection(["workspace_id"])
+        let terminalSelection = stringParamSelection(["surface_id", "terminal_id", "tab_id"])
+        let hasMacAccountBinding =
+            ticket.macUserID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+            ticket.macUserEmail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let hasWorkspaceScope = !ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasTerminalScope = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
         if workspaceSelection.hasConflict ||
             terminalSelection.hasConflict ||
@@ -307,58 +391,46 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
         switch method {
         case "mobile.workspace.list", "workspace.list":
-            return false
+            if workspaceSelection.value == nil {
+                return terminalSelection.value != nil || !hasMacAccountBinding || hasWorkspaceScope || hasTerminalScope
+            }
+            return !ticketCoverage.ticketCoversTerminalRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "workspace.create":
-            return false
+            return !hasMacAccountBinding || !ticketCoverage.ticketCoversWorkspaceCreateRequest(ticket: ticket)
+        case "workspace.group.collapse", "workspace.group.expand":
+            return !ticketCoverage.ticketCoversMacWideRequest(ticket: ticket)
         case "workspace.action", "workspace.close":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
         case "mobile.terminal.create", "terminal.create":
-            return false
+            return !ticketCoverage.ticketCoversTerminalCreateRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: terminalSelection.value
+            )
         case "mobile.terminal.input", "terminal.input",
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
-             "mobile.terminal.viewport", "terminal.viewport":
+             "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.scroll", "terminal.scroll",
+             "mobile.terminal.mouse", "terminal.mouse":
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return false
+            return !ticketCoverage.ticketCoversMacWideRequest(ticket: ticket)
         default:
             return true
         }
-    }
-
-    private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
-        // attach token yet (it mints the ticket), so requiring auth routes it through
-        // the Stack Auth account token: a ticket can only be created by a signed-in user.
-        return method != "mobile.host.status"
-    }
-
-    private static func stringParamSelection(
-        _ params: [String: Any],
-        keys: [String]
-    ) -> StringParamSelection {
-        var selected: String?
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    if let selected, selected != trimmed {
-                        return StringParamSelection(value: selected, hasConflict: true)
-                    }
-                    selected = selected ?? trimmed
-                }
-            }
-        }
-        return StringParamSelection(value: selected, hasConflict: false)
     }
 
     private struct StringParamSelection {

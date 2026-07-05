@@ -140,8 +140,7 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        let priorStatus = await UNUserNotificationCenter.current()
-            .notificationSettings().authorizationStatus
+        let priorStatus = await notificationAuthorizationStatus()
         // Only an undetermined status produces a real OS prompt; gate the
         // "shown" event on it so a re-toggle of an already-decided status does
         // not log a phantom prompt.
@@ -170,6 +169,14 @@ public final class MobilePushCoordinator {
     public func disable() async {
         await registration.setEnabled(false)
         UIApplication.shared.unregisterForRemoteNotifications()
+    }
+
+    private nonisolated func notificationAuthorizationStatus() async -> UNAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                continuation.resume(returning: settings.authorizationStatus)
+            }
+        }
     }
 
     /// Hand a freshly-registered APNs token to the network layer.

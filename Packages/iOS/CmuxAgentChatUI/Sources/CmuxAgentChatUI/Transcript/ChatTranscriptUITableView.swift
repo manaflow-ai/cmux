@@ -74,6 +74,7 @@ final class ChatTranscriptUITableView: UITableView {
         debugTopEdgeEffectSoft = false
         debugBottomEdgeEffectSoft = false
         #endif
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             topEdgeEffect.style = topSoft ? .soft : .automatic
             bottomEdgeEffect.style = bottomSoft ? .soft : .automatic
@@ -83,6 +84,7 @@ final class ChatTranscriptUITableView: UITableView {
             updateDebugAccessibilityValue()
             #endif
         }
+        #endif
     }
 
     #if DEBUG

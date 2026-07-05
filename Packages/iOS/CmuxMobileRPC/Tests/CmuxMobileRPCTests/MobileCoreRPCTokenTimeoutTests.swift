@@ -33,11 +33,10 @@ import Testing
             allowsStackAuthFallback: true
         )
         let request = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
+            method: "workspace.action",
             params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "needs-token",
+                "workspace_id": "workspace-outside-ticket",
+                "action": "mark_read",
             ],
             id: "needs-token"
         )
@@ -82,11 +81,10 @@ import Testing
             stackTokenGateResetNanoseconds: 30_000_000_000
         )
         let request = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
+            method: "workspace.action",
             params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "needs-token",
+                "workspace_id": "workspace-outside-ticket",
+                "action": "mark_read",
             ],
             id: "needs-token"
         )
@@ -151,11 +149,10 @@ import Testing
             stackTokenGate: sharedGate
         )
         let request = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
+            method: "workspace.action",
             params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "needs-token",
+                "workspace_id": "workspace-outside-ticket",
+                "action": "mark_read",
             ],
             id: "needs-token"
         )
@@ -253,20 +250,18 @@ import Testing
             allowsStackAuthFallback: true
         )
         let short = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
+            method: "workspace.action",
             params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "short-token",
+                "workspace_id": "workspace-outside-ticket",
+                "action": "mark_read",
             ],
             id: "short-token-timeout"
         )
         let long = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
+            method: "workspace.action",
             params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "long-token",
+                "workspace_id": "workspace-outside-ticket",
+                "action": "mark_read",
             ],
             id: "second-after-timeout"
         )
@@ -332,20 +327,18 @@ import Testing
             allowsStackAuthFallback: true
         )
         let cancelled = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
+            method: "workspace.action",
             params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "cancel-token",
+                "workspace_id": "workspace-outside-ticket",
+                "action": "mark_read",
             ],
             id: "cancel-token"
         )
         let next = try MobileCoreRPCClient.requestData(
-            method: "terminal.input",
+            method: "workspace.action",
             params: [
-                "workspace_id": "workspace-main",
-                "terminal_id": "terminal-main",
-                "text": "next-token",
+                "workspace_id": "workspace-outside-ticket",
+                "action": "mark_read",
             ],
             id: "second-after-timeout"
         )

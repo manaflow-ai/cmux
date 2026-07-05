@@ -5,7 +5,7 @@ public extension View {
     /// Glass (iOS 26+) or bordered button styling for secondary sign-in actions.
     @ViewBuilder
     func mobileGlassButton() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.glass)
@@ -26,7 +26,7 @@ public extension View {
     /// Prominent glass (iOS 26+) or bordered-prominent primary button styling.
     @ViewBuilder
     func mobileGlassProminentButton() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.glassProminent)
@@ -55,7 +55,7 @@ public extension View {
     /// is already backed and this is a no-op.
     @ViewBuilder
     func mobileGlassNavigationTitle() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             Button {} label: {
                 self
@@ -79,7 +79,7 @@ public extension View {
     /// so the title remains a normal toolbar control without guessing a height.
     @ViewBuilder
     func mobileGlassCompactToolbarControl() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.glass)
@@ -96,7 +96,7 @@ public extension View {
     /// Non-interactive compact glass title backing.
     @ViewBuilder
     func mobileGlassCompactNavigationTitle() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             Button {} label: {
                 self
@@ -115,7 +115,7 @@ public extension View {
     /// Glass (iOS 26+) or thin-material capsule pill background for input fields.
     @ViewBuilder
     func mobileGlassPill() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular.interactive(), in: .capsule)
         } else {
@@ -136,7 +136,7 @@ public extension View {
     @ViewBuilder
     func mobileGlassField(cornerRadius: CGFloat = 20) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular.interactive(), in: shape)
         } else {
@@ -155,7 +155,7 @@ public extension View {
     /// button (send / dismiss). Pair with a fixed-size icon label.
     @ViewBuilder
     func mobileGlassCircle() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             self.glassEffect(.regular.interactive(), in: .circle)
         } else {

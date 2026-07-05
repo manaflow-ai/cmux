@@ -12,6 +12,15 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - macDeviceID: Stable identifier of the Mac.
     ///   - displayName: Optional human-readable Mac name.
     ///   - routes: Attach routes advertised by the Mac.
+    ///   - attachToken: Local-only attach ticket secret for fast reconnect.
+    ///     Concrete stores must keep bearer secrets in device-only secret storage,
+    ///     not in synced or backed-up paired-Mac metadata.
+    ///     `nil` preserves the existing local ticket when updating an existing row.
+    ///   - attachTokenExpiresAt: Expiration time for `attachToken`. When
+    ///     `attachToken` is `nil`, implementations must preserve the existing
+    ///     expiration on updates.
+    ///   - attachTokenWorkspaceID: Workspace scope for `attachToken`; `""` is Mac-wide.
+    ///   - attachTokenTerminalID: Optional terminal scope for `attachToken`.
     ///   - markActive: When `true`, makes this the active pairing for its scope.
     ///   - stackUserID: Owning Stack Auth user, if any.
     ///   - teamID: Stack team this pairing belongs to; stamped on the row so the
@@ -22,7 +31,28 @@ public protocol MobilePairedMacStoring: Sendable {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws
+
+    /// Update one paired Mac's advertised routes without changing active state.
+    /// - Parameters:
+    ///   - macDeviceID: Stable identifier of the Mac.
+    ///   - displayName: Optional human-readable Mac name.
+    ///   - routes: Fresh attach routes advertised for the Mac.
+    ///   - stackUserID: Owning Stack Auth user, if any.
+    ///   - teamID: Stack team this pairing belongs to, if any.
+    ///   - now: Timestamp used for `lastSeenAt`.
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
         stackUserID: String?,
         teamID: String?,
         now: Date
@@ -88,6 +118,31 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
+    /// Insert or update a paired Mac without changing local attach-ticket state.
+    public func upsert(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        markActive: Bool,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        try await upsert(
+            macDeviceID: macDeviceID,
+            displayName: displayName,
+            routes: routes,
+            attachToken: nil,
+            attachTokenExpiresAt: nil,
+            attachTokenWorkspaceID: nil,
+            attachTokenTerminalID: nil,
+            markActive: markActive,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
     /// Insert or update a paired Mac with an explicit timestamp but no team scope
     /// (`teamID: nil`). Keeps existing call sites compiling; the team-aware caller
     /// (``BackingUpPairedMacStore``) injects the team via the full requirement.
@@ -95,6 +150,10 @@ extension MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String? = nil,
+        attachTokenExpiresAt: Date? = nil,
+        attachTokenWorkspaceID: String? = nil,
+        attachTokenTerminalID: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         now: Date
@@ -103,6 +162,10 @@ extension MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            attachToken: attachToken,
+            attachTokenExpiresAt: attachTokenExpiresAt,
+            attachTokenWorkspaceID: attachTokenWorkspaceID,
+            attachTokenTerminalID: attachTokenTerminalID,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: nil,
@@ -116,6 +179,10 @@ extension MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String? = nil,
+        attachTokenExpiresAt: Date? = nil,
+        attachTokenWorkspaceID: String? = nil,
+        attachTokenTerminalID: String? = nil,
         markActive: Bool,
         stackUserID: String?
     ) async throws {
@@ -123,6 +190,10 @@ extension MobilePairedMacStoring {
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            attachToken: attachToken,
+            attachTokenExpiresAt: attachTokenExpiresAt,
+            attachTokenWorkspaceID: attachTokenWorkspaceID,
+            attachTokenTerminalID: attachTokenTerminalID,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: nil,

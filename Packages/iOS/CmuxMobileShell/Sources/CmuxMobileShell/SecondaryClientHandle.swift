@@ -7,6 +7,7 @@ struct SecondaryClientHandle {
     let client: MobileCoreRPCClient
     let route: CmxAttachRoute
     let ticket: CmxAttachTicket
+    let usedDurableTicket: Bool
     let supportedHostCapabilities: Set<String>
     let actionCapabilities: MobileWorkspaceActionCapabilities
 }

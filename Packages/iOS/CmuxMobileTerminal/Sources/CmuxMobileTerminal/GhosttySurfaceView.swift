@@ -1587,9 +1587,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
         let action = "set_font_size:\(target)"
-        outputQueue.async {
+        outputQueue.async { [handle = OutputQueueSurfaceHandle(surface: surface)] in
             action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                _ = ghostty_surface_binding_action(handle.surface, pointer, UInt(action.utf8.count))
             }
         }
         // Render the new font (the grid reflows inside the current surface) but
@@ -1731,8 +1731,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     deinit {
-        stopKeyboardHeightAnimation()
-        disposeSurface()
+        MainActor.assumeIsolated { stopKeyboardHeightAnimation(); disposeSurface() }
     }
 
     public override class var layerClass: AnyClass {
@@ -2028,11 +2027,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
-        workQueue.async { [weak self] in
+        workQueue.async { [weak self, handle = OutputQueueSurfaceHandle(surface: surface)] in
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
-                ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+                ghostty_surface_process_output(handle.surface, pointer, UInt(buffer.count))
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
@@ -2048,7 +2047,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let a11yNow = CACurrentMediaTime()
             if a11yNow - workQueue.lastAccessibilityTextTime > 0.5 {
                 workQueue.lastAccessibilityTextTime = a11yNow
-                accessibilityText = Self.accessibilitySurfaceText(surface)
+                accessibilityText = Self.accessibilitySurfaceText(handle.surface)
             }
             #endif
             DispatchQueue.main.async {
@@ -2110,9 +2109,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollToBottomInFlight = true
         let generation = surfaceGeneration
         let action = "scroll_to_bottom"
-        outputQueue.async { [weak self] in
+        outputQueue.async { [weak self, handle = OutputQueueSurfaceHandle(surface: surface)] in
             action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                _ = ghostty_surface_binding_action(handle.surface, pointer, UInt(action.utf8.count))
             }
             DispatchQueue.main.async {
                 // Generation-guarded like the `processOutput` completion: a
@@ -2391,8 +2390,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
-            ghostty_surface_free(surface)
+        queue.async { [handle = OutputQueueSurfaceHandle(surface: surface)] in
+            ghostty_surface_free(handle.surface)
             retainedBridge.release()
             if let completion {
                 Task { @MainActor in completion() }
@@ -2768,12 +2767,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let generation = surfaceGeneration
         let enqueuedAt = CACurrentMediaTime()
-        outputQueue.async { [weak self] in
+        outputQueue.async { [weak self, handle = OutputQueueSurfaceHandle(surface: surface)] in
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
-            ghostty_surface_render_now(surface)
+            ghostty_surface_render_now(handle.surface)
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard self.surfaceGeneration == generation else { return }
@@ -3179,12 +3178,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
 
-        outputQueue.async { [weak self] in
+        outputQueue.async { [weak self, handle = OutputQueueSurfaceHandle(surface: surface)] in
             if pushContentScale {
-                ghostty_surface_set_content_scale(surface, scale, scale)
+                ghostty_surface_set_content_scale(handle.surface, scale, scale)
             }
-            ghostty_surface_set_size(surface, containerPxW, containerPxH)
-            let measured = ghostty_surface_size(surface)
+            ghostty_surface_set_size(handle.surface, containerPxW, containerPxH)
+            let measured = ghostty_surface_size(handle.surface)
 
             var cell = CGSize.zero
             if measured.columns > 0, measured.rows > 0, measured.width_px > 0, measured.height_px > 0 {
@@ -3956,7 +3955,7 @@ private class DisplayLinkProxy {
         self.target = target
     }
 
-    @objc func handleDisplayLink() {
+    @MainActor @objc func handleDisplayLink() {
         target?.handleDisplayLinkFire()
     }
 }

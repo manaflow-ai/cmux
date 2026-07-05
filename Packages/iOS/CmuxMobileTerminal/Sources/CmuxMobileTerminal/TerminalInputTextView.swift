@@ -67,6 +67,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// first-responder that forwards taps into the reducer and reads its state
     /// back for byte encoding and button styling.
     private var modifierState = TerminalInputModifierState()
+    private let hardwareKeyResolver = TerminalHardwareKeyResolver()
     private var controlAccessoryArmed: Bool { modifierState.isArmed(.control) }
     private var alternateAccessoryArmed: Bool { modifierState.isArmed(.alternate) }
     private var commandAccessoryArmed: Bool { modifierState.isArmed(.command) }
@@ -75,7 +76,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private var alternateAccessorySticky: Bool { modifierState.isStickyOn(.alternate) }
     private var commandAccessorySticky: Bool { modifierState.isStickyOn(.command) }
     private var shiftAccessorySticky: Bool { modifierState.isStickyOn(.shift) }
-
     /// The in-progress IME composition string, or `nil` when not composing.
     ///
     /// This is the view's only *committed* text state. While an IME (CJK,
@@ -127,7 +127,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     override var keyCommands: [UIKeyCommand]? {
         guard markedText == nil else { return nil }
-        var commands = TerminalHardwareKeyResolver.makeKeyCommands(
+        var commands = hardwareKeyResolver.makeKeyCommands(
             target: self,
             action: #selector(handleHardwareKeyCommand(_:))
         )
@@ -719,7 +719,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             if !alternateAccessorySticky {
                 setAlternateAccessoryArmed(false)
             }
-            if let output = TerminalHardwareKeyResolver.data(
+            if let output = hardwareKeyResolver.data(
                 input: UIKeyCommand.inputDelete,
                 modifierFlags: [.alternate]
             ) {
@@ -871,7 +871,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     @discardableResult
     private func handleHardwareKeyInput(input: String, modifierFlags: UIKeyModifierFlags) -> Bool {
-        guard let data = TerminalHardwareKeyResolver.data(input: input, modifierFlags: modifierFlags) else {
+        guard let data = hardwareKeyResolver.data(input: input, modifierFlags: modifierFlags) else {
             return false
         }
         onEscapeSequence?(data)
@@ -1023,9 +1023,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // prominent-glass blue fill, so the double-tap *lock* is
             // distinguished by a white capsule border drawn over the glass (see
             // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
-            // flat style already renders the locked white stroke through the
-            // background configuration, so the layer border stays off to avoid
-            // a doubled stroke.
+            // flat style already renders the locked stroke, so the layer border
+            // stays off to avoid a doubled stroke.
             if #available(iOS 26.0, *) {
                 actionButton.isStickyLocked = sticky
             } else {
@@ -1035,6 +1034,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = .white
@@ -1043,6 +1043,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             }
             return config
         }
+        #endif
         var config = UIButton.Configuration.plain()
         var background = UIBackgroundConfiguration.clear()
         if sticky {
@@ -1276,7 +1277,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     private func controlSequence(for text: String) -> Data? {
         guard text.count == 1 else { return nil }
-        return TerminalHardwareKeyResolver.data(input: text, modifierFlags: [.control])
+        return hardwareKeyResolver.data(input: text, modifierFlags: [.control])
     }
 
     private func alternateSequence(for text: String) -> Data? {
@@ -1289,12 +1290,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private func alternateAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
         switch action {
         case .leftArrow:
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputLeftArrow,
                 modifierFlags: [.alternate]
             )
         case .rightArrow:
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputRightArrow,
                 modifierFlags: [.alternate]
             )
@@ -1319,12 +1320,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             return Data([0x05]) // Ctrl+E - end of line
         case .upArrow:
             // Cmd+Up on Mac often scrolls; just send the raw arrow
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputUpArrow,
                 modifierFlags: []
             )
         case .downArrow:
-            return TerminalHardwareKeyResolver.data(
+            return hardwareKeyResolver.data(
                 input: UIKeyCommand.inputDownArrow,
                 modifierFlags: []
             )
@@ -1345,7 +1346,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private func shiftAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
         switch action {
         case .tab:
-            return TerminalHardwareKeyResolver.data(input: "\t", modifierFlags: [.shift])
+            return hardwareKeyResolver.data(input: "\t", modifierFlags: [.shift])
         default:
             return action.output
         }

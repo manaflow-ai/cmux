@@ -12,6 +12,8 @@ enum MobileAttachTicketStoreError: Error {
 }
 
 final class MobileAttachTicketStore {
+    private static let defaultMaximumStoredTickets = 256
+
     private struct Record {
         let ticket: CmxAttachTicket
         let issuedAt: Date
@@ -19,8 +21,13 @@ final class MobileAttachTicketStore {
         var createdTerminalIDs: Set<String> = []
     }
 
+    private let maximumStoredTickets: Int
     private let lock = NSLock()
     private var recordsByAuthToken: [String: Record] = [:]
+
+    init(maximumStoredTickets: Int = MobileAttachTicketStore.defaultMaximumStoredTickets) {
+        self.maximumStoredTickets = max(1, maximumStoredTickets)
+    }
 
     func createTicket(
         workspaceID: String,
@@ -58,6 +65,7 @@ final class MobileAttachTicketStore {
         )
         if let authToken = ticket.authToken {
             recordsByAuthToken[authToken] = Record(ticket: ticket, issuedAt: now)
+            enforceRecordLimit()
         }
         return ticket
     }
@@ -82,16 +90,18 @@ final class MobileAttachTicketStore {
     }
 
     func validAuthorization(authToken: String?, now: Date = Date()) -> MobileAttachTicketAuthorization? {
+        guard let authToken = Self.normalizedAuthToken(authToken) else {
+            return nil
+        }
+
         lock.lock()
         defer { lock.unlock() }
 
-        pruneExpired(now: now)
-        guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !authToken.isEmpty else {
+        guard let record = recordsByAuthToken[authToken] else {
             return nil
         }
-        guard let record = recordsByAuthToken[authToken],
-              !record.ticket.isExpired(at: now) else {
+        if record.ticket.isExpired(at: now) {
+            recordsByAuthToken.removeValue(forKey: authToken)
             return nil
         }
         return MobileAttachTicketAuthorization(
@@ -101,19 +111,38 @@ final class MobileAttachTicketStore {
         )
     }
 
+    static func ticketMatchesCurrentMacAccount(
+        ticket: CmxAttachTicket,
+        currentUserID: String?,
+        currentUserEmail: String?
+    ) -> Bool {
+        if let ticketUserID = normalizedNonEmpty(ticket.macUserID) {
+            return normalizedNonEmpty(currentUserID) == ticketUserID
+        }
+        if let ticketEmail = normalizedEmail(ticket.macUserEmail) {
+            return normalizedEmail(currentUserEmail) == ticketEmail
+        }
+        return false
+    }
+
     func recordCreatedResources(
         authToken: String?,
         workspaceID: String?,
         terminalID: String?,
         now: Date = Date()
     ) {
+        guard let authToken = Self.normalizedAuthToken(authToken) else {
+            return
+        }
+
         lock.lock()
         defer { lock.unlock() }
 
-        guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !authToken.isEmpty,
-              var record = recordsByAuthToken[authToken],
-              !record.ticket.isExpired(at: now) else {
+        guard var record = recordsByAuthToken[authToken] else {
+            return
+        }
+        if record.ticket.isExpired(at: now) {
+            recordsByAuthToken.removeValue(forKey: authToken)
             return
         }
 
@@ -131,13 +160,12 @@ final class MobileAttachTicketStore {
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
         // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
         // `host:port` routes in the URL query, nothing else. Everything the
-        // older grammars carried has a better channel: the auth token never
-        // authorized anything (the owner's Stack access token is the host's
-        // sole gate, `MobileHostService.authorizationError(for:)`), the
-        // display name and device id arrive post-handshake from
-        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
-        // dev loopback route is dropped outright (a scanned code must never
-        // point a phone at itself). The much shorter plain-text URL also
+        // older grammars carried has a better channel: bearer auth tokens stay
+        // in the direct RPC payload, the display name and device id arrive
+        // post-handshake from `mobile.host.status`, and a pairing QR never
+        // expires. A DEBUG Mac's dev loopback route is dropped outright (a
+        // scanned code must never point a phone at itself). The much shorter
+        // plain-text URL also
         // drops the QR several versions, so the code scans faster.
         if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
             return url
@@ -160,6 +188,40 @@ final class MobileAttachTicketStore {
 
     private func pruneExpired(now: Date) {
         recordsByAuthToken = recordsByAuthToken.filter { !$0.value.ticket.isExpired(at: now) }
+    }
+
+    private func enforceRecordLimit() {
+        let overflowCount = recordsByAuthToken.count - maximumStoredTickets
+        guard overflowCount > 0 else {
+            return
+        }
+
+        let tokensToRemove = recordsByAuthToken
+            .sorted { left, right in
+                if left.value.issuedAt == right.value.issuedAt {
+                    return left.key < right.key
+                }
+                return left.value.issuedAt < right.value.issuedAt
+            }
+            .prefix(overflowCount)
+            .map(\.key)
+        for token in tokensToRemove {
+            recordsByAuthToken.removeValue(forKey: token)
+        }
+    }
+
+    private static func normalizedAuthToken(_ authToken: String?) -> String? {
+        let trimmed = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func normalizedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func normalizedEmail(_ value: String?) -> String? {
+        normalizedNonEmpty(value)?.lowercased()
     }
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {

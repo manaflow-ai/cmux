@@ -29,6 +29,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
+        attachTokenWorkspaceID: String?,
+        attachTokenTerminalID: String?,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -51,6 +55,16 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         if let index = recordsByTeam[key]?.firstIndex(where: { $0.macDeviceID == macDeviceID }) {
             recordsByTeam[key]?[index].displayName = displayName
             recordsByTeam[key]?[index].routes = routes
+            if let attachToken {
+                recordsByTeam[key]?[index].attachToken = attachToken
+            }
+            if let attachTokenExpiresAt {
+                recordsByTeam[key]?[index].attachTokenExpiresAt = attachTokenExpiresAt
+            }
+            if attachToken != nil {
+                recordsByTeam[key]?[index].attachTokenWorkspaceID = attachTokenWorkspaceID
+                recordsByTeam[key]?[index].attachTokenTerminalID = attachTokenTerminalID
+            }
             recordsByTeam[key]?[index].lastSeenAt = now
             recordsByTeam[key]?[index].isActive = markActive
         } else {
@@ -58,6 +72,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 macDeviceID: macDeviceID,
                 displayName: displayName,
                 routes: routes,
+                attachToken: attachToken,
+                attachTokenExpiresAt: attachTokenExpiresAt,
+                attachTokenWorkspaceID: attachTokenWorkspaceID,
+                attachTokenTerminalID: attachTokenTerminalID,
                 createdAt: now,
                 lastSeenAt: now,
                 isActive: markActive,
@@ -65,6 +83,31 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 teamID: teamID
             ))
         }
+        upsertCount += 1
+        resumeUpsertWaiters()
+    }
+
+    func updateRoutes(
+        macDeviceID: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let key = teamID ?? ""
+        func update(in key: String, includeVisibleLegacy: Bool = false) -> Bool {
+            guard let index = recordsByTeam[key]?.firstIndex(where: { mac in
+                mac.macDeviceID == macDeviceID && (!includeVisibleLegacy || mac.stackUserID == nil || mac.stackUserID == stackUserID)
+            }) else {
+                return false
+            }
+            recordsByTeam[key]?[index].displayName = displayName
+            recordsByTeam[key]?[index].routes = routes
+            recordsByTeam[key]?[index].lastSeenAt = now
+            return true
+        }
+        guard update(in: key) || (key != "" && update(in: "", includeVisibleLegacy: true)) else { return }
         upsertCount += 1
         resumeUpsertWaiters()
     }

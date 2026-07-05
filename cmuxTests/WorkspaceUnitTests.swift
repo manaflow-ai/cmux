@@ -4853,6 +4853,8 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             XCTFail("Expected left terminal surface view")
             return
         }
+        // CI can leave the embedded Ghostty view at a zero frame without a real layout pass.
+        leftSurfaceView.frame = leftPanel.hostedView.bounds
 
         window.makeFirstResponder(nil)
         leftPanel.surface.setFocus(false)
