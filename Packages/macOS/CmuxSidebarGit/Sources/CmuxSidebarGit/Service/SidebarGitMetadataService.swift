@@ -217,8 +217,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
     private func restartWorkspaceGitMetadataWatching(reason: String) {
         guard let host else { return }
-        for workspaceId in host.orderedWorkspaceIds() where host.isRemoteWorkspace(workspaceId) == false {
+        for workspaceId in host.orderedWorkspaceIds() {
             for panelId in host.panelIds(in: workspaceId) {
+                guard !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) else { continue }
                 guard host.hasTerminalPanel(workspaceId: workspaceId, panelId: panelId) else {
                     continue
                 }

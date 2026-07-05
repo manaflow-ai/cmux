@@ -118,7 +118,7 @@ extension SidebarGitMetadataService {
                 isDirty: nextIsDirty
             )
         }
-        if host.isRemoteWorkspace(workspaceId) == true {
+        if host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) {
             clearWorkspaceGitProbe(probeKey)
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             updateWorkspaceGitMetadataFallbackTimer()

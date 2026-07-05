@@ -123,6 +123,7 @@ import CmuxGit
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
         host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.isRemoteTerminal = true
         let clock = ManualGitPollClock()
         let pullRequestProbing = RecordingPullRequestProbing()
         let service = makeService(

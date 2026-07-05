@@ -111,8 +111,7 @@ extension TabManager: SidebarGitHosting {
 
     func updateReportedSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
         if let workspace = tabs.first(where: { $0.id == tabId }),
-           workspace.isRemoteTerminalSurface(surfaceId),
-           workspace.remoteConnectionState == .connected {
+           workspace.isRemoteTerminalSurface(surfaceId) {
             updateRemoteSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)
         } else {
             updateSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)
