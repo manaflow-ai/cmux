@@ -105,7 +105,7 @@ final class SharedLiveAgentIndex {
 
     func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID) -> Bool {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        scheduleRefreshIfStale()
+        scheduleRefreshIfStale(validating: panelKey)
         guard !isForkAvailabilityRefreshInFlight else {
             return false
         }
@@ -146,11 +146,14 @@ final class SharedLiveAgentIndex {
         return index
     }
 
-    func scheduleRefreshIfStale() {
+    func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else { return }
         if let loadedAt, dateProvider().timeIntervalSince(loadedAt) < Self.cacheTTL {
             return
+        }
+        if let panelKey {
+            pendingForkValidationPanels.insert(panelKey)
         }
         startReload()
     }
@@ -217,7 +220,9 @@ final class SharedLiveAgentIndex {
         }.value
         guard !Task.isCancelled else { return }
         let loadedAt = dateProvider()
+        let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
         if forcePublish
+            || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
             || result.processScopeFingerprint != processScopeFingerprint {
             applyReloadedIndex(
