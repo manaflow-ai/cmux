@@ -5313,6 +5313,39 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testExternalOpenDomainPatternCoversSubdomainURLs() {
+        defaults.set("corp.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenExternally("https://corp.example/", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenExternally("https://sso.corp.example/login", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenExternally("https://CORP.EXAMPLE/tools", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenExternally("https://unrelated.example/", defaults: defaults))
+    }
+
+    func testLinkEscapesToSystemBrowserOnlyForWebSchemes() throws {
+        defaults.set("corp.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.linkEscapesToSystemBrowser(
+                try XCTUnwrap(URL(string: "https://sso.corp.example/")),
+                defaults: defaults
+            )
+        )
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.linkEscapesToSystemBrowser(
+                try XCTUnwrap(URL(string: "file:///tmp/corp.example.html")),
+                defaults: defaults
+            )
+        )
+    }
+
+    func testLinkEscapesToSystemBrowserIsFalseWithoutPatterns() throws {
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.linkEscapesToSystemBrowser(
+                try XCTUnwrap(URL(string: "https://corp.example/")),
+                defaults: defaults
+            )
+        )
+    }
 }
 
 

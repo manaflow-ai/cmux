@@ -293,6 +293,30 @@ import WebKit
         )
 #endif
 
+        // Links matching the user's external-open rules leave the embedded
+        // browser on click (for example hosts behind managed-browser checks).
+        // This runs before the insecure-HTTP gate so a matching http:// link
+        // escapes instead of hitting the embedded interstitial. Downloads
+        // keep the download flow, and script-driven navigations stay
+        // embedded (only explicit link activations escape).
+        if let url = navigationAction.request.url,
+           navigationAction.navigationType == .linkActivated,
+           navigationAction.targetFrame?.isMainFrame != false,
+           !navigationAction.shouldPerformDownload,
+           BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
+#if DEBUG
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=escapeToSystemBrowser url=\(url.absoluteString)")
+#endif
+            decisionHandler(.cancel)
+            browserOpenExternalNavigationURL(
+                url,
+                source: "navDelegate.escape",
+                webView: webView,
+                presentAlert: presentAlert
+            )
+            return
+        }
+
         if let url = navigationAction.request.url,
            shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
