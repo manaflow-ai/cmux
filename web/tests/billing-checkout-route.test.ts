@@ -113,6 +113,48 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("syncs metadata when Stack says Pro checkout is already granted and products confirm it", async () => {
+    userResponses = [signedInUser];
+    mockImplementation(signedInUser.createCheckoutUrl, async () => {
+      throw new Error("Product already granted to customer");
+    });
+    signedInUser.listProducts.mockResolvedValueOnce(emptyProductsPage());
+    signedInUser.listProducts.mockResolvedValue(activeProProductsPage());
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?welcome=active",
+    );
+    expect(signedInUser.createCheckoutUrl).toHaveBeenCalledTimes(1);
+    expect(signedInUser.listProducts).toHaveBeenCalled();
+    expect(signedInUser.update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+  });
+
+  test("does not mint Pro metadata when Stack says already granted but products do not confirm it", async () => {
+    userResponses = [signedInUser];
+    mockImplementation(signedInUser.createCheckoutUrl, async () => {
+      throw new Error("Product already granted to customer");
+    });
+    signedInUser.listProducts.mockResolvedValue(emptyProductsPage());
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/api/billing/confirm",
+    );
+    expect(signedInUser.listProducts).toHaveBeenCalled();
+    expect(signedInUser.update).not.toHaveBeenCalled();
+  });
+
   test("routes team checkout through the team Stack product", async () => {
     signedInUser.selectedTeam = teamCustomer;
     userResponses = [signedInUser];
@@ -219,4 +261,29 @@ describe("billing checkout route", () => {
 
 function emptyProductsPage() {
   return Object.assign([], { nextCursor: null });
+}
+
+function activeProProductsPage() {
+  return Object.assign(
+    [
+      {
+        id: "pro",
+        quantity: 1,
+        subscription: {
+          cancelAtPeriodEnd: false,
+          currentPeriodEnd: null,
+        },
+      },
+    ],
+    { nextCursor: null },
+  );
+}
+
+function mockImplementation(
+  fn: unknown,
+  implementation: (...args: never[]) => unknown,
+) {
+  (fn as { mockImplementation(next: typeof implementation): void }).mockImplementation(
+    implementation,
+  );
 }

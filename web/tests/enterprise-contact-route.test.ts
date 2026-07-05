@@ -139,4 +139,40 @@ describe("enterprise contact route", () => {
       },
     });
   });
+
+  test("returns success with failed Slack status after the lead email is sent", async () => {
+    let fetchCount = 0;
+    mockImplementation(fetchMock, async () => {
+      fetchCount += 1;
+      return fetchCount === 1
+        ? new Response("slack down", { status: 500 })
+        : new Response("ok", { status: 200 });
+    });
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const response = await POST(request(validLead()));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        ok: true,
+        email: "sent",
+        slack: "failed",
+        posthog: "sent",
+      });
+      expect(resendSend).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      console.error = originalError;
+    }
+  });
 });
+
+function mockImplementation(
+  fn: unknown,
+  implementation: (...args: never[]) => unknown,
+) {
+  (fn as { mockImplementation(next: typeof implementation): void }).mockImplementation(
+    implementation,
+  );
+}

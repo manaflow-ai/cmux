@@ -51,4 +51,22 @@ describe("app pricing page", () => {
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
   });
+
+  for (const [name, params, message] of [
+    ["welcomeTeam", { welcome: "team" }, "Your cmux Team purchase is complete."],
+    ["billingCancelled", { billing: "cancelled" }, "Checkout cancelled. You have not been charged."],
+    ["billingInvalidPlan", { billing: "invalid_plan" }, "That plan is not available. Pick a plan below."],
+  ] as const) {
+    test(`renders ${name} banner state`, async () => {
+      const element = await AppPricingPage({
+        searchParams: Promise.resolve({
+          cmux_app: "1",
+          ...params,
+        }),
+      });
+      const html = renderToStaticMarkup(element);
+
+      expect(html).toContain(message);
+    });
+  }
 });

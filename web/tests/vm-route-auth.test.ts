@@ -44,7 +44,7 @@ mock.module("../services/vms/workflows", () => ({
   runVmWorkflow,
 }));
 
-const { GET, POST } = await import("../app/api/vm/route");
+const { GET, POST, withBillingReconcileDeadline } = await import("../app/api/vm/route");
 const { DELETE } = await import("../app/api/vm/[id]/route");
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
@@ -549,6 +549,53 @@ describe("VM REST auth", () => {
       expect(finalizedStatus).toBe(502);
     } finally {
       console.error = originalError;
+    }
+  });
+
+  test("does not block VM create past the billing reconcile deadline or leak late rejections", async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const originalConsoleError = console.error;
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandledRejections.push(reason);
+    };
+    let scheduledDelay: number | undefined;
+    let rejectReconcile: ((reason?: unknown) => void) | undefined;
+
+    process.on("unhandledRejection", onUnhandledRejection);
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    globalThis.setTimeout = ((handler: TimerHandler, timeout?: number) => {
+      scheduledDelay = timeout;
+      queueMicrotask(() => {
+        if (typeof handler === "function") handler();
+      });
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = mock(() => undefined) as unknown as typeof clearTimeout;
+
+    try {
+      const reconcile = new Promise<boolean>((_resolve, reject) => {
+        rejectReconcile = reject;
+      });
+
+      await expect(withBillingReconcileDeadline(reconcile)).resolves.toBe(false);
+      expect(scheduledDelay).toBe(5_000);
+
+      rejectReconcile?.(new Error("late reconcile failure"));
+      await new Promise((resolve) => originalSetTimeout(resolve, 0));
+
+      expect(unhandledRejections).toEqual([]);
+      const consoleErrorCalls = (console.error as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls;
+      expect(consoleErrorCalls[0]?.[0]).toBe("[VM] Pro plan reconcile failed");
+      expect(consoleErrorCalls[0]?.[1]).toBeInstanceOf(Error);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+      console.error = originalConsoleError;
     }
   });
 

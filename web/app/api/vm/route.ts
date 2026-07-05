@@ -361,7 +361,7 @@ export async function POST(request: Request): Promise<Response> {
 // awaited) and VM create proceeds with the user's current plan metadata.
 const BILLING_RECONCILE_DEADLINE_MS = 5_000;
 
-async function withBillingReconcileDeadline(
+export async function withBillingReconcileDeadline(
   reconcile: Promise<boolean>
 ): Promise<boolean> {
   // Late failures land here instead of surfacing as unhandled rejections.
