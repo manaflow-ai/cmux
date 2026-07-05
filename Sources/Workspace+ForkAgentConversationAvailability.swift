@@ -26,7 +26,9 @@ extension Workspace {
     ) -> WorkspaceForkAgentConversationAvailability {
         guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
         if restoredAgentSnapshotsByPanelId[panelId] == nil {
-            guard SharedLiveAgentIndex.shared.prepareForkAvailabilityProbe() else {
+            let sharedIndex = SharedLiveAgentIndex.shared
+            guard sharedIndex.hasLiveProcess(workspaceId: id, panelId: panelId) ||
+                sharedIndex.prepareForkAvailabilityProbe() else {
                 return .noAgentSnapshot
             }
         }

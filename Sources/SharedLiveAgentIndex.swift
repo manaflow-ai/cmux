@@ -57,6 +57,10 @@ final class SharedLiveAgentIndex: ObservableObject {
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
+    func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
+        index?.hasLiveProcess(workspaceId: workspaceId, panelId: panelId) ?? false
+    }
+
     func prepareForkAvailabilityProbe() -> Bool {
         scheduleRefreshIfStale()
         guard hasFreshForkAvailabilityProbe else {
