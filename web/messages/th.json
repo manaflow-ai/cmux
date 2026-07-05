@@ -2567,7 +2567,7 @@
           "title": "cmux กับ Herdr",
           "intro": "Herdr คือมัลติเพล็กเซอร์เอเจนต์โอเพ่นซอร์สเทอร์มินัลเนทิฟที่ทำงานภายในเทอร์มินัลที่คุณใช้อยู่แล้วและสามารถรักษาบานหน้าต่างจริงให้คงอยู่ต่อไปบน SSH cmux เป็นแอป macOS แบบเนทีฟที่ได้รับใบอนุญาต GPL ที่สร้างขึ้นบน libghostty พร้อมพื้นที่ทำงานแนวตั้ง วงแหวนแจ้งเตือน บานหน้าต่างเบราว์เซอร์ และซ็อกเก็ต API สำหรับเวิร์กโฟลว์ตัวแทนในเครื่อง",
           "summaryTitle": "แอป Mac แบบเนทีฟเทียบกับมัลติเพล็กเซอร์แบบเทอร์มินัล",
-          "summaryBody": "ใช้ Herdr เมื่อคุณต้องการ multiplexer เอเจนต์แบบ tmux ภายในเทอร์มินัลใดๆ โดยเฉพาะผ่าน SSH หรือจากหน้าจอเล็ก ใช้ cmux เมื่อคุณต้องการแอปเทอร์มินัล Mac แบบเนทีฟพร้อม libghostty rendering, app-level workspaces, built-in browser automation, notification rings, Cmd+Shift+U, Cmd+Control+U และ programmable local control การจับคู่ที่ใช้งานได้จริงคือ Herdr ภายใน SSH session โดยมี cmux เป็น Mac-side host รอบมัน",
+          "summaryBody": "ใช้ Herdr เมื่อต้องการ agent multiplexer คล้าย tmux ภายในเทอร์มินัลใดก็ได้ โดยเฉพาะผ่าน SSH หรือจากหน้าจอเล็ก ใช้ cmux เมื่อต้องการแอปเทอร์มินัล Mac แบบเนทีฟที่มีการเรนเดอร์ libghostty, workspace ระดับแอป, browser automation ในตัว, notification rings, Cmd+Shift+U, Cmd+Control+U และการควบคุม local แบบโปรแกรมได้ การจับคู่ที่ใช้งานได้จริงคือรัน Herdr ใน pane เทอร์มินัลของ cmux ไม่ว่าจะรัน local หรือภายใน SSH session ที่เปิดจาก cmux",
           "table": {
             "headers": [
               "มิติ",
@@ -2619,8 +2619,8 @@
           },
           "sections": [
             {
-              "title": "Herdr อาศัยอยู่ภายในเทอร์มินัลของคุณ",
-              "body": "คุณสามารถรัน Herdr ภายใน SSH session ที่เปิดจาก cmux: Herdr ทำให้ remote panes คงอยู่ ขณะที่ cmux ให้ Mac-side native app, browser panes, notifications และ unread shortcuts รอบ SSH workspace"
+              "title": "Herdr รันภายใน cmux ได้",
+              "body": "Herdr เป็นเครื่องมือแบบ terminal-native จึงรันภายใน pane เทอร์มินัล cmux ปกติได้ และยังทำงานได้ดีภายใน SSH session ที่เปิดจาก cmux: Herdr ทำให้ pane ระยะไกลคงอยู่ ส่วน cmux ให้แอป Mac แบบเนทีฟ, browser pane, การแจ้งเตือน และ shortcut unread รอบ workspace"
             },
             {
               "title": "cmux เป็นเจ้าของพื้นผิวเดสก์ท็อปดั้งเดิม",

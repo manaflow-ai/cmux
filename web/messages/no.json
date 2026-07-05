@@ -2708,7 +2708,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr er terminal-native agent multiplexer. cmux er et native macOS terminal- og browser-workspace for lokal overvåking av CLI-agenter, shells, tester, browsersjekker og skript med notification rings, Cmd+Shift+U og Cmd+Control+U.",
           "summaryTitle": "Lokalt agent-workspace vs et annet verktøylag",
-          "summaryBody": "Bruk Herdr når du vil ha en tmux-lignende agentmultiplekser inne i en hvilken som helst terminal, spesielt over SSH eller fra en liten skjerm. Bruk cmux når du vil ha en innebygd Mac-terminalapp med libghostty-gjengivelse, arbeidsområder på appnivå, innebygd nettleserautomatisering, varslingsringer, Cmd+Shift+U, Cmd+Control+U og programmerbar lokal kontroll. En praktisk sammenkobling er Herdr inne i en SSH-økt, med cmux som verten på Mac-siden rundt seg.",
+          "summaryBody": "Bruk Herdr når du vil ha en tmux-lignende agent-multiplekser inne i enhver terminal, særlig over SSH eller fra en liten skjerm. Bruk cmux når du vil ha en native Mac-terminalapp med libghostty-rendering, arbeidsområder på appnivå, innebygd nettleserautomatisering, varslingsringer, Cmd+Shift+U, Cmd+Control+U og programmerbar lokal kontroll. En praktisk kombinasjon er å kjøre Herdr i en cmux-terminalpane, lokalt eller inne i en SSH-økt åpnet fra cmux.",
           "table": {
             "headers": [
               "Dimensjon",
@@ -2760,8 +2760,8 @@
           },
           "sections": [
             {
-              "title": "cmux holder agenter synlige",
-              "body": "Du kan kjøre Herdr inne i en SSH-økt åpnet fra cmux: Herdr holder eksterne ruter vedvarende, mens cmux gir den innfødte appen på Mac-siden, nettleserruter, varsler og uleste snarveier rundt SSH-arbeidsområdet."
+              "title": "Herdr kan kjøre inne i cmux",
+              "body": "Herdr er terminal-native, så den kan kjøre inne i en vanlig cmux-terminalpane. Den fungerer også godt inne i SSH-økter åpnet fra cmux: Herdr holder remote panes persistente, mens cmux gir native Mac-app, nettleserpanes, varsler og unread-snarveier rundt arbeidsområdet."
             },
             {
               "title": "Snarveiene er en del av oppmerksomhetsmodellen",

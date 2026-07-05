@@ -2567,7 +2567,7 @@
           "title": "cmux 与 Herdr",
           "intro": "Herdr 是一个开源终端本地代理多路复用器，它在您已使用的终端内运行，并且可以通过 SSH 保持真实窗格的活动。 cmux 是一款基于 libghostty 构建的 GPL 许可的本机 macOS 应用程序，具有垂直工作区、通知环、浏览器窗格和用于本地代理工作流程的套接字 API。",
           "summaryTitle": "本机 Mac 应用程序与终端本机多路复用器",
-          "summaryBody": "如果你想在任何终端内，尤其是通过 SSH 或在小屏幕上使用 tmux 风格的代理多路复用器，请使用 Herdr。如果你想要一款原生 Mac 终端应用，提供 libghostty 渲染、应用级工作区、内置浏览器自动化、通知环、Cmd+Shift+U、Cmd+Control+U 和可编程本地控制，请使用 cmux。一个实际搭配是在 SSH 会话中运行 Herdr，并让 cmux 作为 Mac 端宿主包住它。",
+          "summaryBody": "如果想在任何终端里使用类似 tmux 的代理复用器，尤其是通过 SSH 或小屏幕使用，选择 Herdr。如果想要带 libghostty 渲染、应用级工作区、内置浏览器自动化、通知环、Cmd+Shift+U、Cmd+Control+U 和可编程本地控制的原生 Mac 终端应用，选择 cmux。一个实用搭配是在 cmux 终端 pane 中运行 Herdr，可以本地运行，也可以在从 cmux 打开的 SSH 会话中运行。",
           "table": {
             "headers": [
               "维度",
@@ -2619,8 +2619,8 @@
           },
           "sections": [
             {
-              "title": "Herdr 住在你的航站楼内",
-              "body": "你可以在从 cmux 打开的 SSH 会话中运行 Herdr：Herdr 保持远程窗格持久存在，而 cmux 在 SSH 工作区周围提供 Mac 端原生应用、浏览器窗格、通知和未读快捷键。"
+              "title": "Herdr 可以在 cmux 中运行",
+              "body": "Herdr 是终端原生工具，所以可以在普通 cmux 终端 pane 中运行。它也很适合在从 cmux 打开的 SSH 会话中运行：Herdr 让远程 pane 持久存在，cmux 则在工作区外提供 Mac 侧原生应用、浏览器 pane、通知和未读快捷键。"
             },
             {
               "title": "cmux 拥有本机桌面表面",

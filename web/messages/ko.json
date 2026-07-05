@@ -2567,7 +2567,7 @@
           "title": "cmux 대 Herdr",
           "intro": "Herdr는 이미 사용하고 있는 터미널 내부에서 실행되고 SSH를 통해 실제 창을 활성 상태로 유지할 수 있는 오픈 소스 터미널 네이티브 에이전트 멀티플렉서입니다. cmux는 libghostty를 기반으로 구축된 GPL 라이선스 네이티브 macOS 앱으로, 수직 작업 공간, 알림 링, 브라우저 창 및 로컬 에이전트 워크플로우를 위한 소켓 API를 갖추고 있습니다.",
           "summaryTitle": "네이티브 Mac 앱과 터미널 네이티브 멀티플렉서",
-          "summaryBody": "어떤 터미널 안에서든, 특히 SSH나 작은 화면에서 tmux 같은 에이전트 멀티플렉서를 원하면 Herdr을 사용하세요. libghostty 렌더링, 앱 수준 워크스페이스, 내장 브라우저 자동화, 알림 링, Cmd+Shift+U, Cmd+Control+U, 프로그래밍 가능한 로컬 제어를 갖춘 네이티브 Mac 터미널 앱을 원하면 cmux를 사용하세요. 실용적인 조합은 SSH 세션 안의 Herdr을 cmux가 Mac 쪽 호스트로 감싸는 방식입니다.",
+          "summaryBody": "특히 SSH나 작은 화면에서 어떤 터미널 안에서도 tmux 같은 에이전트 멀티플렉서를 원하면 Herdr를 쓰세요. libghostty 렌더링, 앱 수준 워크스페이스, 내장 브라우저 자동화, 알림 링, Cmd+Shift+U, Cmd+Control+U, 프로그래밍 가능한 로컬 제어가 있는 네이티브 Mac 터미널 앱을 원하면 cmux를 쓰세요. 실용적인 조합은 Herdr를 cmux 터미널 pane에서 로컬로 실행하거나, cmux에서 연 SSH 세션 안에서 실행하는 것입니다.",
           "table": {
             "headers": [
               "차원",
@@ -2619,8 +2619,8 @@
           },
           "sections": [
             {
-              "title": "Herdr는 터미널 내부에 있습니다.",
-              "body": "cmux에서 연 SSH 세션 안에서 Herdr을 실행할 수 있습니다. Herdr은 원격 패널을 지속시키고, cmux는 SSH 워크스페이스 주변에 Mac 쪽 네이티브 앱, 브라우저 패널, 알림, 읽지 않음 단축키를 제공합니다."
+              "title": "Herdr는 cmux 안에서 실행할 수 있습니다",
+              "body": "Herdr는 터미널 네이티브이므로 일반 cmux 터미널 pane 안에서 실행할 수 있습니다. cmux에서 연 SSH 세션 안에서도 잘 작동합니다. Herdr는 원격 pane을 지속시키고, cmux는 워크스페이스 주변에 Mac 쪽 네이티브 앱, 브라우저 pane, 알림, unread 단축키를 제공합니다."
             },
             {
               "title": "cmux는 기본 데스크탑 표면을 소유하고 있습니다.",

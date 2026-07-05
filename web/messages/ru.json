@@ -2708,7 +2708,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr — open-source terminal-native agent multiplexer, который работает внутри уже используемого терминала и может держать реальные panes живыми через SSH. cmux — GPL-licensed native macOS app на libghostty, с vertical workspaces, notification rings, browser panes и socket API для local agent workflows.",
           "summaryTitle": "Терминальный мультиплексор против нативного Mac-приложения",
-          "summaryBody": "Используйте Herdr, если вам нужен мультиплексор агента, подобный tmux, внутри любого терминала, особенно через SSH или с небольшого экрана. Используйте cmux, если вам нужно собственное терминальное приложение Mac с рендерингом libghostty, рабочими пространствами на уровне приложения, встроенной автоматизацией браузера, кольцами уведомлений, Cmd+Shift+U, Cmd+Control+U и программируемым локальным управлением. Практическое соединение — это Herdr внутри сеанса SSH с cmux в качестве хоста на стороне Mac вокруг него.",
+          "summaryBody": "Используйте Herdr, когда нужен tmux-подобный мультиплексор агентов внутри любого терминала, особенно по SSH или с маленького экрана. Используйте cmux, когда нужна нативная Mac-терминальная app с рендерингом libghostty, workspace на уровне приложения, встроенной browser automation, кольцами уведомлений, Cmd+Shift+U, Cmd+Control+U и программируемым локальным управлением. Практичная связка это запуск Herdr в terminal pane cmux, локально или внутри SSH-сессии, открытой из cmux.",
           "table": {
             "headers": [
               "Измерение",
@@ -2760,8 +2760,8 @@
           },
           "sections": [
             {
-              "title": "Herdr остается внутри терминала",
-              "body": "Вы можете запустить Herdr внутри сеанса SSH, открытого из cmux: Herdr сохраняет удаленные панели постоянными, а cmux предоставляет собственное приложение на стороне Mac, панели браузера, уведомления и непрочитанные ярлыки в рабочей области SSH."
+              "title": "Herdr может работать внутри cmux",
+              "body": "Herdr является terminal-native, поэтому может работать внутри обычного terminal pane cmux. Он также хорошо работает внутри SSH-сессий, открытых из cmux: Herdr держит remote panes постоянными, а cmux дает Mac-side native app, browser panes, уведомления и unread shortcuts вокруг workspace."
             },
             {
               "title": "cmux дает каждой задаче пространство на уровне приложения",

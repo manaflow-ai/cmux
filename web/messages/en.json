@@ -2988,7 +2988,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr is an open-source terminal-native agent multiplexer that runs inside the terminal you already use and can keep real panes alive over SSH. cmux is a GPL-licensed native macOS app built on libghostty, with vertical workspaces, notification rings, browser panes, and a socket API for local agent workflows.",
           "summaryTitle": "Native Mac app vs terminal-native multiplexer",
-          "summaryBody": "Use Herdr when you want a tmux-like agent multiplexer inside any terminal, especially over SSH or from a small screen. Use cmux when you want a native Mac terminal app with libghostty rendering, app-level workspaces, built-in browser automation, notification rings, Cmd+Shift+U, Cmd+Control+U, and programmable local control. A practical pairing is Herdr inside an SSH session, with cmux as the Mac-side host around it.",
+          "summaryBody": "Use Herdr when you want a tmux-like agent multiplexer inside any terminal, especially over SSH or from a small screen. Use cmux when you want a native Mac terminal app with libghostty rendering, app-level workspaces, built-in browser automation, notification rings, Cmd+Shift+U, Cmd+Control+U, and programmable local control. A practical pairing is running Herdr in a cmux terminal pane, locally or inside an SSH session opened from cmux.",
           "table": {
             "headers": [
               "Dimension",
@@ -3040,8 +3040,8 @@
           },
           "sections": [
             {
-              "title": "Herdr lives inside your terminal",
-              "body": "You can run Herdr inside an SSH session opened from cmux: Herdr keeps remote panes persistent, while cmux gives the Mac-side native app, browser panes, notifications, and unread shortcuts around the SSH workspace."
+              "title": "Herdr can run inside cmux",
+              "body": "Herdr is terminal-native, so it can run inside a normal cmux terminal pane. It also works well inside SSH sessions opened from cmux: Herdr keeps remote panes persistent, while cmux gives the Mac-side native app, browser panes, notifications, and unread shortcuts around the workspace."
             },
             {
               "title": "cmux owns the native desktop surface",

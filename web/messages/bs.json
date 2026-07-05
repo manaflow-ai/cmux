@@ -2472,7 +2472,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr je terminal-native agent multiplexer. cmux je nativni macOS terminal i browser workspace za lokalni nadzor CLI agenata, shellova, testova, browser provjera i skripti uz notification rings, Cmd+Shift+U i Cmd+Control+U.",
           "summaryTitle": "Lokalni agent workspace vs drugi sloj alata",
-          "summaryBody": "Koristite Herdr kada želite tmux-sličan agentski multiplexer unutar bilo kojeg terminala, posebno preko SSH-a ili s malog ekrana. Koristite cmux kada želite izvornu Mac terminal aplikaciju s libghostty renderovanjem, app-level radnim prostorima, ugrađenom browser automatizacijom, prstenovima obavještenja, Cmd+Shift+U, Cmd+Control+U i programabilnom lokalnom kontrolom. Praktično uparivanje je Herdr unutar SSH sesije, uz cmux kao Mac-side host oko nje.",
+          "summaryBody": "Koristi Herdr kada želiš tmux-sličan agent multiplexer unutar bilo kojeg terminala, posebno preko SSH-a ili s malog ekrana. Koristi cmux kada želiš native Mac terminal app s libghostty renderingom, workspaceima na nivou appa, ugrađenom browser automatizacijom, notification ringovima, Cmd+Shift+U, Cmd+Control+U i programabilnom lokalnom kontrolom. Praktična kombinacija je pokrenuti Herdr u cmux terminal paneu, lokalno ili unutar SSH sesije otvorene iz cmux-a.",
           "table": {
             "headers": [
               "Dimenzija",
@@ -2524,8 +2524,8 @@
           },
           "sections": [
             {
-              "title": "cmux drži agente vidljivim",
-              "body": "Možete pokrenuti Herdr unutar SSH sesije otvorene iz cmuxa: Herdr drži udaljene paneove persistentnim, dok cmux daje Mac-side izvornu aplikaciju, browser paneove, obavještenja i prečice za nepročitano oko SSH radnog prostora."
+              "title": "Herdr može raditi unutar cmux-a",
+              "body": "Herdr je terminal-native, pa može raditi unutar normalnog cmux terminal panea. Dobro radi i unutar SSH sesija otvorenih iz cmux-a: Herdr održava remote paneove persistentnim, dok cmux daje native Mac app, browser paneove, notifikacije i unread shortcutove oko workspacea."
             },
             {
               "title": "Prečice su dio modela pažnje",

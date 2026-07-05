@@ -2721,7 +2721,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr è un multiplexer di agenti nativi del terminale open source che viene eseguito all'interno del terminale che già utilizzi e può mantenere attivi i riquadri reali su SSH. cmux è un'app macOS nativa con licenza GPL basata su libghostty, con aree di lavoro verticali, anelli di notifica, riquadri del browser e un'API socket per flussi di lavoro dell'agente locale.",
           "summaryTitle": "App Mac nativa vs multiplexer dentro il terminale",
-          "summaryBody": "Usa Herdr quando vuoi un multiplexer di agenti tipo tmux dentro qualsiasi terminale, specialmente via SSH o da uno schermo piccolo. Usa cmux quando vuoi un’app terminale Mac nativa con rendering libghostty, workspace a livello app, automazione browser integrata, anelli di notifica, Cmd+Shift+U, Cmd+Control+U e controllo locale programmabile. Un abbinamento pratico è Herdr dentro una sessione SSH, con cmux come host lato Mac intorno.",
+          "summaryBody": "Usa Herdr quando vuoi un multiplexer di agenti in stile tmux dentro qualsiasi terminale, soprattutto via SSH o da uno schermo piccolo. Usa cmux quando vuoi un’app terminale nativa per Mac con rendering libghostty, workspace a livello app, automazione browser integrata, anelli di notifica, Cmd+Shift+U, Cmd+Control+U e controllo locale programmabile. Una combinazione pratica è eseguire Herdr in un pane terminale cmux, localmente o dentro una sessione SSH aperta da cmux.",
           "table": {
             "headers": [
               "Dimensione",
@@ -2773,8 +2773,8 @@
           },
           "sections": [
             {
-              "title": "cmux resta indipendente dall’agente",
-              "body": "Puoi eseguire Herdr dentro una sessione SSH aperta da cmux: Herdr mantiene persistenti i pannelli remoti, mentre cmux fornisce l’app nativa lato Mac, pannelli browser, notifiche e scorciatoie per i non letti intorno al workspace SSH."
+              "title": "Herdr può girare dentro cmux",
+              "body": "Herdr è terminal-native, quindi può girare dentro un normale pane terminale cmux. Funziona bene anche dentro sessioni SSH aperte da cmux: Herdr mantiene persistenti i pane remoti, mentre cmux offre l’app nativa lato Mac, pane browser, notifiche e scorciatoie unread attorno al workspace."
             },
             {
               "title": "Il contesto resta visibile",

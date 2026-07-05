@@ -2567,7 +2567,7 @@
           "title": "cmux ve Herdr",
           "intro": "Herdr, halihazırda kullandığınız terminalin içinde çalışan ve gerçek bölmeleri SSH üzerinden canlı tutabilen, açık kaynaklı bir terminal-yerel aracı çoklayıcıdır. cmux, dikey çalışma alanları, bildirim halkaları, tarayıcı bölmeleri ve yerel aracı iş akışları için bir API soketi içeren, libghostty üzerine kurulmuş, GPL lisanslı bir yerel macOS uygulamasıdır.",
           "summaryTitle": "Yerel Mac uygulaması ve terminal-yerel çoklayıcı karşılaştırması",
-          "summaryBody": "Herhangi bir terminalin içinde, özellikle SSH üzerinden veya küçük bir ekrandan tmux benzeri bir aracı çoklayıcı istiyorsanız Herdr'yi kullanın. libghostty oluşturma, uygulama düzeyinde çalışma alanları, yerleşik tarayıcı otomasyonu, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve programlanabilir yerel kontrol özelliklerine sahip yerel bir Mac terminal uygulaması istediğinizde cmux'yi kullanın. Pratik bir eşleştirme, bir SSH oturumu içindeki Herdr'dir ve cmux, etrafındaki Mac tarafı ana bilgisayarıdır.",
+          "summaryBody": "Özellikle SSH üzerinden veya küçük ekrandan, herhangi bir terminalin içinde tmux benzeri ajan multiplexer istediğinizde Herdr kullanın. libghostty render, uygulama düzeyi workspace’ler, yerleşik tarayıcı otomasyonu, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve programlanabilir yerel kontrol olan native Mac terminal uygulaması istediğinizde cmux kullanın. Pratik eşleşme, Herdr’yi cmux terminal pane’inde yerel olarak veya cmux’ten açılan SSH oturumu içinde çalıştırmaktır.",
           "table": {
             "headers": [
               "Boyut",
@@ -2619,8 +2619,8 @@
           },
           "sections": [
             {
-              "title": "Herdr terminalinizin içinde yaşıyor",
-              "body": "Herdr'yi cmux'den açılan bir SSH oturumunda çalıştırabilirsiniz: Herdr uzak bölmeleri kalıcı tutarken cmux, Mac tarafındaki yerel uygulamayı, tarayıcı bölmelerini, bildirimleri ve SSH çalışma alanı etrafında okunmamış kısayolları sağlar."
+              "title": "Herdr cmux içinde çalışabilir",
+              "body": "Herdr terminal-native olduğu için normal bir cmux terminal pane’i içinde çalışabilir. cmux’ten açılan SSH oturumlarında da iyi çalışır: Herdr uzak pane’leri kalıcı tutar, cmux ise workspace çevresinde Mac tarafı native uygulamayı, tarayıcı pane’lerini, bildirimleri ve unread kısayollarını verir."
             },
             {
               "title": "cmux yerel masaüstü yüzeyinin sahibidir",

@@ -2567,7 +2567,7 @@
           "title": "cmux ទល់នឹង Herdr",
           "intro": "Herdr គឺជាកម្មវិធីពហុគុណភ្នាក់ងារដើមប្រភពបើកចំហដែលដំណើរការនៅខាងក្នុងស្ថានីយដែលអ្នកបានប្រើរួចហើយ និងអាចរក្សាផ្ទាំងពិតឱ្យនៅមានជីវិតលើសពី SSH។ cmux គឺជាកម្មវិធី macOS ដើមដែលមានអាជ្ញាប័ណ្ណ GPL ដែលបង្កើតឡើងនៅលើ libghostty ជាមួយនឹងកន្លែងធ្វើការបញ្ឈរ ចិញ្ចៀនជូនដំណឹង ផ្ទាំងកម្មវិធីរុករក និងរន្ធ API សម្រាប់ដំណើរការការងាររបស់ភ្នាក់ងារក្នុងតំបន់។",
           "summaryTitle": "កម្មវិធី Mac ដើមទល់នឹង terminal-native multiplexer",
-          "summaryBody": "ប្រើ Herdr ពេលអ្នកចង់បាន tmux-like agent multiplexer ក្នុង terminal ណាមួយ ជាពិសេសតាម SSH ឬពីអេក្រង់តូច។ ប្រើ cmux ពេលអ្នកចង់បាន native Mac terminal app ជាមួយ libghostty rendering, app-level workspaces, built-in browser automation, notification rings, Cmd+Shift+U, Cmd+Control+U និង programmable local control។ ការភ្ជាប់ដែលអនុវត្តបានគឺ Herdr ក្នុង SSH session ជាមួយ cmux ជា Mac-side host ជុំវិញវា។",
+          "summaryBody": "ប្រើ Herdr ពេលអ្នកចង់បាន agent multiplexer ដូច tmux នៅក្នុង terminal ណាមួយ ជាពិសេសតាម SSH ឬពីអេក្រង់តូច។ ប្រើ cmux ពេលអ្នកចង់បាន Mac terminal app native ជាមួយ libghostty rendering, workspace កម្រិត app, browser automation ភ្ជាប់មកជាមួយ, notification rings, Cmd+Shift+U, Cmd+Control+U និងការគ្រប់គ្រង local ដែលអាច script បាន។ ការផ្គូផ្គងមានប្រយោជន៍គឺរត់ Herdr នៅក្នុង cmux terminal pane ដោយ local ឬនៅក្នុង SSH session ដែលបើកពី cmux។",
           "table": {
             "headers": [
               "វិមាត្រ",
@@ -2619,8 +2619,8 @@
           },
           "sections": [
             {
-              "title": "Herdr រស់នៅក្នុងស្ថានីយរបស់អ្នក។",
-              "body": "អ្នកអាចរត់ Herdr ក្នុង SSH session ដែលបើកពី cmux៖ Herdr រក្សា remote panes ឱ្យ persistent ខណៈ cmux ផ្តល់ Mac-side native app, browser panes, notifications និង unread shortcuts ជុំវិញ SSH workspace។"
+              "title": "Herdr អាចរត់នៅក្នុង cmux",
+              "body": "Herdr គឺជា terminal-native ដូច្នេះវាអាចរត់នៅក្នុង cmux terminal pane ធម្មតា។ វាក៏ដំណើរការល្អនៅក្នុង SSH sessions ដែលបើកពី cmux: Herdr រក្សា remote panes ឱ្យ persistent ខណៈ cmux ផ្តល់ Mac-side native app, browser panes, notifications និង unread shortcuts ជុំវិញ workspace។"
             },
             {
               "title": "cmux ជាម្ចាស់ផ្ទៃកុំព្យូទ័រដើម",

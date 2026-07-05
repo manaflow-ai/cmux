@@ -2721,7 +2721,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr er en open source-terminal-native agent-multiplekser, der kører inde i den terminal, du allerede bruger, og som kan holde ægte ruder i live over SSH. cmux er en GPL-licenseret indbygget macOS-app bygget på libghostty med lodrette arbejdsområder, meddelelsesringe, browserruder og en socket-API til lokale agent-arbejdsgange.",
           "summaryTitle": "Native Mac-app vs terminal-native multiplexer",
-          "summaryBody": "Brug Herdr, når du vil have en tmux-lignende agentmultiplexer inde i enhver terminal, især over SSH eller fra en lille skærm. Brug cmux, når du vil have en native Mac-terminalapp med libghostty-rendering, app-level arbejdsområder, indbygget browserautomatisering, notifikationsringe, Cmd+Shift+U, Cmd+Control+U og programmerbar lokal kontrol. En praktisk kombination er Herdr inde i en SSH-session, med cmux som Mac-side host omkring den.",
+          "summaryBody": "Brug Herdr, når du vil have en tmux-lignende agent-multiplexer inde i enhver terminal, især over SSH eller fra en lille skærm. Brug cmux, når du vil have en native Mac-terminalapp med libghostty-rendering, workspaces på appniveau, indbygget browserautomatisering, notifikationsringe, Cmd+Shift+U, Cmd+Control+U og programmerbar lokal kontrol. En praktisk kombination er at køre Herdr i en cmux-terminalpane, lokalt eller inde i en SSH-session åbnet fra cmux.",
           "table": {
             "headers": [
               "Dimension",
@@ -2773,8 +2773,8 @@
           },
           "sections": [
             {
-              "title": "cmux er uafhængig af agenten",
-              "body": "Du kan køre Herdr inde i en SSH-session åbnet fra cmux: Herdr holder fjernpaneler persistente, mens cmux giver den native Mac-app, browserpaneler, notifikationer og ulæst-genveje omkring SSH-arbejdsområdet."
+              "title": "Herdr kan køre inde i cmux",
+              "body": "Herdr er terminal-native, så det kan køre inde i en normal cmux-terminalpane. Det fungerer også godt inde i SSH-sessioner åbnet fra cmux: Herdr holder remote panes persistente, mens cmux giver den native Mac-app, browserpanes, notifikationer og unread-genveje omkring workspacet."
             },
             {
               "title": "Konteksten forbliver synlig",
