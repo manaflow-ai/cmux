@@ -4104,6 +4104,110 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[key] = state
     }
 
+    /// Optimistically remove the workspace identified by the derived-list `id` from
+    /// its owning Mac's source-of-truth list, so the derived ``workspaces`` (and
+    /// selection) update immediately with no wait on the backend close. The derived
+    /// row id can be a scoped aggregate id, so it is resolved back to the owning Mac
+    /// key and the raw per-Mac workspace via the owner + `rpcWorkspaceID`. Returns a
+    /// snapshot ``restoreWorkspace(_:)`` uses to put the row back at its original
+    /// index if the close cannot be delivered; returns `nil` when the row is already
+    /// gone (nothing to roll back).
+    func removeWorkspaceOptimistically(id: MobileWorkspacePreview.ID) -> WorkspaceCloseRollback? {
+        guard let derived = workspaces.first(where: { $0.id == id }) else { return nil }
+        // Anonymous foreground rows carry a nil macDeviceID but live under the
+        // foreground key; named foreground / secondary rows are keyed by their owner.
+        let ownerKey = derived.macDeviceID ?? foregroundMacKey
+        let rawRemoteID = derived.rpcWorkspaceID
+        guard var state = workspacesByMac[ownerKey],
+              let index = state.workspaces.firstIndex(where: { $0.rpcWorkspaceID == rawRemoteID })
+        else { return nil }
+        let previousSelection = selectedWorkspaceID
+        let removed = state.workspaces[index]
+        // Capture the surviving neighbors so a failed close restores the row next to
+        // them even if other concurrent optimistic closes shifted the array.
+        let precedingID = index > 0 ? state.workspaces[index - 1].rpcWorkspaceID : nil
+        let followingID = index + 1 < state.workspaces.count ? state.workspaces[index + 1].rpcWorkspaceID : nil
+        state.workspaces.remove(at: index)
+        // The didSet re-derives `workspaces` and reconciles selection to a neighbor.
+        workspacesByMac[ownerKey] = state
+        return WorkspaceCloseRollback(
+            macKey: ownerKey,
+            index: index,
+            workspace: removed,
+            precedingID: precedingID,
+            followingID: followingID,
+            previousSelection: previousSelection,
+            autoSelection: selectedWorkspaceID
+        )
+    }
+
+    /// Re-insert an optimistically-removed workspace near its original position after
+    /// a close failed to land, and undo the selection move the removal triggered. The
+    /// re-insert is a no-op if the row reappeared in the meantime (e.g. an
+    /// authoritative refresh arrived first), so a late rollback never duplicates it.
+    func restoreWorkspace(_ rollback: WorkspaceCloseRollback) {
+        guard var state = workspacesByMac[rollback.macKey] else { return }
+        // Match on `rpcWorkspaceID` — the same identity contract removal used — not
+        // the raw local `id`: an authoritative refresh can re-add the same remote
+        // workspace under a different local id, so deduping on the remote identity
+        // is what reliably prevents a duplicate row.
+        if !state.workspaces.contains(where: { $0.rpcWorkspaceID == rollback.workspace.rpcWorkspaceID }) {
+            let insertionIndex = rollbackInsertionIndex(in: state.workspaces, rollback: rollback)
+            state.workspaces.insert(rollback.workspace, at: insertionIndex)
+            workspacesByMac[rollback.macKey] = state
+        }
+        restoreSelectionAfterRollback(rollback)
+    }
+
+    /// Where to re-insert a rolled-back row: anchor to a surviving neighbor so that
+    /// when several optimistic closes fail out of order the rows do not get
+    /// reordered, falling back to the captured absolute index only when both
+    /// neighbors are also gone. (Any residual ordering drift in that last case is
+    /// corrected by the authoritative re-sync that follows every close attempt.)
+    private func rollbackInsertionIndex(
+        in workspaces: [MobileWorkspacePreview],
+        rollback: WorkspaceCloseRollback
+    ) -> Int {
+        if let precedingID = rollback.precedingID {
+            if let pos = workspaces.firstIndex(where: { $0.rpcWorkspaceID == precedingID }) {
+                return pos + 1
+            }
+        } else {
+            // The removed row was first; keep it at the front.
+            return 0
+        }
+        if let followingID = rollback.followingID,
+           let pos = workspaces.firstIndex(where: { $0.rpcWorkspaceID == followingID }) {
+            return pos
+        }
+        return min(rollback.index, workspaces.count)
+    }
+
+    /// A failed close must not strand the user on the neighbor the optimistic
+    /// removal auto-picked. Restore the pre-delete selection, but only when the
+    /// current selection is still that auto-picked neighbor — so a selection the
+    /// user changed while the close was in flight is left untouched. The row may
+    /// have reappeared through an authoritative refresh under a new UI id, so
+    /// resolve the current id from the same remote workspace identity rollback uses
+    /// for dedupe before falling back to the captured id.
+    private func restoreSelectionAfterRollback(_ rollback: WorkspaceCloseRollback) {
+        guard selectedWorkspaceID == rollback.autoSelection,
+              rollback.autoSelection != rollback.previousSelection else { return }
+        if let previous = rollback.previousSelection {
+            let ownerMacDeviceID = rollback.macKey == Self.foregroundAnonymousKey ? nil : rollback.macKey
+            if let currentID = rowWorkspaceID(
+                forRemoteWorkspaceID: rollback.workspace.rpcWorkspaceID,
+                macDeviceID: ownerMacDeviceID
+            ) {
+                selectedWorkspaceID = currentID
+            } else if workspaces.contains(where: { $0.id == previous }) {
+                selectedWorkspaceID = previous
+            }
+        } else {
+            selectedWorkspaceID = nil
+        }
+    }
+
     /// Create a workspace locally or through the connected Mac, then select it.
     public func createWorkspace() {
         guard remoteClient == nil else {
