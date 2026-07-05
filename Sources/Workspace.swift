@@ -8771,6 +8771,8 @@ final class Workspace: Identifiable, ObservableObject {
             if let workingDirectory { return workingDirectory }
             return isRemoteWorkspace ? presentedCurrentDirectory : currentDirectory
         }()
+        let trustsAgentDirectory = workingDirectory == nil &&
+            focusedPanelId.map { remoteDirectoryReportPanelIds.contains($0) } == true
 
         let agentPanel = AgentSessionPanel(
             workspaceId: id,
@@ -8782,6 +8784,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles[agentPanel.id] = agentPanel.displayTitle
         if let directory, !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             panelDirectories[agentPanel.id] = directory
+            if trustsAgentDirectory { remoteDirectoryReportPanelIds.insert(agentPanel.id) }
         }
 
         guard let newTabId = bonsplitController.createTab(
