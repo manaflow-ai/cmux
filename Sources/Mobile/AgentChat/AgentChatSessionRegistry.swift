@@ -21,6 +21,9 @@ nonisolated struct ObservedAgentSession: Sendable {
 final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
     private var liveSessionIDBySurfaceID: [String: String] = [:]
+    /// Sessions whose current `.needsInput` state came from a non-blocking
+    /// approval wait owned by the agent UI.
+    private var approvalWaitSessionIDs: Set<String> = []
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -418,6 +421,9 @@ final class AgentChatSessionRegistry {
         guard let previous = records[sessionID] else { return }
         var record = previous
         mutate(&record)
+        if !record.state.needsAttention {
+            approvalWaitSessionIDs.remove(sessionID)
+        }
         stampVersion(&record)
         records[sessionID] = record
         #if DEBUG
@@ -563,7 +569,21 @@ final class AgentChatSessionRegistry {
         record.lastActivityAt = event.receivedAt
 
         let previous = records[sessionID]
-        record.state = Self.nextState(previous: record.state, event: event)
+        let previousState = record.state
+        let wasApprovalWait = approvalWaitSessionIDs.contains(sessionID)
+        let clearsApprovalWait = event.hookEventName != .approvalWait && wasApprovalWait
+        record.state = Self.nextState(
+            previous: previousState,
+            event: event,
+            clearsApprovalWait: clearsApprovalWait
+        )
+        if event.hookEventName == .approvalWait {
+            if record.state.needsAttention && (wasApprovalWait || !previousState.needsAttention) {
+                approvalWaitSessionIDs.insert(sessionID)
+            }
+        } else if clearsApprovalWait || !record.state.needsAttention {
+            approvalWaitSessionIDs.remove(sessionID)
+        }
         stampVersion(&record)
         records[sessionID] = record
         syncProcessExitWatch(for: record)
@@ -608,6 +628,7 @@ final class AgentChatSessionRegistry {
         let normalizedWorkspace = workspaceID.flatMap { $0.isEmpty ? nil : $0 }
         let normalizedCwd = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         if records[sessionID] != nil {
+            approvalWaitSessionIDs.remove(sessionID)
             update(sessionID: sessionID) { record in
                 if let normalizedSurface { record.surfaceID = normalizedSurface }
                 if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
@@ -733,7 +754,8 @@ final class AgentChatSessionRegistry {
 
     private static func nextState(
         previous: ChatAgentState,
-        event: WorkstreamEvent
+        event: WorkstreamEvent,
+        clearsApprovalWait: Bool
     ) -> ChatAgentState {
         switch event.hookEventName {
         case .sessionStart:
@@ -744,18 +766,34 @@ final class AgentChatSessionRegistry {
         case .preCompact, .postCompact:
             // Compaction is lifecycle telemetry. It can occur while a session
             // is idle, so it must not create a synthetic working state.
-            return previous
+            return stateAfterLifecycleTelemetry(
+                previous: previous,
+                clearsApprovalWait: clearsApprovalWait
+            )
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .approvalWait, .notification:
-            if case .needsInput = previous { return previous }
+            if case .needsInput = previous, !clearsApprovalWait { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
             return .idle
         case .subagentStart, .subagentStop:
             // Task subagent lifecycle says nothing about the parent
             // session's activity; keep the current state.
-            return previous
+            return stateAfterLifecycleTelemetry(
+                previous: previous,
+                clearsApprovalWait: clearsApprovalWait
+            )
         case .sessionEnd:
             return .ended
         }
+    }
+
+    private static func stateAfterLifecycleTelemetry(
+        previous: ChatAgentState,
+        clearsApprovalWait: Bool
+    ) -> ChatAgentState {
+        if clearsApprovalWait, case .needsInput = previous {
+            return .idle
+        }
+        return previous
     }
 }
