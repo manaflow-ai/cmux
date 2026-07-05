@@ -145,6 +145,8 @@ function normalizeFeatureFlagPayloads(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const payloads: Record<string, unknown> = {};
   for (const [key, payload] of Object.entries(value)) {
+    // Match posthog-js: payload values are already JSON values, and string
+    // payloads remain strings instead of being parsed opportunistically.
     payloads[key] = payload;
   }
   return payloads;
@@ -187,5 +189,7 @@ function payloadFromDetailedFlag(value: unknown, flagValue: ClientConfigFlagValu
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const metadata = (value as Record<string, unknown>).metadata;
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  // posthog-js copies metadata.payload through without JSON.parse; preserve
+  // string payloads so free-text payloads do not change type.
   return (metadata as Record<string, unknown>).payload;
 }
