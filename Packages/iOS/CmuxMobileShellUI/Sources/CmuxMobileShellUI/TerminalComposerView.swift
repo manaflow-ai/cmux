@@ -69,31 +69,26 @@ struct TerminalComposerView: View {
     /// `@Observable` reference type is held with `@State`; SwiftUI tracks the
     /// `state` it reads (mic button enabled/listening) automatically.
     @State private var dictation = ComposerDictationController()
-
     init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store
         self.terminalID = terminalID
         self.requestHeightRemeasure = requestHeightRemeasure
     }
-
     /// Single-line height of the round attach button beside the field. It stays
     /// pinned to the bottom edge of the (taller) field via the outer `HStack`'s
     /// `.bottom` alignment.
     private let controlHeight: CGFloat = 40
-
     /// Diameter of the iMessage-style send button INSIDE the field's rounded
     /// container. With the container's 6pt vertical padding it exactly fills the
     /// 40pt single-line field height (6 + 28 + 6), centering the circle on a
     /// one-line message; the inner `HStack`'s `.bottom` alignment keeps it riding
     /// the last line as the field grows.
     private let inlineSendDiameter: CGFloat = 28
-
     /// Line range for the growing compose field. Opens at a SINGLE line (`1...`) so it
     /// starts as a compact one-line message box and grows as the user types, up to 14
     /// lines before scrolling. Each added line grows this view's height, which the host
     /// reserves above the toolbar, pushing only the terminal up.
     private let composerLineLimit = 1...14
-
     /// Minimum height of the compose field, matching the one-line baseline.
     private let composerFieldMinHeight: CGFloat = 40
 
@@ -261,8 +256,9 @@ struct TerminalComposerView: View {
     /// On iOS 26 the glass controls float in a `GlassEffectContainer` over the
     /// terminal (no opaque bar — that would be glass-on-glass). Earlier OSes get
     /// a `.bar` material backing behind the material controls.
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var composerSurface: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 composerBar
@@ -271,9 +267,13 @@ struct TerminalComposerView: View {
             composerBar
                 .background(.bar)
         }
+        #else
+        composerBar
+            .background(.bar)
+        #endif
     }
 
-    private var composerBar: some View {
+    @MainActor private var composerBar: some View {
         VStack(alignment: .leading, spacing: 6) {
             // iMessage-style chip row of staged image attachments, ABOVE the
             // field. Shown only when something is staged so the empty composer
@@ -377,7 +377,7 @@ struct TerminalComposerView: View {
     /// leading side. Tapping toggles dictation; while listening it shows a filled,
     /// tinted mic. Disabled when the recognizer is unavailable or permission was
     /// denied so the user is never left tapping a dead control.
-    private var micButton: some View {
+    @MainActor private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
             systemImage: "mic",
@@ -407,7 +407,7 @@ struct TerminalComposerView: View {
 
     /// Horizontal, removable thumbnail chips for the staged attachments. Each
     /// chip shows the picked image with an x to remove it.
-    private var attachmentChipRow: some View {
+    @MainActor private var attachmentChipRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(pendingAttachments) { attachment in
@@ -806,7 +806,7 @@ private struct AttachmentChip: View {
         }
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var thumbnailView: some View {
         if let thumbnail {
             Image(uiImage: thumbnail)

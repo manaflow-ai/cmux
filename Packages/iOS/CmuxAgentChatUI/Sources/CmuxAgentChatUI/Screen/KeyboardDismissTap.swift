@@ -69,16 +69,20 @@ struct KeyboardDismissTap: UIViewRepresentable {
             // and dismisses the keyboard on every tap across other screens
             // that share the window.
             if window !== installedWindow {
-                installedWindow?.removeGestureRecognizer(recognizer)
-                installedWindow = nil
+                uninstallRecognizer()
             }
-            guard let window else { return }
+            guard installedWindow == nil, let window else { return }
             window.addGestureRecognizer(recognizer)
             installedWindow = window
         }
 
         deinit {
+            uninstallRecognizer()
+        }
+
+        func uninstallRecognizer() {
             installedWindow?.removeGestureRecognizer(recognizer)
+            installedWindow = nil
         }
 
         @objc private func handleTap() {

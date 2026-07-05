@@ -166,12 +166,14 @@ public struct ChatFileEditCardView: View {
 
     private func diffLineAccessibilityLabel(_ line: String) -> String {
         if line.hasPrefix("+") {
+            let addedLine = String(line.dropFirst())
             return String(localized: "chat.diff.added.accessibility",
-                          defaultValue: "Added: \(line.dropFirst())", bundle: .module)
+                          defaultValue: "Added: \(addedLine)", bundle: .module)
         }
         if line.hasPrefix("-") {
+            let removedLine = String(line.dropFirst())
             return String(localized: "chat.diff.removed.accessibility",
-                          defaultValue: "Removed: \(line.dropFirst())", bundle: .module)
+                          defaultValue: "Removed: \(removedLine)", bundle: .module)
         }
         if line.hasPrefix("@@") {
             return String(localized: "chat.diff.hunk.accessibility",

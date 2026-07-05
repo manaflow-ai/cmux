@@ -3,25 +3,21 @@ import Foundation
 
 /// Resolves the transcript JSONL path for an agent session.
 ///
-/// Preference order: the hook store's recorded `transcriptPath`, then the
-/// agent-specific conventional location (claude: encoded-cwd project dir;
-/// codex: rollout filename containing the session id).
+/// Preference order: the hook store's recorded `transcriptPath`, then Claude's
+/// conventional encoded-cwd project location. Codex transcript binding stays on
+/// the hook-recorded path because scanning rollout directories can bind a pane
+/// to the wrong conversation.
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
     /// Config-dir root for Claude (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
     private let claudeConfigRoot: URL
-    /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
-    private let codexConfigRoot: URL
 
     /// Creates a resolver.
     ///
-    /// The derived-path fallbacks honor the agents' own config-dir env
-    /// overrides so a user who relocates their config (e.g. `CLAUDE_CONFIG_DIR`
-    /// or `CODEX_HOME`, including via a launcher/subrouter) still has transcripts
-    /// resolved. The PRIMARY source remains the hook-recorded absolute
-    /// `transcriptPath`, which already encodes any custom dir; this only fixes
-    /// the fallback used when no path was recorded (e.g. a codex session resumed
-    /// out-of-band, resolved by scanning the sessions dir).
+    /// The Claude derived-path fallback honors `CLAUDE_CONFIG_DIR` so a user who
+    /// relocates their config still has Claude transcripts resolved. Codex uses
+    /// only the hook-recorded absolute `transcriptPath`, which already encodes
+    /// any custom `CODEX_HOME`.
     ///
     /// - Parameters:
     ///   - homeDirectory: Injectable home directory for tests.
@@ -35,10 +31,6 @@ struct AgentChatTranscriptResolver: Sendable {
         self.claudeConfigRoot = Self.configRoot(
             override: environment["CLAUDE_CONFIG_DIR"],
             default: homeDirectory.appendingPathComponent(".claude", isDirectory: true)
-        )
-        self.codexConfigRoot = Self.configRoot(
-            override: environment["CODEX_HOME"],
-            default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
         )
     }
 
@@ -65,16 +57,25 @@ struct AgentChatTranscriptResolver: Sendable {
         case .claude:
             return claudeFallbackPath(record: record)
         case .codex:
-            return codexFallbackPath(sessionID: record.sessionID)
+            return nil
         case .other:
             return nil
         }
     }
 
+    /// Returns the hook-recorded transcript path when it still exists.
+    ///
+    /// This is intentionally cheap enough for main-actor call sites; it does not
+    /// run any agent-specific fallback scan.
+    func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
+        guard let recorded = record.transcriptPath else { return nil }
+        let expanded = (recorded as NSString).expandingTildeInPath
+        return FileManager.default.fileExists(atPath: expanded) ? expanded : nil
+    }
+
     /// Resolves only paths that are cheap to check from the main-actor mobile
-    /// session list path. Codex's fallback scans the full sessions tree, so it is
-    /// intentionally excluded here and remains available only when opening a
-    /// transcript.
+    /// session list path. Codex stays limited to recorded paths so cmux never
+    /// binds a pane by scanning rollout directories.
     func boundedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
@@ -87,12 +88,6 @@ struct AgentChatTranscriptResolver: Sendable {
         }
     }
 
-    private func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
-        guard let recorded = record.transcriptPath else { return nil }
-        let expanded = (recorded as NSString).expandingTildeInPath
-        return FileManager.default.fileExists(atPath: expanded) ? expanded : nil
-    }
-
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
         let fileManager = FileManager.default
         guard let cwd = record.workingDirectory else { return nil }
@@ -103,27 +98,5 @@ struct AgentChatTranscriptResolver: Sendable {
             .appendingPathComponent("\(record.hookStoreLookupSessionID).jsonl", isDirectory: false)
             .path
         return fileManager.fileExists(atPath: path) ? path : nil
-    }
-
-    /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`
-    /// under `~/.codex/sessions/YYYY/MM/DD/`; scan recent day directories for
-    /// the session id.
-    private func codexFallbackPath(sessionID: String) -> String? {
-        let fileManager = FileManager.default
-        let root = codexConfigRoot
-            .appendingPathComponent("sessions", isDirectory: true)
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-        let needle = sessionID.lowercased()
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl" else { continue }
-            if url.lastPathComponent.lowercased().contains(needle) {
-                return url.path
-            }
-        }
-        return nil
     }
 }

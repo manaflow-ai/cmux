@@ -524,6 +524,29 @@ jobs:
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
+      - name: Run Codex transcript fallback session-binding regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for the Codex transcript fallback race
+          # (https://github.com/manaflow-ai/cmux/issues/5550). The full "Run unit
+          # tests" step below tolerates failures by parsing only the XCTest
+          # "Executed ... (0 unexpected)" summary, which does NOT count Swift
+          # Testing (@Test/#expect) issues. This suite is Swift Testing, so a
+          # regression here would otherwise be silently swallowed. Keep this
+          # targeted only-testing invocation as a non-tolerant guard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/AgentChatTranscriptResolverTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
