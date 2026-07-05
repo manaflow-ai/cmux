@@ -282,6 +282,11 @@ extension SidebarGitMetadataService {
             didClearProbe = true
             return
         }
+        if host.shouldSkipLocalGitMetadata(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId) {
+            clearWorkspaceGitProbeTracking(for: probeKey)
+            didClearProbe = true
+            return
+        }
 
         guard let currentDirectory = host.gitProbeDirectory(
             workspaceId: probeKey.workspaceId,
