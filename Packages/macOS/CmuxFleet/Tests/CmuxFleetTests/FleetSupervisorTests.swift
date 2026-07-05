@@ -43,11 +43,11 @@ enum SupervisorSignalKind: CaseIterable {
         case .agentStopped:
             .agentStopped(taskID: FleetTestSupport.taskID, at: date)
         case .pidExited:
-            .pidExited(taskID: FleetTestSupport.taskID, at: date)
+            .pidExited(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .promptIdleObserved:
             .promptIdleObserved(taskID: FleetTestSupport.taskID, at: date)
         case .stallTimeout:
-            .stallTimeout(taskID: FleetTestSupport.taskID, at: date)
+            .stallTimeout(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .backoffElapsed:
             .backoffElapsed(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .workspaceClosed:
@@ -137,7 +137,11 @@ struct FleetSupervisorTests {
 
     @Test func ignoresSignalsForOtherTasks() {
         let task = FleetTestSupport.task(state: .running)
-        let signal = FleetSignal.pidExited(taskID: FleetTestSupport.otherTaskID, at: FleetTestSupport.eventDate)
+        let signal = FleetSignal.pidExited(
+            taskID: FleetTestSupport.otherTaskID,
+            attempt: task.attempts,
+            at: FleetTestSupport.eventDate
+        )
 
         let reduced = FleetSupervisor().reduce(task: task, signal: signal)
 
@@ -254,7 +258,7 @@ struct FleetSupervisorTests {
         let launching = FleetTestSupport.task(state: .launching, attempts: 1)
         let launchCrash = FleetSupervisor().reduce(
             task: launching,
-            signal: .pidExited(taskID: launching.id, at: FleetTestSupport.eventDate)
+            signal: .pidExited(taskID: launching.id, attempt: 1, at: FleetTestSupport.eventDate)
         )
         #expect(launchCrash.0.state == .retryBackoff)
         #expect(launchCrash.1 == [.scheduleBackoff(taskID: launching.id, attempt: 1, delayMS: 10_000)])
@@ -262,7 +266,7 @@ struct FleetSupervisorTests {
         let running = FleetTestSupport.task(state: .running, attempts: 2)
         let crashed = FleetSupervisor().reduce(
             task: running,
-            signal: .pidExited(taskID: running.id, at: FleetTestSupport.eventDate)
+            signal: .pidExited(taskID: running.id, attempt: 2, at: FleetTestSupport.eventDate)
         )
         #expect(crashed.0.state == .retryBackoff)
         #expect(crashed.1 == [.scheduleBackoff(taskID: running.id, attempt: 2, delayMS: 20_000)])
@@ -270,7 +274,7 @@ struct FleetSupervisorTests {
         let needsInputCrashTask = FleetTestSupport.task(state: .needsInput, attempts: 2)
         let needsInputCrash = FleetSupervisor().reduce(
             task: needsInputCrashTask,
-            signal: .pidExited(taskID: needsInputCrashTask.id, at: FleetTestSupport.eventDate)
+            signal: .pidExited(taskID: needsInputCrashTask.id, attempt: 2, at: FleetTestSupport.eventDate)
         )
         #expect(needsInputCrash.0.state == .retryBackoff)
         #expect(needsInputCrash.1 == [
@@ -290,7 +294,7 @@ struct FleetSupervisorTests {
         let launching = FleetTestSupport.task(state: .launching, attempts: 1)
         let launchingTimeout = FleetSupervisor().reduce(
             task: launching,
-            signal: .stallTimeout(taskID: launching.id, at: FleetTestSupport.eventDate)
+            signal: .stallTimeout(taskID: launching.id, attempt: 1, at: FleetTestSupport.eventDate)
         )
         #expect(launchingTimeout.0.state == .retryBackoff)
         #expect(launchingTimeout.1 == [
@@ -302,7 +306,7 @@ struct FleetSupervisorTests {
 
         let reduced = FleetSupervisor().reduce(
             task: task,
-            signal: .stallTimeout(taskID: task.id, at: FleetTestSupport.eventDate)
+            signal: .stallTimeout(taskID: task.id, attempt: 2, at: FleetTestSupport.eventDate)
         )
 
         #expect(reduced.0.state == .retryBackoff)
@@ -315,7 +319,7 @@ struct FleetSupervisorTests {
         let exhausted = FleetTestSupport.task(state: .running, attempts: 3)
         let failed = FleetSupervisor().reduce(
             task: exhausted,
-            signal: .stallTimeout(taskID: exhausted.id, at: FleetTestSupport.eventDate)
+            signal: .stallTimeout(taskID: exhausted.id, attempt: 3, at: FleetTestSupport.eventDate)
         )
         #expect(failed.0.state == .failed)
         #expect(failed.1 == [.killAgent(task: exhausted)])

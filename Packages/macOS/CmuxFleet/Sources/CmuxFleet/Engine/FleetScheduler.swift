@@ -21,10 +21,10 @@ public struct FleetScheduler: Sendable {
     public func dispatch(_ tasks: [FleetTask]) -> [FleetTask] {
         let activeCount = tasks.filter { task in
             switch task.state {
-            case .provisioning, .launching, .running, .needsInput:
+            case .provisioning, .launching, .running, .needsInput, .stalled,
+                 .retryBackoff:
                 true
-            case .queued, .stalled, .retryBackoff, .awaitingReview, .done, .failed,
-                 .cancelled:
+            case .queued, .awaitingReview, .done, .failed, .cancelled:
                 false
             }
         }.count

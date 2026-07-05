@@ -63,7 +63,7 @@ struct FleetSchedulerTests {
         #expect(selected.map(\.id.rawValue) == ["local:queued-1"])
     }
 
-    @Test func retryBackoffAndStalledDoNotCountAgainstDispatchCap() {
+    @Test func retryBackoffAndStalledReserveDispatchCap() {
         let tasks = [
             FleetTestSupport.task(idSuffix: "backoff", state: .retryBackoff),
             FleetTestSupport.task(idSuffix: "stalled", state: .stalled),
@@ -73,7 +73,7 @@ struct FleetSchedulerTests {
 
         let selected = FleetScheduler(maxConcurrentAgents: 2, provisioningCap: 2).dispatch(tasks)
 
-        #expect(selected.map(\.id.rawValue) == ["local:queued-1", "local:queued-2"])
+        #expect(selected.isEmpty)
     }
 
     @Test func returnsEachTaskIDAtMostOnce() {

@@ -97,9 +97,9 @@ public struct FleetSupervisor: Sendable {
                 return transition(task: task, to: .awaitingReview, at: at)
             }
             return retryOrFail(task: task, at: at, killAgent: false)
-        case let .pidExited(taskID, at):
-            guard taskID == task.id, task.state == .launching || task.state == .running
-                || task.state == .needsInput
+        case let .pidExited(taskID, attempt, at):
+            guard taskID == task.id, attempt == task.attempts,
+                  task.state == .launching || task.state == .running || task.state == .needsInput
             else {
                 return (task, [])
             }
@@ -109,9 +109,9 @@ public struct FleetSupervisor: Sendable {
                 return (task, [])
             }
             return retryOrFail(task: task, at: at, killAgent: false)
-        case let .stallTimeout(taskID, at):
-            guard taskID == task.id, task.state == .launching || task.state == .running
-                || task.state == .needsInput
+        case let .stallTimeout(taskID, attempt, at):
+            guard taskID == task.id, attempt == task.attempts,
+                  task.state == .launching || task.state == .running || task.state == .needsInput
             else {
                 return (task, [])
             }

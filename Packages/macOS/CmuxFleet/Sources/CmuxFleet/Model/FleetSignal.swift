@@ -29,14 +29,14 @@ public enum FleetSignal: Equatable, Codable, Sendable {
     /// The agent stopped and emitted its normal stop signal.
     case agentStopped(taskID: FleetTaskID, at: Date)
 
-    /// The agent process exited without a normal stop signal.
-    case pidExited(taskID: FleetTaskID, at: Date)
+    /// The agent process exited without a normal stop signal for a specific task attempt.
+    case pidExited(taskID: FleetTaskID, attempt: Int, at: Date)
 
     /// The terminal returned to an idle prompt while the agent was expected to be running.
     case promptIdleObserved(taskID: FleetTaskID, at: Date)
 
-    /// Fleet's stall timeout elapsed for a task.
-    case stallTimeout(taskID: FleetTaskID, at: Date)
+    /// Fleet's stall timeout elapsed for a specific task attempt.
+    case stallTimeout(taskID: FleetTaskID, attempt: Int, at: Date)
 
     /// A scheduled retry backoff elapsed for a specific task attempt.
     case backoffElapsed(taskID: FleetTaskID, attempt: Int, at: Date)
