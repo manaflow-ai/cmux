@@ -78,6 +78,23 @@ import Testing
         #expect(content.body.hasPrefix("Allow Bash: "))
     }
 
+    @Test func permissionBodyRedactsSecretsBeforeTruncation() throws {
+        // The secret value starts before the 120-char snippet boundary and
+        // would be cut mid-token if truncation ran first; redact-then-truncate
+        // must leave no partial credential.
+        let padding = String(repeating: "a", count: 100)
+        let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"run \#(padding) API_TOKEN=sk-longsecretvalue1234567890 deploy"}"#,
+            workspaceTitle: nil
+        ))
+
+        #expect(!content.body.contains("sk-long"))
+        #expect(!content.body.contains("sk-"))
+    }
+
     @Test func questionBodyUsesFirstQuestionText() throws {
         let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .askUserQuestion,

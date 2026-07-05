@@ -121,6 +121,21 @@ import Testing
         #expect(whitespace.subtitle == "")
     }
 
+    @Test func bannerBodyRedactsSecretsForEveryProducer() {
+        let content = NotificationBannerComposer.composeNotificationBannerContent(
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Finished: deploy with API_TOKEN=sk-abc123",
+            agentId: "claude",
+            workspaceTitle: "Fix login flow",
+            appName: "cmux"
+        )
+
+        #expect(!content.body.contains("sk-abc123"))
+        #expect(content.body.contains("<redacted-secret>"))
+        #expect(content.title == "Fix login flow")
+    }
+
     @Test func jsonBlobAssistantMessageDetectionParsesOnlyJSONObjectOrArrayText() {
         #expect(NotificationBannerComposer.isJSONBlobAssistantMessage(#"{"findings":[]}"#))
         #expect(NotificationBannerComposer.isJSONBlobAssistantMessage(#"  [1,2,3]  "#))
