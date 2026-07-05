@@ -212,6 +212,21 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                 x: 0, y: bandPx,
                 width: containerPx.width, height: containerPx.height - bandPx
             )
+        } else if case .pane = layout.content, layout.y > 0 {
+            // A root LEAF can itself sit below tmux title rows (the patched
+            // single-pane visible tree under `pane-border-status top` — a
+            // zoomed window, or a mirror whittled down to one pane).
+            // ``place(_:chrome:in:cellOrigin:paneFrames:dividers:)`` only
+            // bands offsets between siblings, so reserve the leaf's own
+            // leading rows here: they are tmux's title row, not content.
+            let bandPx = min(CGFloat(layout.y * cellHeightPx), containerPx.height)
+            dividers.append(CGRect(
+                x: 0, y: 0, width: containerPx.width, height: bandPx
+            ))
+            containerPx = CGRect(
+                x: 0, y: bandPx,
+                width: containerPx.width, height: containerPx.height - bandPx
+            )
         }
         place(
             layout, chrome: chromeTree(of: layout),
