@@ -118,6 +118,29 @@ struct DockExtensionManifestParsingTests {
         }
     }
 
+    /// Ids name on-disk directories (checkout/config/state/logs), so ids made
+    /// only of dots — which resolve to the layout's parent directories — must
+    /// never validate even though `.` is in the id charset.
+    @Test func rejectsAllDotExtensionIds() {
+        for id in [".", "..", "..."] {
+            #expect(!DockExtensionManifest.isValidExtensionId(id), "should reject \(id)")
+            let json = """
+            {
+                "manifestVersion": 1,
+                "id": "\(id)",
+                "name": "X",
+                "version": "1",
+                "panes": [{ "id": "main", "title": "X", "command": ["x"] }]
+            }
+            """
+            #expect(throws: DockExtensionError.self) {
+                try DockExtensionManifest.parse(data: data(json))
+            }
+        }
+        #expect(DockExtensionManifest.isValidExtensionId("a.b"))
+        #expect(DockExtensionManifest.isValidExtensionId(".hidden"))
+    }
+
     @Test func rejectsDottedPaneIdAndDuplicates() {
         let dotted = """
         {

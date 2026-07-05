@@ -37,7 +37,7 @@ extension DockExtensionManifest {
 
         let id = requiredString(root, key: "id", maxLength: 64, errors: &errors)
         if let id, !isValidExtensionId(id) {
-            errors.append("\"id\" may only contain ASCII letters, digits, '.', '_', ':', '-'")
+            errors.append("\"id\" may only contain ASCII letters, digits, '.', '_', ':', '-' (and not dots only)")
         }
         let name = requiredString(root, key: "name", maxLength: 100, errors: &errors)
         let version = requiredString(root, key: "version", maxLength: 32, errors: &errors)
@@ -82,7 +82,8 @@ extension DockExtensionManifest {
     }
 
     /// Whether `id` is a valid extension id: 1–64 ASCII letters, digits, `.`,
-    /// `_`, `:`, `-` (herdr's plugin-id charset).
+    /// `_`, `:`, `-` (herdr's plugin-id charset), and not dots only (ids name
+    /// on-disk directories, so `.`/`..` must never pass).
     public static func isValidExtensionId(_ id: String) -> Bool {
         isValid(id: id, allowDots: true)
     }
@@ -97,6 +98,10 @@ extension DockExtensionManifest {
 
     private static func isValid(id: String, allowDots: Bool) -> Bool {
         guard !id.isEmpty, id.count <= 64 else { return false }
+        // Ids become on-disk directory names (checkout/config/state/logs).
+        // An all-dot id like "." or ".." would resolve to the parent layout
+        // directory itself — e.g. uninstall would delete every checkout.
+        guard !id.allSatisfy({ $0 == "." }) else { return false }
         return id.unicodeScalars.allSatisfy { scalar in
             switch scalar {
             case "a"..."z", "A"..."Z", "0"..."9", "_", ":", "-":

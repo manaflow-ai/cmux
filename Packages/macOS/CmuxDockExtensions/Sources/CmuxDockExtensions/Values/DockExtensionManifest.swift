@@ -34,8 +34,8 @@ public struct DockExtensionManifest: Equatable, Sendable {
     public let manifestVersion: Int
 
     /// Stable extension identifier. ASCII letters, digits, `.`, `_`, `:`, `-`;
-    /// at most 64 characters. Also used for the on-disk checkout/config/state
-    /// directory names.
+    /// at most 64 characters and never dots only. Also used for the on-disk
+    /// checkout/config/state directory names.
     public let id: String
 
     /// Human-readable extension name shown in Settings, the command palette,
