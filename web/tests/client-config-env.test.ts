@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 
 const requiredEnv = {
   PATH: process.env.PATH ?? "",
@@ -47,14 +48,16 @@ describe("client config env validation", () => {
 });
 
 function importEnv(env: Record<string, string>): { exitCode: number; stderr: string } {
-  const result = Bun.spawnSync({
-    cmd: [process.execPath, "-e", "await import('./app/env')"],
-    env,
-    stderr: "pipe",
-    stdout: "pipe",
-  });
+  const result = spawnSync(
+    process.execPath,
+    ["-e", "await import('./app/env')"],
+    {
+      env: env as NodeJS.ProcessEnv,
+      encoding: "utf8",
+    },
+  );
   return {
-    exitCode: result.exitCode,
-    stderr: new TextDecoder().decode(result.stderr),
+    exitCode: result.status ?? 1,
+    stderr: result.stderr,
   };
 }
