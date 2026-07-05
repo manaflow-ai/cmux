@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Decompress } from "fzstd";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslations } from "next-intl";
@@ -25,11 +25,37 @@ export function TranscriptViewer({
   readonly complete: boolean;
 }) {
   const t = useTranslations("vault.detail");
-  const [messages, setMessages] =
-    useState<readonly TranscriptMessage[]>(initialMessages);
-  const [messageCount, setMessageCount] = useState(initialMessages.length);
+  // Messages are stored as append-only chunks so each streaming flush copies
+  // only the (small) chunk list instead of every previously loaded message;
+  // a flat array made large transcript streaming O(n) per flush.
+  const [chunks, setChunks] = useState<readonly (readonly TranscriptMessage[])[]>([
+    initialMessages,
+  ]);
   const [status, setStatus] = useState<StreamStatus>(
     complete ? "done" : "loading",
+  );
+  const { messageCount, chunkStarts } = useMemo(() => {
+    const starts: number[] = new Array(chunks.length);
+    let total = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      starts[i] = total;
+      total += chunks[i].length;
+    }
+    return { messageCount: total, chunkStarts: starts };
+  }, [chunks]);
+  const messageAt = useCallback(
+    (index: number): TranscriptMessage | undefined => {
+      // Binary search for the chunk containing index.
+      let lo = 0;
+      let hi = chunkStarts.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (chunkStarts[mid] <= index) lo = mid;
+        else hi = mid - 1;
+      }
+      return chunks[lo]?.[index - chunkStarts[lo]];
+    },
+    [chunks, chunkStarts],
   );
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const startedRef = useRef(complete);
@@ -37,7 +63,7 @@ export function TranscriptViewer({
   const abortRef = useRef<AbortController | null>(null);
 
   const rowVirtualizer = useVirtualizer({
-    count: messages.length,
+    count: messageCount,
     getScrollElement: () => scrollElement,
     estimateSize: () => 96,
     initialRect: { width: 768, height: 720 },
@@ -49,16 +75,14 @@ export function TranscriptViewer({
     abortRef.current = controller;
     // A restarted run (dev StrictMode replays the callback ref) must not
     // append after a partially-flushed aborted run: reset to the server batch.
-    setMessages(initialMessages);
-    setMessageCount(initialMessageCountRef.current);
+    setChunks([initialMessages]);
     setStatus("loading");
 
     const pendingMessages: TranscriptMessage[] = [];
     const flushMessages = () => {
       if (pendingMessages.length === 0) return;
       const batch = pendingMessages.splice(0);
-      setMessages((current) => [...current, ...batch]);
-      setMessageCount((current) => current + batch.length);
+      setChunks((current) => [...current, batch]);
     };
 
     let parsedMessageCount = 0;
@@ -169,7 +193,7 @@ export function TranscriptViewer({
     <section ref={attachScrollElement} className="h-full overflow-y-auto">
       <div className="max-w-3xl px-4 pb-16 pt-14">
         <p className="mb-3 text-xs text-muted">{statusLine}</p>
-        {status === "done" && messages.length === 0 ? (
+        {status === "done" && messageCount === 0 ? (
           <p className="text-xs text-muted">{t("emptyTranscript")}</p>
         ) : null}
         <div
@@ -177,7 +201,7 @@ export function TranscriptViewer({
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
           {virtualItems.map((virtualRow) => {
-            const message = messages[virtualRow.index];
+            const message = messageAt(virtualRow.index);
             if (!message) return null;
             return (
               <div

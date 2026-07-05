@@ -284,15 +284,25 @@ function SessionRow({
   const [copied, setCopied] = useState(false);
   const cwd = row.cwd || unknownCwd;
   const basename = pathBasename(row.cwd) || unknownCwd;
+  const openSession = () => {
+    onNavigate();
+    router.push(`/dashboard/vault/sessions/${row.id}`);
+  };
 
   return (
     <div
       role="row"
-      onClick={() => {
-        onNavigate();
-        router.push(`/dashboard/vault/sessions/${row.id}`);
+      // The row cannot be an anchor because it contains a nested copy button,
+      // so give it explicit keyboard semantics instead.
+      tabIndex={0}
+      onClick={openSession}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openSession();
       }}
-      className="group absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-3 text-xs hover:bg-foreground hover:text-background"
+      className="group absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-3 text-xs focus-visible:outline focus-visible:-outline-offset-1 focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
       style={style}
     >
       <div role="cell">

@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
-import { lt } from "drizzle-orm";
+import { count, gt, lt } from "drizzle-orm";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
 import { isVaultConfigured } from "../../../../../../services/vault/config";
@@ -12,6 +12,11 @@ export const dynamic = "force-dynamic";
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const EXPIRES_IN_SECONDS = 15 * 60;
 const INTERVAL_SECONDS = 3;
+// Hard ceiling on concurrently pending device-code requests. Legitimate CLI
+// logins are rare, so this mostly exists to bound table growth and insert
+// load from unauthenticated floods; per-IP limiting is a follow-up
+// (see DESIGN.md).
+const MAX_ACTIVE_REQUESTS = 200;
 
 export async function POST(request: Request): Promise<Response> {
   if (!isVaultConfigured()) return jsonResponse({ error: "vault_not_configured" }, 503);
@@ -32,6 +37,14 @@ export async function POST(request: Request): Promise<Response> {
   await db
     .delete(vaultCliAuthRequests)
     .where(lt(vaultCliAuthRequests.expiresAt, new Date(now.getTime() - 60 * 1000)));
+
+  const [active] = await db
+    .select({ value: count() })
+    .from(vaultCliAuthRequests)
+    .where(gt(vaultCliAuthRequests.expiresAt, now));
+  if ((active?.value ?? 0) >= MAX_ACTIVE_REQUESTS) {
+    return jsonResponse({ error: "throttled" }, 429);
+  }
 
   await db.insert(vaultCliAuthRequests).values({
     deviceCodeHash,

@@ -1,3 +1,37 @@
+// Formatter construction is expensive and these run for several cells of every
+// visible row in the virtualized session list, so cache instances per locale.
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
+const relativeTimeFormatCache = new Map<string, Intl.RelativeTimeFormat>();
+
+function cachedNumberFormat(locale: string, maximumFractionDigits: number): Intl.NumberFormat {
+  const key = `${locale}|${maximumFractionDigits}`;
+  let format = numberFormatCache.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat(locale, { maximumFractionDigits });
+    numberFormatCache.set(key, format);
+  }
+  return format;
+}
+
+function cachedDateTimeFormat(locale: string): Intl.DateTimeFormat {
+  let format = dateTimeFormatCache.get(locale);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" });
+    dateTimeFormatCache.set(locale, format);
+  }
+  return format;
+}
+
+function cachedRelativeTimeFormat(locale: string): Intl.RelativeTimeFormat {
+  let format = relativeTimeFormatCache.get(locale);
+  if (!format) {
+    format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+    relativeTimeFormatCache.set(locale, format);
+  }
+  return format;
+}
+
 export function formatBytes(bytes: number | null | undefined, locale: string): string {
   if (bytes == null) return "";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -7,17 +41,12 @@ export function formatBytes(bytes: number | null | undefined, locale: string): s
     value /= 1024;
     unitIndex += 1;
   }
-  return `${new Intl.NumberFormat(locale, {
-    maximumFractionDigits: unitIndex === 0 ? 0 : 1,
-  }).format(value)} ${units[unitIndex]}`;
+  return `${cachedNumberFormat(locale, unitIndex === 0 ? 0 : 1).format(value)} ${units[unitIndex]}`;
 }
 
 export function formatDate(value: Date | string, locale: string): string {
   const date = typeof value === "string" ? new Date(value) : value;
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return cachedDateTimeFormat(locale).format(date);
 }
 
 export function formatRelativeTime(
@@ -40,10 +69,7 @@ export function formatRelativeTime(
   let duration = seconds;
   for (const division of divisions) {
     if (Math.abs(duration) < division.amount) {
-      return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(
-        Math.round(duration),
-        division.unit,
-      );
+      return cachedRelativeTimeFormat(locale).format(Math.round(duration), division.unit);
     }
     duration /= division.amount;
   }
