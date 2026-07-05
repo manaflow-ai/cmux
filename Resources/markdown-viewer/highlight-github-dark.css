@@ -1,10 +1,6 @@
 pre code.hljs{display:block;overflow-x:auto;padding:1em}code.hljs{padding:3px 5px}/*!
-  Theme: GitHub Dark
-  Description: Dark theme as seen on github.com
-  Author: github.com
-  Maintainer: @Hirse
-  Updated: 2021-05-15
-
-  Outdated base version: https://github.com/primer/github-syntax-dark
-  Current colors taken from GitHub's CSS
-*/.hljs{color:#c9d1d9;background:#0d1117}.hljs-doctag,.hljs-keyword,.hljs-meta .hljs-keyword,.hljs-template-tag,.hljs-template-variable,.hljs-type,.hljs-variable.language_{color:#ff7b72}.hljs-title,.hljs-title.class_,.hljs-title.class_.inherited__,.hljs-title.function_{color:#d2a8ff}.hljs-attr,.hljs-attribute,.hljs-literal,.hljs-meta,.hljs-number,.hljs-operator,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-variable{color:#79c0ff}.hljs-meta .hljs-string,.hljs-regexp,.hljs-string{color:#a5d6ff}.hljs-built_in,.hljs-symbol{color:#ffa657}.hljs-code,.hljs-comment,.hljs-formula{color:#8b949e}.hljs-name,.hljs-quote,.hljs-selector-pseudo,.hljs-selector-tag{color:#7ee787}.hljs-subst{color:#c9d1d9}.hljs-section{color:#1f6feb;font-weight:700}.hljs-bullet{color:#f2cc60}.hljs-emphasis{color:#c9d1d9;font-style:italic}.hljs-strong{color:#c9d1d9;font-weight:700}.hljs-addition{color:#aff5b4;background-color:#033a16}.hljs-deletion{color:#ffdcd7;background-color:#67060c}
+  Theme: Linear (Dark)
+  Description: highlight.js theme from Linear's lch design tokens (canonical palette,
+  matches the Ghostty linear-dark theme). Variables inherit foreground; orange is
+  reserved for properties/attributes/keys per Linear's restrained highlighting.
+*/.hljs{color:#e5e6ef;background:#191a23}.hljs-code,.hljs-comment,.hljs-formula,.hljs-quote{color:#9d9ea6}.hljs-doctag,.hljs-keyword,.hljs-operator,.hljs-template-tag{color:#fa9ce3}.hljs-meta,.hljs-meta .hljs-keyword{color:#cc9dff}.hljs-literal{color:#8fa7ff}.hljs-built_in,.hljs-title.class_,.hljs-title.class_.inherited__,.hljs-type{color:#73d1fa}.hljs-meta .hljs-string,.hljs-string{color:#ffe09e}.hljs-regexp{color:#db5926}.hljs-name,.hljs-number,.hljs-selector-pseudo,.hljs-selector-tag,.hljs-subst,.hljs-title,.hljs-title.function_{color:#7fdede}.hljs-attr,.hljs-attribute,.hljs-bullet,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-symbol,.hljs-template-variable{color:#fac08a}.hljs-section{color:#fa9ce3;font-weight:700}.hljs-emphasis{color:#e5e6ef;font-style:italic}.hljs-strong{color:#e5e6ef;font-weight:700}.hljs-addition{color:#43bc58;background-color:#0c2b17}.hljs-deletion{color:#ff5c6c;background-color:#3a0d10}

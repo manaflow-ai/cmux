@@ -3861,50 +3861,55 @@ extension CMUXCLI {
     private func diffViewerDefaultThemeConfigContents(preferredColorScheme: DiffViewerColorScheme) -> String {
         switch preferredColorScheme {
         case .light:
+            // Linear Light — derived from Linear's lch design tokens (lch→sRGB via
+            // CSS Color 4). magenta=control-purple, bright magenta=keyword-pink,
+            // green=string, blue=type, cyan=function, yellow=property.
             return """
-            palette = 0=#1a1a1a
-            palette = 1=#cc372e
-            palette = 2=#26a439
-            palette = 3=#cdac08
-            palette = 4=#0869cb
-            palette = 5=#9647bf
-            palette = 6=#479ec2
-            palette = 7=#98989d
-            palette = 8=#464646
-            palette = 9=#ff453a
-            palette = 10=#32d74b
-            palette = 11=#e5bc00
-            palette = 12=#0a84ff
-            palette = 13=#bf5af2
-            palette = 14=#69c9f2
-            palette = 15=#ffffff
-            background = #feffff
-            foreground = #000000
-            selection-background = #abd8ff
-            selection-foreground = #000000
+            palette = 0=#303032
+            palette = 1=#e2253b
+            palette = 2=#008e09
+            palette = 3=#957100
+            palette = 4=#007fff
+            palette = 5=#8e54cb
+            palette = 6=#0093ba
+            palette = 7=#e4e4e4
+            palette = 8=#5e5e60
+            palette = 9=#f34e52
+            palette = 10=#27a644
+            palette = 11=#d8a900
+            palette = 12=#2bb7ff
+            palette = 13=#ce55b0
+            palette = 14=#00a2b6
+            palette = 15=#f9f9f9
+            background = #ffffff
+            foreground = #303032
+            selection-background = #edeef8
+            selection-foreground = #303032
             """
         case .dark:
+            // Linear Dark — derived from Linear's lch design tokens, mirroring the
+            // light theme's token→ANSI mapping for parity.
             return """
-            palette = 0=#1a1a1a
-            palette = 1=#cc372e
-            palette = 2=#26a439
-            palette = 3=#cdac08
-            palette = 4=#0869cb
-            palette = 5=#9647bf
-            palette = 6=#479ec2
-            palette = 7=#98989d
-            palette = 8=#464646
-            palette = 9=#ff453a
-            palette = 10=#32d74b
-            palette = 11=#ffd60a
-            palette = 12=#0a84ff
-            palette = 13=#bf5af2
-            palette = 14=#76d6ff
-            palette = 15=#ffffff
-            background = #1e1e1e
-            foreground = #ffffff
-            selection-background = #3f638b
-            selection-foreground = #ffffff
+            palette = 0=#343542
+            palette = 1=#f34e52
+            palette = 2=#27a644
+            palette = 3=#d8a900
+            palette = 4=#2bb7ff
+            palette = 5=#cc9dff
+            palette = 6=#00b8cc
+            palette = 7=#9d9ea6
+            palette = 8=#64646c
+            palette = 9=#ff6666
+            palette = 10=#43bc58
+            palette = 11=#ffcd00
+            palette = 12=#69dbff
+            palette = 13=#fa9ce3
+            palette = 14=#00cfe2
+            palette = 15=#e5e6ef
+            background = #191a23
+            foreground = #e5e6ef
+            selection-background = #2b2d4d
+            selection-foreground = #e5e6ef
             """
         }
     }

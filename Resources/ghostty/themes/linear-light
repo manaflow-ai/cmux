@@ -1,0 +1,38 @@
+# Linear Light — derived from Linear's lch design tokens
+# Install: copy to ~/.config/ghostty/themes/linear-light
+# then set `theme = linear-light` in your Ghostty config
+# Tip: `theme = light:linear-light,dark:linear-dark` follows system appearance
+
+background = #ffffff
+foreground = #303032
+
+cursor-color = #6d78d5
+cursor-text = #ffffff
+
+selection-background = #edeef8
+selection-foreground = #303032
+
+# black
+palette = 0=#303032
+palette = 8=#5e5e60
+# red
+palette = 1=#e2253b
+palette = 9=#f34e52
+# green
+palette = 2=#008e09
+palette = 10=#27a644
+# yellow
+palette = 3=#957100
+palette = 11=#d8a900
+# blue
+palette = 4=#007fff
+palette = 12=#2bb7ff
+# magenta
+palette = 5=#8e54cb
+palette = 13=#ce55b0
+# cyan
+palette = 6=#0093ba
+palette = 14=#00a2b6
+# white
+palette = 7=#e4e4e4
+palette = 15=#f9f9f9
