@@ -117,7 +117,7 @@ extension Workspace {
         case let agentSession as AgentSessionPanel:
             var surface = CmuxSurfaceDefinition(type: .terminal)
             surface.name = customName
-            surface.command = agentSession.currentProviderID.rawValue
+            surface.command = agentSession.currentProviderID.executableName
             surface.cwd = configCaptureSurfaceCwd(agentSession.workingDirectory, workspaceCwd: workspaceCwd)
             surface.focus = focus
             return surface
