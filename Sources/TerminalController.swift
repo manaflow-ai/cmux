@@ -3318,19 +3318,15 @@ class TerminalController {
         }
         // Per-hop timing: queue-wait (enqueue → body start) and body duration,
         // attributed to `commandKey` (or the innermost key pushed by
-        // `withSocketCommandPolicy` on this thread). One `wantsTiming`
-        // predicate gates ALL per-hop instrumentation: signpost emission and
-        // every clock read (including the body-start read taken on main). It
-        // is true while a tool records the `.dynamicTracing` signposts, and
-        // always in DEBUG so the accumulator can feed the slow-command log.
-        // When false, the hop is a bare main.sync with zero extra work.
+        // `withSocketCommandPolicy` on this thread). Timing is recorded while
+        // a tool records the `.dynamicTracing` signposts, and always in DEBUG
+        // so the accumulator can feed the slow-command log. In release with
+        // no tracer attached, the hop is a bare main.sync with zero extra
+        // work (the early return below; compiled out of DEBUG so the
+        // always-on DEBUG path does not leave it as dead code).
         let signpostingActive = Self.socketMainHopSignpostingActive
-#if DEBUG
-        let wantsTiming = true
-#else
-        let wantsTiming = signpostingActive
-#endif
-        guard wantsTiming else {
+#if !DEBUG
+        guard signpostingActive else {
             return DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     Self.withSocketCommandPolicyStack(policyStack) {
@@ -3339,6 +3335,7 @@ class TerminalController {
                 }
             }
         }
+#endif
         let signposter = Self.socketMainHopSignposter
         var signpostState: OSSignpostIntervalState?
         if signpostingActive {
