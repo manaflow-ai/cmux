@@ -42,6 +42,14 @@ struct TerminalScrollSpeedSettingsFileStoreTests {
         }
     }
 
+    @Test
+    func settingsFileStoreAppliesAutoTintSplitPanesSetting() throws {
+        try loadAutoTintSplitPanesSetting(false) { defaults in
+            #expect(defaults.object(forKey: TerminalSplitPaneTintSettings.autoTintSplitPanesKey) as? Bool == false)
+            #expect(!TerminalSplitPaneTintSettings().isEnabled(defaults: defaults))
+        }
+    }
+
     private func loadScrollSpeedSetting(_ value: Double, verify: (UserDefaults) throws -> Void) throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [
@@ -61,6 +69,40 @@ struct TerminalScrollSpeedSettingsFileStoreTests {
             {
               "terminal": {
                 "scrollSpeed": \(value)
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            try verify(defaults)
+        }
+    }
+
+    private func loadAutoTintSplitPanesSetting(_ value: Bool, verify: (UserDefaults) throws -> Void) throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalSplitPaneTintSettings.autoTintSplitPanesKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalSplitPaneTintSettings.autoTintSplitPanesKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "terminal": {
+                "autoTintSplitPanes": \(value)
               }
             }
             """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
