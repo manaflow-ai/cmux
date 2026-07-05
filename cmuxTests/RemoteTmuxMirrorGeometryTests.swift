@@ -322,6 +322,27 @@ import Testing
         #expect(abs(hFrames.paneFramesPt[2]!.minY - cellPt) < 0.6)
     }
 
+    /// A root LEAF can itself carry a leading title-row offset (the patched
+    /// single-pane visible tree under `pane-border-status top`: a zoomed
+    /// window, or a mirror whittled down to one pane). Those rows are tmux's
+    /// title row and must render as a strip — handing the full container to
+    /// the pane would shift content up under the header.
+    @Test func rootLeafReservesItsOwnTitleRowOffset() {
+        let geo = geometry
+        let cellPt = CGFloat(geo.cellHeightPx) / geo.scale
+        let container = CGSize(width: 400, height: 400)
+        let leaf = node(.pane(7), w: 40, h: 19, x: 0, y: 1)
+        let frames = geo.frames(layout: leaf, containerPt: container)
+        let strip = frames.dividersPt.first
+        #expect(strip != nil && abs(strip!.minY) < 0.001 && abs(strip!.height - cellPt) < 0.001,
+                "the leading offset must band as a full-width strip, got \(String(describing: strip))")
+        let pane = frames.paneFramesPt[7]!
+        #expect(abs(pane.minY - cellPt) < 0.001,
+                "the pane must sit below tmux's title row, got \(pane.minY)")
+        #expect(abs(pane.maxY - container.height) < 0.001,
+                "the pane keeps the remaining height, got \(pane.maxY)")
+    }
+
     /// list-panes rect patching: leaves take their REAL rects (the layout
     /// string's pre-title geometry replaced), splits keep string geometry,
     /// unknown panes stay untouched.
