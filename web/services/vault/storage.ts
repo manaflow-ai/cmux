@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { vaultConfig } from "./config";
+import { logVaultStorageError } from "./logging";
 
 type HeadObjectResult = {
   readonly contentLength: number | null;
@@ -61,35 +62,50 @@ function s3Client(): S3Client {
 export async function presignPut(key: string, contentLength: number): Promise<string> {
   const config = vaultConfig();
   if (!config.bucket) throw new Error("CMUX_VAULT_S3_BUCKET is required");
-  return await getSignedUrl(
-    s3Client(),
-    new PutObjectCommand({
-      Bucket: config.bucket,
-      Key: key,
-      ContentType: "application/zstd",
-      ContentLength: contentLength,
-    }),
-    { expiresIn: config.presignTtlSeconds },
-  );
+  try {
+    return await getSignedUrl(
+      s3Client(),
+      new PutObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+        ContentType: "application/zstd",
+        ContentLength: contentLength,
+      }),
+      { expiresIn: config.presignTtlSeconds },
+    );
+  } catch (error) {
+    logVaultStorageError("presign_put", key, error);
+    throw error;
+  }
 }
 
 export async function presignGet(key: string): Promise<string> {
   const config = vaultConfig();
   if (!config.bucket) throw new Error("CMUX_VAULT_S3_BUCKET is required");
-  return await getSignedUrl(
-    s3Client(),
-    new GetObjectCommand({
-      Bucket: config.bucket,
-      Key: key,
-    }),
-    { expiresIn: config.presignTtlSeconds },
-  );
+  try {
+    return await getSignedUrl(
+      s3Client(),
+      new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      }),
+      { expiresIn: config.presignTtlSeconds },
+    );
+  } catch (error) {
+    logVaultStorageError("presign_get", key, error);
+    throw error;
+  }
 }
 
 export async function deleteObject(key: string): Promise<void> {
   const config = vaultConfig();
   if (!config.bucket) throw new Error("CMUX_VAULT_S3_BUCKET is required");
-  await s3Client().send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
+  try {
+    await s3Client().send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
+  } catch (error) {
+    logVaultStorageError("delete_object", key, error);
+    throw error;
+  }
 }
 
 export async function headObject(key: string): Promise<HeadObjectResult | null> {
@@ -102,6 +118,7 @@ export async function headObject(key: string): Promise<HeadObjectResult | null> 
     const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
     const name = (error as { name?: string }).name;
     if (status === 404 || name === "NotFound" || name === "NoSuchKey") return null;
+    logVaultStorageError("head_object", key, error);
     throw error;
   }
 }

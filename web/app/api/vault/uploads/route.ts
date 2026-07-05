@@ -1,15 +1,17 @@
 import { and, eq, inArray, lt } from "drizzle-orm";
+import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../db/client";
 import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../db/schema";
-import { vaultConfig, isVaultConfigured } from "../../../../services/vault/config";
+import { vaultConfig } from "../../../../services/vault/config";
 import { buildObjectKey, deleteObject, presignPut } from "../../../../services/vault/storage";
 import {
   getVaultPendingGrantBytes,
   getVaultStoredCompressedBytes,
 } from "../../../../services/vault/usage";
+import { withAuthedVaultApiRoute } from "../../../../services/vault/routeHelpers";
 import { readVaultJsonObject, validateVaultBatch } from "../../../../services/vault/validation";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
-import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
+import { setSpanAttributes } from "../../../../services/telemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,16 +24,30 @@ const UPLOAD_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 const GRANT_GC_BATCH = 10;
 
 export async function POST(request: Request): Promise<Response> {
-  if (!isVaultConfigured()) return jsonResponse({ error: "vault_not_configured" }, 503);
-  const user = await verifyRequest(request, { allowCookie: false });
-  if (!user) return unauthorized();
+  return withAuthedVaultApiRoute(
+    request,
+    "/api/vault/uploads",
+    { "cmux.vault.operation": "uploads.presign" },
+    "/api/vault/uploads POST failed",
+    { allowCookie: false },
+    async ({ user, span }) => {
+      return handlePost(request, user.id, span);
+    },
+  );
+}
 
+async function handlePost(request: Request, userId: string, span: Span): Promise<Response> {
   const body = await readVaultJsonObject(request);
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   }
   const batch = validateVaultBatch(body.value);
   if (!batch.ok) return jsonResponse({ error: batch.error }, 400);
+  setSpanAttributes(span, {
+    "cmux.vault.item_count": batch.value.length,
+    "cmux.vault.raw_bytes": sumBatchRawBytes(batch.value),
+    "cmux.vault.compressed_bytes": sumBatchCompressedBytes(batch.value),
+  });
 
   const config = vaultConfig();
   const db = cloudDb();
@@ -46,11 +62,11 @@ export async function POST(request: Request): Promise<Response> {
   // re-added per item below, so retries are not double-counted. The commit
   // route re-checks, so previously issued URLs cannot bypass the quota either.
   const batchObjectKeys = batch.value.map((item) =>
-    buildObjectKey(user.id, item.agent, item.agentSessionId, item.sha256),
+    buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256),
   );
   let projectedUserBytes =
-    (await getVaultStoredCompressedBytes(db, user.id)) +
-    (await getVaultPendingGrantBytes(db, user.id, now, batchObjectKeys));
+    (await getVaultStoredCompressedBytes(db, userId)) +
+    (await getVaultPendingGrantBytes(db, userId, now, batchObjectKeys));
   const results = [];
   for (const item of batch.value) {
     // Per-item so one oversized transcript cannot block the rest of the batch.
@@ -85,7 +101,7 @@ export async function POST(request: Request): Promise<Response> {
       .from(vaultSessions)
       .where(
         and(
-          eq(vaultSessions.userId, user.id),
+          eq(vaultSessions.userId, userId),
           eq(vaultSessions.agent, item.agent),
           eq(vaultSessions.agentSessionId, item.agentSessionId),
         ),
@@ -110,11 +126,11 @@ export async function POST(request: Request): Promise<Response> {
       continue;
     }
 
-    const objectKey = buildObjectKey(user.id, item.agent, item.agentSessionId, item.sha256);
+    const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
     await db
       .insert(vaultUploadGrants)
       .values({
-        userId: user.id,
+        userId,
         objectKey,
         compressedSizeBytes: item.compressedSizeBytes,
         createdAt: now,
@@ -138,6 +154,12 @@ export async function POST(request: Request): Promise<Response> {
       putUrl: await presignPut(objectKey, item.compressedSizeBytes),
     });
   }
+  setSpanAttributes(span, {
+    "cmux.vault.result_count": results.length,
+    "cmux.vault.result.upload_count": countResultStatus(results, "upload"),
+    "cmux.vault.result.unchanged_count": countResultStatus(results, "unchanged"),
+    "cmux.vault.result.error_count": countResultStatus(results, "error"),
+  });
   return jsonResponse({ items: results });
 }
 
@@ -174,10 +196,21 @@ async function gcExpiredGrants(db: ReturnType<typeof cloudDb>, now: Date): Promi
       try {
         await deleteObject(grant.objectKey);
       } catch (error) {
-        console.error("vault: failed to GC uncommitted object", grant.objectKey, error);
         continue;
       }
     }
     await db.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
   }
+}
+
+function sumBatchRawBytes(items: readonly { sizeBytes: number }[]): number {
+  return items.reduce((total, item) => total + item.sizeBytes, 0);
+}
+
+function sumBatchCompressedBytes(items: readonly { compressedSizeBytes: number }[]): number {
+  return items.reduce((total, item) => total + item.compressedSizeBytes, 0);
+}
+
+function countResultStatus(items: readonly { status: string }[], status: string): number {
+  return items.filter((item) => item.status === status).length;
 }

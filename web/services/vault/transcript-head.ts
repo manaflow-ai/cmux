@@ -3,6 +3,7 @@ import {
   TranscriptLineParser,
   type TranscriptMessage,
 } from "@/services/vault/transcript";
+import { logVaultStorageError } from "@/services/vault/logging";
 
 export const TRANSCRIPT_HEAD_MESSAGE_LIMIT = 500;
 export const TRANSCRIPT_HEAD_DECOMPRESSED_BYTE_LIMIT = 2 * 1024 * 1024;
@@ -16,6 +17,7 @@ export type TranscriptHeadBatch = {
 export type TranscriptHeadBatchOptions = {
   readonly maxMessages?: number;
   readonly maxDecompressedBytes?: number;
+  readonly objectKey?: string;
 };
 
 const STOP_TRANSCRIPT_HEAD = Symbol("stop-transcript-head");
@@ -24,8 +26,19 @@ export async function fetchTranscriptHeadBatch(
   url: string,
   options: TranscriptHeadBatchOptions = {},
 ): Promise<TranscriptHeadBatch> {
-  const response = await fetch(url, { cache: "no-store" });
+  let response: Response;
+  try {
+    response = await fetch(url, { cache: "no-store" });
+  } catch (error) {
+    logVaultStorageError("transcript_head_fetch", options.objectKey ?? "unknown", error);
+    throw error;
+  }
   if (!response.ok || !response.body) {
+    logVaultStorageError(
+      "transcript_head_fetch",
+      options.objectKey ?? "unknown",
+      new Error(`transcript head fetch failed with HTTP ${response.status}`),
+    );
     throw new Error("transcript_head_fetch_failed");
   }
   return readTranscriptHeadBatch(response.body, options);

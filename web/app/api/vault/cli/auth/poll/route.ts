@@ -4,8 +4,9 @@ import {
   drizzleCliAuthRepository,
   type CliAuthTokens,
 } from "../../../../../../services/vault/cliAuth";
-import { isVaultConfigured } from "../../../../../../services/vault/config";
+import { withVaultApiRoute } from "../../../../../../services/vault/routeHelpers";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
+import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 import { getStackServerApp } from "../../../../../lib/stack";
 
@@ -27,23 +28,36 @@ async function mintStackTokens(userId: string): Promise<CliAuthTokens | null> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  if (!isVaultConfigured()) return jsonResponse({ error: "vault_not_configured" }, 503);
-  const body = await readVaultJsonObject(request);
-  if (!body.ok) {
-    return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
-  }
-  const deviceCode = typeof body.value.deviceCode === "string" ? body.value.deviceCode.trim() : "";
-  if (!/^[a-f0-9]{64}$/i.test(deviceCode)) {
-    return jsonResponse({ status: "expired" });
-  }
+  return withVaultApiRoute(
+    request,
+    "/api/vault/cli/auth/poll",
+    { "cmux.vault.operation": "cli_auth.poll" },
+    "/api/vault/cli/auth/poll POST failed",
+    async ({ span }) => {
+      const body = await readVaultJsonObject(request);
+      if (!body.ok) {
+        return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+      }
+      const deviceCode = typeof body.value.deviceCode === "string" ? body.value.deviceCode.trim() : "";
+      if (!/^[a-f0-9]{64}$/i.test(deviceCode)) {
+        setSpanAttributes(span, {
+          "cmux.vault.cli_auth.device_code_valid": false,
+          "cmux.vault.cli_auth.result_status": "expired",
+        });
+        return jsonResponse({ status: "expired" });
+      }
+      setSpanAttributes(span, { "cmux.vault.cli_auth.device_code_valid": true });
 
-  const deviceCodeHash = createHash("sha256").update(deviceCode).digest("hex");
-  const result = await claimCliAuthTokens(
-    drizzleCliAuthRepository(),
-    mintStackTokens,
-    deviceCodeHash,
-    new Date(),
+      const deviceCodeHash = createHash("sha256").update(deviceCode).digest("hex");
+      const result = await claimCliAuthTokens(
+        drizzleCliAuthRepository(),
+        mintStackTokens,
+        deviceCodeHash,
+        new Date(),
+      );
+      setSpanAttributes(span, { "cmux.vault.cli_auth.result_status": result.status });
+
+      return jsonResponse(result);
+    },
   );
-
-  return jsonResponse(result);
 }

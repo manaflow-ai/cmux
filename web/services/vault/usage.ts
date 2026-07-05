@@ -1,6 +1,7 @@
 import { and, eq, gt, notInArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
 import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schema";
+import { logVaultQuotaError } from "./logging";
 
 type VaultDb = ReturnType<typeof cloudDb>;
 
@@ -15,14 +16,19 @@ export async function getVaultStoredCompressedBytes(
   db: VaultDb,
   userId: string,
 ): Promise<number> {
-  const [row] = await db
-    .select({
-      total: sql<number>`coalesce(sum(${vaultSnapshots.compressedSizeBytes}), 0)::double precision`,
-    })
-    .from(vaultSnapshots)
-    .innerJoin(vaultSessions, eq(vaultSnapshots.sessionId, vaultSessions.id))
-    .where(eq(vaultSessions.userId, userId));
-  return row?.total ?? 0;
+  try {
+    const [row] = await db
+      .select({
+        total: sql<number>`coalesce(sum(${vaultSnapshots.compressedSizeBytes}), 0)::double precision`,
+      })
+      .from(vaultSnapshots)
+      .innerJoin(vaultSessions, eq(vaultSnapshots.sessionId, vaultSessions.id))
+      .where(eq(vaultSessions.userId, userId));
+    return row?.total ?? 0;
+  } catch (error) {
+    logVaultQuotaError("get_stored_compressed_bytes", error);
+    throw error;
+  }
 }
 
 /**
@@ -48,11 +54,16 @@ export async function getVaultPendingGrantBytes(
   if (excludeObjectKeys.length > 0) {
     conditions.push(notInArray(vaultUploadGrants.objectKey, [...excludeObjectKeys]));
   }
-  const [row] = await db
-    .select({
-      total: sql<number>`coalesce(sum(${vaultUploadGrants.compressedSizeBytes}), 0)::double precision`,
-    })
-    .from(vaultUploadGrants)
-    .where(and(...conditions));
-  return row?.total ?? 0;
+  try {
+    const [row] = await db
+      .select({
+        total: sql<number>`coalesce(sum(${vaultUploadGrants.compressedSizeBytes}), 0)::double precision`,
+      })
+      .from(vaultUploadGrants)
+      .where(and(...conditions));
+    return row?.total ?? 0;
+  } catch (error) {
+    logVaultQuotaError("get_pending_grant_bytes", error);
+    throw error;
+  }
 }
