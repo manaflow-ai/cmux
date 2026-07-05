@@ -61,10 +61,23 @@ actor AIAccountsClient {
     }
 
     func remove(id accountID: String, teamID: String?) async throws -> [String: Any] {
-        let escaped = accountID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? accountID
+        let escaped = try pathSegment(accountID, fieldName: "account id")
         let (data, http) = try await request("DELETE", path: "/api/subrouter/accounts/\(escaped)", teamID: teamID)
         try ensureOK(http, data: data)
         return try decodeJSONObject(data)
+    }
+
+    /// Percent-encode a caller-provided value as a single URL path segment.
+    /// `.urlPathAllowed` permits `/`, so ids from socket/CLI params could
+    /// otherwise inject extra path components into the request URL.
+    private func pathSegment(_ value: String, fieldName: String) throws -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed),
+              !encoded.isEmpty else {
+            throw AIAccountsClientError.malformedResponse("invalid \(fieldName)")
+        }
+        return encoded
     }
 
     private func request(
@@ -83,14 +96,14 @@ actor AIAccountsClient {
         let resolvedTeamID = await auth.resolvedTeamID
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
-            throw AIAccountsClientError.malformedResponse("bad vmAPIBaseURL")
+            throw AIAccountsClientError.malformedResponse("the cmux backend URL is misconfigured")
         }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + path
         if !queryItems.isEmpty {
             comps.queryItems = queryItems
         }
         guard let url = comps.url else {
-            throw AIAccountsClientError.malformedResponse("could not build URL for \(path)")
+            throw AIAccountsClientError.malformedResponse("could not build the request URL")
         }
 
         var req = URLRequest(url: url)
@@ -136,7 +149,7 @@ actor AIAccountsClient {
     private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
         let parsed = try JSONSerialization.jsonObject(with: data, options: [])
         guard let obj = parsed as? [String: Any] else {
-            throw AIAccountsClientError.malformedResponse("expected JSON object, got \(type(of: parsed))")
+            throw AIAccountsClientError.malformedResponse("expected a JSON object")
         }
         return obj
     }

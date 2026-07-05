@@ -17,8 +17,9 @@ extension CMUXCLI {
 
           cmux ai-accounts upload <claude|codex|anthropic-key|openai-key> [--label <s>] [--key <s>] [--team <id>] [--validate] [--json]
               Upload credentials. Claude and Codex OAuth files are read by the
-              cmux app. API-key providers use --key, or the app environment's
-              ANTHROPIC_API_KEY / OPENAI_API_KEY when --key is omitted.
+              cmux app. API-key providers read ANTHROPIC_API_KEY / OPENAI_API_KEY
+              from your shell environment; --key overrides but exposes the
+              secret in shell history and process listings.
 
           cmux ai-accounts remove <account-id> [--team <id>] [--json]
               Delete an uploaded AI account.
@@ -26,7 +27,7 @@ extension CMUXCLI {
         Examples:
           cmux ai-accounts list
           cmux ai-accounts upload claude --label work
-          cmux ai-accounts upload anthropic-key --key sk-ant-...
+          ANTHROPIC_API_KEY=... cmux ai-accounts upload anthropic-key
           cmux ai-accounts remove acct_123
         """
 
@@ -199,7 +200,20 @@ extension CMUXCLI {
             }
             var params: [String: Any] = ["provider": normalizedProvider]
             if let labelOpt, !labelOpt.isEmpty { params["label"] = labelOpt }
-            if let keyOpt, !keyOpt.isEmpty { params["key"] = keyOpt }
+            if let keyOpt, !keyOpt.isEmpty {
+                params["key"] = keyOpt
+            } else if normalizedProvider == "anthropic-key" || normalizedProvider == "openai-key" {
+                // Read the invoking shell's environment here in the CLI process.
+                // The app-side fallback reads the app's environment, which never
+                // carries the user's shell key; without this the docs' env-var
+                // path silently does nothing and pushes users to `--key` argv,
+                // which leaks secrets into shell history and process listings.
+                let envKeyName = normalizedProvider == "anthropic-key" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"
+                if let envKey = ProcessInfo.processInfo.environment[envKeyName]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !envKey.isEmpty {
+                    params["key"] = envKey
+                }
+            }
             if let teamOpt, !teamOpt.isEmpty { params["teamId"] = teamOpt }
             if validate { params["validate"] = true }
             let response = try client.sendV2(method: "aiAccounts.upload", params: params)
