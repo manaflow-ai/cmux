@@ -420,6 +420,11 @@ Formas de participar:
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> Escanea el código QR para unirte a la comunidad.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="Código QR de WeChat para unirte a la comunidad de cmux" width="240" />
+</p>
+
 ## Founder's Edition
 
 cmux es gratuito, de código abierto, y siempre lo será. Si deseas apoyar el desarrollo y obtener acceso anticipado a lo que viene:

@@ -6,6 +6,7 @@ import * as ts from "typescript";
 import {
   flatNavItems,
   navItems,
+  navItemsForLocale,
 } from "../app/[locale]/components/docs-nav-items";
 import { changelogMedia } from "../app/[locale]/docs/changelog/changelog-media";
 import { routing } from "../i18n/routing";
@@ -53,9 +54,8 @@ const docsPageMessageKeys = {
 };
 
 export function docsSearchRoutes() {
-  const links = flatNavItems(navItems);
   return routing.locales.flatMap((locale) =>
-    links.map((navItem) => ({
+    flatNavItems(navItemsForLocale(locale)).map((navItem) => ({
       locale,
       navItem,
       href: navItem.href,

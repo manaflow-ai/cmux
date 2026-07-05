@@ -109,7 +109,7 @@
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
     "faqPlatformQ": "What platforms does it support?",
-    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app.",
+    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app. <waitlist>Join the waitlist</waitlist> to hear when Linux, Windows, and Android are ready.",
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
@@ -466,7 +466,20 @@
         "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
         "p2": "Open it from the CLI:",
         "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
-        "p4": "Requires cmux v0.64.4+."
+        "p4": "Requires cmux v0.64.4+.",
+        "workflowTitle": "A workflow for noisy agent runs",
+        "workflowOpen": "Open Task Manager when fans spin up, a workspace gets sluggish, or an agent appears stuck.",
+        "workflowScan": "Scan the live process list for the workspace, pane, surface, agent, or browser webview using the most CPU or memory.",
+        "workflowJump": "Jump from the manager back to the matching surface so you can inspect the actual process context.",
+        "workflowAct": "Stop, restart, or split the problematic task with the same information the operating system would show, scoped to cmux.",
+        "useTitle": "When it helps",
+        "useP": "Task Manager is most useful when several Claude Code, Codex, OpenCode, or browser panes are running at once and Activity Monitor cannot tell you which workspace owns the load.",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "Does it identify coding agents?",
+        "faqAgentsBody": "Yes. cmux attributes known agent processes to the workspace and surface where they are running so the resource view matches your sidebar layout.",
+        "faqCliTitle": "Can I use it without opening the window?",
+        "faqCliBody": "Yes. Run cmux top for a terminal snapshot when you want the same information in scripts, SSH sessions, or a plain shell.",
+        "docsCta": "Read the <link>Task Manager docs</link> for the command, window entrypoint, and recommended troubleshooting flow."
       },
       "sessionRestore": {
         "title": "Session restore in cmux",
@@ -489,6 +502,16 @@
         "implementationP2": "Agent hooks write session mappings under ~/.cmuxterm. On restore, cmux rebuilds the UI first. If automatic agent resume is enabled, it launches each supported agent with that agent's native resume command and the saved session ID.",
         "limitsTitle": "What stays out of scope",
         "limitsP": "tmux, vim, shells, and unsupported tools reopen as normal terminals unless they have a cmux integration that records a safe native resume command. That keeps restore predictable and avoids replaying stale prompts or secrets.",
+        "workflowTitle": "Recommended setup",
+        "workflowInstall": "Install the agent CLI you use, then run cmux hooks setup so cmux can capture native session IDs.",
+        "workflowWork": "Run agents in normal cmux terminals. The hooks record the session ID, cwd, workspace, and surface as work happens.",
+        "workflowRelaunch": "After a relaunch, cmux rebuilds the window and pane tree before starting any saved agent resume commands.",
+        "workflowVerify": "Check that the restored agent is continuing the same upstream session, then keep working in the same workspace.",
+        "faqTitle": "FAQ",
+        "faqCrashTitle": "Does this recover after a crash?",
+        "faqCrashBody": "It recovers app-owned layout and supported agent sessions from the last saved snapshot. It cannot recover arbitrary process memory that the agent or shell never exposed through a resume API.",
+        "faqTmuxTitle": "Should I still use tmux?",
+        "faqTmuxBody": "Use tmux when you need tmux semantics on a remote host. Use cmux session restore when you want app layout, browser state, and supported agent resume to come back together.",
         "docsCta": "Read the <link>session restore docs</link> for setup commands, supported agents, and troubleshooting."
       },
       "cmuxClaudeTeams": {
@@ -517,7 +540,16 @@
         "summary": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
         "date": "March 30, 2026",
         "p1": "<code>cmux ssh user@remote</code> creates a workspace for the remote machine. Drag an image into a remote Claude Code session and it gets uploaded automatically. Browser panes route through the remote network, so localhost just works. Uses your <code>~/.ssh/config</code>, reconnects on drops.",
-        "features": "Browser panes route traffic through the remote network, so localhost:3000 reaches the remote dev server without -L flags. Coding agents on the remote box send notifications to your local sidebar. cmux claude-teams and cmux omo work over SSH, spawning teammate panes locally while computation runs remote. Drag a file into a remote terminal to upload via scp. The sidebar shows connection state and detected listening ports."
+        "workflowTitle": "A remote development workflow",
+        "workflowConnect": "Connect with cmux ssh and let cmux create a dedicated workspace for the remote host.",
+        "workflowPreview": "Open a browser pane next to the terminal and use localhost URLs as if the dev server were local.",
+        "workflowNotify": "Run Claude Code, Codex, OpenCode, or another agent on the remote machine and let cmux route notifications back to your Mac.",
+        "workflowUpload": "Drag files or images into the remote terminal when the agent needs local context or test fixtures.",
+        "faqTitle": "FAQ",
+        "faqPortTitle": "Do I still need ssh -L for localhost?",
+        "faqPortBody": "Usually no. Browser panes inside the remote workspace route HTTP and WebSocket traffic through the remote machine, so local preview URLs resolve from the remote host.",
+        "faqConfigTitle": "Does it use my existing SSH config?",
+        "faqConfigBody": "Yes. cmux reads ~/.ssh/config for aliases, identity files, proxy settings, and host options, then adds cmux-specific routing and reconnect behavior."
       },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
@@ -592,7 +624,20 @@
         "p1": "cmux now has a Vault pane in the right sidebar for old agent sessions.",
         "p2": "It indexes Codex, Claude Code, OpenCode, and Pi sessions, with full-text search across transcripts.",
         "p3": "Drag a session from Vault into a workspace to reopen it where you are working.",
-        "p4": "Requires cmux v0.64+."
+        "p4": "Requires cmux v0.64+.",
+        "workflowTitle": "A workflow for finding old agent work",
+        "workflowOpen": "Open Vault from the right sidebar when you remember the task but not the workspace or date.",
+        "workflowSearch": "Search for a filename, issue title, error message, branch name, or phrase from the agent transcript.",
+        "workflowDrag": "Drag the matching session into the active workspace so it reopens beside the code you are touching now.",
+        "workflowContinue": "Continue from the recovered context instead of asking a fresh agent to rediscover the same state.",
+        "useTitle": "When Vault beats terminal history",
+        "useP": "Shell history tells you what command started an agent. Vault searches what the agent actually discussed, changed, and reported, which is closer to how developers remember old work.",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "Which sessions are indexed?",
+        "faqAgentsBody": "Vault indexes supported Codex, Claude Code, OpenCode, and Pi sessions when cmux can read their local session records.",
+        "faqRestoreTitle": "Is Vault the same as session restore?",
+        "faqRestoreBody": "No. Session restore brings back the current app layout after relaunch. Vault is for searching older agent sessions and reopening one on demand.",
+        "docsCta": "Read the <link>Vault docs</link> for indexed agents, search workflow, and restore limits."
       },
       "markdownViewer": {
         "title": "A better markdown viewer in cmux",
@@ -845,6 +890,50 @@
       "underHoodItemResume": "On restore, cmux rebuilds windows and panes first. If automatic agent resume is enabled, it launches a one-shot shell command that runs the agent's native resume command with the saved session ID.",
       "underHoodMore": "The regular <configLink>configuration docs</configLink> cover cmux.json. Session restore keeps app layout separate from Ghostty terminal rendering settings."
     },
+    "vault": {
+      "title": "Vault",
+      "metaTitle": "Vault",
+      "metaDescription": "Search old Codex, Claude Code, OpenCode, and Pi sessions in cmux Vault, then reopen a session in the workspace where you need it.",
+      "intro": "Vault is a right-sidebar pane for finding old AI coding agent sessions by transcript content instead of by terminal history.",
+      "indexesTitle": "What Vault indexes",
+      "indexesDesc": "Vault reads local session records from supported agents and makes their transcripts searchable inside cmux.",
+      "indexCodex": "Codex sessions",
+      "indexClaude": "Claude Code sessions",
+      "indexOpenCode": "OpenCode sessions",
+      "indexPi": "Pi sessions",
+      "workflowTitle": "Workflow",
+      "workflowOpen": "Open Vault from the right sidebar.",
+      "workflowSearch": "Search for a file, branch, issue title, error message, or phrase from the conversation.",
+      "workflowDrag": "Drag a matching session into the current workspace.",
+      "workflowContinue": "Resume from the recovered context beside the code or browser pane you are using now.",
+      "useTitle": "When to use Vault",
+      "useDesc": "Use Vault when you remember what an agent worked on but not which workspace, date, or shell command started it. It is built for rediscovering prior agent context, not for restoring the current app layout after relaunch.",
+      "limitsTitle": "Limits",
+      "limitsDesc": "Vault can only index session formats that cmux knows how to read on the local machine. It does not search private remote hosts unless those sessions are available to the local cmux installation.",
+      "blogCta": "Read the <link>Vault feature story</link> for a workflow-oriented overview."
+    },
+    "taskManager": {
+      "title": "Task Manager",
+      "metaTitle": "Task Manager",
+      "metaDescription": "Use cmux Task Manager or cmux top to find high CPU and RAM usage from coding agents, terminal processes, and browser panes.",
+      "intro": "Task Manager shows resource usage for cmux windows, workspaces, panes, terminal processes, coding agents, and browser webviews.",
+      "openTitle": "Open Task Manager",
+      "openDesc": "Run the CLI command from any cmux terminal:",
+      "paletteDesc": "You can also press Cmd+Shift+P and choose Task Manager from the command palette.",
+      "showsTitle": "What it shows",
+      "showsWindows": "Windows, workspaces, panes, and surfaces",
+      "showsWorkspaces": "Workspace ownership for terminal and browser activity",
+      "showsAgents": "Known coding agent processes such as Claude Code, Codex, and OpenCode",
+      "showsBrowsers": "Browser webviews and related helper processes",
+      "workflowTitle": "Troubleshooting workflow",
+      "workflowOpen": "Open Task Manager when cmux feels slow, fans spin up, or an agent appears stuck.",
+      "workflowSort": "Sort or scan for the process using the most CPU or memory.",
+      "workflowJump": "Jump back to the owning workspace or surface.",
+      "workflowFix": "Stop, restart, or split the overloaded process with the right context visible.",
+      "useTitle": "When to use it",
+      "useDesc": "Use Task Manager when Activity Monitor shows load from cmux but does not identify the responsible workspace, agent, or browser pane.",
+      "blogCta": "Read the <link>Task Manager feature story</link> for the workflow and launch context."
+    },
     "concepts": {
       "title": "Concepts",
       "metaTitle": "Concepts",
@@ -984,6 +1073,8 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
+        "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
@@ -1017,7 +1108,10 @@
           "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+          "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
+          "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",
+          "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
+          "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
@@ -1054,7 +1148,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         }
       },
@@ -1762,6 +1856,8 @@
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
+      "vault": "Vault",
+      "taskManager": "Task Manager",
       "customCommands": "Custom Commands",
       "keyboardShortcuts": "Keyboard Shortcuts",
       "apiReference": "CLI Reference",
@@ -2035,9 +2131,9 @@
       "kittyBuiltFor": "Fast, scriptable, feature-rich",
       "weztermBuiltFor": "GPU terminal with a built-in multiplexer",
       "tmuxBuiltFor": "Multiplexing inside any terminal",
-      "cmuxBody": "A native macOS terminal built on libghostty, built for three things: multitasking, organization, and programmability. The vertical sidebar groups work into workspaces, each showing its git branch, directory, ports, and the latest line of agent output, so you can run many things at once without losing track. Panes ring when an agent needs attention. Every action is scriptable through a CLI and a Unix socket, and there is an in-app browser you can drive programmatically. There is even an iOS companion app to check on your terminals from your phone. Best if you juggle several tasks or AI coding agents and want them organized and automatable without a multiplexer config.",
+      "cmuxBody": "cmux is a native macOS terminal built on Ghostty's terminal engine, libghostty. That means the terminal grid inherits Ghostty's strengths: fast GPU rendering, excellent font and color rendering, modern terminal compatibility, and your existing Ghostty themes, fonts, colors, and cursor settings. cmux adds the layer Ghostty intentionally does not try to be: vertical workspaces, split panes, notification rings, git/port/agent context in the sidebar, a scriptable CLI and Unix socket, a programmable browser, and an iOS companion. Pick cmux when you want Ghostty-quality terminal rendering plus organization and automation for many tasks or AI coding agents.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "The fast, GPU-accelerated terminal whose engine, libghostty, powers cmux. If you want a single clean terminal window with excellent rendering and none of the workspace or automation layer, Ghostty is excellent on its own.",
+      "ghosttyBody": "Ghostty is the fast, native terminal whose engine, libghostty, powers cmux. Compared with older CPU-rendered terminals and heavier Electron-style terminals, Ghostty's strengths are low-latency GPU rendering, crisp font and color handling, strong terminal compatibility, simple file-based configuration, and no cloud account requirement. If you want one clean terminal window with those rendering advantages and no workspace or automation layer, Ghostty is excellent on its own. If you want those same Ghostty rendering advantages plus workspaces, notifications, scripting, and agent orchestration, use cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "The mature, endlessly configurable macOS terminal. Deep profiles, triggers, and tmux integration. The safe default if you want maximum features and are not orchestrating many tasks at once.",
       "warpTitle": "Warp",
