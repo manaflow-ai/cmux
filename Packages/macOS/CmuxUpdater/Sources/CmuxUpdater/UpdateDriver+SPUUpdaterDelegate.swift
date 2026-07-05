@@ -18,8 +18,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         // The feed URL is baked into Info.plist at build time:
         // - Stable releases use the stable appcast URL
         // - cmux NIGHTLY has the nightly appcast URL injected by CI
-        let infoFeedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL)
+        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider())
         log.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
         return resolved.url
@@ -58,6 +57,25 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        handleDidFindValidUpdate(item)
+    }
+
+    /// Records a background-detected available update — unless this is a DEV/staging build, in
+    /// which case any detected update is cleared so the public appcast's pill never appears.
+    ///
+    /// Extracted from the ``SPUUpdaterDelegate`` callback (which carries an `SPUUpdater` that is
+    /// awkward to construct) so the dev/staging gate is unit-testable directly from an
+    /// ``UpdateStateModel`` and an `SUAppcastItem`.
+    func handleDidFindValidUpdate(_ item: SUAppcastItem) {
+        if isDevLikeBundle {
+            // DEV/staging builds are not on the public release train. ``UpdateController`` already
+            // gates every known path (automatic checks, the launch/background probe, and manual
+            // checks), so this is the last-line defense: if any update is ever found for one of
+            // these builds, clear it rather than surfacing the pill (#6292).
+            model.clearDetectedUpdate()
+            log.append("ignoring update for dev/staging build: \(item.displayVersionString)")
+            return
+        }
         model.recordDetectedUpdate(item)
         let version = item.displayVersionString
         let fileURL = item.fileURL?.absoluteString ?? ""
