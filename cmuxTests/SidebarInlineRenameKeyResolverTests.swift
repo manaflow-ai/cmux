@@ -74,6 +74,26 @@ import Testing
         #expect(editor.hasMarkedText())
     }
 
+    @Test func coordinatorEnterCommitsLiveFieldEditorText() {
+        var committed: String?
+        let coordinator = SidebarInlineRenameCoordinator(
+            onCommit: { committed = $0 },
+            onCancel: {}
+        )
+        let field = NSTextField(string: "stale")
+        let editor = NSTextView()
+        editor.string = "live draft"
+
+        let handled = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        #expect(handled)
+        #expect(committed == "live draft")
+    }
+
     @Test func textFieldAppliesDrivenTextColor() {
         let field = SidebarInlineRenameTextField(string: "compose")
         let color = NSColor(calibratedRed: 0.25, green: 0.5, blue: 0.75, alpha: 1.0)
