@@ -271,11 +271,20 @@ function appPricingBanner(
       action: { href: "/api/billing/confirm", label: pricing.welcomePendingAction },
     };
   }
+  if (welcome === "team") {
+    return { message: pricing.welcomeTeam };
+  }
   if (billing === "error") {
     return { message: pricing.billingError };
   }
   if (billing === "unavailable") {
     return { message: pricing.billingUnavailable };
+  }
+  if (billing === "cancelled") {
+    return { message: pricing.billingCancelled };
+  }
+  if (billing === "invalid_plan") {
+    return { message: pricing.billingInvalidPlan };
   }
   return null;
 }

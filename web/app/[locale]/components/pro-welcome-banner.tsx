@@ -19,11 +19,17 @@ export function ProWelcomeBanner() {
         ? t("welcomeActive")
         : welcome === "pending"
           ? t("welcomePending")
-          : billing === "error"
-            ? t("billingError")
-            : billing === "unavailable"
-              ? t("billingUnavailable")
-              : null;
+          : welcome === "team"
+            ? t("welcomeTeam")
+            : billing === "error"
+              ? t("billingError")
+              : billing === "unavailable"
+                ? t("billingUnavailable")
+                : billing === "cancelled"
+                  ? t("billingCancelled")
+                  : billing === "invalid_plan"
+                    ? t("billingInvalidPlan")
+                    : null;
   if (!message) return null;
 
   return (

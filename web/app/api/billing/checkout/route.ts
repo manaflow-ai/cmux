@@ -120,9 +120,18 @@ async function legacyStackCheckout(
       returnUrl,
     });
   } catch (error) {
+    // "Already granted" error text is only a hint — re-read the authoritative
+    // subscription state before treating the buyer as Pro, so a lookalike
+    // error message can never mint an entitlement.
     if (plan === "pro" && isAlreadyGrantedError(error)) {
-      await syncProPlanMetadata(user, true);
-      return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
+      if (await hasActiveProSubscription(user)) {
+        await syncProPlanMetadata(user, true);
+        return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
+      }
+      // Stack refused the checkout as already-granted but the products read
+      // does not show Pro yet (replication lag). The confirm route's bounded
+      // poll settles it and syncs metadata from the verified state.
+      return NextResponse.redirect(new URL("/api/billing/confirm", request.url));
     }
     // return_url must be on a domain the Stack project trusts; previews and
     // local dev ports may not be. The purchase still works without it — the

@@ -113,11 +113,13 @@ export async function POST(request: Request) {
         return jsonError("Failed to email enterprise request", 502);
       }
 
+      // The lead email is already sent — a transient Slack failure must not
+      // surface as a form error, or the user resubmits and founders@ gets
+      // duplicate leads. Degrade like the PostHog capture below.
       const slackResult = await notifySlack(config.slackWebhookUrl, lead);
       if (!slackResult.ok) {
         recordSpanError(span, slackResult.error);
         console.error("enterprise.contact.slack_failed", slackResult.error);
-        return jsonError("Failed to notify Slack", 502);
       }
 
       const posthogResult = await capturePostHog(lead);
@@ -130,7 +132,11 @@ export async function POST(request: Request) {
         {
           ok: true,
           email: "sent",
-          slack: slackResult.skipped ? "skipped" : "sent",
+          slack: !slackResult.ok
+            ? "failed"
+            : slackResult.skipped
+              ? "skipped"
+              : "sent",
           posthog: posthogResult.ok ? "sent" : "failed",
         },
         { headers: { "Cache-Control": "no-store" } },

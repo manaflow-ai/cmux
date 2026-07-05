@@ -241,13 +241,16 @@ export async function POST(request: Request): Promise<Response> {
         // Read-time reconcile: a Pro purchase that never hit
         // /api/billing/confirm, or a lapsed subscription, is corrected here
         // right before paid limits apply. Best-effort — billing reads must
-        // not block VM creation.
+        // not block VM creation, so the whole reconcile races a hard
+        // deadline and VM create proceeds with current metadata on timeout.
         try {
           if (isStackConfigured()) {
-            const changed = await measureVmAsync(timing, "billing_reconcile", async () => {
-              const serverUser = await getStackServerApp().getUser(user.id);
-              return serverUser ? reconcileProPlanMetadata(serverUser) : false;
-            });
+            const changed = await withBillingReconcileDeadline(
+              measureVmAsync(timing, "billing_reconcile", async () => {
+                const serverUser = await getStackServerApp().getUser(user.id);
+                return serverUser ? reconcileProPlanMetadata(serverUser) : false;
+              })
+            );
             if (changed) {
               const reconciledUser = await measureVmAsync(timing, "auth", () =>
                 verifyRequest(request, { requestedTeamId: requestedBillingTeamId })
@@ -350,6 +353,31 @@ export async function POST(request: Request): Promise<Response> {
       }
     },
   );
+}
+
+// Upper bound on how long VM creation waits for the best-effort billing
+// reconcile (Stack product pages + Stripe subscription lookup). On timeout
+// the reconcile keeps running in the background (its result is logged, not
+// awaited) and VM create proceeds with the user's current plan metadata.
+const BILLING_RECONCILE_DEADLINE_MS = 5_000;
+
+async function withBillingReconcileDeadline(
+  reconcile: Promise<boolean>
+): Promise<boolean> {
+  // Late failures land here instead of surfacing as unhandled rejections.
+  const guarded = reconcile.catch((err) => {
+    console.error("[VM] Pro plan reconcile failed", err);
+    return false;
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), BILLING_RECONCILE_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([guarded, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function invalidTeamIdResponse(): Response {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stackServerApp } from "../../../lib/stack";
 import {
   hasActiveProSubscription,
+  resolveProPlanStatus,
   syncProPlanMetadata,
 } from "../../../../services/billing/pro";
 
@@ -41,7 +42,17 @@ export async function GET(request: NextRequest) {
     if (isPro) break;
   }
 
-  await syncProPlanMetadata(user, isPro);
+  if (isPro) {
+    await syncProPlanMetadata(user, true);
+  } else {
+    // The Stack poll saw no Pro product. Resolve the full plan status
+    // (Stack products + Stripe subscriptions) before touching metadata so a
+    // Stripe-billed Pro user who lands on this legacy return URL is never
+    // downgraded. resolveProPlanStatus syncs metadata in both directions and
+    // respects the manual cmuxVmPlan override, so a genuinely lapsed
+    // subscription still gets cleared here.
+    isPro = (await resolveProPlanStatus(user)).isPro;
+  }
   return NextResponse.redirect(
     new URL(
       isPro ? "/pricing?welcome=success" : "/pricing?welcome=pending",
