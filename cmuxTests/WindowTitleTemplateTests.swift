@@ -392,6 +392,8 @@ struct WindowTitleTemplateTests {
         ))
         #expect(workspace.panelDirectories[agentPanel.id] == remoteDirectory)
         #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
+        let agentSnapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id })
+        #expect(agentSnapshot.directoryIsTrustedRemoteReport == true)
         workspace.remoteDirectoryReportPanelIds.remove(agentPanel.id)
         workspace.panelDirectories[agentPanel.id] = localDirectory
 

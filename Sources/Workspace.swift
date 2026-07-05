@@ -449,7 +449,6 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
         let directoryIsTrustedRemoteReport = directory != nil &&
-            isRemoteTerminalSurface(panelId) &&
             remoteDirectoryReportPanelIds.contains(panelId)
         let directoryRequiresRemoteTrust = directory != nil &&
             remoteDirectoryTrustRequiredPanelIds.contains(panelId) &&
