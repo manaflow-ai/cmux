@@ -58,6 +58,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case editWorkspaceDescription
     /// Sets the workspace's todo status override to done.
     case markWorkspaceDone
+    /// Cycles the workspace's todo status override one lane forward.
+    case cycleWorkspaceStatus
+    /// Toggles the highlighted checklist item in the focused todo surface.
+    case toggleChecklistItemComplete
     case closeTab
     case closeOtherTabsInPane
     case closeWorkspace
@@ -187,7 +191,8 @@ extension ShortcutAction {
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
-             .editWorkspaceDescription, .markWorkspaceDone, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
+             .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus,
+             .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
@@ -369,6 +374,10 @@ extension ShortcutAction {
         case .editWorkspaceDescription: return "Edit Workspace Description"
         case .markWorkspaceDone:
             return String(localized: "shortcut.markWorkspaceDone.label", defaultValue: "Mark Workspace as Done")
+        case .cycleWorkspaceStatus:
+            return String(localized: "shortcut.cycleWorkspaceStatus.label", defaultValue: "Cycle Workspace Status")
+        case .toggleChecklistItemComplete:
+            return String(localized: "shortcut.toggleChecklistItemComplete.label", defaultValue: "Toggle Checklist Item Complete")
         case .closeTab: return "Close Tab"
         case .closeOtherTabsInPane: return "Close Other Tabs in Pane"
         case .closeWorkspace: return "Close Workspace"

@@ -73,8 +73,11 @@ extension CMUXCLI {
             setParams["status"] = rest[1]
             let payload = try client.sendV2(method: "workspace.status.set", params: setParams)
             printWorkspaceStatusPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "cycle":
+            let payload = try client.sendV2(method: "workspace.status.cycle", params: params)
+            printWorkspaceStatusPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case .some(let sub):
-            throw CLIError(message: "Unknown workspace status subcommand: \(sub). Try: cmux workspace status [set <lane|auto>]")
+            throw CLIError(message: "Unknown workspace status subcommand: \(sub). Try: cmux workspace status [set <lane|auto> | cycle]")
         }
     }
 
@@ -115,7 +118,7 @@ extension CMUXCLI {
             return
         }
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "todo requires a subcommand. Try: add, list, check, uncheck, start, edit, rm, clear, set, open")
+            throw CLIError(message: "todo requires a subcommand. Try: add, list, check, uncheck, start, edit, rm, move, clear, set, open")
         }
         let (params, rest) = try workspaceTodoTarget(
             Array(commandArgs.dropFirst()), client: client, windowOverride: windowOverride
@@ -170,6 +173,18 @@ extension CMUXCLI {
             }
             let payload = try client.sendV2(method: "workspace.todo.remove", params: removeParams)
             printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "move", "mv":
+            let positional = rest.filter { !$0.hasPrefix("--") }
+            guard positional.count >= 2, let newIndex = Int(positional[1]), newIndex >= 1 else {
+                throw CLIError(message: "Usage: cmux todo move <index|id> <newIndex> (newIndex is 1-based)")
+            }
+            var moveParams = params
+            for (key, value) in try workspaceTodoItemSelectorParams(positional[0]) {
+                moveParams[key] = value
+            }
+            moveParams["to_index"] = newIndex - 1
+            let payload = try client.sendV2(method: "workspace.todo.move", params: moveParams)
+            printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "clear":
             let payload = try client.sendV2(method: "workspace.todo.clear", params: params)
             printTodoMutationPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -182,7 +197,7 @@ extension CMUXCLI {
             let payload = try client.sendV2(method: "workspace.todo.open", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         default:
-            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, edit, rm, clear, set, open")
+            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, edit, rm, move, clear, set, open")
         }
     }
 
@@ -267,7 +282,7 @@ extension CMUXCLI {
     // MARK: - Usage
 
     static let workspaceStatusUsage = """
-    Usage: cmux workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
+    Usage: cmux workspace status [set <lane|auto> | cycle] [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
 
     Show or pin a workspace's todo lifecycle status. Without arguments prints
     the effective status, the inferred status, and the override, targeting the
@@ -276,13 +291,15 @@ extension CMUXCLI {
     Lanes are inferred from live signals (agent needs input > agent running >
     open PR > all PRs merged/closed > dirty git tree > todo). `set <lane>`
     pins a manual lane that auto-clears as soon as the inferred lane changes;
-    `set auto` clears the pin immediately.
+    `set auto` clears the pin immediately. `cycle` advances the manual override
+    one lane forward (todo → working → needs-attention → review → done → todo).
 
     Lanes: todo, working, needs-attention, review, done
 
     Examples:
       cmux workspace status
       cmux workspace status set review
+      cmux workspace status cycle
       cmux workspace status set auto --workspace workspace:2
     """
 

@@ -210,9 +210,14 @@ struct SidebarWorkspaceStatusPopover: View {
         .accessibilityIdentifier("SidebarWorkspaceStatusPopoverLane.\(lane.id)")
     }
 
+    /// Applies a lane WITHOUT closing: the override flows back through the
+    /// glyph control, the model recomputes, and the checkmark + Auto row
+    /// re-render in place, so every pick (including Todo, which is often the
+    /// inferred lane and thus visually identical) gives immediate feedback.
+    /// Dismissal is left to Esc / `onExitCommand` / click-away.
     private func apply(_ lane: WorkspaceTodoStatusLane) {
         onSelectLane(lane.status)
-        onClose()
+        highlightedIndex = lanes.firstIndex(of: lane) ?? highlightedIndex
     }
 
     private func applyHighlighted(_ lanes: [WorkspaceTodoStatusLane]) {

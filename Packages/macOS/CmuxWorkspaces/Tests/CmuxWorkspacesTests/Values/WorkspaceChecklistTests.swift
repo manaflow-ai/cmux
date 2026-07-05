@@ -121,4 +121,61 @@ import Testing
         let json = String(decoding: data, as: UTF8.self)
         #expect(json.contains("in-progress"))
     }
+
+    @Test func completingAnItemMovesItAfterUncompletedInStorage() {
+        var items = [
+            WorkspaceChecklistItem(text: "a"),
+            WorkspaceChecklistItem(text: "b"),
+            WorkspaceChecklistItem(text: "c"),
+        ]
+        // Complete the first item; storage must re-partition so it sits last.
+        _ = items.setChecklistItemState(id: items[0].id, state: .completed)
+        #expect(items.map(\.text) == ["b", "c", "a"])
+        #expect(items.last?.state == .completed)
+        // Un-completing moves it back to the end of the uncompleted run.
+        _ = items.setChecklistItemState(id: items[2].id, state: .pending)
+        #expect(items.allSatisfy { $0.state != .completed })
+        #expect(items.map(\.text) == ["b", "c", "a"])
+    }
+
+    @Test func moveReordersWithinCompletionGroupOnly() {
+        var items = [
+            WorkspaceChecklistItem(text: "u1"),
+            WorkspaceChecklistItem(text: "u2"),
+            WorkspaceChecklistItem(text: "u3"),
+            WorkspaceChecklistItem(text: "d1", state: .completed),
+            WorkspaceChecklistItem(text: "d2", state: .completed),
+        ]
+        // Move u3 to the front: reorders within the uncompleted run.
+        _ = items.moveChecklistItem(id: items[2].id, toIndex: 0)
+        #expect(items.map(\.text) == ["u3", "u1", "u2", "d1", "d2"])
+        // Try to move a completed item into the uncompleted region: it clamps
+        // to the start of the completed run, never before uncompleted items.
+        let d2 = items[4]
+        _ = items.moveChecklistItem(id: d2.id, toIndex: 0)
+        #expect(items.map(\.text) == ["u3", "u1", "u2", "d2", "d1"])
+        #expect(items.prefix(3).allSatisfy { $0.state != .completed })
+        #expect(items.suffix(2).allSatisfy { $0.state == .completed })
+    }
+}
+
+@Suite struct WorkspaceTaskStatusCycleTests {
+    @Test func nextCyclesRoundRobinInDeclarationOrder() {
+        #expect(WorkspaceTaskStatus.todo.next == .working)
+        #expect(WorkspaceTaskStatus.working.next == .needsAttention)
+        #expect(WorkspaceTaskStatus.needsAttention.next == .review)
+        #expect(WorkspaceTaskStatus.review.next == .done)
+        #expect(WorkspaceTaskStatus.done.next == .todo)
+    }
+
+    @Test func nextVisitsEveryLaneExactlyOncePerCycle() {
+        var seen: [WorkspaceTaskStatus] = []
+        var status = WorkspaceTaskStatus.todo
+        for _ in 0..<WorkspaceTaskStatus.allCases.count {
+            seen.append(status)
+            status = status.next
+        }
+        #expect(Set(seen).count == WorkspaceTaskStatus.allCases.count)
+        #expect(status == .todo)
+    }
 }

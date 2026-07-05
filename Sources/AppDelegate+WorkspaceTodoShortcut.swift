@@ -15,4 +15,19 @@ extension AppDelegate {
         WorkspaceTodoActions.applyStatusOverride(.done, to: [workspace])
         return true
     }
+
+    /// Handles the `cycleWorkspaceStatus` shortcut: resolves the TabManager
+    /// for the preferred/key window and advances the selected workspace's
+    /// todo status one lane forward through the shared action path (same as
+    /// the `workspace.status.cycle` socket verb and `cmux workspace status
+    /// cycle`).
+    ///
+    /// - Returns: Whether the event was consumed (a workspace was resolved).
+    func handleCycleWorkspaceStatusShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let resolvedTabManager = contextForMainWindow(targetWindow)?.tabManager ?? tabManager
+        guard let workspace = resolvedTabManager?.selectedWorkspace else { return false }
+        WorkspaceTodoActions.cycleStatus(for: workspace)
+        return true
+    }
 }

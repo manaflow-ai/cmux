@@ -67,15 +67,27 @@ extension Workspace {
     /// Applies a manual status override, recording the current inference so
     /// the override expires as soon as the live signals change lanes.
     func setTaskStatusOverride(_ status: WorkspaceTaskStatus) {
-        todoState.statusOverride = WorkspaceTaskStatusOverride(
-            status: status,
-            inferredAtOverride: inferredTaskStatus
-        )
+        notifyingStatusTransition {
+            todoState.statusOverride = WorkspaceTaskStatusOverride(
+                status: status,
+                inferredAtOverride: inferredTaskStatus
+            )
+        }
     }
 
     /// Returns the status to automatic by clearing the manual override.
     func clearTaskStatusOverride() {
-        todoState.statusOverride = nil
+        notifyingStatusTransition {
+            todoState.statusOverride = nil
+        }
+    }
+
+    /// Cycles the effective status one lane forward (round-robin
+    /// todo → working → needs-attention → review → done → todo) by pinning a
+    /// manual override to the lane after the current effective status. Shared
+    /// by the `cycleWorkspaceStatus` shortcut and `workspace.status.cycle`.
+    func cycleTaskStatus() {
+        setTaskStatusOverride(effectiveTaskStatus.next)
     }
 
     // MARK: - Checklist entry points (shared by socket, CLI, UI)
@@ -87,15 +99,29 @@ extension Workspace {
         state: WorkspaceChecklistItem.State = .pending,
         origin: WorkspaceChecklistItem.Origin = .user
     ) -> Result<WorkspaceChecklistItem, WorkspaceChecklistItem.AddError> {
-        todoState.checklist.addChecklistItem(text, state: state, origin: origin)
+        notifyingChecklistCompletion {
+            todoState.checklist.addChecklistItem(text, state: state, origin: origin)
+        }
     }
 
-    /// Sets one checklist item's state.
+    /// Sets one checklist item's state (keeping completed items last in
+    /// storage; see `Array.setChecklistItemState`).
     ///
     /// - Returns: `true` if the item existed.
     @discardableResult
     func setChecklistItemState(id: UUID, state: WorkspaceChecklistItem.State) -> Bool {
-        todoState.checklist.setChecklistItemState(id: id, state: state)
+        notifyingChecklistCompletion {
+            todoState.checklist.setChecklistItemState(id: id, state: state)
+        }
+    }
+
+    /// Moves one checklist item toward a new 0-based position, staying within
+    /// its completion partition (see `Array.moveChecklistItem`).
+    ///
+    /// - Returns: `true` if the item existed.
+    @discardableResult
+    func moveChecklistItem(id: UUID, toIndex: Int) -> Bool {
+        todoState.checklist.moveChecklistItem(id: id, toIndex: toIndex)
     }
 
     /// Rewrites one checklist item's text (same normalization as add).
@@ -111,7 +137,9 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func removeChecklistItem(id: UUID) -> Bool {
-        todoState.checklist.removeChecklistItem(id: id)
+        notifyingChecklistCompletion {
+            todoState.checklist.removeChecklistItem(id: id)
+        }
     }
 
     /// Removes every checklist item.
@@ -133,7 +161,9 @@ extension Workspace {
     func replaceChecklist(
         with items: [WorkspaceChecklistReplacementItem]
     ) -> Result<[WorkspaceChecklistItem], WorkspaceChecklistReplaceError> {
-        todoState.checklist.replaceChecklist(with: items)
+        notifyingChecklistCompletion {
+            todoState.checklist.replaceChecklist(with: items)
+        }
     }
 
     /// The checklist item at a 0-based display index, if in bounds.

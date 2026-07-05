@@ -23,4 +23,13 @@ public enum WorkspaceTaskStatus: String, Codable, CaseIterable, Sendable {
         if signals.isGitDirty { return .working }
         return .todo
     }
+
+    /// The next lane in round-robin declaration order
+    /// (todo → working → needs-attention → review → done → todo), used by the
+    /// `cycleWorkspaceStatus` shortcut / `workspace.status.cycle` verb.
+    public var next: WorkspaceTaskStatus {
+        let all = WorkspaceTaskStatus.allCases
+        guard let index = all.firstIndex(of: self) else { return .todo }
+        return all[(index + 1) % all.count]
+    }
 }

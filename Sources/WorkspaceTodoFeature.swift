@@ -72,6 +72,14 @@ enum WorkspaceTodoActions {
         }
     }
 
+    /// Cycles the workspace's status one lane forward (see
+    /// `Workspace.cycleTaskStatus`). Shared by the `cycleWorkspaceStatus`
+    /// shortcut and the `workspace.status.cycle` socket verb / CLI.
+    static func cycleStatus(for workspace: Workspace) {
+        workspace.cycleTaskStatus()
+        WorkspaceTodoFeature.markUsed()
+    }
+
     /// Adds a user checklist item; returns whether the add succeeded.
     @discardableResult
     static func addChecklistItem(text: String, to workspace: Workspace) -> Bool {
@@ -103,6 +111,14 @@ enum WorkspaceTodoActions {
 
     static func removeChecklistItem(id: UUID, from workspace: Workspace) {
         guard workspace.removeChecklistItem(id: id) else { return }
+        WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Moves one checklist item toward a new 0-based position (staying within
+    /// its completion partition). Shared by the todo pane's drag reorder, the
+    /// `workspace.todo.move` socket verb, and `cmux todo move`.
+    static func moveChecklistItem(id: UUID, toIndex: Int, in workspace: Workspace) {
+        guard workspace.moveChecklistItem(id: id, toIndex: toIndex) else { return }
         WorkspaceTodoFeature.markUsed()
     }
 

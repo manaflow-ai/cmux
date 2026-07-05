@@ -161,6 +161,25 @@ extension TerminalController: ControlWorkspaceTodoContext {
         }
     }
 
+    func controlCycleWorkspaceTaskStatus(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceTodoStatusResolution {
+        switch resolveTodoWorkspace(routing: routing, workspaceID: workspaceID) {
+        case .tabManagerUnavailable:
+            return .tabManagerUnavailable
+        case .notFound:
+            return .notFound
+        case .found(let tabManager, let workspace):
+            workspace.cycleTaskStatus()
+            WorkspaceTodoFeature.markUsed()
+            return .resolved(
+                windowID: AppDelegate.shared?.windowId(for: tabManager),
+                status: todoStatusSnapshot(for: workspace)
+            )
+        }
+    }
+
     // MARK: - Checklist
 
     func controlWorkspaceTodoList(
@@ -309,6 +328,33 @@ extension TerminalController: ControlWorkspaceTodoContext {
                 windowID: AppDelegate.shared?.windowId(for: tabManager),
                 item: todoItemSnapshot(item),
                 removedCount: 1,
+                checklist: todoChecklistSnapshot(for: workspace)
+            )
+        }
+    }
+
+    func controlWorkspaceTodoMove(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        itemID: UUID?,
+        itemIndex: Int?,
+        toIndex: Int
+    ) -> ControlWorkspaceTodoMutationResolution {
+        switch resolveTodoWorkspace(routing: routing, workspaceID: workspaceID) {
+        case .tabManagerUnavailable:
+            return .tabManagerUnavailable
+        case .notFound:
+            return .notFound
+        case .found(let tabManager, let workspace):
+            guard let item = todoItem(in: workspace, itemID: itemID, itemIndex: itemIndex),
+                  workspace.moveChecklistItem(id: item.id, toIndex: toIndex) else {
+                return .itemNotFound
+            }
+            WorkspaceTodoFeature.markUsed()
+            return .resolved(
+                windowID: AppDelegate.shared?.windowId(for: tabManager),
+                item: todoItemSnapshot(item),
+                removedCount: 0,
                 checklist: todoChecklistSnapshot(for: workspace)
             )
         }

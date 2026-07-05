@@ -58,6 +58,12 @@ extension Array where Element == WorkspaceChecklistItem {
 
     /// Sets one item's state by id.
     ///
+    /// Keeps the completed-last invariant in storage: when an item's
+    /// completion flips, it moves to the end of its new partition (end of the
+    /// completed run when checked, end of the uncompleted run when unchecked),
+    /// and the two partitions stay contiguous. State changes that do not flip
+    /// completion (e.g. pending → in-progress) leave the order untouched.
+    ///
     /// - Parameters:
     ///   - id: The item to update.
     ///   - state: The new state.
@@ -68,7 +74,46 @@ extension Array where Element == WorkspaceChecklistItem {
         state: WorkspaceChecklistItem.State
     ) -> Bool {
         guard let index = firstIndex(where: { $0.id == id }) else { return false }
+        let wasCompleted = self[index].state == .completed
         self[index].state = state
+        guard wasCompleted != (state == .completed) else { return true }
+        let toggled = remove(at: index)
+        var uncompleted = filter { $0.state != .completed }
+        var completed = filter { $0.state == .completed }
+        if state == .completed {
+            completed.append(toggled)
+        } else {
+            uncompleted.append(toggled)
+        }
+        self = uncompleted + completed
+        return true
+    }
+
+    /// Moves the item with `id` toward `toIndex` (a 0-based index into the
+    /// full list), enforcing the completed-last invariant: the move only
+    /// reorders WITHIN the item's own completion partition (`toIndex` is
+    /// clamped into that partition's range), and storage stays
+    /// uncompleted-run followed by completed-run.
+    ///
+    /// - Parameters:
+    ///   - id: The item to move.
+    ///   - toIndex: The desired 0-based destination in the full list.
+    /// - Returns: `true` if the item existed.
+    @discardableResult
+    public mutating func moveChecklistItem(id: UUID, toIndex: Int) -> Bool {
+        guard let currentIndex = firstIndex(where: { $0.id == id }) else { return false }
+        let item = self[currentIndex]
+        var uncompleted = filter { $0.state != .completed && $0.id != id }
+        var completed = filter { $0.state == .completed && $0.id != id }
+        if item.state == .completed {
+            // The completed run begins right after every uncompleted item.
+            let local = Swift.min(Swift.max(toIndex - uncompleted.count, 0), completed.count)
+            completed.insert(item, at: local)
+        } else {
+            let local = Swift.min(Swift.max(toIndex, 0), uncompleted.count)
+            uncompleted.insert(item, at: local)
+        }
+        self = uncompleted + completed
         return true
     }
 

@@ -32,6 +32,9 @@ struct SidebarWorkspaceChecklistPopover: View {
     @State private var editingItemId: UUID?
     @State private var editingText = ""
     @FocusState private var editFieldFocused: Bool
+    /// The keyboard-highlighted item (Up/Down from the add field); Cmd+Return
+    /// toggles it between completed and pending.
+    @State private var highlightedItemId: UUID?
 
     private static let itemFontSize: CGFloat = 13
     /// Checkbox glyphs draw at 13pt (the inline row's base is 8pt·scale).
@@ -56,16 +59,17 @@ struct SidebarWorkspaceChecklistPopover: View {
                     if clamped.hiddenCount > 0 {
                         moreRow(hiddenCount: clamped.hiddenCount)
                     }
-                    addItemRow
+                    addItemRow(visible: clamped.visible)
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
             }
-            .frame(maxHeight: 320)
+            .frame(maxHeight: 460)
             Divider()
             footer
         }
         .frame(width: 320, alignment: .leading)
+        .background(toggleHighlightedShortcutButton(visible: clamped.visible))
         // The add field is always armed: focus it on open so the user can
         // type a new item with zero extra clicks.
         .onAppear { addFieldFocused = true }
@@ -140,6 +144,12 @@ struct SidebarWorkspaceChecklistPopover: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(highlightedItemId == item.id ? Color.primary.opacity(0.08) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { highlightedItemId = item.id }
         .contextMenu {
             Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
                 beginItemEdit(item)
@@ -190,10 +200,12 @@ struct SidebarWorkspaceChecklistPopover: View {
 
     // MARK: Add-item row (always armed — typing needs zero extra clicks)
 
-    private var addItemRow: some View {
+    private func addItemRow(visible: [WorkspaceChecklistItem]) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            CmuxSystemSymbolImage(systemName: "square", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+            // A `plus.circle` "add" affordance, not an empty checkbox, so the
+            // add row never reads as a real (unchecked) item.
+            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
+                .foregroundColor(.accentColor)
             TextField(
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                 text: $pendingItemText
@@ -204,10 +216,47 @@ struct SidebarWorkspaceChecklistPopover: View {
             .focused($addFieldFocused)
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
+            // Up/Down move the item highlight even while the always-armed add
+            // field holds focus (a single-line field ignores vertical arrows).
+            .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
+            .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
             .accessibilityIdentifier("SidebarChecklistPopoverAddItemField")
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
+    }
+
+    // MARK: Keyboard navigation + toggle
+
+    /// A zero-size button that binds Cmd+Return to toggling the highlighted
+    /// item. A `.keyboardShortcut` fires even while the add field is focused
+    /// (a plain TextField only consumes bare Return via `onSubmit`), so the
+    /// toggle works without stealing focus from the add field. Also exposed
+    /// as the configurable `toggleChecklistItemComplete` action in Settings.
+    private func toggleHighlightedShortcutButton(visible: [WorkspaceChecklistItem]) -> some View {
+        Button {
+            toggleHighlighted(in: visible)
+        } label: { Color.clear.frame(width: 0, height: 0) }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.return, modifiers: .command)
+            .accessibilityHidden(true)
+    }
+
+    private func moveHighlight(_ delta: Int, in visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        guard !visible.isEmpty else { return .ignored }
+        let currentIndex = visible.firstIndex(where: { $0.id == highlightedItemId })
+            ?? (delta > 0 ? -1 : visible.count)
+        let next = min(max(currentIndex + delta, 0), visible.count - 1)
+        highlightedItemId = visible[next].id
+        return .handled
+    }
+
+    /// Cmd+Return toggles the highlighted item; no-op when nothing is
+    /// highlighted.
+    private func toggleHighlighted(in visible: [WorkspaceChecklistItem]) {
+        guard let id = highlightedItemId,
+              let item = visible.first(where: { $0.id == id }) else { return }
+        actions.setItemState(item.id, item.state == .completed ? .pending : .completed)
     }
 
     /// Enter commits the trimmed text and re-arms the field for the next item.

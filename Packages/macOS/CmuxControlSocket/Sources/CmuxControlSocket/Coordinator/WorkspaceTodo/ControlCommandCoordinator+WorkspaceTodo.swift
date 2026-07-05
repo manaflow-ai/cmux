@@ -17,6 +17,8 @@ extension ControlCommandCoordinator {
             return workspaceStatusGet(request.params)
         case "workspace.status.set":
             return workspaceStatusSet(request.params)
+        case "workspace.status.cycle":
+            return workspaceStatusCycle(request.params)
         case "workspace.todo.list":
             return workspaceTodoList(request.params)
         case "workspace.todo.add":
@@ -27,6 +29,8 @@ extension ControlCommandCoordinator {
             return workspaceTodoEdit(request.params)
         case "workspace.todo.remove":
             return workspaceTodoRemove(request.params)
+        case "workspace.todo.move":
+            return workspaceTodoMove(request.params)
         case "workspace.todo.clear":
             return workspaceTodoClear(request.params)
         case "workspace.todo.set":
@@ -223,6 +227,17 @@ extension ControlCommandCoordinator {
         )
     }
 
+    /// `workspace.status.cycle` — advance the manual override one lane
+    /// forward (todo → working → needs-attention → review → done → todo).
+    func workspaceStatusCycle(_ params: [String: JSONValue]) -> ControlCallResult {
+        workspaceTodoStatusResult(
+            context?.controlCycleWorkspaceTaskStatus(
+                routing: routingSelectors(params),
+                workspaceID: uuid(params, "workspace_id")
+            ) ?? .tabManagerUnavailable
+        )
+    }
+
     // MARK: - Checklist
 
     /// The full checklist payload (`workspace.todo.list`, and the reply of
@@ -345,6 +360,31 @@ extension ControlCommandCoordinator {
         }
         return .ok(workspaceTodoMutationPayload(
             windowID: windowID, item: item, removedCount: removedCount, checklist: checklist
+        ))
+    }
+
+    /// `workspace.todo.move` — move one item (by id or index) to a new
+    /// 0-based `to_index`, staying within its completion partition.
+    func workspaceTodoMove(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let selector = workspaceTodoItemSelector(params) else {
+            return .err(code: "invalid_params", message: "Missing id or index", data: nil)
+        }
+        guard let toIndex = int(params, "to_index") else {
+            return .err(code: "invalid_params", message: "Missing or invalid to_index", data: nil)
+        }
+        let resolution = context?.controlWorkspaceTodoMove(
+            routing: routingSelectors(params),
+            workspaceID: uuid(params, "workspace_id"),
+            itemID: selector.itemID,
+            itemIndex: selector.itemIndex,
+            toIndex: toIndex
+        ) ?? .tabManagerUnavailable
+        if let error = workspaceTodoMutationError(resolution) { return error }
+        guard case .resolved(let windowID, let item, _, let checklist) = resolution else {
+            return .err(code: "internal", message: "Unexpected resolution", data: nil)
+        }
+        return .ok(workspaceTodoMutationPayload(
+            windowID: windowID, item: item, removedCount: nil, checklist: checklist
         ))
     }
 

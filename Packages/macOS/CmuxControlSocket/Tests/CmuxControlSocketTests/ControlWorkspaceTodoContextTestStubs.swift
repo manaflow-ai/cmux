@@ -19,6 +19,11 @@ extension ControlWorkspaceTodoContext {
         statusRaw: String?
     ) -> ControlWorkspaceTodoStatusResolution { .tabManagerUnavailable }
 
+    func controlCycleWorkspaceTaskStatus(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceTodoStatusResolution { .tabManagerUnavailable }
+
     func controlWorkspaceTodoList(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
@@ -53,6 +58,14 @@ extension ControlWorkspaceTodoContext {
         workspaceID: UUID?,
         itemID: UUID?,
         itemIndex: Int?
+    ) -> ControlWorkspaceTodoMutationResolution { .tabManagerUnavailable }
+
+    func controlWorkspaceTodoMove(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        itemID: UUID?,
+        itemIndex: Int?,
+        toIndex: Int
     ) -> ControlWorkspaceTodoMutationResolution { .tabManagerUnavailable }
 
     func controlWorkspaceTodoClear(

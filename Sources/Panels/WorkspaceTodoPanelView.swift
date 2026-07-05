@@ -57,6 +57,9 @@ private struct WorkspaceTodoPaneContent: View {
     @State private var editingItemId: UUID?
     @State private var editingText = ""
     @FocusState private var editFieldFocused: Bool
+    /// The keyboard-highlighted item (Up/Down arrows); Cmd+Return toggles it.
+    @State private var highlightedItemId: UUID?
+    @FocusState private var itemsFocused: Bool
 
     private static let itemFontSize: CGFloat = 13
     private static let checkboxPointSize: CGFloat = 13
@@ -84,9 +87,9 @@ private struct WorkspaceTodoPaneContent: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             Divider()
+            let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(todoState.checklist)
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 3) {
-                    let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(todoState.checklist)
                     if ordered.isEmpty {
                         Text(String(
                             localized: "workspaceTodoPane.emptyChecklist",
@@ -96,14 +99,19 @@ private struct WorkspaceTodoPaneContent: View {
                         .foregroundColor(.secondary)
                         .padding(.vertical, 4)
                     }
-                    ForEach(ordered) { item in
-                        itemRow(item)
+                    ForEach(Array(ordered.enumerated()), id: \.element.id) { index, item in
+                        itemRow(item, displayIndex: index)
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .focusable(!ordered.isEmpty)
+            .focused($itemsFocused)
+            .onKeyPress(.upArrow) { moveHighlight(-1, in: ordered) }
+            .onKeyPress(.downArrow) { moveHighlight(1, in: ordered) }
+            .onKeyPress { press in handleItemsKeyPress(press, ordered: ordered) }
             Divider()
             addItemRow
                 .padding(.horizontal, 14)
@@ -181,7 +189,7 @@ private struct WorkspaceTodoPaneContent: View {
 
     // MARK: Items
 
-    private func itemRow(_ item: WorkspaceChecklistItem) -> some View {
+    private func itemRow(_ item: WorkspaceChecklistItem, displayIndex: Int) -> some View {
         let isCompleted = item.state == .completed
         return HStack(alignment: .firstTextBaseline, spacing: 7) {
             Button {
@@ -227,7 +235,23 @@ private struct WorkspaceTodoPaneContent: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 1)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(highlightedItemId == item.id ? Color.primary.opacity(0.08) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            highlightedItemId = item.id
+            itemsFocused = true
+        }
+        // Drag to reorder within the item's completion partition; the model
+        // clamps the target so completed items always stay last (item 5).
+        .draggable(item.id.uuidString)
+        .dropDestination(for: String.self) { payload, _ in
+            handleReorderDrop(payload: payload, onto: displayIndex)
+        }
         .contextMenu {
             Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
                 beginItemEdit(item)
@@ -244,6 +268,46 @@ private struct WorkspaceTodoPaneContent: View {
         .accessibilityIdentifier("WorkspaceTodoPaneItemRow")
     }
 
+    // MARK: Keyboard navigation + reorder
+
+    /// Moves the highlight up/down through the visible (display-ordered)
+    /// items, clamping at the ends.
+    private func moveHighlight(_ delta: Int, in ordered: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        guard !ordered.isEmpty else { return .ignored }
+        let currentIndex = ordered.firstIndex(where: { $0.id == highlightedItemId })
+            ?? (delta > 0 ? -1 : ordered.count)
+        let next = min(max(currentIndex + delta, 0), ordered.count - 1)
+        highlightedItemId = ordered[next].id
+        return .handled
+    }
+
+    /// Cmd+Return toggles the highlighted item between completed and pending.
+    /// The action is also registered as the `toggleChecklistItemComplete`
+    /// shortcut for Settings discoverability; the pane handles the keystroke
+    /// locally because the toggle needs the view-local highlight.
+    private func handleItemsKeyPress(
+        _ press: KeyPress,
+        ordered: [WorkspaceChecklistItem]
+    ) -> KeyPress.Result {
+        guard press.key == .return, press.modifiers.contains(.command) else { return .ignored }
+        guard let id = highlightedItemId,
+              let item = ordered.first(where: { $0.id == id }) else { return .ignored }
+        WorkspaceTodoActions.setChecklistItemState(
+            id: item.id,
+            state: item.state == .completed ? .pending : .completed,
+            in: workspace
+        )
+        return .handled
+    }
+
+    /// Resolves a reorder drop: move the dragged item to the dropped-on row's
+    /// display position (the model clamps into the item's completion group).
+    private func handleReorderDrop(payload: [String], onto displayIndex: Int) -> Bool {
+        guard let raw = payload.first, let id = UUID(uuidString: raw) else { return false }
+        WorkspaceTodoActions.moveChecklistItem(id: id, toIndex: displayIndex, in: workspace)
+        return true
+    }
+
     private func checkboxSymbolName(for state: WorkspaceChecklistItem.State) -> String {
         switch state {
         case .pending: return "square"
@@ -256,8 +320,10 @@ private struct WorkspaceTodoPaneContent: View {
 
     private var addItemRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
-            CmuxSystemSymbolImage(systemName: "square", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+            // A `plus.circle` "add" affordance, not an empty checkbox, so the
+            // add row never reads as a real (unchecked) item.
+            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
+                .foregroundColor(.accentColor)
             TextField(
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                 text: $pendingItemText

@@ -1400,6 +1400,8 @@
               "renameWorkspace",
               "editWorkspaceDescription",
               "markWorkspaceDone",
+              "cycleWorkspaceStatus",
+              "toggleChecklistItemComplete",
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",

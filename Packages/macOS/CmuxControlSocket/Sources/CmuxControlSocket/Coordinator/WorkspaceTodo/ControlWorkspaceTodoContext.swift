@@ -42,6 +42,20 @@ public protocol ControlWorkspaceTodoContext: AnyObject {
         statusRaw: String?
     ) -> ControlWorkspaceTodoStatusResolution
 
+    /// Advances the manual status override one lane forward for
+    /// `workspace.status.cycle` (todo → working → needs-attention → review →
+    /// done → todo).
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The explicit target workspace, or `nil` for the
+    ///     resolved window's selected workspace.
+    /// - Returns: The status resolution after the cycle.
+    func controlCycleWorkspaceTaskStatus(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceTodoStatusResolution
+
     /// Reads the checklist for `workspace.todo.list`.
     ///
     /// - Parameters:
@@ -122,6 +136,25 @@ public protocol ControlWorkspaceTodoContext: AnyObject {
         workspaceID: UUID?,
         itemID: UUID?,
         itemIndex: Int?
+    ) -> ControlWorkspaceTodoMutationResolution
+
+    /// Reorders one checklist item for `workspace.todo.move`, preserving the
+    /// completed-always-last storage invariant.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for TabManager resolution.
+    ///   - workspaceID: The explicit target workspace, or `nil` for the
+    ///     resolved window's selected workspace.
+    ///   - itemID: The item's id, if the caller addressed it by id.
+    ///   - itemIndex: The item's 0-based index, if addressed by index.
+    ///   - toIndex: The desired 0-based destination in the full list.
+    /// - Returns: The mutation resolution.
+    func controlWorkspaceTodoMove(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        itemID: UUID?,
+        itemIndex: Int?,
+        toIndex: Int
     ) -> ControlWorkspaceTodoMutationResolution
 
     /// Removes every checklist item for `workspace.todo.clear`.

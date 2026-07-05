@@ -60,10 +60,12 @@ extension ShortcutAction {
         case .renameTab: return ShortcutStroke(key: "r", command: true)
         case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
         case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)
-        // Unbound: plain Cmd+Ctrl+D is reserved by macOS ("Look Up & data
-        // detectors") and the rest of the Cmd-"D" family is taken by
-        // split/diff actions. Mirrors the app-side table.
-        case .markWorkspaceDone: return nil
+        // Cmd+; pins the status to done; the Cmd-"D" family is taken by
+        // split/diff actions and Cmd+Ctrl+D is macOS-reserved. Mirrors the
+        // app-side table.
+        case .markWorkspaceDone: return ShortcutStroke(key: ";", command: true)
+        case .cycleWorkspaceStatus: return ShortcutStroke(key: ";", command: true, shift: true)
+        case .toggleChecklistItemComplete: return ShortcutStroke(key: "\r", command: true)
         case .closeTab: return ShortcutStroke(key: "w", command: true)
         case .closeOtherTabsInPane: return ShortcutStroke(key: "t", command: true, option: true)
         case .closeWorkspace: return ShortcutStroke(key: "w", command: true, shift: true)

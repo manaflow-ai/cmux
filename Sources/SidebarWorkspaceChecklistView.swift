@@ -41,6 +41,9 @@ struct SidebarWorkspaceChecklistActions {
     let addItem: @MainActor (String) -> Void
     /// Rewrites one item's text (tap-to-edit).
     let editItem: @MainActor (UUID, String) -> Void
+    /// Moves one item toward a new 0-based position (within its completion
+    /// partition; used by the todo pane's drag reorder).
+    let moveItem: @MainActor (UUID, Int) -> Void
     /// Opens the workspace's todo pane (checklist popover footer).
     let openPane: @MainActor () -> Void
 }
@@ -287,8 +290,10 @@ struct SidebarWorkspaceChecklistSection: View {
     private var addItemRow: some View {
         if isAddingItem {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                CmuxSystemSymbolImage(magnified: "square", pointSize: 8 * fontScale)
-                    .foregroundColor(secondaryColor)
+                // A `plus.circle` "add" affordance, not an empty checkbox, so
+                // the add row never reads as a real (unchecked) item.
+                CmuxSystemSymbolImage(magnified: "plus.circle", pointSize: 8 * fontScale)
+                    .foregroundColor(.accentColor)
                 TextField(
                     String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                     text: $pendingItemText
