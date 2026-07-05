@@ -942,12 +942,19 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
-    func testResumeClearsStaleLifecycleState() throws {
+    func testResumeRestoresIdleLifecycleState() throws {
+        // A pane is only ever hibernated while its lifecycle is `.idle` (the sole state
+        // that `allowsHibernation`), and resuming brings the session back at an idle
+        // prompt — so un-hibernation must leave it `.idle`, keeping it eligible to
+        // hibernate again on idle time. The prior behavior cleared it to `.unknown`,
+        // which stranded restored agents as non-idle so they never re-hibernated until a
+        // fresh turn ended. The resumed agent's own hooks overwrite `.idle` the moment it
+        // actually does work.
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "codex-clear-lifecycle-on-resume",
+            sessionId: "codex-restore-idle-on-resume",
             workingDirectory: "/tmp/cmux-agent-hibernation",
             launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
         )
@@ -960,7 +967,7 @@ final class AgentHibernationTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
-        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
     }
 
     @MainActor
