@@ -2,25 +2,8 @@
 
 import { UserButton } from "@stackframe/stack";
 import { useTranslations } from "next-intl";
-import { useTheme } from "next-themes";
+import { ThemeToggle } from "@/app/[locale]/theme";
 import { Link, usePathname } from "@/i18n/navigation";
-
-// The label is rendered purely via CSS visibility (dark:hidden vs dark:inline)
-// so SSR output never depends on the client's resolved theme; the handler is
-// the only place the theme value is read.
-function ThemeToggle({ toDark, toLight }: { toDark: string; toLight: string }) {
-  const { resolvedTheme, setTheme } = useTheme();
-  return (
-    <button
-      type="button"
-      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-      className="text-muted hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
-    >
-      <span className="dark:hidden">{toDark}</span>
-      <span className="hidden dark:inline">{toLight}</span>
-    </button>
-  );
-}
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations("dashboard.nav");
@@ -68,8 +51,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           >
             {t("brand")}
           </Link>
-          <div className="flex items-center gap-4">
-            <ThemeToggle toDark={t("themeDark")} toLight={t("themeLight")} />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
             <UserButton />
           </div>
         </div>
@@ -79,7 +62,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <nav className="flex gap-4 overflow-x-auto md:flex-col">
             {groups.map((group) => (
               <div key={group.label} className="flex min-w-max gap-2 md:flex-col">
-                <p className="text-xs text-muted">{group.label}</p>
+                <p className="text-[11px] font-semibold text-foreground">{group.label}</p>
                 <div className="flex gap-3 md:flex-col md:gap-1">
                   {group.items.map((item) => (
                     <Link

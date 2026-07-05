@@ -51,9 +51,7 @@
       "vaultSessions": "sessions",
       "vaultCliSetup": "cli setup",
       "subrouterGroup": "subrouter",
-      "subrouterOverview": "overview",
-      "themeDark": "dark",
-      "themeLight": "light"
+      "subrouterOverview": "overview"
     },
     "home": {
       "title": "dashboard",
