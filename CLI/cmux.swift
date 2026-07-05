@@ -9075,7 +9075,7 @@ struct CMUXCLI {
             }
             parts.append(options.destination)
         } else {
-            parts.append(options.destination)
+            parts = sshArgumentsOverridingHostRemoteCommand(parts) + [options.destination]
             parts.append(contentsOf: options.extraArguments)
         }
         return parts
@@ -9131,7 +9131,7 @@ struct CMUXCLI {
         localCommandScript: String? = nil
     ) -> String {
         let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
-        let installSSHPrefix = baseSSHArguments(options, localCommandScript: localCommandScript).map(shellQuote).joined(separator: " ")
+        let installSSHPrefix = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript)).map(shellQuote).joined(separator: " ")
         let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
         let remoteCommandTemplate = openSSHRemoteCommandValue(
             shellScript: stagedRemoteBootstrapCommandShell(
@@ -9711,7 +9711,7 @@ struct CMUXCLI {
         localCommandScript: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
-        var authArguments = baseSSHArguments(options, localCommandScript: localCommandScript)
+        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript))
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachScript = buildSSHPTYAttachScriptBody(
