@@ -3694,9 +3694,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             markSecondaryMacUnavailable(macID)
         }
         await flushPendingNotificationDismisses(macDeviceID: macID)
-        subscription.task = Task { @MainActor [weak self] in
+        // Capture `streamID` by value, not `subscription`: `subscription.task`
+        // holds this task, so a `subscription` capture forms a retain cycle that
+        // outlives the store drop and defeats the `deinit` client cleanup.
+        subscription.task = Task { @MainActor [weak self, streamID = subscription.streamID] in
             let stream = await client.subscribe(to: ["workspace.updated"])
-            await self?.enableSecondaryEventSubscription(on: client, streamID: subscription.streamID)
+            await self?.enableSecondaryEventSubscription(on: client, streamID: streamID)
             for await event in stream {
                 guard let self, !Task.isCancelled else { break }
                 // Stop if this subscription was replaced/torn down.

@@ -64,6 +64,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// reset/save/restore actions. Owned by the surface (constructed at init)
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
+    /// Drives software-keyboard autocorrection, spell-check, and smart
+    /// punctuation for this surface's input proxy. Injected at init so tests
+    /// can exercise both correction-on and correction-off behavior.
+    private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
+    /// DEBUG input-trace logger. The message autoclosure is only evaluated when
+    /// `CMUX_INPUT_DEBUG=1`, so the trace string (and its `textSummary`/
+    /// `dataSummary` work) is skipped on the typing-latency path when off.
+    private let inputDebugLog = TerminalInputDebugLog()
     private var bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -447,7 +455,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #endif
 
     private lazy var inputProxy: TerminalInputTextView = {
-        let inputProxy = TerminalInputTextView()
+        let inputProxy = TerminalInputTextView(
+            keyboardCorrectionPreference: keyboardCorrectionPreference
+        )
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.handleUserProducedInput()
@@ -459,7 +469,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // Replace \n with \r (terminals expect CR for Return).
             let normalized = text.replacingOccurrences(of: "\n", with: "\r")
             let data = Data(normalized.utf8)
-            TerminalInputDebugLog.log("surface.onText text=\(TerminalInputDebugLog.textSummary(text)) data=\(TerminalInputDebugLog.dataSummary(data))")
+            self.inputDebugLog.log("surface.onText text=\(self.inputDebugLog.textSummary(text)) data=\(self.inputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onBackspace = { [weak self] in
@@ -467,19 +477,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.handleUserProducedInput()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
-            TerminalInputDebugLog.log("surface.onBackspace data=\(TerminalInputDebugLog.dataSummary(data))")
+            self.inputDebugLog.log("surface.onBackspace data=\(self.inputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onEscapeSequence = { [weak self] data in
             guard let self else { return }
             self.handleUserProducedInput()
-            TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
+            self.inputDebugLog.log("surface.onEscape data=\(self.inputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
         }
         inputProxy.onPasteImage = { [weak self] data, format in
             guard let self else { return }
             self.handleUserProducedInput()
-            TerminalInputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
+            self.inputDebugLog.log("surface.onPasteImage bytes=\(data.count) format=\(format)")
             self.delegate?.ghosttySurfaceView(self, didPasteImage: data, format: format)
         }
         inputProxy.onZoom = { [weak self] direction in
@@ -548,11 +558,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
+    /// Creates a terminal surface view bound to a Ghostty `runtime`.
+    /// - Parameters:
+    ///   - runtime: The Ghostty runtime that owns the underlying C surface.
+    ///   - delegate: Receives surface lifecycle and focus callbacks; held weakly.
+    ///   - fontSize: Initial terminal font size, in points.
+    ///   - keyboardCorrectionPreference: Drives software-keyboard autocorrection,
+    ///     spell-check, and smart punctuation; defaults to corrections off.
+    public init(
+        runtime: GhosttyRuntime,
+        delegate: GhosttySurfaceViewDelegate,
+        fontSize: Float32 = 10,
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+            MobileTerminalKeyboardCorrectionPreference()
+    ) {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
         self.liveFontSize = fontSize
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         self.userBaseFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
@@ -3529,7 +3553,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // flows through `inputProxy` (`didProduceInput`), not here, so dropping
         // these is safe.
         #if DEBUG
-        TerminalInputDebugLog.log("surface.outboundDropped data=\(TerminalInputDebugLog.dataSummary(bytes))")
+        self.inputDebugLog.log("surface.outboundDropped data=\(self.inputDebugLog.dataSummary(bytes))")
         #endif
     }
 

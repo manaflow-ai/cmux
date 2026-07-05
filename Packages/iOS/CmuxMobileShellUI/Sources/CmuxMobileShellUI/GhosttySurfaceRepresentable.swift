@@ -42,6 +42,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// advances, it rebuilds the runtime config and refreshes the mounted
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
+    @Environment(MobileTerminalKeyboardCorrectionPreference.self)
+    private var keyboardCorrectionPreference
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -65,7 +67,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: fontSize
+            fontSize: fontSize,
+            keyboardCorrectionPreference: keyboardCorrectionPreference
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         #if DEBUG

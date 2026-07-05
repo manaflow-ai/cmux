@@ -97,15 +97,16 @@ public struct ChatComposerView: View {
     }
 
     #if os(iOS)
-    @ViewBuilder
-    private var composerSurface: some View {
+    @ViewBuilder private var composerSurface: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                composerStack
-            }
+            GlassEffectContainer { composerStack }
         } else {
             composerStack
         }
+        #else
+        composerStack
+        #endif
     }
     #endif
 
@@ -375,7 +376,7 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
-    private var attachButton: some View {
+    @MainActor private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
             MobileComposerIconLabel(
                 systemImage: "paperclip",
@@ -398,7 +399,7 @@ public struct ChatComposerView: View {
         }
     }
 
-    private var micButton: some View {
+    @MainActor private var micButton: some View {
         let listening = dictation.state.isListening
         return MobileComposerIconButton(
             systemImage: "mic",

@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobileAnalytics
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
 import SwiftUI
@@ -15,8 +16,8 @@ import CmuxMobileDiagnostics
 ///
 /// Owns the mobile runtime, the auth composition (coordinator + push
 /// registration), the process-wide reachability monitor, the shared push
-/// coordinator, and the mobile display settings. Everything below the app shell
-/// receives these by injection instead of reaching for a singleton.
+/// coordinator, and mobile preferences. Everything below the app shell receives
+/// these by injection instead of reaching for a singleton.
 @MainActor
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
@@ -25,6 +26,7 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
+    let terminalKeyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
     /// Built with `forceSeen` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
@@ -61,6 +63,7 @@ final class AppCompositionRoot {
             analytics: analytics.emitter
         )
         self.displaySettings = MobileDisplaySettings()
+        self.terminalKeyboardCorrectionPreference = MobileTerminalKeyboardCorrectionPreference()
         // Skip the one-time onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live

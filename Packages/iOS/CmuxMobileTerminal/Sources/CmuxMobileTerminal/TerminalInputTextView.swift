@@ -31,9 +31,9 @@ import UIKit
 /// dictation-placeholder methods on a real (non-cleared) `UITextInput` conformer
 /// let recognized text arrive through ``insertText(_:)`` as one block.
 ///
-/// Autocorrect/predictive text stay **disabled** here and fundamentally cannot
-/// be enabled: they require the field to retain the in-progress word, which is
-/// incompatible with forwarding every keystroke to a remote terminal.
+/// Autocorrect/predictive text default **off** here because terminals usually
+/// need literal input, but the keyboard correction traits are configurable for
+/// users who prefer the system suggestion bar.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
@@ -62,6 +62,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The composer toggle, pinned in the container (not the scrollable stack) so
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
+    let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
+    private let inputDebugLog = TerminalInputDebugLog()
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -655,7 +657,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    init() {
+    init(
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+            MobileTerminalKeyboardCorrectionPreference()
+    ) {
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         super.init(frame: .zero)
         backgroundColor = .clear
         tintColor = .clear
@@ -672,6 +678,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             name: TerminalAccessoryConfiguration.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardCorrectionPreferenceChanged),
+            name: MobileTerminalKeyboardCorrectionPreference.didChangeNotification,
+            object: keyboardCorrectionPreference
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -680,6 +692,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleKeyboardCorrectionPreferenceChanged() {
+        reloadInputViews()
     }
 
     /// Receive a committed character (or block) from the keyboard.
@@ -691,7 +707,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// terminal. Committing here also ends any IME composition.
     func insertText(_ text: String) {
         guard !text.isEmpty else { return }
-        TerminalInputDebugLog.log("proxy.insertText text=\(TerminalInputDebugLog.textSummary(text)) composing=\(markedText != nil)")
+        self.inputDebugLog.log("proxy.insertText text=\(self.inputDebugLog.textSummary(text)) composing=\(self.markedText != nil)")
         // A committed insert ends composition. The candidate the IME was showing
         // is exactly `text`, so clear the marked state and emit `text` once.
         if markedText != nil {
@@ -1035,6 +1051,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = .white
@@ -1043,6 +1060,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             }
             return config
         }
+        #endif
         var config = UIButton.Configuration.plain()
         var background = UIBackgroundConfiguration.clear()
         if sticky {
@@ -1219,7 +1237,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func emitCommittedText(_ committedText: String, source: String) {
-        TerminalInputDebugLog.log("proxy.emit source=\(source) text=\(TerminalInputDebugLog.textSummary(committedText))")
+        self.inputDebugLog.log("proxy.emit source=\(source) text=\(self.inputDebugLog.textSummary(committedText))")
         if controlAccessoryArmed {
             if !controlAccessorySticky {
                 setControlAccessoryArmed(false)
@@ -1422,24 +1440,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     #endif
 }
 
-// MARK: - UITextInputTraits
-
-extension TerminalInputTextView {
-    // Autocorrect/predictive/smart substitutions are all off: the view forwards
-    // each keystroke to the remote terminal and keeps no in-progress word for the
-    // keyboard to correct against. Returning these as computed properties (rather
-    // than the `UITextView` stored traits the old design used) keeps the keyboard
-    // from offering corrections it could never apply.
-    var autocorrectionType: UITextAutocorrectionType { get { .no } set {} }
-    var autocapitalizationType: UITextAutocapitalizationType { get { .none } set {} }
-    var spellCheckingType: UITextSpellCheckingType { get { .no } set {} }
-    var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
-    var smartDashesType: UITextSmartDashesType { get { .no } set {} }
-    var smartInsertDeleteType: UITextSmartInsertDeleteType { get { .no } set {} }
-    var keyboardType: UIKeyboardType { get { .default } set {} }
-    var returnKeyType: UIReturnKeyType { get { .default } set {} }
-}
-
 // MARK: - UITextInput (documentless conformance + delete-repeat anchor)
 
 // This view owns no editable document. It implements `UITextInput` to unlock two
@@ -1487,7 +1487,7 @@ extension TerminalInputTextView {
     /// `textWillChange`/`textDidChange` (via ``withMarkedTextChange(_:)``) so the
     /// IME and dictation machinery keep their composition state synchronized.
     func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
-        TerminalInputDebugLog.log("proxy.setMarkedText text=\(TerminalInputDebugLog.textSummary(markedText ?? ""))")
+        self.inputDebugLog.log("proxy.setMarkedText text=\(self.inputDebugLog.textSummary(markedText ?? ""))")
         withMarkedTextChange {
             self.markedText = (markedText?.isEmpty == true) ? nil : markedText
         }
@@ -1534,8 +1534,13 @@ extension TerminalInputTextView {
     /// path as ``insertText(_:)``. A replacement of the marked region supersedes
     /// the in-progress IME composition, so clear it first. An empty replacement is
     /// a pure deletion of the marked composition (no committed text to send).
+    /// This is also why the opt-in autocorrection/spell-check cannot rewrite
+    /// already-sent input: every ``UITextPosition`` clamps to the transient
+    /// ``textInputDocument`` (the delete anchor or active ``markedText``), so
+    /// UIKit can never address — and so never `replace` — bytes that
+    /// ``insertText(_:)`` already forwarded to the terminal.
     func replace(_ range: UITextRange, withText text: String) {
-        TerminalInputDebugLog.log("proxy.replace text=\(TerminalInputDebugLog.textSummary(text))")
+        self.inputDebugLog.log("proxy.replace text=\(self.inputDebugLog.textSummary(text))")
         if markedText != nil {
             withMarkedTextChange { markedText = nil }
         }

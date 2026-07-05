@@ -2,6 +2,7 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import CmuxMobileWorkspace
 import SwiftUI
 
@@ -13,6 +14,8 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileTerminalKeyboardCorrectionPreference.self)
+    private var keyboardCorrectionPreference
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -37,6 +40,7 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        @Bindable var keyboardCorrectionPreference = keyboardCorrectionPreference
         return NavigationStack {
             Form {
                 Section {
@@ -156,7 +160,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                Section {
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -166,6 +170,24 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+
+                    Toggle(isOn: $keyboardCorrectionPreference.isEnabled) {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.keyboardCorrections",
+                                defaultValue: "Autocomplete and Autocorrect"
+                            ),
+                            systemImage: "text.badge.checkmark"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsKeyboardCorrections")
+                } header: {
+                    Text(L10n.string("mobile.settings.terminal", defaultValue: "Terminal"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.keyboardCorrectionsFooter",
+                        defaultValue: "Off by default so terminal commands are not changed while you type."
+                    ))
                 }
 
                 #if DEBUG
