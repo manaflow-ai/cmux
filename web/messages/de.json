@@ -817,6 +817,10 @@
           "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen."
         },
         "terminal": {
+          "titleUpdates": "Steuert, wie cmux Änderungen des Terminaltitels weitergibt, einschließlich des optionalen Zusammenfassens (Coalescing) hochfrequenter Titelaktualisierungen, um die CPU-Auslastung bei häufigen Titeländerungen zu reduzieren.",
+          "titleUpdatesCoalescing": "Optionale Bündelung sehr häufiger Änderungen von Terminaltiteln. Wenn aktiviert, bündelt cmux schnell wechselnde Titel, sodass Workspace-Titel, Seitenleiste und mobile Beobachter höchstens einmal pro Fenster aktualisiert werden statt mit der rohen Titeländerungsrate. Standardmäßig deaktiviert; ausstehende Titel werden vor dem Trennen, Übertragen oder Snapshotten eines Workspaces ausgespült.",
+          "titleUpdatesCoalescingEnabled": "Bündelung von Terminaltitel-Updates aktivieren.",
+          "titleUpdatesCoalescingMilliseconds": "Bündelungsfenster in Millisekunden, wenn die Bündelung von Titel-Updates aktiviert ist. Wird auf 33-5000 ms begrenzt.",
           "copyOnSelect": "Bei true wird ausgewählter Terminaltext in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird. Bei false gibt cmux keine Ghostty-copy-on-select-Überschreibung aus; Ghostty-Konfiguration und Standardwerte steuern das Verhalten der Auswahlzwischenablage.",
           "scrollSpeed": "Multiplikator für die Scroll-Werte von Mausrad und Trackpad im Terminal. Höhere Werte scrollen schneller, niedrigere Werte langsamer.",
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",

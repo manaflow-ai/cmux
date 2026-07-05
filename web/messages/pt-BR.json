@@ -817,6 +817,10 @@
           "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
         },
         "terminal": {
+          "titleUpdates": "Controla como o cmux propaga as alterações de título do terminal, incluindo o agrupamento (coalescing) opcional de atualizações de título de alta frequência para reduzir o uso de CPU durante rajadas de mudanças de título.",
+          "titleUpdatesCoalescing": "Agrupamento opcional de mudanças de título de terminal em alta frequência. Quando ativado, o cmux agrupa títulos que mudam rapidamente para que o título do workspace, a barra lateral e os observadores móveis atualizem no máximo uma vez por janela, em vez da taxa bruta de mudanças de título. Fica desativado por padrão; títulos pendentes são descarregados antes de destacar, transferir ou criar snapshot do workspace.",
+          "titleUpdatesCoalescingEnabled": "Ativar o agrupamento de atualizações do título do terminal.",
+          "titleUpdatesCoalescingMilliseconds": "Janela de agrupamento em milissegundos quando o agrupamento de títulos está ativado. Limitada a 33-5000 ms.",
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",
           "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",

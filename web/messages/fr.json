@@ -817,6 +817,10 @@
           "globalFontMagnification": "Met à l'échelle, selon ce pourcentage, les terminaux, titres d'onglets, barres latérales, réglages, superpositions et chrome d'app appartenant à cmux. Le contenu rendu des pages du navigateur est exclu."
         },
         "terminal": {
+          "titleUpdates": "Contrôle la façon dont cmux propage les changements de titre du terminal, y compris le regroupement (coalescing) optionnel des mises à jour de titre à haute fréquence afin de réduire l'utilisation du CPU lors de changements de titre intensifs.",
+          "titleUpdatesCoalescing": "Regroupement optionnel des changements de titre de terminal très fréquents. Une fois activé, cmux regroupe les titres qui changent rapidement afin que le titre de l'espace de travail, la barre latérale et les observateurs mobiles se rafraîchissent au plus une fois par fenêtre, au lieu du rythme brut des changements de titre. Désactivé par défaut; les titres en attente sont vidés avant le détachement, le transfert ou la capture d'un espace de travail.",
+          "titleUpdatesCoalescingEnabled": "Activer le regroupement des mises à jour du titre du terminal.",
+          "titleUpdatesCoalescingMilliseconds": "Fenêtre de regroupement en millisecondes lorsque le regroupement des titres est activé. Limitée à 33-5000 ms.",
           "copyOnSelect": "Lorsque la valeur est true, le texte sélectionné dans le terminal est copié dans le presse-papiers système quand la sélection est validée. Lorsque la valeur est false, cmux n’émet pas de remplacement Ghostty copy-on-select; la configuration et les valeurs par défaut de Ghostty contrôlent le comportement du presse-papiers de sélection.",
           "scrollSpeed": "Multiplicateur appliqué aux déplacements de la molette de défilement et du pavé tactile dans le terminal. Les valeurs plus élevées font défiler plus vite, les plus basses plus lentement.",
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",

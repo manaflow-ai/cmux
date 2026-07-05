@@ -595,6 +595,29 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.rendererRealization", sourcePath: sourcePath)
         }
 
+        if let rawTitleUpdates = section["titleUpdates"],
+           let titleUpdates = rawTitleUpdates as? [String: Any] {
+            if let rawCoalescing = titleUpdates["coalescing"],
+               let coalescing = rawCoalescing as? [String: Any] {
+                if let value = jsonBool(coalescing["enabled"]) {
+                    snapshot.managedUserDefaults[PanelTitleUpdateCoalescingSettings.coalescingEnabledKey] = .bool(value)
+                } else if coalescing.keys.contains("enabled") {
+                    logInvalid("terminal.titleUpdates.coalescing.enabled", sourcePath: sourcePath)
+                }
+                if let value = jsonInt(coalescing["milliseconds"]) {
+                    snapshot.managedUserDefaults[PanelTitleUpdateCoalescingSettings.coalescingMillisecondsKey] = .int(
+                        PanelTitleUpdateCoalescingSettings.sanitizedDelayMilliseconds(value)
+                    )
+                } else if coalescing.keys.contains("milliseconds") {
+                    logInvalid("terminal.titleUpdates.coalescing.milliseconds", sourcePath: sourcePath)
+                }
+            } else if titleUpdates.keys.contains("coalescing") {
+                logInvalid("terminal.titleUpdates.coalescing", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("titleUpdates") {
+            logInvalid("terminal.titleUpdates", sourcePath: sourcePath)
+        }
+
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {

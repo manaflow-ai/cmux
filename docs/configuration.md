@@ -140,6 +140,28 @@ Action fields:
 - `imagePath`: optional PNG or image path for the submit button.
 - `backgroundColorHex`: action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states.
 
+## `terminal.titleUpdates.coalescing`
+
+Opt-in coalescing for high-frequency terminal title changes. A single active terminal that emits continuously changing titles (progress spinners, percentage counters) drives the workspace title, sidebar, and mobile observers to refresh at the raw title-change rate, which can use noticeable CPU. When enabled, cmux batches those updates so downstream refreshes happen at most once per window.
+
+```json
+{
+  "terminal": {
+    "titleUpdates": {
+      "coalescing": {
+        "enabled": true,
+        "milliseconds": 1000
+      }
+    }
+  }
+}
+```
+
+- `enabled`: turn title-update coalescing on. Default: `false`. When disabled, cmux keeps its built-in ~30 Hz coalescing so title freshness is unchanged.
+- `milliseconds`: coalescing window applied while enabled. Default: `500`. Range: `33`-`5000` (values outside the range are clamped).
+
+Pending titles are always flushed before a workspace is detached, transferred to another window, or snapshotted for session restore, so a delayed title is never lost.
+
 ## `automation.workspaceAutoNaming`
 
 Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.

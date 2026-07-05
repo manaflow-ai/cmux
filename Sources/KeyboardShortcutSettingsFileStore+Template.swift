@@ -107,6 +107,11 @@ extension CmuxSettingsFileStore {
                         "idleSeconds": Int(RendererRealizationSettings.defaultIdleSeconds),
                         "maxWarmRenderers": RendererRealizationSettings.defaultMaxWarmRenderers,
                     ],
+                    "titleUpdates": [
+                        "coalescing": [
+                            "enabled": PanelTitleUpdateCoalescingSettings.defaultEnabled,
+                        ],
+                    ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],
