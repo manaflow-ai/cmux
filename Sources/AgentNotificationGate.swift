@@ -18,8 +18,12 @@ enum AgentTurnCompleteMode: String {
 }
 
 /// Parsed notification meta segment. Accepted forms are exactly:
-/// `c=<category>;p=<0|1>`, `c=<category>;p=<0|1>;a=<agent-id>`, and
-/// `a=<agent-id>`. Any other string stays part of the legacy notification body.
+/// `c=<category>;p=<0|1>` and `c=<category>;p=<0|1>;a=<agent-id>`, where
+/// `c=other` is valid only in the 3-field form (the CLI serializes
+/// uncategorized agent notifications as `c=other;p=0;a=<agent-id>`). A bare
+/// `a=<agent-id>` is deliberately NOT metadata: keeping the grammar to one
+/// `c=`-anchored shape means a legacy body tail like "|a=prod" can never be
+/// swallowed as meta. Any other string stays part of the legacy body.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
@@ -31,19 +35,13 @@ struct AgentNotificationMeta {
         // unknown, or trailing fields — is not metadata and stays part of the
         // legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        if fields.count == 1, fields[0].hasPrefix("a=") {
-            guard let agentId = Self.validAgentId(String(fields[0].dropFirst(2))) else { return nil }
-            self.category = .other
-            self.pending = false
-            self.agentId = agentId
-            return
-        }
-
         guard (fields.count == 2 || fields.count == 3),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
-        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))),
-              known != .other else { return nil }
+        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else { return nil }
+        // `.other` is never serialized without agent identity; a bare
+        // `c=other;p=<x>` is not a canonical producer form, so reject it.
+        if known == .other, fields.count != 3 { return nil }
         switch fields[1].dropFirst(2) {
         case "1": self.pending = true
         case "0": self.pending = false

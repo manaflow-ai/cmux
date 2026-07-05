@@ -111,10 +111,12 @@ extension CMUXCLI {
         return base + "|" + meta
     }
 
-    /// Delimiter-safe meta segment. Categorized forms serialize as
+    /// Delimiter-safe meta segment. Every form serializes as
     /// `c=<category>;p=<0|1>` with optional `;a=<agent-id>`; uncategorized
-    /// agent notifications use `a=<agent-id>`. No "|" or spaces, so it survives
-    /// the pipe-delimited payload and the app's strict parser.
+    /// agent notifications use `c=other;p=0;a=<agent-id>` so the meta grammar
+    /// stays a single shape and a legacy body tail like "|a=prod" can never be
+    /// mistaken for metadata. No "|" or spaces, so it survives the
+    /// pipe-delimited payload and the app's strict parser.
     func notifyMeta(_ category: AgentHookNotifyCategory, pending: Bool, agentId: String? = nil) -> String {
         let base = "c=\(category.rawValue);p=\(pending ? 1 : 0)"
         guard let agentId = normalizedNotifyAgentId(agentId) else { return base }
@@ -122,7 +124,7 @@ extension CMUXCLI {
     }
 
     func notifyMeta(agentId: String) -> String? {
-        normalizedNotifyAgentId(agentId).map { "a=\($0)" }
+        normalizedNotifyAgentId(agentId).map { "c=\(AgentHookNotifyCategory.other.rawValue);p=0;a=\($0)" }
     }
 
     func normalizedNotifyAgentId(_ value: String?) -> String? {

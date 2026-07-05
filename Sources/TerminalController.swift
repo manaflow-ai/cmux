@@ -12449,9 +12449,9 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (`c=<category>;p=<0|1>`, `c=...;p=...;a=<agent-id>`, or
-    /// `a=<agent-id>`) that agent hooks append to gate delivery and identify the
-    /// source agent. The 4th segment is only treated as meta when it fully parses;
+    /// `meta` segment (`c=<category>;p=<0|1>` or `c=...;p=...;a=<agent-id>`)
+    /// that agent hooks append to gate delivery and identify the source agent.
+    /// The 4th segment is only treated as meta when it fully parses;
     /// otherwise it is folded back into the body, so legacy callers whose body
     /// itself contains `|` parse byte-identically to before.
     private func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
@@ -12461,11 +12461,11 @@ class TerminalController {
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
             // The 4th segment is metadata only when it parses as the full strict
-            // grammar. Anything else — including a legacy body that happens to
-            // contain "|c=..." or "|a=..." — is folded back into the body so
-            // pre-meta callers parse byte-identically to before.
+            // c=-anchored grammar. Anything else — including a legacy body that
+            // happens to contain "|c=..." or "|a=..." — is folded back into the
+            // body so pre-meta callers parse byte-identically to before.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
-            if (candidate.hasPrefix("c=") || candidate.hasPrefix("a=")),
+            if candidate.hasPrefix("c="),
                let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed
             } else {

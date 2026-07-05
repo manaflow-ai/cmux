@@ -84,11 +84,14 @@ import Testing
         #expect(meta?.agentId == "claude")
     }
 
-    @Test func metaParsesAgentOnlyAsOther() {
-        let meta = AgentNotificationMeta(meta: "a=pi")
+    @Test func metaParsesUncategorizedAgentFormAsOther() {
+        let meta = AgentNotificationMeta(meta: "c=other;p=0;a=pi")
         #expect(meta?.category == .other)
         #expect(meta?.pending == false)
         #expect(meta?.agentId == "pi")
+        // A bare agent tag is NOT metadata: only the c=-anchored grammar is,
+        // so a legacy body tail like "|a=prod" can never be swallowed as meta.
+        #expect(AgentNotificationMeta(meta: "a=pi") == nil)
         #expect(agentNotificationShouldDeliver(
             category: meta?.category ?? .needsPermission,
             pending: meta?.pending ?? true,
@@ -102,7 +105,10 @@ import Testing
         // Only the three known category literals are wire-valid; anything else
         // (including "c=other") stays part of the legacy notification body.
         #expect(AgentNotificationMeta(meta: "c=bogus;p=1") == nil)
+        // "other" is wire-valid only with agent identity attached.
         #expect(AgentNotificationMeta(meta: "c=other;p=1") == nil)
+        #expect(AgentNotificationMeta(meta: "c=other;p=0") == nil)
+        #expect(AgentNotificationMeta(meta: "c=other;p=0;a=pi")?.category == .other)
         #expect(AgentNotificationMeta(meta: "c=note;p=1") == nil)
     }
 
