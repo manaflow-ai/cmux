@@ -1,8 +1,4 @@
 //! Platform decisions for cmux-mux.
-//!
-//! Phase 1 still uses Unix-domain control sockets, but callers go through
-//! this module so Windows transport, shell, and config rules can land in
-//! one place later.
 
 use std::path::{Path, PathBuf};
 
@@ -77,31 +73,37 @@ pub mod transport {
     mod imp {
         use std::io;
         use std::path::Path;
+        use std::time::Duration;
 
         use super::Stream;
+        use uds_windows::{UnixListener, UnixStream};
 
-        pub(super) struct Listener;
-
-        pub(super) fn listen(_path: &Path) -> io::Result<Listener> {
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "cmux-mux control transport is not implemented on Windows yet",
-            ))
+        pub(super) struct Listener {
+            inner: UnixListener,
         }
 
-        pub(super) fn connect(_path: &Path) -> io::Result<Box<dyn Stream>> {
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "cmux-mux control transport is not implemented on Windows yet",
-            ))
+        pub(super) fn listen(path: &Path) -> io::Result<Listener> {
+            UnixListener::bind(path).map(|inner| Listener { inner })
+        }
+
+        pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
+            Ok(Box::new(UnixStream::connect(path)?))
         }
 
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
-                Err(io::Error::new(
-                    io::ErrorKind::Unsupported,
-                    "cmux-mux control transport is not implemented on Windows yet",
-                ))
+                let (stream, _) = self.inner.accept()?;
+                Ok(Box::new(stream))
+            }
+        }
+
+        impl Stream for UnixStream {
+            fn try_clone_box(&self) -> io::Result<Box<dyn Stream>> {
+                Ok(Box::new(self.try_clone()?))
+            }
+
+            fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_read_timeout(self, timeout)
             }
         }
     }
@@ -120,29 +122,39 @@ pub fn config_path() -> Option<PathBuf> {
     if let Some(config_home) = env_path("XDG_CONFIG_HOME") {
         return Some(config_home.join("cmux").join("mux.json"));
     }
+    platform_config_path()
+}
+
+#[cfg(not(windows))]
+fn platform_config_path() -> Option<PathBuf> {
     home_dir().map(|home| home.join(".config").join("cmux").join("mux.json"))
 }
 
+#[cfg(windows)]
+fn platform_config_path() -> Option<PathBuf> {
+    env_path("APPDATA").map(|appdata| appdata.join("cmux").join("mux.json"))
+}
+
 /// Default interactive shell for spawned PTY surfaces.
+#[cfg(not(windows))]
 pub fn default_shell() -> String {
     if let Some(shell) = env_string("SHELL") {
         return shell;
     }
 
-    #[cfg(unix)]
-    {
-        if Path::new("/bin/bash").is_file() {
-            "/bin/bash".to_string()
-        } else {
-            "/bin/sh".to_string()
-        }
+    if Path::new("/bin/bash").is_file() {
+        "/bin/bash".to_string()
+    } else {
+        "/bin/sh".to_string()
     }
+}
 
-    #[cfg(windows)]
-    {
-        // Phase 2 Windows order: pwsh > powershell > cmd.
-        "cmd".to_string()
-    }
+/// Default interactive shell for spawned PTY surfaces.
+#[cfg(windows)]
+pub fn default_shell() -> String {
+    find_on_path(&["pwsh.exe", "powershell.exe", "cmd.exe"])
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "cmd.exe".to_string())
 }
 
 /// Candidate Chrome/Chromium-family binaries in platform discovery order.
@@ -196,6 +208,29 @@ pub fn chrome_candidates() -> Vec<PathBuf> {
         }
     }
 
+    #[cfg(windows)]
+    {
+        push_path_candidates(
+            &mut candidates,
+            &["chrome.exe", "google-chrome.exe", "chromium.exe", "msedge.exe", "brave.exe"],
+        );
+        for base in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"] {
+            if let Some(dir) = env_path(base) {
+                for path in [
+                    dir.join("Google").join("Chrome").join("Application").join("chrome.exe"),
+                    dir.join("Chromium").join("Application").join("chrome.exe"),
+                    dir.join("BraveSoftware")
+                        .join("Brave-Browser")
+                        .join("Application")
+                        .join("brave.exe"),
+                    dir.join("Microsoft").join("Edge").join("Application").join("msedge.exe"),
+                ] {
+                    push_unique(&mut candidates, path);
+                }
+            }
+        }
+    }
+
     #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
     {
         push_path_candidates(
@@ -236,7 +271,7 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
         })
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     {
         env_path("XDG_DATA_HOME")
             .map(|data_home| data_home.join("cmux-mux").join("chrome-profile"))
@@ -245,6 +280,22 @@ pub fn chrome_user_data_dir() -> Option<PathBuf> {
                     home.join(".local").join("share").join("cmux-mux").join("chrome-profile")
                 })
             })
+    }
+
+    #[cfg(windows)]
+    {
+        env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-mux").join("chrome-profile"))
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
+    {
+        env_path("XDG_DATA_HOME").map(|dir| dir.join("cmux-mux").join("chrome-profile")).or_else(
+            || {
+                home_dir().map(|home| {
+                    home.join(".local").join("share").join("cmux-mux").join("chrome-profile")
+                })
+            },
+        )
     }
 }
 
@@ -272,14 +323,32 @@ pub fn is_executable_file(path: &Path) -> bool {
     }
 }
 
+#[cfg(not(windows))]
 fn runtime_base_dir() -> PathBuf {
     env_path("XDG_RUNTIME_DIR")
         .or_else(|| env_path("TMPDIR"))
         .unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
+#[cfg(windows)]
+fn runtime_base_dir() -> PathBuf {
+    env_path("TEMP").or_else(|| env_path("TMP")).unwrap_or_else(std::env::temp_dir)
+}
+
+#[cfg(not(windows))]
 pub fn home_dir() -> Option<PathBuf> {
     env_path("HOME")
+}
+
+#[cfg(windows)]
+pub fn home_dir() -> Option<PathBuf> {
+    env_path("USERPROFILE").or_else(|| {
+        let drive = std::env::var_os("HOMEDRIVE")?;
+        let path = std::env::var_os("HOMEPATH")?;
+        let mut home = PathBuf::from(drive);
+        home.push(path);
+        Some(home)
+    })
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
@@ -287,6 +356,7 @@ fn env_path(name: &str) -> Option<PathBuf> {
     (!value.is_empty()).then(|| PathBuf::from(value))
 }
 
+#[cfg(not(windows))]
 fn env_string(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
@@ -302,16 +372,24 @@ fn user_id_component() -> String {
 }
 
 fn push_path_candidates(candidates: &mut Vec<PathBuf>, names: &[&str]) {
-    let Some(path) = std::env::var_os("PATH") else { return };
+    for name in names {
+        if let Some(candidate) = find_on_path(&[*name]) {
+            push_unique(candidates, candidate);
+        }
+    }
+}
+
+fn find_on_path(names: &[&str]) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
     for name in names {
         for dir in std::env::split_paths(&path) {
             let candidate = dir.join(name);
             if is_executable_file(&candidate) {
-                push_unique(candidates, candidate);
-                break;
+                return Some(candidate);
             }
         }
     }
+    None
 }
 
 fn push_unique(candidates: &mut Vec<PathBuf>, path: PathBuf) {

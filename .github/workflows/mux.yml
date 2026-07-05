@@ -73,3 +73,36 @@ jobs:
       - name: Detach/reattach smoke test
         working-directory: mux
         run: python3 scripts/smoke-attach.py
+
+  windows-experimental:
+    name: windows experimental (x86_64-gnu)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: 0.15.2
+
+      - name: Install Rust GNU target
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          echo "C:\\msys64\\mingw64\\bin" >> "$GITHUB_PATH"
+
+      - name: Build libghostty-vt for Windows GNU
+        shell: bash
+        working-directory: ghostty
+        run: |
+          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
+          zig ar t "$RUNNER_TEMP/ghostty-vt-win-gnu/lib/ghostty-vt-static.lib" | head
+
+      - name: cargo build mux-tui for Windows GNU
+        working-directory: mux
+        run: cargo build -p mux-tui --target x86_64-pc-windows-gnu --locked

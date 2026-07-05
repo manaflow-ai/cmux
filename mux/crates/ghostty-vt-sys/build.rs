@@ -32,24 +32,33 @@ fn main() {
     // is an order of magnitude slower.
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
     let prefix = out_dir.join("ghostty-vt");
-    let status = Command::new(&zig)
+    let target = env::var("TARGET").unwrap();
+    let host = env::var("HOST").unwrap();
+    let mut command = Command::new(&zig);
+    command
         .current_dir(&ghostty_dir)
         .arg("build")
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
-        .arg("-Doptimize=ReleaseFast")
-        .arg("--prefix")
-        .arg(&prefix)
-        .status()
-        .unwrap_or_else(|e| {
-            panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
-        });
+        .arg("-Doptimize=ReleaseFast");
+    if target != host {
+        if let Some(zig_target) = zig_target_for_rust_target(&target) {
+            command.arg(format!("-Dtarget={zig_target}"));
+        }
+    }
+    let status = command.arg("--prefix").arg(&prefix).status().unwrap_or_else(|e| {
+        panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
+    });
     if !status.success() {
         panic!("zig build of libghostty-vt failed with {status}");
     }
 
     println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
-    println!("cargo:rustc-link-lib=static=ghostty-vt");
+    if target.contains("windows") {
+        println!("cargo:rustc-link-lib=static=ghostty-vt-static");
+    } else {
+        println!("cargo:rustc-link-lib=static=ghostty-vt");
+    }
 
     // Generate bindings from the public C header.
     let include_dir = ghostty_dir.join("include");
@@ -65,4 +74,13 @@ fn main() {
         .generate()
         .expect("bindgen failed for ghostty/vt.h");
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
+}
+
+fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
+    match target {
+        "x86_64-pc-windows-gnu" => Some("x86_64-windows-gnu"),
+        "x86_64-pc-windows-msvc" => Some("x86_64-windows-msvc"),
+        "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
+        _ => None,
+    }
 }
