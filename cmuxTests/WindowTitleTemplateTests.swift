@@ -284,6 +284,7 @@ struct WindowTitleTemplateTests {
         workspace.disconnectRemoteConnection()
         manager.refreshWindowTitle()
         #expect(window.title == "[cmux:01234567]")
+        #expect(manager.gitProbeDirectory(for: workspace, panelId: remotePanelId) == nil)
     }
 
     @MainActor
@@ -408,6 +409,9 @@ struct WindowTitleTemplateTests {
             restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredAgentPanelId }
         )
         #expect(restoredAgentSnapshot.directoryIsTrustedRemoteReport == true)
+
+        workspace.disconnectRemoteConnection()
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
     }
 
     @MainActor

@@ -4730,7 +4730,7 @@ final class Workspace: Identifiable, ObservableObject {
             isConnectedRemoteLiveReport || (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror))
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
         if provenanceChanged {
-            remoteDirectoryReportPanelIds.insert(panelId)
+            remoteDirectoryReportPanelIds.insert(panelId); remoteDirectoryTrustRequiredPanelIds.insert(panelId)
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged || provenanceChanged { panelDirectories[panelId] = trimmed }
@@ -8785,7 +8785,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles[agentPanel.id] = agentPanel.displayTitle
         if let directory, !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             panelDirectories[agentPanel.id] = directory
-            if trustsAgentDirectory { remoteDirectoryReportPanelIds.insert(agentPanel.id) }
+            if trustsAgentDirectory { remoteDirectoryReportPanelIds.insert(agentPanel.id); remoteDirectoryTrustRequiredPanelIds.insert(agentPanel.id) }
         }
 
         guard let newTabId = bonsplitController.createTab(
