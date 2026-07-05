@@ -1,13 +1,12 @@
-import Combine
 import Darwin
 import Foundation
 
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
 @MainActor
-final class SharedLiveAgentIndex: ObservableObject {
+final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
-    @Published private(set) var index: RestorableAgentSessionIndex?
+    private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
@@ -17,7 +16,6 @@ final class SharedLiveAgentIndex: ObservableObject {
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let forkAvailabilityProbeTTL: TimeInterval = 1.0
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -59,16 +57,20 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        guard hasCompletedForkAvailabilityProbe,
+              !isForkAvailabilityRefreshInFlight else {
+            return nil
+        }
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     func prepareForkAvailabilityProbe() -> Bool {
         scheduleRefreshIfStale()
-        let hasCompletedProbe = forkAvailabilityProbeCompletedAt != nil
-        if !hasFreshForkAvailabilityProbe {
+        guard hasCompletedForkAvailabilityProbe else {
             requestForkAvailabilityRefresh()
+            return false
         }
-        return hasCompletedProbe
+        return !isForkAvailabilityRefreshInFlight
     }
 
     /// Current cached index. Never blocks.
@@ -93,7 +95,6 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 
     private func requestForkAvailabilityRefresh() {
-        guard !hasFreshForkAvailabilityProbe else { return }
         guard refreshTask == nil,
               forkAvailabilityRefreshTask == nil else {
             return
@@ -144,12 +145,15 @@ final class SharedLiveAgentIndex: ObservableObject {
             )
         }.value
         guard !Task.isCancelled else { return }
+        let loadedAt = dateProvider()
         if forcePublish || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint {
             applyReloadedIndex(
                 result.index,
-                loadedAt: dateProvider(),
+                loadedAt: loadedAt,
                 liveAgentProcessFingerprint: result.liveAgentProcessFingerprint
             )
+        } else {
+            self.loadedAt = loadedAt
         }
     }
 
@@ -162,11 +166,15 @@ final class SharedLiveAgentIndex: ObservableObject {
         self.loadedAt = loadedAt
         self.forkAvailabilityProbeCompletedAt = loadedAt
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
+        NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
     }
 
-    private var hasFreshForkAvailabilityProbe: Bool {
-        guard let forkAvailabilityProbeCompletedAt else { return false }
-        return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
+    private var hasCompletedForkAvailabilityProbe: Bool {
+        forkAvailabilityProbeCompletedAt != nil
+    }
+
+    private var isForkAvailabilityRefreshInFlight: Bool {
+        refreshTask != nil || forkAvailabilityRefreshTask != nil
     }
 
     private func handleHookStoreChange() {
@@ -220,4 +228,8 @@ final class SharedLiveAgentIndex: ObservableObject {
         let index: RestorableAgentSessionIndex
         let liveAgentProcessFingerprint: Set<String>
     }
+}
+
+extension Notification.Name {
+    static let sharedLiveAgentIndexDidChange = Notification.Name("cmux.sharedLiveAgentIndexDidChange")
 }

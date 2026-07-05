@@ -360,6 +360,7 @@ struct WorkspaceForkConversationContextMenuTests {
             workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId) == .requiresProbe
         )
         #expect(!workspace.canForkAgentConversationFromPanel(panelId))
+        #expect(WorkspaceForkAgentConversationAvailability.agentIndexRefreshing.diagnosticReason == "agent_index_refreshing")
     }
 
     private func makeForkableClaudeSnapshot(
