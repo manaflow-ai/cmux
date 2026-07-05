@@ -163,6 +163,18 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func reorderWorkspaceAfterDownwardMoveInsertsAtExpectedSlot() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        model.tabs = [a, b, c]
+        #expect(reorder.reorderWorkspace(tabId: a.id, after: b.id))
+        #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
+    }
+
+    @Test
     func batchReorderRejectsUnknownAndDuplicateIds() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
