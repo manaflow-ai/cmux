@@ -6,7 +6,9 @@ import os
 /// Dedupes opencode turn-complete banners. The opencode plugin maps every
 /// `session.idle` callback to a `Stop` feed event with no turn identity, so a
 /// replayed idle for the same turn would re-notify. One fingerprint
-/// (session + message text) is kept per surface; a repeat is dropped.
+/// (session + message text) is kept per surface; a repeated stop is dropped
+/// until the next user prompt on that surface re-arms it, so an identical-text
+/// LATER turn still notifies.
 final class OpenCodeStopNotificationDeduper: Sendable {
     private let state = OSAllocatedUnfairLock(initialState: [UUID: String]())
     private let capacity: Int
@@ -26,20 +28,31 @@ final class OpenCodeStopNotificationDeduper: Sendable {
             return true
         }
     }
+
+    /// Forgets the surface's fingerprint. Called on each user prompt so the
+    /// next stop always notifies, even when its banner text repeats a prior
+    /// turn byte-for-byte.
+    func reset(surfaceId: UUID) {
+        state.withLock { $0[surfaceId] = nil }
+    }
 }
 
 extension TerminalController {
     private static let opencodeStopNotificationDeduper = OpenCodeStopNotificationDeduper()
 
     nonisolated func v2PostOpenCodeStopNotificationIfNeeded(for event: WorkstreamEvent) {
-        guard event.hookEventName == .stop,
-              event.source == "opencode",
+        guard event.source == "opencode",
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               let rawSurfaceId = event.surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               let tabId = UUID(uuidString: rawWorkspaceId),
               let surfaceId = UUID(uuidString: rawSurfaceId) else {
             return
         }
+        if event.hookEventName == .userPromptSubmit {
+            Self.opencodeStopNotificationDeduper.reset(surfaceId: surfaceId)
+            return
+        }
+        guard event.hookEventName == .stop else { return }
 
         let catalog = NotificationsCatalogSection()
         let turnMode = AgentTurnCompleteMode(rawValue: catalog.agentTurnComplete.value(in: .standard)) ?? .whenIdle

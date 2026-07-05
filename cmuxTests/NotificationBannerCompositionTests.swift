@@ -147,6 +147,12 @@ import Testing
         #expect(!deduper.shouldNotify(surfaceId: surface, fingerprint: "s1|done|prompt"))
         #expect(deduper.shouldNotify(surfaceId: surface, fingerprint: "s1|next answer|prompt"))
         #expect(deduper.shouldNotify(surfaceId: otherSurface, fingerprint: "s1|done|prompt"))
+
+        // A new user prompt re-arms the surface: an identical-text later turn
+        // still notifies, so dedupe only suppresses same-turn replays.
+        #expect(!deduper.shouldNotify(surfaceId: otherSurface, fingerprint: "s1|done|prompt"))
+        deduper.reset(surfaceId: otherSurface)
+        #expect(deduper.shouldNotify(surfaceId: otherSurface, fingerprint: "s1|done|prompt"))
     }
 
     @Test func openCodeStopDeduperBoundsItsMap() {
