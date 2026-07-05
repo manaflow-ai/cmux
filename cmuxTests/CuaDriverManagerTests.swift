@@ -21,7 +21,8 @@ final class CuaDriverManagerTests: XCTestCase {
         )
         let manager = CuaDriverManager(registerTerminationObserver: false)
         var updates = manager.stateUpdates().makeAsyncIterator()
-        XCTAssertEqual(await updates.next(), .stopped)
+        let first = await updates.next()
+        XCTAssertEqual(first, .stopped)
 
         let startTask = Task { @MainActor in
             await manager.start(
@@ -32,11 +33,13 @@ final class CuaDriverManagerTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(await nextState(from: &updates, matching: { $0 == .starting }), .starting)
-        let running = try XCTUnwrap(await nextState(from: &updates, matching: {
+        let starting = await nextState(from: &updates, matching: { $0 == .starting })
+        XCTAssertEqual(starting, .starting)
+        let nextRunning = await nextState(from: &updates, matching: {
             if case .running = $0 { return true }
             return false
-        }))
+        })
+        let running = try XCTUnwrap(nextRunning)
         await startTask.value
 
         guard case let .running(info) = running else {
