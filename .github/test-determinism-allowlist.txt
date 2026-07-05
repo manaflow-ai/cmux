@@ -22,3 +22,4 @@ tests_v2/test_surface_list_custom_titles.py	sleep-then-assert	grandfathered
 tests_v2/test_tmux_compat_geometry.py	sleep-then-assert	grandfathered
 tests_v2/test_tmux_compat_matrix.py	sleep-then-assert	grandfathered
 tests_v2/test_v1_panel_creation_preserves_focus.py	sleep-then-assert	grandfathered
+cmuxTests/WorkspaceUnitTests.swift	assert-on-duration	elapsedSeconds is parsed from a fixed snapshot fixture, not a measured duration
