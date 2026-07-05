@@ -805,6 +805,7 @@ jobs:
             CmuxAuthRuntime
             CmuxCommandPalette
             CmuxControlSocket
+            CmuxFleet
             CmuxFoundation
             CmuxGit
             CmuxSettings
