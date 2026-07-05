@@ -916,7 +916,7 @@ impl App {
             if input.is_empty() {
                 return Ok(true);
             }
-            let url = normalize_omnibar_input(input);
+            let url = mux_core::normalize_url(input);
             match self.session.surface(state.surface) {
                 Some(handle) => {
                     self.status_message =
@@ -2106,66 +2106,6 @@ fn browser_hover_forward_allowed(status: Option<BrowserStatus>, editing_same_pan
     !editing_same_pane && matches!(status, Some(BrowserStatus::Live))
 }
 
-pub fn normalize_omnibar_input(input: &str) -> String {
-    let trimmed = input.trim();
-    if trimmed.contains("://") {
-        return trimmed.to_string();
-    }
-    if is_loopback_address(trimmed) {
-        return format!("http://{trimmed}");
-    }
-    if has_bare_scheme(trimmed) {
-        return trimmed.to_string();
-    }
-    if !trimmed.chars().any(char::is_whitespace) && trimmed.contains('.') {
-        return format!("https://{trimmed}");
-    }
-    format!("https://www.google.com/search?q={}", percent_encode_query(trimmed))
-}
-
-fn has_bare_scheme(input: &str) -> bool {
-    let Some((scheme, rest)) = input.split_once(':') else {
-        return false;
-    };
-    if scheme.contains('.') || (!rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_digit())) {
-        return false;
-    }
-    let mut chars = scheme.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_alphabetic()
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-'))
-}
-
-fn is_loopback_address(input: &str) -> bool {
-    let starts = ["localhost", "127.0.0.1", "[::1]"];
-    starts.iter().any(|prefix| {
-        let Some(rest) = input.strip_prefix(prefix) else {
-            return false;
-        };
-        rest.is_empty() || matches!(rest.as_bytes()[0], b':' | b'/' | b'?')
-    })
-}
-
-fn percent_encode_query(input: &str) -> String {
-    let mut out = String::new();
-    for byte in input.as_bytes() {
-        match *byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*byte as char);
-            }
-            other => {
-                const HEX: &[u8; 16] = b"0123456789ABCDEF";
-                out.push('%');
-                out.push(HEX[(other >> 4) as usize] as char);
-                out.push(HEX[(other & 0x0F) as usize] as char);
-            }
-        }
-    }
-    out
-}
-
 fn clear_omnibar_selection(state: &mut OmnibarState) {
     if state.select_all {
         state.buffer.clear();
@@ -2221,35 +2161,10 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        browser_content_size_for_rect, browser_hover_forward_allowed, normalize_omnibar_input,
-        pane_parts_for_rect,
+        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
     };
     use crate::config::ScrollbarPosition;
     use mux_core::{BrowserStatus, Rect};
-
-    #[test]
-    fn omnibar_normalizes_input() {
-        assert_eq!(normalize_omnibar_input("https://example.com/a"), "https://example.com/a");
-        assert_eq!(normalize_omnibar_input("localhost:3000/path"), "http://localhost:3000/path");
-        assert_eq!(normalize_omnibar_input("127.0.0.1/test"), "http://127.0.0.1/test");
-        assert_eq!(normalize_omnibar_input("[::1]:8080"), "http://[::1]:8080");
-        assert_eq!(normalize_omnibar_input("example.com"), "https://example.com");
-        assert_eq!(normalize_omnibar_input("example.com:8080"), "https://example.com:8080");
-        assert_eq!(normalize_omnibar_input("about:blank"), "about:blank");
-        assert_eq!(normalize_omnibar_input("mailto:test@example.com"), "mailto:test@example.com");
-        assert_eq!(
-            normalize_omnibar_input("myhost:8080"),
-            "https://www.google.com/search?q=myhost%3A8080"
-        );
-        assert_eq!(
-            normalize_omnibar_input("plainwords"),
-            "https://www.google.com/search?q=plainwords"
-        );
-        assert_eq!(
-            normalize_omnibar_input("two words?"),
-            "https://www.google.com/search?q=two%20words%3F"
-        );
-    }
 
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {

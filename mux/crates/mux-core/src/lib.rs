@@ -16,6 +16,7 @@ mod surface;
 pub mod layout;
 pub mod server;
 
+pub use browser::normalize_url;
 pub use layout::{
     layout_screen, split_for_pane_edge, split_sides, LayoutResult, Rect, SplitEdge, SplitResize,
 };
