@@ -2,6 +2,9 @@ import CmuxMobileTerminal
 import CmuxMobileTerminalKit
 import Foundation
 import Testing
+#if os(iOS)
+@testable import CmuxMobileShellUI
+#endif
 
 /// Behavioral tests for ``TerminalAccessoryConfiguration``: the source of truth
 /// for the reorderable terminal accessory bar. These verify the fresh-install
@@ -50,6 +53,74 @@ struct TerminalAccessoryConfigurationTests {
         // ⇧ is now a surfaced, shown, user-configurable bar button.
         #expect(order.contains(id(.shift)))
         #expect(config.isEnabled(id(.shift)))
+    }
+
+    /// Verifies compact built-ins render as specific icons with VoiceOver labels.
+    @Test("default toolbar icon-backed built-ins are shown and have accessibility labels")
+    func defaultToolbarIconPresentationIsAccessible() throws {
+        let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
+        let enabledBuiltins: [TerminalInputAccessoryAction] = config.enabledItems.compactMap { item in
+            if case let .builtin(action) = item { return action }
+            return nil
+        }
+        let compactIconActions: [TerminalInputAccessoryAction] = [
+            .paste,
+            .tab,
+            .escape,
+            .returnKey,
+            .upArrow,
+            .downArrow,
+            .leftArrow,
+            .rightArrow,
+            .home,
+            .end,
+            .pageUp,
+            .pageDown,
+            .zoomOut,
+            .zoomIn,
+        ]
+        let expectedSymbols: [TerminalInputAccessoryAction: String] = [
+            .paste: "doc.on.clipboard",
+            .tab: "increase.indent",
+            .escape: "escape",
+            .returnKey: "return",
+            .upArrow: "arrow.up",
+            .downArrow: "arrow.down",
+            .leftArrow: "arrow.left",
+            .rightArrow: "arrow.right",
+            .home: "arrow.left.to.line",
+            .end: "arrow.right.to.line",
+            .pageUp: "arrow.up.to.line",
+            .pageDown: "arrow.down.to.line",
+            .zoomOut: "minus.magnifyingglass",
+            .zoomIn: "plus.magnifyingglass",
+        ]
+        let expectedAccessibilityLabels: [TerminalInputAccessoryAction: String] = [
+            .paste: "Paste",
+            .tab: "Tab",
+            .escape: "Escape",
+            .returnKey: "Return",
+            .upArrow: "Up Arrow",
+            .downArrow: "Down Arrow",
+            .leftArrow: "Left Arrow",
+            .rightArrow: "Right Arrow",
+            .home: "Home",
+            .end: "End",
+            .pageUp: "Page Up",
+            .pageDown: "Page Down",
+            .zoomOut: "Zoom Out",
+            .zoomIn: "Zoom In",
+        ]
+
+        for action in compactIconActions {
+            #expect(enabledBuiltins.contains(action))
+            #expect(action.symbolName == expectedSymbols[action])
+            let label = try #require(action.accessibilityLabel)
+            let expectedLabel = try #require(expectedAccessibilityLabels[action])
+            #expect(label == expectedLabel)
+        }
+        #expect(TerminalInputAccessoryAction.claude.symbolName == nil)
+        #expect(TerminalInputAccessoryAction.codex.symbolName == nil)
     }
 
     // MARK: - Return key
@@ -115,6 +186,40 @@ struct TerminalAccessoryConfigurationTests {
         #expect(!reloaded.isEnabled(id(.command)))
         #expect(reloaded.displayOrder.contains(id(.command)))
     }
+
+    /// Verifies user-defined icon metadata survives toolbar persistence reloads.
+    @Test("custom action icon metadata persists through toolbar configuration")
+    func customActionIconPersists() throws {
+        let defaults = freshDefaults()
+        let action = CustomToolbarAction(
+            title: "Run",
+            symbolName: "sparkles",
+            payload: .text("echo ok\n")
+        )
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+
+        config.addCustomAction(action)
+        let shown = try #require(config.enabledItems.compactMap(\.customAction).first { $0.id == action.id })
+        #expect(shown.symbolName == "sparkles")
+        #expect(shown.title == "Run")
+
+        let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
+        let restored = try #require(reloaded.enabledItems.compactMap(\.customAction).first { $0.id == action.id })
+        #expect(restored.symbolName == "sparkles")
+        #expect(restored.title == "Run")
+    }
+
+    #if os(iOS)
+    /// Verifies the editor rejects icon names UIKit cannot render.
+    @Test("custom action icon editor validates SF Symbol names before saving")
+    func customActionIconEditorValidatesSymbolNames() {
+        let validator = ToolbarActionSymbolValidator()
+
+        #expect(validator.validatedSymbolName("  star  ") == "star")
+        #expect(validator.validatedSymbolName("cmux.not.a.real.symbol") == nil)
+        #expect(validator.validatedSymbolName("   ") == nil)
+    }
+    #endif
 
     // MARK: - Gating test #2: v2 → v3 widening migration
 
