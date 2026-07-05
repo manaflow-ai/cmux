@@ -1647,10 +1647,11 @@ extension Workspace {
             clearRestoredUnreadIndicator(panelId: panelId)
         }
 
-        let restoredDirectoryRequiresRemoteTrust = (
+        let restoredDirectoryRequiresRemoteTrust = snapshot.directoryIsTrustedRemoteReport != true && (
             snapshot.directoryRequiresRemoteTrust == true ||
-                remoteDirectoryTrustRequiredPanelIds.contains(panelId)
-        ) && snapshot.directoryIsTrustedRemoteReport != true
+                remoteDirectoryTrustRequiredPanelIds.contains(panelId) ||
+                (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil)
+        )
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
             let source: PanelDirectoryUpdateSource = snapshot.directoryIsTrustedRemoteReport == true
                 ? .trustedRestoredRemoteSnapshotMetadata
@@ -4721,10 +4722,7 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
-        if source == .liveReport, isRemoteTerminalReport {
-            let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard existingDirectory.isEmpty else { return false }
-        }
+        if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) { return false }
         let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
             (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror))
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)

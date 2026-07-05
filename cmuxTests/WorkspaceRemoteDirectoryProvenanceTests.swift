@@ -152,6 +152,59 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.trustedRemoteCurrentDirectory == remoteDirectory)
     }
 
+    @MainActor
+    @Test("generic reports cannot overwrite trusted agent directory")
+    func genericReportsCannotOverwriteTrustedAgentDirectory() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+
+        #expect(!workspace.updatePanelDirectory(panelId: agentPanel.id, directory: localDirectory))
+        #expect(workspace.panelDirectories[agentPanel.id] == remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
+        #expect(workspace.trustedRemoteCurrentDirectory == remoteDirectory)
+    }
+
+    @MainActor
+    @Test("legacy remote snapshots require trusted cwd after restore")
+    func legacyRemoteSnapshotsRequireTrustedDirectoryAfterRestore() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "remote-main", isDirty: false)
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == remotePanelId })
+        snapshot.panels[panelIndex].directoryIsTrustedRemoteReport = nil
+        snapshot.panels[panelIndex].directoryRequiresRemoteTrust = nil
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.isRemoteTerminal = nil
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        let restored = Workspace()
+        let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[remotePanelId])
+        #expect(restored.panelDirectories[restoredPanelId] == remoteDirectory)
+        #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
+        #expect(!restored.remoteDirectoryReportPanelIds.contains(restoredPanelId))
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
+        #expect(restored.presentedCurrentDirectory == nil)
+        #expect(restored.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [restoredPanelId]).isEmpty)
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
