@@ -7,8 +7,10 @@ import {
   comparePages,
   comparePath,
 } from "../../../../lib/compare-pages";
+import type { ComparePageKey } from "../../../../lib/compare-pages";
 import { articleSchema, breadcrumbList, faqPage, JsonLd } from "../../../components/json-ld";
 import { CompareTable, LandingCTA } from "../../landing-ui";
+import { TrackedLink } from "../../tracked-link";
 
 type PageParams = { locale: string; slug: string };
 
@@ -78,7 +80,7 @@ function ComparePageContent({
   pageKey,
   slug,
 }: {
-  pageKey: string;
+  pageKey: ComparePageKey;
   slug: string;
 }) {
   const namespace = `landing.compare.pages.${pageKey}`;
@@ -93,6 +95,7 @@ function ComparePageContent({
     question: t(`faqQ${n}`),
     answer: t(`faqA${n}`),
   }));
+  const relatedComparePages = relatedComparePagesFor(slug);
 
   return (
     <>
@@ -113,6 +116,16 @@ function ComparePageContent({
         ])}
       />
       <JsonLd data={faqPage(qas)} />
+
+      <div className="not-prose mb-8">
+        <TrackedLink
+          href="/compare"
+          event="compare_back_clicked"
+          className="text-sm text-muted hover:text-foreground transition-colors"
+        >
+          &larr; {tc("title")}
+        </TrackedLink>
+      </div>
 
       <h1>{t("title")}</h1>
       <p>{t("intro")}</p>
@@ -139,6 +152,11 @@ function ComparePageContent({
 
       <LandingCTA
         related={[
+          { href: "/compare", label: tc("title") },
+          ...relatedComparePages.map((relatedPage) => ({
+            href: comparePath(relatedPage.slug),
+            label: tc(`pages.${relatedPage.key}.title`),
+          })),
           { href: "/agents", label: tl("agents") },
           { href: "/docs/keyboard-shortcuts", label: tl("keyboardShortcuts") },
           { href: "/docs/browser-automation", label: tl("browserAutomation") },
@@ -146,4 +164,23 @@ function ComparePageContent({
       />
     </>
   );
+}
+
+function relatedComparePagesFor(slug: string) {
+  const currentIndex = comparePages.findIndex((page) => page.slug === slug);
+  const currentPage = currentIndex >= 0 ? comparePages[currentIndex] : undefined;
+  const candidates = [
+    comparePages.find((page) => page.slug === "best-terminal-for-ai-coding-agents"),
+    comparePages.find((page) => page.slug === "multiple-claude-code-agents-parallel"),
+    comparePages[currentIndex - 1],
+    comparePages[currentIndex + 1],
+  ];
+  const seen = new Set<string>();
+  return candidates.filter((page): page is (typeof comparePages)[number] => {
+    if (!page || page.slug === currentPage?.slug || seen.has(page.slug)) {
+      return false;
+    }
+    seen.add(page.slug);
+    return true;
+  });
 }
