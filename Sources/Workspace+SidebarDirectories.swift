@@ -13,7 +13,7 @@ extension Workspace {
         if let focusedPanelId {
             let directory = allowLocalFallback
                 ? effectivePanelDirectory(panelId: focusedPanelId)
-                : reportedPanelDirectory(panelId: focusedPanelId)
+                : trustedReportedPanelDirectory(panelId: focusedPanelId)
             if let directory {
                 return directory
             }
@@ -23,7 +23,7 @@ extension Workspace {
         }
         let activeRemotePanelIds = panels.keys.filter { isRemoteTerminalSurface($0) }
         guard !activeRemotePanelIds.isEmpty else { return nil }
-        let reportedDirectories = activeRemotePanelIds.compactMap { reportedPanelDirectory(panelId: $0) }
+        let reportedDirectories = activeRemotePanelIds.compactMap { trustedReportedPanelDirectory(panelId: $0) }
         guard reportedDirectories.count == activeRemotePanelIds.count else { return nil }
         let directories = Set(reportedDirectories)
         return directories.count == 1 ? directories.first : nil
@@ -47,8 +47,13 @@ extension Workspace {
 
     func reportedPanelDirectory(panelId: UUID) -> String? {
         if !allowsLocalDirectoryFallback(panelId: panelId) {
-            guard remoteDirectoryReportPanelIds.contains(panelId) else { return nil }
+            return trustedReportedPanelDirectory(panelId: panelId)
         }
+        return normalizedSidebarDirectory(panelDirectories[panelId])
+    }
+
+    private func trustedReportedPanelDirectory(panelId: UUID) -> String? {
+        guard remoteDirectoryReportPanelIds.contains(panelId) else { return nil }
         return normalizedSidebarDirectory(panelDirectories[panelId])
     }
 

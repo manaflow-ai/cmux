@@ -42,6 +42,9 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.effectivePanelDirectory(panelId: localPanel.id) == localTerminalDirectory)
         #expect(workspace.presentedCurrentDirectory == localTerminalDirectory)
         #expect(workspace.trustedRemoteCurrentDirectory == nil)
+        #expect(workspace.updatePanelDirectory(panelId: localPanel.id, directory: localTerminalDirectory))
+        #expect(workspace.reportedPanelDirectory(panelId: localPanel.id) == localTerminalDirectory)
+        #expect(workspace.trustedRemoteCurrentDirectory == nil)
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [localPanel.id]) == [
             localTerminalDirectory,
         ])
