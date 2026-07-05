@@ -6,7 +6,7 @@ import Darwin
 @testable import cmux
 #endif
 
-final class DescriptiveAgentNotificationCLITests: XCTestCase {
+extension CLINotifyProcessIntegrationRegressionTests {
     func testGenericAgentStopFallsBackToSavedPromptSnippetAndAgentMeta() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-fallback")
         defer { context.cleanup() }
