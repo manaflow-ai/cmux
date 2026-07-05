@@ -5765,7 +5765,7 @@ final class Workspace: Identifiable, ObservableObject {
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
         let validRemoteTrustPanelIds = Set(panels.compactMap { panelId, panel in
-            panel is TerminalPanel ? panelId : nil
+            panel is TerminalPanel || remoteDirectoryReportPanelIds.contains(panelId) ? panelId : nil
         })
         remoteDirectoryTrustRequiredPanelIds = Set(remoteDirectoryTrustRequiredPanelIds.filter {
             validRemoteTrustPanelIds.contains($0)
@@ -8771,8 +8771,10 @@ final class Workspace: Identifiable, ObservableObject {
             if let workingDirectory { return workingDirectory }
             return usesRemoteDirectoryProvenance ? presentedCurrentDirectory : currentDirectory
         }()
+        let focusedPanelUsesRemoteFallback = focusedPanelId.map { reportedPanelDirectory(panelId: $0) == nil && terminalPanel(for: $0) == nil } ?? true
         let trustsAgentDirectory = workingDirectory == nil &&
-            focusedPanelId.map { remoteDirectoryReportPanelIds.contains($0) } == true
+            (focusedPanelId.map { remoteDirectoryReportPanelIds.contains($0) } == true ||
+                (usesRemoteDirectoryProvenance && focusedPanelUsesRemoteFallback && directory != nil))
 
         let agentPanel = AgentSessionPanel(
             workspaceId: id,

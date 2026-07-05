@@ -410,8 +410,24 @@ struct WindowTitleTemplateTests {
         )
         #expect(restoredAgentSnapshot.directoryIsTrustedRemoteReport == true)
 
+        let nonReportingAgent = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: "",
+            focus: true
+        ))
+        #expect(workspace.reportedPanelDirectory(panelId: nonReportingAgent.id) == nil)
+        let fallbackAgent = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        #expect(workspace.reportedPanelDirectory(panelId: fallbackAgent.id) == remoteDirectory)
+
         workspace.disconnectRemoteConnection()
         #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
+        #expect(workspace.reportedPanelDirectory(panelId: fallbackAgent.id) == nil)
     }
 
     @MainActor
