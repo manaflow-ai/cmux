@@ -3,6 +3,7 @@ import { cloudDb } from "../../../../db/client";
 import { vaultSessions } from "../../../../db/schema";
 import { vaultConfig, isVaultConfigured } from "../../../../services/vault/config";
 import { buildObjectKey, presignPut } from "../../../../services/vault/storage";
+import { getVaultStoredCompressedBytes } from "../../../../services/vault/usage";
 import { readVaultJsonObject, validateVaultBatch } from "../../../../services/vault/validation";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
@@ -24,6 +25,10 @@ export async function POST(request: Request): Promise<Response> {
 
   const config = vaultConfig();
   const db = cloudDb();
+  // Per-user storage quota: track the projected total across this batch so a
+  // single request cannot mint presigned URLs past the cap. The commit route
+  // re-checks, so previously issued URLs cannot bypass the quota either.
+  let projectedUserBytes = await getVaultStoredCompressedBytes(db, user.id);
   const results = [];
   for (const item of batch.value) {
     // Per-item so one oversized transcript cannot block the rest of the batch.
@@ -34,6 +39,16 @@ export async function POST(request: Request): Promise<Response> {
         relPath: item.relPath,
         status: "error",
         error: "upload_too_large",
+      });
+      continue;
+    }
+    if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
+      results.push({
+        agent: item.agent,
+        agentSessionId: item.agentSessionId,
+        relPath: item.relPath,
+        status: "error",
+        error: "quota_exceeded",
       });
       continue;
     }
@@ -74,6 +89,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const objectKey = buildObjectKey(user.id, item.agent, item.agentSessionId, item.sha256);
+    projectedUserBytes += item.compressedSizeBytes;
     results.push({
       agent: item.agent,
       agentSessionId: item.agentSessionId,

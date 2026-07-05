@@ -63,22 +63,21 @@ temporarily.
 
 ## Quotas and limits
 
-Round 1 enforces request shape limits, a max batch size of 25 items, and
-`CMUX_VAULT_MAX_UPLOAD_BYTES` on compressed upload size. The default max upload
-is 512 MiB compressed, which covers normal transcripts while preventing a single
-request from minting very large presigned writes.
+Round 1 enforces request shape limits, a max batch size of 25 items,
+`CMUX_VAULT_MAX_UPLOAD_BYTES` on compressed upload size (default 512 MiB), and
+`CMUX_VAULT_MAX_USER_BYTES` on total stored compressed bytes per user (default
+50 GiB). The uploads route checks the projected total before presigning and the
+commit route re-checks it, so previously issued URLs cannot bypass the cap.
+Quota and size failures are per-item (`upload_too_large`, `quota_exceeded`) so
+one oversized transcript does not block the rest of a batch.
 
-Unauthenticated device-code start needs explicit abuse controls before broad
-rollout: add a per-IP token bucket for `/api/vault/cli/auth/start`, cap
-outstanding pending requests per IP/device fingerprint, and run expired-row GC
-on a short cadence so abandoned login attempts do not accumulate. The endpoint
-should stay 4xx-free for normal polling, but start should reject clearly when
-the bucket or pending cap is exceeded.
+`/api/vault/cli/auth/start` is throttled per IP through the Vercel firewall
+rule shared with the feedback/waitlist endpoints, garbage-collects expired rows
+on every call, and caps globally pending (not yet approved) requests at 500 as
+a distributed-flood backstop; completed logins never consume capacity.
 
-Recommended quota follow-up: per-user total compressed bytes, per-day uploaded
-bytes, max sessions, and max snapshots per session. The API should return
-per-item quota failures so one oversized transcript does not block the rest of a
-batch.
+Remaining quota follow-up: per-day uploaded bytes, max sessions, and max
+snapshots per session.
 
 ## OpenCode and Gemini adapters
 

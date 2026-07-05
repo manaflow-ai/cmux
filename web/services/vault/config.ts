@@ -7,12 +7,17 @@ export type VaultStorageConfig = {
   readonly secretAccessKey?: string;
   readonly presignTtlSeconds: number;
   readonly maxUploadBytes: number;
+  readonly maxUserBytes: number;
 };
 
 type Env = Record<string, string | undefined>;
 
 const DEFAULT_PRESIGN_TTL_SECONDS = 900;
 const DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
+// Per-user ceiling on total stored compressed bytes across all snapshots.
+// Transcripts compress hard (a large session is a few MiB), so 50 GiB is far
+// beyond legitimate use while bounding storage-cost abuse from one account.
+const DEFAULT_MAX_USER_BYTES = 50 * 1024 * 1024 * 1024;
 
 function envValue(env: Env, key: string): string | undefined {
   const value = env[key]?.trim();
@@ -64,6 +69,11 @@ export function vaultConfig(env: Env = process.env): VaultStorageConfig {
       envValue(env, "CMUX_VAULT_MAX_UPLOAD_BYTES"),
       "CMUX_VAULT_MAX_UPLOAD_BYTES",
       DEFAULT_MAX_UPLOAD_BYTES,
+    ),
+    maxUserBytes: parsePositiveInteger(
+      envValue(env, "CMUX_VAULT_MAX_USER_BYTES"),
+      "CMUX_VAULT_MAX_USER_BYTES",
+      DEFAULT_MAX_USER_BYTES,
     ),
   };
 }
