@@ -274,7 +274,8 @@ struct WindowTitleTemplateTests {
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
         #expect(window.title == "[cmux:01234567]")
 
-        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: "seepine@192.168.5.20")
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory))
         #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
 
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
@@ -398,6 +399,15 @@ struct WindowTitleTemplateTests {
         #expect(workspace.terminalPanel(for: agentPanel.id) == nil)
         #expect(workspace.focusedPanelId == agentPanel.id)
         #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(workspace.sessionSnapshot(includeScrollback: false))
+        let restoredAgentPanelId = try #require(restoredPanelIds[agentPanel.id])
+        #expect(restored.reportedPanelDirectory(panelId: restoredAgentPanelId) == remoteDirectory)
+        let restoredAgentSnapshot = try #require(
+            restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredAgentPanelId }
+        )
+        #expect(restoredAgentSnapshot.directoryIsTrustedRemoteReport == true)
     }
 
     private func isolatedDefaults() throws -> UserDefaults {

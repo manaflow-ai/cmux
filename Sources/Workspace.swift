@@ -4720,12 +4720,14 @@ final class Workspace: Identifiable, ObservableObject {
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
-        if source == .liveReport, isRemoteTerminalSurface(panelId) {
+        let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
+        let isConnectedRemoteLiveReport = source == .liveReport && isRemoteTerminalReport && remoteConnectionState == .connected
+        if source == .liveReport, isRemoteTerminalReport, !isConnectedRemoteLiveReport {
             let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard existingDirectory.isEmpty else { return false }
         }
-        let establishesRemoteProvenance = source.establishesRemoteProvenance &&
-            (isRemoteTerminalSurface(panelId) || isRemoteTmuxMirror)
+        let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
+            isConnectedRemoteLiveReport || (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror))
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
         if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId)
