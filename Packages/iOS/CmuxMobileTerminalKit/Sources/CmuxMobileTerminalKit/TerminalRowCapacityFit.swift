@@ -19,14 +19,20 @@ import Foundation
 ///   never escape.
 /// - **Rendered rows** track the effective grid:
 ///   ``fitFontSize(forEffectiveRows:)`` picks the font whose cell height
-///   makes exactly the granted rows fill the container, and the columns
-///   re-report at that rendered font (columns must never exceed what the
-///   rendered font can actually show).
+///   makes exactly the granted rows fill the container, but callers can cap
+///   that fit with ``fitFontSize(forEffectiveRows:baseFontSize:renderedColumns:minimumColumnRatio:)``
+///   so a short remote grid cannot turn a phone-width terminal into a tiny
+///   preview-width grid.
 public struct TerminalRowCapacityFit {
     /// Rows past which a mismatch between the rendered grid and the effective
     /// grid triggers a re-fit. One row of slack is inherent to cell flooring;
     /// two rows means a visible band (or clipping) worth a font adjustment.
     public static let refitThresholdRows = 2
+    /// Minimum fraction of the base-font column capacity preserved by the
+    /// row auto-fit. Vertical stretching is opportunistic; once it would cost
+    /// more than a quarter of the phone-width columns, the remaining mismatch
+    /// is left as a bottom-pinned letterbox instead of inflating the font.
+    public static let minimumColumnRatio: CGFloat = 0.75
 
     /// The grid container height in device pixels.
     public let containerPixelHeight: CGFloat
@@ -75,5 +81,31 @@ public struct TerminalRowCapacityFit {
         let targetCellHeight = containerPixelHeight / (CGFloat(effectiveRows) + 0.25)
         let ratio = targetCellHeight / cellPixelHeight
         return liveFontSize * Float32(ratio)
+    }
+
+    /// The row-fill font capped so the rendered grid keeps a minimum share of
+    /// the base-font column capacity.
+    ///
+    /// - Parameters:
+    ///   - effectiveRows: The daemon-granted row count to stretch toward.
+    ///   - baseFontSize: The user's explicit font size.
+    ///   - renderedColumns: The measured columns at ``liveFontSize``.
+    ///   - minimumColumnRatio: The minimum share of base-font columns to keep.
+    /// - Returns: A font size no larger than the full row-fill target.
+    public func fitFontSize(
+        forEffectiveRows effectiveRows: Int,
+        baseFontSize: Float32,
+        renderedColumns: Int,
+        minimumColumnRatio: CGFloat = Self.minimumColumnRatio
+    ) -> Float32? {
+        guard let rowFillFontSize = fitFontSize(forEffectiveRows: effectiveRows) else { return nil }
+        guard baseFontSize > 0, renderedColumns > 0, minimumColumnRatio > 0 else {
+            return rowFillFontSize
+        }
+        let baseColumns = CGFloat(renderedColumns) * CGFloat(liveFontSize) / CGFloat(baseFontSize)
+        guard baseColumns > 0 else { return rowFillFontSize }
+        let minimumColumns = max(1, (baseColumns * min(minimumColumnRatio, 1)).rounded(.up))
+        let maximumFontSize = CGFloat(baseFontSize) * baseColumns / minimumColumns
+        return Float32(min(CGFloat(rowFillFontSize), maximumFontSize))
     }
 }

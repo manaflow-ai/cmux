@@ -3314,15 +3314,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // rows so a Mac-constrained grid fills the phone instead of parking a
         // letterbox band above the content.
         autoFitFontToEffectiveRows(
-            renderedRows: naturalSize.rows,
+            renderedSize: naturalSize,
             containerPixelHeight: containerH * scale,
             cellPixelHeight: result.cellPixelSize.height
         )
-        // Report the row CAPACITY at the user's base font, not the rendered
-        // rows: a report derived from the fitted font would ratchet the
-        // negotiated minimum down and the phone could never learn when the
-        // constraining device grew back. Columns stay at the rendered font
-        // (the PTY must never be wider than the rendered grid can show).
+        // Report rows at base-font capacity so fitted fonts never ratchet the
+        // negotiated minimum down. Columns remain the rendered capacity.
         let reportGrid = capacityReportGrid(
             for: naturalSize,
             containerPixelHeight: containerH * scale,
@@ -3364,11 +3361,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Re-derive the rendered font from the effective grid: raise it so a
     /// smaller granted row count fills the container, decay it back toward the
     /// user's base font when the grant returns to (or past) capacity or the
-    /// pin lifts. Floored at the user's base font — the fit only ever
-    /// stretches, and a stale oversized grant during a keyboard transition
-    /// steps to base instead of collapsing the font toward the minimum.
+    /// pin lifts. Floored at the user's base font so stale oversized grants
+    /// during keyboard transitions step back to base instead of shrinking.
     private func autoFitFontToEffectiveRows(
-        renderedRows: Int,
+        renderedSize: TerminalGridSize,
         containerPixelHeight: CGFloat,
         cellPixelHeight: CGFloat
     ) {
@@ -3381,17 +3377,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             return
         }
-        guard TerminalRowCapacityFit.shouldRefit(renderedRows: renderedRows, effectiveRows: eff.rows),
+        guard TerminalRowCapacityFit.shouldRefit(renderedRows: renderedSize.rows, effectiveRows: eff.rows),
               let fit = TerminalRowCapacityFit(
                   containerPixelHeight: containerPixelHeight,
                   cellPixelHeight: cellPixelHeight,
                   liveFontSize: liveFontSize
               ),
-              let target = fit.fitFontSize(forEffectiveRows: eff.rows) else { return }
+              let target = fit.fitFontSize(
+                  forEffectiveRows: eff.rows,
+                  baseFontSize: userBaseFontSize,
+                  renderedColumns: renderedSize.columns
+              ) else { return }
         let clamped = min(max(target, userBaseFontSize), MobileTerminalFontPreference.maximumSize)
         guard abs(clamped - liveFontSize) >= 0.25 else { return }
         MobileDebugLog.anchormux(
-            "zoom.autofit eff=\(eff.cols)x\(eff.rows) rendered=\(renderedRows) font \(liveFontSize)->\(clamped)"
+            "zoom.autofit eff=\(eff.cols)x\(eff.rows) rendered=\(renderedSize.rows) font \(liveFontSize)->\(clamped)"
         )
         applyAbsoluteFontSize(clamped)
     }
