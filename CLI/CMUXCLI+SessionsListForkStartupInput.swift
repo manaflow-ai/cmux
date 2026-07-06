@@ -105,11 +105,15 @@ extension CMUXCLI {
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_BEDROCK_BASE_URL",
             "ANTHROPIC_MODEL",
             "ANTHROPIC_SMALL_FAST_MODEL",
+            "ANTHROPIC_VERTEX_BASE_URL",
+            "ANTHROPIC_VERTEX_PROJECT_ID",
             "CLAUDE_CODE_USE_BEDROCK",
             "CLAUDE_CODE_USE_VERTEX",
             "CLAUDE_CONFIG_DIR",
+            "CLOUD_ML_REGION",
         ]
     }
 

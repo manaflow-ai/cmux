@@ -349,6 +349,16 @@ should_preserve_claude_auth_selection_key() {
     return 1
 }
 
+claude_backend_selection_env_active() {
+    case "${CLAUDE_CODE_USE_VERTEX:-}" in
+        1|true|TRUE|yes|YES) return 0 ;;
+    esac
+    case "${CLAUDE_CODE_USE_BEDROCK:-}" in
+        1|true|TRUE|yes|YES) return 0 ;;
+    esac
+    return 1
+}
+
 normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" ]] || return 0
     [[ -n "${HOME:-}" ]] || return 0
@@ -555,6 +565,10 @@ clear_inherited_claude_auth_selection_env() {
             should_preserve_claude_auth_selection_key "$key" && continue
             unset "$key"
         done
+        if claude_backend_selection_env_active; then
+            unset ANTHROPIC_BASE_URL
+            unset ANTHROPIC_AUTH_TOKEN
+        fi
     fi
     # Safe outside cmux: this only rewrites an existing subrouter path when the account alias exists.
     normalize_claude_config_dir

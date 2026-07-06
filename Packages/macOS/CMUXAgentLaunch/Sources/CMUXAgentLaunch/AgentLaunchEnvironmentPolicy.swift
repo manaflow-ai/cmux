@@ -37,8 +37,19 @@ public enum AgentLaunchEnvironmentPolicy {
         "AMP_SETTINGS_FILE",
         "AMP_URL",
         "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_BEDROCK_BASE_URL",
         "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "ANTHROPIC_VERTEX_BASE_URL",
+        "ANTHROPIC_VERTEX_PROJECT_ID",
+        "AWS_DEFAULT_REGION",
+        "AWS_PROFILE",
+        "AWS_REGION",
+        "AWS_SDK_LOAD_CONFIG",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
         "CLAUDE_CONFIG_DIR",
+        "CLOUD_ML_REGION",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
@@ -90,6 +101,9 @@ public enum AgentLaunchEnvironmentPolicy {
         }
         if let nodeOptions = selectedNodeOptions(from: env) {
             result["NODE_OPTIONS"] = nodeOptions
+        }
+        if claudeBackendSelectionIsActive(in: env) {
+            result.removeValue(forKey: "ANTHROPIC_BASE_URL")
         }
         if kind != "hermes-agent" {
             for key in hermesAgentEnvironmentKeys {
@@ -169,6 +183,19 @@ public enum AgentLaunchEnvironmentPolicy {
             return nil
         }
         return trimmed
+    }
+
+    private static func claudeBackendSelectionIsActive(in env: [String: String]) -> Bool {
+        truthy(env["CLAUDE_CODE_USE_BEDROCK"]) || truthy(env["CLAUDE_CODE_USE_VERTEX"])
+    }
+
+    private static func truthy(_ value: String?) -> Bool {
+        switch normalizedValue(value) {
+        case "1", "true", "TRUE", "yes", "YES":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func isRequireOption(_ token: String) -> Bool {
