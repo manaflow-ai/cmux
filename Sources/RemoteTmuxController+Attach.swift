@@ -32,8 +32,12 @@ extension RemoteTmuxController {
         try Task.checkCancellation()
         try await ensureControlMasterReadyForBurst(host: host)
 
+        // Post-await re-resolve: prefer the manager already hosting this host's
+        // mirrors, then the dispatch-time requested manager — but only while its
+        // window is still open (a mid-flight close must not mirror into a dead
+        // manager) — then the key window.
         let targetManager = existingMirrorManager(for: host)
-            ?? requestedManager
+            ?? (requestedManager?.window != nil ? requestedManager : nil)
             ?? appDelegate.tabManager
         guard let targetManager else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -62,15 +66,10 @@ extension RemoteTmuxController {
         sessions: [RemoteTmuxSession],
         into tabManager: TabManager
     ) -> [UUID] {
-        for session in sessions {
-            do {
-                _ = try mirrorSession(host: host, sessionName: session.name, into: tabManager)
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("remote-tmux: mirror session \(session.name) on \(host.destination) failed: \(error)")
-                #endif
-            }
-        }
+        // `mirrorSessions` applies stable-session-id de-dup and seeds discovery's
+        // ids into new mirrors, so bulk discovery can't duplicate a session
+        // mid-rename (#7362, #7365).
+        mirrorSessions(sessions, host: host, into: tabManager)
         let managerWorkspaceIds = Set(tabManager.tabs.map(\.id))
         return sessionMirrors.values.compactMap { mirror in
             guard mirror.host.connectionHash == host.connectionHash,

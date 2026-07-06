@@ -65,6 +65,7 @@ import Testing
         #expect(secondManager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
     }
 
+    @MainActor
     private struct Harness {
         let appDelegate: AppDelegate
         let controller: RemoteTmuxController

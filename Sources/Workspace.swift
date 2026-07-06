@@ -5915,17 +5915,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func reconnectRemoteConnection(surfaceId: UUID? = nil) {
         guard let configuration = remoteConfiguration else { return }
-        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
-            guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
-                  panels[candidate] is TerminalPanel else {
-                return nil
-            }
-            return candidate
+        let reconnectingSurfaceId = surfaceId.flatMap { candidate -> UUID? in panels[candidate] is TerminalPanel && (remoteDisconnectPlaceholderPanelIds.contains(candidate) || pendingRemoteTerminalChildExitSurfaceIds.contains(candidate)) ? candidate : nil }
+        if surfaceId != nil, reconnectingSurfaceId == nil { return }
+        if let reconnectingSurfaceId {
+            remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
+            trackRemoteTerminalSurface(reconnectingSurfaceId)
         }
-        if let reconnectingPlaceholderSurfaceId {
-            remoteDisconnectPlaceholderPanelIds.remove(reconnectingPlaceholderSurfaceId)
-            trackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
-        }
+        if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return }
+        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return }
         configureRemoteConnection(configuration, autoConnect: true)
     }
 

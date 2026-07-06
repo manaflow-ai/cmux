@@ -168,7 +168,8 @@ extension TerminalController {
         )
     }
 
-    /// `remote.tmux.detach` — detach a control client (leaves the remote session alive).
+    /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;
+    /// leaves the remote session alive.
     nonisolated func v2RemoteTmuxDetach(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
