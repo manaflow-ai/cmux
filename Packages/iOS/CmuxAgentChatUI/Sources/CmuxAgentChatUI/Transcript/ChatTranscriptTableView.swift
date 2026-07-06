@@ -83,6 +83,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var isHandlingLayout = false
         private var isApplyingDataUpdate = false
         private var pendingContentUpdateAnchor: ChatTranscriptTableAnchor?
+        private struct ScrollToBottomFlight { var legsRemaining: Int }
+        private var scrollToBottomFlight: ScrollToBottomFlight?
+        /// Hard bound so estimated-height drift cannot loop forever.
+        private let maxFlightLegs = 8
+        /// Distance from the bottom used for a far-away pre-position before landing.
+        private let flightAnimatedRunwayInViewports: CGFloat = 1.5
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
         #if DEBUG
@@ -130,7 +136,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             guard shouldReload else {
                 if shouldScrollToBottom {
                     pendingContentUpdateAnchor = nil
-                    scrollToBottom(in: tableView, animated: true)
+                    startScrollToBottomFlight(in: tableView)
                 }
                 updateBottomState(from: tableView)
                 return
@@ -145,7 +151,14 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             defer { isApplyingDataUpdate = false }
             tableView.reloadData()
             tableView.layoutIfNeeded()
-            if shouldScrollToBottom || (wasAtBottom && !tableView.isUserScrollMomentumActive) {
+            if shouldScrollToBottom {
+                pendingContentUpdateAnchor = nil
+                startScrollToBottomFlight(in: tableView)
+            } else if scrollToBottomFlight != nil {
+                // Content changed mid-flight (streaming agent, history page): keep flying to the new bottom.
+                pendingContentUpdateAnchor = nil
+                performScrollToBottomFlightLeg(in: tableView)
+            } else if wasAtBottom && !tableView.isUserScrollMomentumActive {
                 pendingContentUpdateAnchor = nil
                 scrollToBottom(in: tableView, animated: false)
             } else if let anchor, !tableView.isUserScrollMomentumActive {
@@ -188,7 +201,13 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            cancelScrollToBottomFlight()
             pendingContentUpdateAnchor = nil
+        }
+
+        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+            guard let tableView = scrollView as? ChatTranscriptUITableView else { return }
+            performScrollToBottomFlightLeg(in: tableView)
         }
 
         private func handleLayoutChange(
@@ -199,6 +218,15 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             oldAnchor: ChatTranscriptTableAnchor?
         ) {
             guard !isHandlingLayout else { return }
+            if scrollToBottomFlight != nil {
+                // The flight owns the offset; anchor/viewport restoration here would
+                // cancel the in-flight animation.
+                if distanceFromBottom(in: tableView) <= 1 {
+                    finishScrollToBottomFlight(in: tableView)
+                }
+                updateBottomState(from: tableView)
+                return
+            }
             let boundsChanged = abs(oldBoundsSize.height - tableView.bounds.height) > 0.5
                 || abs(oldBoundsSize.width - tableView.bounds.width) > 0.5
             let contentChanged = abs(oldContentSize.height - tableView.contentSize.height) > 0.5
@@ -268,6 +296,53 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             setAtBottom(true)
         }
 
+        private func startScrollToBottomFlight(in tableView: ChatTranscriptUITableView) {
+            pendingContentUpdateAnchor = nil
+            scrollToBottomFlight = ScrollToBottomFlight(legsRemaining: maxFlightLegs)
+            tableView.layoutIfNeeded()
+            let runway = tableView.bounds.height * flightAnimatedRunwayInViewports
+            let target = maxOffsetY(in: tableView)
+            if runway > 0, target - tableView.contentOffset.y > runway {
+                tableView.setContentOffset(
+                    CGPoint(x: tableView.contentOffset.x, y: clampedOffsetY(target - runway, in: tableView)),
+                    animated: false
+                )
+                tableView.layoutIfNeeded()  // Realize rows near the bottom before the animated leg.
+            }
+            setAtBottom(true)
+            performScrollToBottomFlightLeg(in: tableView)
+        }
+
+        private func performScrollToBottomFlightLeg(in tableView: ChatTranscriptUITableView) {
+            guard scrollToBottomFlight != nil else { return }
+            tableView.layoutIfNeeded()
+            let target = maxOffsetY(in: tableView)
+            let delta = target - tableView.contentOffset.y
+            if abs(delta) <= 1 {
+                finishScrollToBottomFlight(in: tableView)
+                return
+            }
+            guard let flight = scrollToBottomFlight, flight.legsRemaining > 0 else {
+                // Legs exhausted (pathological estimate churn): land exactly, without animation.
+                tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: target), animated: false)
+                finishScrollToBottomFlight(in: tableView)
+                return
+            }
+            scrollToBottomFlight = ScrollToBottomFlight(legsRemaining: flight.legsRemaining - 1)
+            tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: target), animated: true)
+        }
+
+        private func finishScrollToBottomFlight(in tableView: ChatTranscriptUITableView) {
+            scrollToBottomFlight = nil
+            tableView.recordCurrentViewport()
+            setAtBottom(true)
+            updateBottomState(from: tableView)
+        }
+
+        private func cancelScrollToBottomFlight() {
+            scrollToBottomFlight = nil
+        }
+
         private func requestOlderHistoryIfNeeded(in tableView: UITableView) {
             guard let configuration, configuration.hasMoreHistory else {
                 topRequestKey = nil
@@ -282,6 +357,10 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         private func updateBottomState(from tableView: UITableView) {
+            if scrollToBottomFlight != nil {
+                setAtBottom(true)
+                return
+            }
             setAtBottom(distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold)
         }
 
