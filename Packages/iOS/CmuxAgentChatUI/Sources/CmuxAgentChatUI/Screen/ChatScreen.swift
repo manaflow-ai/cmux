@@ -6,23 +6,6 @@ import Accessibility
 import UIKit
 #endif
 
-private enum ChatBlockSelection: Identifiable, Equatable {
-    case message(id: String)
-    case terminalCommand(id: Int)
-    case codeBlock(messageID: String, segmentIndex: Int)
-
-    var id: String {
-        switch self {
-        case .message(let id):
-            return "msg-\(id)"
-        case .terminalCommand(let id):
-            return "term-\(id)"
-        case .codeBlock(let messageID, let segmentIndex):
-            return "code-\(messageID)-\(segmentIndex)"
-        }
-    }
-}
-
 /// The full conversation surface: header state, transcript, typing
 /// indicator, and the keyboard-attached composer.
 ///
@@ -236,10 +219,10 @@ public struct ChatScreen: View {
         switch selection {
         case .message(let id):
             guard let message = currentMessage(id: id) else { return nil }
-            return ChatBlockDetail.make(message: message)
+            return makeChatBlockDetail(message: message)
         case .terminalCommand(let id):
             guard let block = currentTerminalBlock(id: id) else { return nil }
-            return ChatBlockDetail.make(block: block)
+            return makeChatBlockDetail(block: block)
         case .codeBlock(let messageID, let segmentIndex):
             guard let message = currentMessage(id: messageID),
                   case .prose(let prose) = message.kind,
@@ -248,7 +231,7 @@ public struct ChatScreen: View {
                       .first(where: { $0.index == segmentIndex }),
                   case .code(let language) = segment.kind
             else { return nil }
-            return ChatBlockDetail.codeBlock(
+            return makeCodeBlockDetail(
                 id: "code-\(messageID)-\(segmentIndex)",
                 code: segment.content,
                 language: language

@@ -20,7 +20,7 @@ struct ChatBlockDetailTests {
             ))
         )
 
-        let detail = ChatBlockDetail.make(message: message)
+        let detail = makeChatBlockDetail(message: message)
 
         #expect(detail?.id == "msg-tool-1")
         #expect(detail?.sections.map(\.id) == ["input", "output"])
@@ -34,7 +34,7 @@ struct ChatBlockDetailTests {
             .map { "line \($0)" }
             .joined(separator: "\n")
 
-        let detail = ChatBlockDetail.codeBlock(id: "code-1", code: code, language: "swift")
+        let detail = makeCodeBlockDetail(id: "code-1", code: code, language: "swift")
 
         #expect(detail.id == "code-1")
         #expect(detail.subtitle == "swift")
@@ -52,7 +52,7 @@ struct ChatBlockDetailTests {
             isRunning: false
         )
 
-        let detail = ChatBlockDetail.make(block: block)
+        let detail = makeChatBlockDetail(block: block)
 
         #expect(detail.id == "term-42")
         #expect(detail.sections.map(\.id) == ["command", "output"])
