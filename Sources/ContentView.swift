@@ -13296,6 +13296,9 @@ struct TabItemView: View, Equatable {
     @State private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State private var isEditing = false
+    @State private var renameDraft = ""
+    @State private var renameBaselineHadUserCustomTitle = false
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
@@ -13716,14 +13719,42 @@ struct TabItemView: View, Equatable {
                         .accessibilityLabel(cameraInUseTooltip)
                 }
 
-                Text(displayedTitle)
-                    .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(titleLineLimit)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
+                if isEditing {
+                    SidebarInlineRenameField(
+                        initialText: renameDraft,
+                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                        accessibilityLabel: String(
+                            localized: "sidebar.workspace.rename.field.accessibilityLabel",
+                            defaultValue: "Rename workspace"
+                        ),
+                        placeholder: String(
+                            localized: "commandPalette.rename.workspacePlaceholder",
+                            defaultValue: "Workspace name"
+                        ),
+                        onCommit: { newName in
+                            if let title = SidebarInlineRenameCommit().titleToCommit(
+                                draft: newName,
+                                baseline: renameDraft,
+                                baselineHadUserCustomTitle: renameBaselineHadUserCustomTitle
+                            ) {
+                                tabManager.setCustomTitle(tabId: tab.id, title: title)
+                            }
+                            isEditing = false
+                        },
+                        onCancel: { isEditing = false }
+                    )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
+                } else {
+                    Text(displayedTitle)
+                        .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
+                        .foregroundColor(activePrimaryTextColor)
+                        .lineLimit(titleLineLimit)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
+                }
 
                 // The close button is a sibling that always reserves its width
                 // when the workspace is closable, so the title wraps/truncates
@@ -14117,7 +14148,7 @@ struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag(onDragStart)
+        .sidebarRowDragGate(isEditing: isEditing, onDragStart)
         .internalOnlyTabDrag()
         .modifier(SidebarBonsplitWorkspaceRowDropModifier(
             isEnabled: isBonsplitWorkspaceDropActive,
@@ -14128,18 +14159,24 @@ struct TabItemView: View, Equatable {
             selectedTabIds: $selectedTabIds
         ))
         .onTapGesture {
-            updateSelection()
+            if !isEditing { updateSelection() }
         }
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                guard !isEditing else { return }
+                beginInlineRename()
+            }
+        )
         .safeHelp(workspaceSnapshot.title)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(accessibilityTitle))
-        .accessibilityHint(Text(accessibilityHintText))
-        .accessibilityAction(named: Text(moveUpActionText)) {
-            moveBy(-1)
-        }
-        .accessibilityAction(named: Text(moveDownActionText)) {
-            moveBy(1)
-        }
+        .modifier(SidebarRowAccessibilityModifier(
+            isEditing: isEditing,
+            label: accessibilityTitle,
+            hint: accessibilityHintText,
+            moveUpLabel: moveUpActionText,
+            moveDownLabel: moveDownActionText,
+            onMoveUp: { moveBy(-1) },
+            onMoveDown: { moveBy(1) }
+        ))
         .contextMenu {
             workspaceContextMenu
                 .onAppear {
@@ -14154,6 +14191,13 @@ struct TabItemView: View, Equatable {
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
+    }
+
+    private func beginInlineRename() {
+        updateSelection()
+        renameDraft = workspaceSnapshot.title
+        renameBaselineHadUserCustomTitle = tab.effectiveCustomTitleSource == .user
+        isEditing = true
     }
 
     private func updateObservedActiveState(_ isActive: Bool) {
