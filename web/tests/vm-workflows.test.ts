@@ -548,6 +548,7 @@ describe("VM Effect workflows", () => {
     const originalError = providerOperationError("openAttach", "provider attach unavailable");
     let attachCalls = 0;
     let statusCalls = 0;
+    let pauseCalls = 0;
     let resumeCalls = 0;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
@@ -567,6 +568,10 @@ describe("VM Effect workflows", () => {
           resumeCalls += 1;
           return testVmHandle({ providerVmId: "provider-vm-attach-mark-fails" });
         }),
+      pause: () =>
+        Effect.sync(() => {
+          pauseCalls += 1;
+        }),
     };
 
     const error = await Effect.runPromise(
@@ -580,6 +585,7 @@ describe("VM Effect workflows", () => {
     expect(attachCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
+    expect(pauseCalls).toBe(1);
     expect(leases).toHaveLength(0);
     expect(usageEvents).toHaveLength(0);
   });
@@ -603,6 +609,7 @@ describe("VM Effect workflows", () => {
     const originalError = providerOperationError("openAttach", "provider attach unavailable");
     let attachCalls = 0;
     let statusCalls = 0;
+    let pauseCalls = 0;
     let resumeCalls = 0;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
@@ -622,6 +629,10 @@ describe("VM Effect workflows", () => {
           resumeCalls += 1;
           return testVmHandle({ providerVmId: "provider-vm-attach-mark-false" });
         }),
+      pause: () =>
+        Effect.sync(() => {
+          pauseCalls += 1;
+        }),
     };
 
     const error = await Effect.runPromise(
@@ -635,6 +646,7 @@ describe("VM Effect workflows", () => {
     expect(attachCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
+    expect(pauseCalls).toBe(1);
     expect(leases).toHaveLength(0);
     expect(usageEvents).toHaveLength(0);
   });

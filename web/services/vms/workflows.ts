@@ -270,6 +270,7 @@ function preflightResumeIfSuspended(
     yield* resume(vm.provider, providerVmId);
     yield* recordRunningTransition(
       repo,
+      providers,
       vm,
       providerVmId,
       new VmNotFoundError({ vmId: providerVmId }),
@@ -301,26 +302,43 @@ function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
         yield* resume(vm.provider, providerVmId).pipe(
           Effect.catchAll(() => Effect.fail(originalError)),
         );
-        yield* recordRunningTransition(repo, vm, providerVmId, originalError);
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError);
         return yield* op;
       });
     }),
   );
 }
 
+// After a successful provider resume, Postgres must record the running
+// transition before the workflow proceeds. When the write fails (or the row
+// was destroyed concurrently), roll the provider back to the durable state
+// with a best-effort pause so a running VM is never left invisible to
+// active-limit accounting; Freestyle's idle auto-suspend (~10s) is the
+// backstop if the pause itself fails.
 function recordRunningTransition<E extends VmWorkflowError>(
   repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
   staleRowError: E,
 ): Effect.Effect<void, VmDatabaseError | E> {
+  const rollbackPause = (): Effect.Effect<void, never> => {
+    const pause = providers.pause;
+    if (!pause) return Effect.void;
+    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+  };
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
       providerVmId,
       status: "running",
-    });
-    if (!didUpdate) return yield* Effect.fail(staleRowError);
+    }).pipe(
+      Effect.tapError(() => rollbackPause()),
+    );
+    if (!didUpdate) {
+      yield* rollbackPause();
+      return yield* Effect.fail(staleRowError);
+    }
   });
 }
 
