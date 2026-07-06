@@ -1,3 +1,4 @@
+import CmuxCore
 import Darwin
 import Foundation
 import Testing
