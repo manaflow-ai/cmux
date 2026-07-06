@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 struct RestorableAgentHookSessionRecord: Codable, Sendable {
