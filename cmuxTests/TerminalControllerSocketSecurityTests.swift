@@ -288,6 +288,110 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertTrue(wrongAuthThenPing[1].hasPrefix("ERROR:"))
     }
 
+    @Test func testCmuxOnlyAuthorizationDecisionMatrix() {
+        let descendantPID = pid_t(4242)
+        let deniedPID = pid_t(4343)
+
+        let descendant = TerminalController.cmuxOnlyAuthorization(
+            peerPID: descendantPID,
+            isDescendant: { $0 == descendantPID },
+            peerHasSameUID: { false }
+        )
+        XCTAssertEqual(descendant, .allowCommands)
+        XCTAssertTrue(descendant.allowsCommands)
+
+        let nonDescendant = TerminalController.cmuxOnlyAuthorization(
+            peerPID: deniedPID,
+            isDescendant: { _ in false },
+            peerHasSameUID: { true }
+        )
+        XCTAssertEqual(
+            nonDescendant,
+            .rejectConnection("ERROR: Access denied — only processes started inside cmux can connect")
+        )
+        XCTAssertFalse(nonDescendant.allowsCommands)
+
+        let nilSameUID = TerminalController.cmuxOnlyAuthorization(
+            peerPID: nil,
+            isDescendant: { _ in true },
+            peerHasSameUID: { true }
+        )
+        XCTAssertEqual(nilSameUID, .probeOnlyNoCommands)
+        XCTAssertFalse(nilSameUID.allowsCommands)
+
+        let nilDifferentUID = TerminalController.cmuxOnlyAuthorization(
+            peerPID: nil,
+            isDescendant: { _ in true },
+            peerHasSameUID: { false }
+        )
+        XCTAssertEqual(nilDifferentUID, .rejectConnection("ERROR: Unable to verify client process"))
+        XCTAssertFalse(nilDifferentUID.allowsCommands)
+    }
+
+    @Test func testCmuxOnlyAuthorizationOnlyVerifiedDescendantsAllowCommands() {
+        let cases: [(peerPID: pid_t?, isDescendant: Bool, sameUID: Bool)] = [
+            (pid_t(5001), false, true),
+            (pid_t(5002), false, false),
+            (nil, true, true),
+            (nil, true, false),
+        ]
+
+        for testCase in cases {
+            let authorization = TerminalController.cmuxOnlyAuthorization(
+                peerPID: testCase.peerPID,
+                isDescendant: { _ in testCase.isDescendant },
+                peerHasSameUID: { testCase.sameUID }
+            )
+            XCTAssertFalse(authorization.allowsCommands)
+        }
+    }
+
+    @Test func testNilPeerSameUIDReadLoopRejectsCommandBytes() throws {
+#if DEBUG
+        let authorization = TerminalController.cmuxOnlyAuthorization(
+            peerPID: nil,
+            isDescendant: { _ in true },
+            peerHasSameUID: { true }
+        )
+
+        let socketPath = makeSocketPath("probe-only-loop")
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        defer { TerminalController.shared.stop() }
+
+        var fds = [Int32](repeating: -1, count: 2)
+        guard Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+            throw posixError("socketpair(AF_UNIX)")
+        }
+
+        let serverFD = fds[0]
+        let clientFD = fds[1]
+        let served = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            TerminalController.shared.debugServeClientCommandsForTesting(
+                socket: serverFD,
+                commandsAllowed: authorization.allowsCommands
+            )
+            Darwin.close(serverFD)
+            served.signal()
+        }
+
+        defer { Darwin.close(clientFD) }
+        try writeLine("ping", to: clientFD)
+        let response = try readLine(from: clientFD)
+
+        XCTAssertTrue(response.hasPrefix("ERROR: Access denied"))
+        XCTAssertFalse(response.localizedCaseInsensitiveContains("PONG"))
+        XCTAssertEqual(served.wait(timeout: .now() + 5) == .success, true)
+#else
+        return
+#endif
+    }
+
     @Test func testSocketCommandPolicyDistinguishesFocusIntent() throws {
 #if DEBUG
         let nonFocus = TerminalController.debugSocketCommandPolicySnapshot(

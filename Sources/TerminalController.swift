@@ -36,6 +36,20 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let authenticated: Bool
 }
+
+nonisolated enum CmuxOnlySocketAuthorization: Equatable, Sendable {
+    /// Peer PID confirmed to descend from cmux -> full command access.
+    case allowCommands
+    /// Reject the connection outright with this wire-protocol message.
+    case rejectConnection(String)
+    /// Peer PID unavailable but same-UID: allow a liveness probe only.
+    case probeOnlyNoCommands
+
+    var allowsCommands: Bool {
+        if case .allowCommands = self { return true }
+        return false
+    }
+}
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
 
@@ -1471,43 +1485,59 @@ class TerminalController {
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
+        var commandsAllowed = true
         if socketServer.accessMode == .cmuxOnly {
             // Use pre-captured peer PID if available (captured in accept loop before
             // the peer can disconnect), falling back to live lookup.
             let pid = peerPid ?? transport.peerProcessID(of: socket)
-            if let pid {
-                guard isDescendant(pid) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Access denied — only processes started inside cmux can connect",
-                        to: socket
-                    )
-                    return
-                }
-            }
-            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
-            // could read it — common with ncat --send-only). We still verify the
-            // peer runs as the same user via LOCAL_PEERCRED. This is the same
-            // security boundary as the socket file permissions (0600), so it does
-            // not widen the attack surface. We also require that the peer actually
-            // sent data (checked in the read loop below) — a connect-only probe
-            // with no data is harmless.
-            if pid == nil {
-                guard transport.peerHasSameUID(socket) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Unable to verify client process",
-                        to: socket
-                    )
-                    return
-                }
+            switch Self.cmuxOnlyAuthorization(
+                peerPID: pid,
+                isDescendant: { isDescendant($0) },
+                peerHasSameUID: { transport.peerHasSameUID(socket) }
+            ) {
+            case .allowCommands:
+                commandsAllowed = true
+            case .probeOnlyNoCommands:
+                commandsAllowed = false
+            case .rejectConnection(let message):
+                _ = writeSocketResponse(message, to: socket)
+                return
             }
         }
 
+        serveClientCommands(socket: socket, commandsAllowed: commandsAllowed)
+    }
+
+    nonisolated static func cmuxOnlyAuthorization(
+        peerPID: pid_t?,
+        isDescendant: (pid_t) -> Bool,
+        peerHasSameUID: () -> Bool
+    ) -> CmuxOnlySocketAuthorization {
+        if let pid = peerPID {
+            return isDescendant(pid)
+                ? .allowCommands
+                : .rejectConnection("ERROR: Access denied — only processes started inside cmux can connect")
+        }
+        return peerHasSameUID()
+            ? .allowCommands
+            : .rejectConnection("ERROR: Unable to verify client process")
+    }
+
+    private nonisolated func serveClientCommands(socket: Int32, commandsAllowed: Bool) {
         var authenticated = false
         let lineReader = ControlClientLineReader(socket: socket)
 
         while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
+
+            if !commandsAllowed {
+                _ = writeSocketResponse(
+                    "ERROR: Access denied — only processes started inside cmux can connect",
+                    to: socket
+                )
+                return
+            }
 
             var shouldCloseSocket = false
             autoreleasepool {
@@ -1538,6 +1568,12 @@ class TerminalController {
             }
         }
     }
+
+#if DEBUG
+    nonisolated func debugServeClientCommandsForTesting(socket: Int32, commandsAllowed: Bool) {
+        serveClientCommands(socket: socket, commandsAllowed: commandsAllowed)
+    }
+#endif
 
     private nonisolated func processSocketLine(
         _ command: String,
