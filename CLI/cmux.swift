@@ -1135,7 +1135,7 @@ final class ClaudeHookSessionStore {
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
             // earlier capture to an env-only stub.
-            if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments) {
+            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
             }
         }
@@ -3545,6 +3545,10 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "__internal_flags":
+            let response = try sendV1Command("__internal_flags", client: client)
+            print(response)
+
         case "ping":
             let response = try sendV1Command("ping", client: client)
             print(response)
@@ -4090,6 +4094,8 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+
+        case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
@@ -5637,7 +5643,7 @@ struct CMUXCLI {
         return .refs
     }
 
-    private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
+    func sendV1Command(_ command: String, client: SocketClient) throws -> String {
         let response = try client.send(command: command)
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
@@ -9770,8 +9776,7 @@ struct CMUXCLI {
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
-        let trimmedControlPathPreflight = controlPathPreflightShellFunction?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedControlPathPreflight = controlPathPreflightShellFunction?.trimmingCharacters(in: .whitespacesAndNewlines)
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -9788,22 +9793,21 @@ struct CMUXCLI {
             "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
-            "cmux_ssh_retry=0",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            // Pane-close signals are terminal lifecycle, not SSH transport lifecycle.
-            // Avoid sending an extra TERM to a child that may own the shared ControlMaster path.
+            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }; \(sshRemoteReconnectShellFunction())",
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "while :; do",
+            "  cmux_ssh_retry=0",
+            "  while :; do",
         ]
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-            scriptLines.append("  cmux_ssh_preflight_control_path")
+            scriptLines.append("    cmux_ssh_preflight_control_path")
         }
         // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
         // job control is off (the default for `/bin/sh -c …`), so ssh would
@@ -9812,38 +9816,40 @@ struct CMUXCLI {
         // own stdin (the terminal) wired into the backgrounded ssh process.
         if isShellSnippet {
             scriptLines += [
-                "  (",
-                "    \(sshCommand)",
-                "  ) <&0 &",
+                "    (",
+                "      \(sshCommand)",
+                "    ) <&0 &",
             ]
         } else {
-            scriptLines.append("  command \(sshCommand) <&0 &")
+            scriptLines.append("    command \(sshCommand) <&0 &")
         }
         let retryableStatusPattern = retryPTYAttachStatus ? "254|255" : "255"
         scriptLines += [
-            "  CMUX_SSH_CHILD_PID=$!",
-            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
-            "  wait \"$CMUX_SSH_CHILD_PID\"",
-            "  cmux_ssh_status=$?",
-            "  CMUX_SSH_CHILD_PID=",
+            "    CMUX_SSH_CHILD_PID=$!",
+            "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "    wait \"$CMUX_SSH_CHILD_PID\"",
+            "    cmux_ssh_status=$?",
+            "    CMUX_SSH_CHILD_PID=",
+            "    if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
+            "    case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
+            "    if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
+            "    cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "    cmux_ssh_note \(shellQuote(sshAutoReconnectNoteFormat())) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "    if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
+            "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "  done",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
-            "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
-            "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
-            "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
-            "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
-            "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
-            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "  cmux_ssh_session_end",
+            "  printf \(shellQuote(sshManualReconnectExitPromptFormat())) \"$cmux_ssh_status\" >&2 || true",
+            "  if IFS= read -r _cmux_dismiss_key 2>/dev/null; then",
+            "    case \"$_cmux_dismiss_key\" in",
+            "      r|R|retry|reconnect) cmux_ssh_remote_reconnect && CMUX_SSH_SESSION_ENDED=0 && continue ;;",
+            "    esac",
+            "  fi",
+            "  break",
             "done",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
-            // Hold the pane so the user can see the error instead of silently falling
-            // back to a local shell. Without this, Ghostty's PTY respawns a login shell
-            // after the startup command exits, and a dead VM looks identical to "I never
-            // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
-            "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
-            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
-            "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
-            "fi",
             "exit $cmux_ssh_status",
         ]
         return scriptLines.joined(separator: "\n")
@@ -14728,6 +14734,8 @@ struct CMUXCLI {
               cmux workspace reconnect
               cmux workspace disconnect --workspace workspace:3
             """)
+        case "layout":
+            return Self.layoutHelpText()
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]
@@ -23502,7 +23510,7 @@ struct CMUXCLI {
             }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
-
+        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -23820,7 +23828,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -24044,7 +24052,7 @@ struct CMUXCLI {
     /// surface may participate in cross-surface staleness decisions — a borrowed
     /// fallback surface must not let a stale hook masquerade as another pane's.
     /// https://github.com/manaflow-ai/cmux/issues/5908
-    private func resolvePreferredSurfaceForClaudeHookDetailed(
+    func resolvePreferredSurfaceForClaudeHookDetailed(
         preferred: String?,
         fallback: String?,
         fallbackIsExplicit: Bool = false,
@@ -24271,7 +24279,7 @@ struct CMUXCLI {
         return try resolveWorkspaceId(nil, client: client)
     }
 
-    private struct ClaudeHookResolvedSurface {
+    struct ClaudeHookResolvedSurface {
         let surfaceId: String
         /// Resolved from the hook's own identity (the supplied surface value or
         /// the calling process's tty binding) rather than the focused/first-
@@ -26265,7 +26273,7 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func notificationPayload(
+    func notificationPayload(
         title: String,
         subtitle: String,
         body: String,
@@ -26711,7 +26719,9 @@ struct CMUXCLI {
         // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
-            guard !environment.isEmpty else { return nil }
+            guard !environment.isEmpty else {
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+            }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
                 executablePath: nil,
@@ -26734,11 +26744,9 @@ struct CMUXCLI {
             launcher: launcher,
             fallbackKind: fallbackKind
         ) else {
-            // Argv WAS captured but the sanitizer rejected it — this is exactly how AgentLaunchSanitizer
-            // suppresses non-restorable invocations (`codex exec`, `codex review`, `claude config`, …).
-            // Those must never get a resume/fork binding, so stay nil even when a safe env var (e.g.
-            // CODEX_HOME) is present; do NOT fall through to the env-only record here.
-            return nil
+            // Sanitized-away argv means a non-restorable invocation. Do not
+            // replace it with an env-only fallback.
+            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
         let source = envArguments == nil ? "process" : "environment"
 
@@ -26763,11 +26771,12 @@ struct CMUXCLI {
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
+        if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+            return
+        }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
-        // Pin the resume binding to the directory the agent was *launched* in, not the drift-prone
-        // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
-        // launch dir, so resuming from a worktree the agent later `cd`'d into fails with "No
-        // conversation found".
+        // Pin to the launch directory, not drift-prone runtime cwd.
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
             runtimeCwd: cwd,
@@ -27122,7 +27131,7 @@ struct CMUXCLI {
                     eventName: event.agentEvent
                 ))
                 result[event.agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -27160,7 +27169,7 @@ struct CMUXCLI {
                     eventName: agentEvent
                 ))
                 result[agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -27709,62 +27718,6 @@ export default CMUXSessionRestore;
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }
 
-    private func installRovoDevHooks(_ def: AgentHookDef) throws {
-        let fm = FileManager.default
-        let configDir = def.resolvedConfigDir()
-        let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
-
-        var isDirectory = ObjCBool(false)
-        if !fm.fileExists(atPath: configDir, isDirectory: &isDirectory) {
-            try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
-        } else if !isDirectory.boolValue {
-            throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
-        }
-
-        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
-        if oldString == newString {
-            print("\(def.displayName) hooks already up to date at \(filePath)")
-            return
-        }
-
-        if !skipConfirm {
-            Self.printInstallPreview(
-                path: filePath,
-                oldContent: oldString,
-                newContent: newString,
-                fallbackContent: newString
-            )
-            print("\nProceed? [y/N] ", terminator: "")
-            guard readLine()?.lowercased().hasPrefix("y") == true else {
-                print("Aborted.")
-                return
-            }
-        }
-        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
-        print("\(def.displayName) hooks installed at \(filePath)")
-    }
-
-    private func uninstallRovoDevHooks(_ def: AgentHookDef) throws {
-        let fm = FileManager.default
-        let configDir = def.resolvedConfigDir()
-        let filePath = "\(configDir)/\(def.configFile)"
-        guard fm.fileExists(atPath: filePath) else {
-            print("No \(def.configFile) found at \(filePath)")
-            return
-        }
-        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
-        guard oldString != newString else {
-            print("Removed 0 cmux hook(s) from \(filePath)")
-            return
-        }
-        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
-        print("Removed Rovo Dev cmux hooks from \(filePath)")
-    }
-
     func readAgentHookConfig(filePath: String, displayName: String) throws -> String {
         let fm = FileManager.default
         guard fm.fileExists(atPath: filePath) else { return "" }
@@ -27773,23 +27726,6 @@ export default CMUXSessionRestore;
         } catch {
             throw CLIError(message: "\(filePath) exists but could not be read. Fix permissions or remove it before installing \(displayName) hooks.")
         }
-    }
-
-    private func rovoDevHooksContent(
-        existing: String,
-        def: AgentHookDef,
-        shouldInstall: Bool
-    ) throws -> String {
-        let events = def.events.map { event in
-            RovoDevHookConfig.Event(
-                name: event.agentEvent,
-                command: hookCommand(for: def, event: event)
-            )
-        }
-        if shouldInstall {
-            return RovoDevHookConfig.installing(events: events, in: existing)
-        }
-        return RovoDevHookConfig.uninstalling(from: existing)
     }
 
     private static let antigravityHookGroupName = "cmux"
@@ -27996,6 +27932,10 @@ export default CMUXSessionRestore;
             try installAntigravityHooks(def)
             return
         }
+        if case .tomlArrayTable = def.format {
+            try installKimiHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -28103,7 +28043,7 @@ export default CMUXSessionRestore;
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -28131,7 +28071,7 @@ export default CMUXSessionRestore;
                     }
                 }
                 hooks[event] = groups
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -28357,6 +28297,10 @@ export default CMUXSessionRestore;
             try uninstallAntigravityHooks(def)
             return
         }
+        if case .tomlArrayTable = def.format {
+            try uninstallKimiHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -28421,7 +28365,7 @@ export default CMUXSessionRestore;
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -29610,7 +29554,6 @@ export default CMUXSessionRestore;
 #endif
                 return target
             }
-
             guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
 #if DEBUG
                 agentHookDebugLog(
@@ -29669,10 +29612,10 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -29682,10 +29625,10 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -29742,8 +29685,8 @@ export default CMUXSessionRestore;
                         kind: def.name,
                         displayName: def.displayName,
                         sessionId: sessionId,
-                        cwd: hookCwd ?? mapped?.cwd,
-                        launchCommand: launchCommand
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                     )
                 }
             }
@@ -29917,13 +29860,13 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: transcriptPathForStore,
                         turnId: input.turnId,
                         previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
                             for: def,
@@ -29976,21 +29919,21 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: launchCommand
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                     )) ?? false
                 } else {
                     try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .running,
                         runtimeStatus: .running,
                         updateRuntimeStatus: true
@@ -30009,8 +29952,8 @@ export default CMUXSessionRestore;
                     kind: def.name,
                     displayName: def.displayName,
                     sessionId: sessionId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -30149,7 +30092,9 @@ export default CMUXSessionRestore;
                 return summary.status == .error ? summary : nil
             }()
 
-            let cwd = hookCwd ?? mapped?.cwd
+            let rawCwd = hookCwd ?? mapped?.cwd
+            let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
+            let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
             let grokAssistantMessage: String? = {
                 guard def.name == "grok" else { return nil }
                 return latestGrokAssistantMessage(
@@ -30200,12 +30145,6 @@ export default CMUXSessionRestore;
             }()
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
-            let launchCommand = agentLaunchCommandFromEnvironment(
-                env,
-                fallbackPID: pid,
-                fallbackKind: def.name,
-                cwd: cwd
-            )
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
@@ -30241,7 +30180,7 @@ export default CMUXSessionRestore;
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
-                    launchCommand: launchCommand,
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
@@ -30268,7 +30207,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
-                                  launchCommand: launchCommand,
+                                  launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
                                   lastBody: body,
@@ -30284,7 +30223,7 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -30465,10 +30404,10 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: hookCwd ?? mapped?.cwd,
+                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
-                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )
@@ -30479,8 +30418,8 @@ export default CMUXSessionRestore;
                     kind: def.name,
                     displayName: def.displayName,
                     sessionId: sessionId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -31423,7 +31362,7 @@ export default CMUXSessionRestore;
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
         case "pre-tool-use", "cron-create-guard": return "PreToolUse"
-        case "post-tool-use": return "PostToolUse"
+        case "post-tool-use", "push-notification": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"
