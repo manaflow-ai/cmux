@@ -201,7 +201,6 @@ struct ChatBlockDetailSheetView: View {
     let detail: ChatBlockDetail
 
     @Environment(\.dismiss) private var dismiss
-    @State private var didCopy = false
 
     var body: some View {
         NavigationStack {
@@ -231,9 +230,11 @@ struct ChatBlockDetailSheetView: View {
                     }
                     .accessibilityIdentifier("ChatBlockDetailDoneButton")
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    copyAllButton
-                }
+                #if os(iOS)
+                ToolbarItem(placement: .topBarTrailing) { copyAllButton }
+                #else
+                ToolbarItem(placement: .confirmationAction) { copyAllButton }
+                #endif
             }
         }
         .accessibilityIdentifier("ChatBlockDetailSheet")
@@ -241,14 +242,8 @@ struct ChatBlockDetailSheetView: View {
 
     private var copyAllButton: some View {
         Button(action: copyAll) {
-            if didCopy {
-                Label(
-                    String(localized: "chat.detail.copied", defaultValue: "Copied", bundle: .module),
-                    systemImage: "checkmark"
-                )
-            } else {
-                Text(String(localized: "chat.detail.copy_all", defaultValue: "Copy All", bundle: .module))
-            }
+            Text(String(localized: "chat.detail.copy_all", defaultValue: "Copy All", bundle: .module))
+                .fontWeight(.regular)
         }
         .disabled(detail.copyText.isEmpty)
         .accessibilityIdentifier("ChatBlockDetailCopyAllButton")
@@ -263,7 +258,6 @@ struct ChatBlockDetailSheetView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(detail.copyText, forType: .string)
         #endif
-        didCopy = true
     }
 }
 
