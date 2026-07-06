@@ -364,6 +364,7 @@
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
 		C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
+		C750600000000000000000A3 /* CmuxFleet in Frameworks */ = {isa = PBXBuildFile; productRef = C750600000000000000000A2 /* CmuxFleet */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
 		CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
 		CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
@@ -440,6 +441,7 @@
 		5E55200000000000000000B3 /* CmuxWindowing in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55200000000000000000B2 /* CmuxWindowing */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
+		C0DEF1000000000000000002 /* CmuxWorkstreamEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000001 /* CmuxWorkstreamEventPublishing.swift */; };
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
@@ -584,6 +586,13 @@
 		D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */; };
 		F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */; };
 		C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F15A000000000000000002 /* FishShellIntegrationTests.swift */; };
+		C0DEF1000000000000000012 /* FleetAppActuator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000011 /* FleetAppActuator.swift */; };
+		C0DEF1000000000000000022 /* FleetAppHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000021 /* FleetAppHost.swift */; };
+		C0DEF1000000000000000032 /* FleetAppPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000031 /* FleetAppPersistence.swift */; };
+		C0DEF1000000000000000042 /* FleetAppTimers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000041 /* FleetAppTimers.swift */; };
+		C0DEF1000000000000000052 /* FleetAppWorldReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000051 /* FleetAppWorldReader.swift */; };
+		C0DEF1000000000000000062 /* FleetControlSocketMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */; };
+		C0DEF1000000000000000072 /* FleetWorkstreamTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000071 /* FleetWorkstreamTap.swift */; };
 		F0C05170000000000000002 /* FocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C05170000000000000001 /* FocusHistory.swift */; };
 		C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */; };
 		5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */; };
@@ -1760,6 +1769,7 @@
 		C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyDownReentryTests.swift; sourceTree = "<group>"; };
 		43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewMouseNavigationButtonTests.swift; sourceTree = "<group>"; };
 		E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkspaceDefinition.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000001 /* CmuxWorkstreamEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkstreamEventPublishing.swift; sourceTree = "<group>"; };
 		C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisher.swift; sourceTree = "<group>"; };
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
@@ -1902,6 +1912,13 @@
 		D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindSelectionShortcutUITests.swift; sourceTree = "<group>"; };
 		F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/FindTextFieldSupport.swift; sourceTree = "<group>"; };
 		C0F15A000000000000000002 /* FishShellIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FishShellIntegrationTests.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000011 /* FleetAppActuator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppActuator.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000021 /* FleetAppHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppHost.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000031 /* FleetAppPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppPersistence.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000041 /* FleetAppTimers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppTimers.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000051 /* FleetAppWorldReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppWorldReader.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetControlSocketMapping.swift; sourceTree = "<group>"; };
+		C0DEF1000000000000000071 /* FleetWorkstreamTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetWorkstreamTap.swift; sourceTree = "<group>"; };
 		F0C05170000000000000001 /* FocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistory.swift; sourceTree = "<group>"; };
 		C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistoryMenuInvalidator.swift; sourceTree = "<group>"; };
 		5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusStealingResponderConformances.swift; sourceTree = "<group>"; };
@@ -2631,6 +2648,7 @@
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
+				C750600000000000000000A3 /* CmuxFleet in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
@@ -3168,6 +3186,7 @@
 				E7E00000000000000000000E /* CmuxEventLogWriter.swift */,
 				E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
+				C0DEF1000000000000000001 /* CmuxWorkstreamEventPublishing.swift */,
 				A5001019 /* TerminalController.swift */,
 				5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */,
 				E7E000000000000000000002 /* CmuxEventStream.swift */,
@@ -3604,6 +3623,7 @@
 				105D8421DF4E2E09D255D785 /* Auth */,
 				590E4F5F342E5B27010ECC8D /* Cloud */,
 				FEED0000000000000000F003 /* Feed */,
+				C0DEF1000000000000000081 /* Fleet */,
 				C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */,
 				C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
@@ -4052,6 +4072,21 @@
 			path = Feed;
 			sourceTree = "<group>";
 		};
+		C0DEF1000000000000000081 /* Fleet */ = {
+			isa = PBXGroup;
+			children = (
+				C0DEF1000000000000000011 /* FleetAppActuator.swift */,
+				C0DEF1000000000000000021 /* FleetAppHost.swift */,
+				C0DEF1000000000000000031 /* FleetAppPersistence.swift */,
+				C0DEF1000000000000000041 /* FleetAppTimers.swift */,
+				C0DEF1000000000000000051 /* FleetAppWorldReader.swift */,
+				C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */,
+				C0DEF1000000000000000071 /* FleetWorkstreamTap.swift */,
+			);
+			name = Fleet;
+			path = Fleet;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -4102,6 +4137,7 @@
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C617000000000000000000A2 /* CmuxGit */,
+				C750600000000000000000A2 /* CmuxFleet */,
 				C5B6A10000000000000000A2 /* CmuxSidebarGit */,
 				E3B7A30000000000000000B2 /* CmuxSidebar */,
 				E3B7A30000000000000000C2 /* CmuxBrowser */,
@@ -4285,6 +4321,7 @@
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
+				C750600000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFleet" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
@@ -4677,6 +4714,7 @@
 				C67540030000000000000001 /* CmuxWebView+SubframeDownloadIntentScript.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
+				C0DEF1000000000000000002 /* CmuxWorkstreamEventPublishing.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
@@ -4776,6 +4814,13 @@
 					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,
 				F1A0C0DE0000000000000002 /* FindTextFieldSupport.swift in Sources */,
+				C0DEF1000000000000000012 /* FleetAppActuator.swift in Sources */,
+				C0DEF1000000000000000022 /* FleetAppHost.swift in Sources */,
+				C0DEF1000000000000000032 /* FleetAppPersistence.swift in Sources */,
+				C0DEF1000000000000000042 /* FleetAppTimers.swift in Sources */,
+				C0DEF1000000000000000052 /* FleetAppWorldReader.swift in Sources */,
+				C0DEF1000000000000000062 /* FleetControlSocketMapping.swift in Sources */,
+				C0DEF1000000000000000072 /* FleetWorkstreamTap.swift in Sources */,
 				F0C05170000000000000002 /* FocusHistory.swift in Sources */,
 				C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */,
 				5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */,
@@ -6217,6 +6262,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxControlSocket;
 		};
+		C750600000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFleet" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxFleet;
+		};
 		C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxAppKitSupportUI;
@@ -6434,6 +6483,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */;
 			productName = CmuxControlSocket;
+		};
+		C750600000000000000000A2 /* CmuxFleet */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750600000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFleet" */;
+			productName = CmuxFleet;
 		};
 		C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */ = {
 			isa = XCSwiftPackageProductDependency;
