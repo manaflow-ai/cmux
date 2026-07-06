@@ -1400,6 +1400,8 @@ class TerminalController {
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("remotes."):
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("aiAccounts."):
+            return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -2374,6 +2376,9 @@ class TerminalController {
             "vm.exec",
             "vm.attach_info",
             "vm.ssh_info",
+            "aiAccounts.list",
+            "aiAccounts.upload",
+            "aiAccounts.remove",
             "window.list",
             "window.current",
             "window.focus",

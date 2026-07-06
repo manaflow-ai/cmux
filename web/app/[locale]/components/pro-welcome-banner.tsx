@@ -43,7 +43,7 @@ export function ProWelcomeBanner() {
           {" "}
           <a
             href="/api/billing/confirm"
-            className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors"
+            className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
           >
             {t("welcomePendingAction")}
           </a>
