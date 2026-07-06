@@ -4,6 +4,9 @@ public struct FleetPromptTemplate: Sendable {
     public init() {}
 
     /// Renders a shell command template for a task.
+    ///
+    /// Every string placeholder except `{{TASK_ID}}` is shell-quoted by the
+    /// renderer, so templates must not add their own quotes around them.
     /// - Parameters:
     ///   - template: The agent command template.
     ///   - task: The task snapshot used for prompt placeholders.
@@ -22,8 +25,8 @@ public struct FleetPromptTemplate: Sendable {
             "{{TITLE}}": shellQuoted(task.title),
             "{{BODY}}": shellQuoted(task.body),
             "{{TASK_ID}}": task.id.rawValue,
-            "{{DIR}}": directory,
-            "{{BRANCH}}": branch ?? "",
+            "{{DIR}}": shellQuoted(directory),
+            "{{BRANCH}}": branch.map(shellQuoted) ?? "",
         ]
         var rendered = template
         for (placeholder, value) in replacements {

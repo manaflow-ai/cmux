@@ -104,9 +104,9 @@ extension FleetEngine {
 
     func reconcilePass() {
         for (fleetID, runtime) in fleets {
-            for task in runtime.tasks.values where !task.state.isTerminal {
+            for task in runtime.tasks.values where Self.reconcileProbes(task.state) {
                 guard let workspaceID = task.workspaceID else { continue }
-                if !dependencies.world.workspaceExists(workspaceID: workspaceID) {
+                if !task.state.isTerminal, !dependencies.world.workspaceExists(workspaceID: workspaceID) {
                     apply(.workspaceClosed(taskID: task.id, at: dependencies.now()), to: task.id)
                     continue
                 }
@@ -187,6 +187,21 @@ extension FleetEngine {
             true
         case .queued, .provisioning, .stalled, .retryBackoff, .awaitingReview, .done, .failed, .cancelled:
             false
+        }
+    }
+
+    /// Returns whether reconcile still watches a task in the given state.
+    ///
+    /// `.failed` stays probed for pull-request changes so an open or merged PR
+    /// can rescue the task to `.awaitingReview`/`.done` even when it failed
+    /// before the PR badge populated. `.done`/`.cancelled` never change again.
+    private static func reconcileProbes(_ state: FleetTaskState) -> Bool {
+        switch state {
+        case .done, .cancelled:
+            false
+        case .queued, .provisioning, .launching, .running, .needsInput, .stalled,
+             .retryBackoff, .awaitingReview, .failed:
+            true
         }
     }
 }
