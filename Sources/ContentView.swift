@@ -11399,7 +11399,7 @@ struct VerticalTabsSidebar: View {
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag {
             dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload.provider(for: row.workspaceId)
+            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
         }
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
@@ -11477,7 +11477,7 @@ struct VerticalTabsSidebar: View {
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag {
             dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload.provider(for: row.workspaceId)
+            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
         }
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
@@ -12336,7 +12336,7 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
             #endif
             dragState.beginDragging(tabId: tabId)
-            return SidebarTabDragPayload.provider(for: tabId)
+            return SidebarTabDragPayload(tabId: tabId).provider()
         }
         let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID? = { tabId in
             guard let app = AppDelegate.shared else { return nil }
@@ -15642,32 +15642,6 @@ private struct SidebarMetadataMarkdownBlockRow: View {
             maxDisplayedCharacters: maxDisplayedCharacters
         )
     }
-}
-
-/// Immutable, equatable snapshot of the group list a row's "Move to Group"
-/// submenu can offer. Computed once per parent body eval and passed into
-/// each TabItemView so the row's `==` covers group changes (renames, adds,
-/// deletes) — the row's snapshot-boundary rule forbids reading
-/// `tabManager.workspaceGroups` from inside the contextMenu builder.
-enum SidebarTabDragPayload {
-    static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
-    static let dropContentTypes: [UTType] = [dropContentType]
-    static let prefix = "cmux.sidebar-tab."
-
-    static func provider(for tabId: UUID) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let payload = "\(prefix)\(tabId.uuidString)"
-        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
-            let data = payload.data(using: .utf8)
-            Task { @MainActor in
-                completion(data, nil)
-            }
-            return nil
-        }
-        return provider
-    }
-
 }
 
 enum BonsplitTabDragPayload {
