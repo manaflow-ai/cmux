@@ -315,6 +315,8 @@ export async function POST(request: Request): Promise<Response> {
               action: "Retry with a fresh `cmux vm new`. If it fails again, copy the details and contact support.",
               details: {
                 idempotencyKeySet: !!err.idempotencyKey,
+                failureCode: err.code,
+                failureMessage: err.message,
               },
             });
           }
