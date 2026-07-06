@@ -210,6 +210,7 @@ const MESSAGE_CATALOG = {
       `computer-use request arguments are too large (limit ${limit} bytes)`,
     typeTextTooLarge: (limit) =>
       `computer_type text is too large (limit ${limit} characters)`,
+    unknownApp: "unknown app",
     typeDescription:
       "Type text into an app (the focused field). Confirm with the user before destructive, irreversible, or high-stakes actions.",
     typed: "typed",
@@ -341,6 +342,7 @@ const MESSAGE_CATALOG = {
       `computer-use リクエストの引数が大きすぎます（上限 ${limit} バイト）`,
     typeTextTooLarge: (limit) =>
       `computer_type のテキストが大きすぎます（上限 ${limit} 文字）`,
+    unknownApp: "不明なアプリ",
     typeDescription:
       "アプリのフォーカス中フィールドにテキストを入力します。破壊的、取り消し困難、または重要度の高い操作の前にはユーザーに確認してください。",
     typed: "入力しました",
@@ -367,6 +369,14 @@ const ACTIVE_MESSAGES = MESSAGE_CATALOG[messageLocale()];
 function localizedMessage(key, ...args) {
   const entry = ACTIVE_MESSAGES[key] ?? MESSAGE_CATALOG.en[key];
   return typeof entry === "function" ? entry(...args) : entry;
+}
+
+function safeDisplayText(value, fallback = localizedMessage("unknownApp")) {
+  const raw = retainableString(value);
+  if (!raw) return fallback;
+  const sanitized = raw.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!sanitized) return fallback;
+  return sanitized.length > 120 ? `${sanitized.slice(0, 117)}...` : sanitized;
 }
 
 const PROVIDER_ERROR_MESSAGES = {
@@ -1001,7 +1011,15 @@ function elementFromSnapshot(snapshot, index) {
 }
 
 function appControlName(app, target) {
-  return retainableString(target?.name) || app;
+  const name = safeDisplayText(target?.name, "");
+  const bundle = safeDisplayText(target?.bundleIdentifier, "");
+  const pid = Number.isInteger(target?.pid) ? target.pid : null;
+  if (name && bundle && pid != null) return `${name} (${bundle}, pid ${pid})`;
+  if (name && bundle) return `${name} (${bundle})`;
+  if (name) return name;
+  if (bundle && pid != null) return `${bundle}, pid ${pid}`;
+  if (bundle) return bundle;
+  return safeDisplayText(app);
 }
 
 function appControlApprovalKey(target) {
@@ -1010,38 +1028,26 @@ function appControlApprovalKey(target) {
   return `app-control:${retained.bundleIdentifier || "unknown-bundle"}:${retained.pid}`;
 }
 
-async function approveAppControlTarget(app, target, { reuseCurrentApproval = false } = {}) {
+async function approveAppControlTarget(app, target) {
   const approvalKey = appControlApprovalKey(target);
   if (!approvalKey) return false;
   if (grantedLocalCapabilities.has(approvalKey)) return true;
   if (
-    !reuseCurrentApproval &&
-    !(await requestLocalCapabilityApproval(
-      localizedMessage("appControlApproval", appControlName(app, target))
-    ))
+    !(await requestLocalCapabilityApproval(localizedMessage("appControlApproval", appControlName(app, target))))
   ) {
     return false;
   }
   grantedLocalCapabilities.add(approvalKey);
-  approvedAppControlQueries.add(app);
   return true;
 }
 
 async function resolveApprovedAppControlTarget(app) {
   const s = await session();
-  let approvedThisCall = false;
-  if (!approvedAppControlQueries.has(app)) {
-    if (!(await requestLocalCapabilityApproval(localizedMessage("appControlApproval", app)))) {
-      return { approved: false, session: s, target: null };
-    }
-    approvedAppControlQueries.add(app);
-    approvedThisCall = true;
-  }
   const target = retainableTarget(await s.provider.resolveApp(app));
   if (!target) {
     throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
   }
-  const approved = await approveAppControlTarget(app, target, { reuseCurrentApproval: approvedThisCall });
+  const approved = await approveAppControlTarget(app, target);
   return { approved, session: s, target };
 }
 
@@ -1423,26 +1429,27 @@ const TOOLS = [
     run: async ({ app }) => {
       // `open -a` changes app focus outside the provider's snapshot loop, so it
       // gets its own approval like everything else that touches the machine.
+      const appDisplay = safeDisplayText(app);
       if (
         !(await approveLocalCapability(
           `open:${app}`,
-          localizedMessage("openAppApproval", app)
+          localizedMessage("openAppApproval", appDisplay)
         ))
       ) {
-        return err(localizedMessage("openAppNotApproved", app));
+        return err(localizedMessage("openAppNotApproved", appDisplay));
       }
       // Launching or focusing can replace the key window. Drop any old
       // agent-visible state so the next input must refresh its snapshot.
       revokeAppState(app);
       if (USE_FAKE_PROVIDER) {
-        return ok([text(localizedMessage("openedApp", app))]);
+        return ok([text(localizedMessage("openedApp", appDisplay))]);
       }
       try {
         const { stdout } = await execFileTool("/usr/bin/open", ["-a", app], {
           timeout: TIMEOUT_MS,
           env: childEnv(),
         });
-        return ok([text(stdout?.trim() || localizedMessage("openedApp", app))]);
+        return ok([text(stdout?.trim() || localizedMessage("openedApp", appDisplay))]);
       } catch (error) {
         return err(error?.stderr?.trim() || error?.message || String(error));
       }
@@ -1845,9 +1852,6 @@ async function execFileWithStdinTool(file, args, input, options) {
 // errors/times out. Grants are cached per capability for the lifetime of this
 // MCP session.
 const grantedLocalCapabilities = new Set();
-// This set only records that the human allowed resolving a raw app query in this
-// session. Actual control grants are still cached by resolved bundle id + pid.
-const approvedAppControlQueries = new Set();
 
 async function approveLocalCapability(key, message) {
   if (grantedLocalCapabilities.has(key)) return true;
