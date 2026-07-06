@@ -678,12 +678,13 @@ class TerminalController: MobileViewportSurfaceLimiting {
             keyStack.append(commandKey)
             Self.setCurrentSocketCommandKeyStack(keyStack)
         }
+        // The focus-allowance stack lifecycle is owned entirely by the instance
+        // `socketCommandFocusAllowance.withPolicy(...)` below (it pushes on entry
+        // and pops in its own defer). Only the command-key stack, pushed above
+        // for signpost attribution, is popped here; the merged-in manual
+        // focus-allowance pop (from main's former thread-dictionary mechanism)
+        // was removed because it popped a frame this method never pushes.
         defer {
-            var stack = Self.currentSocketCommandFocusAllowanceStack()
-            if !stack.isEmpty {
-                _ = stack.popLast()
-            }
-            Self.setCurrentSocketCommandFocusAllowanceStack(stack)
             if recordsCommandKey {
                 var keyStack = Self.currentSocketCommandKeyStack()
                 if !keyStack.isEmpty {
@@ -1015,6 +1016,28 @@ class TerminalController: MobileViewportSurfaceLimiting {
         "notification.create_for_caller",
         "workspace.set_auto_title",
     ]
+
+    // Restored from origin/main (#7357): the feed.push handler below calls this
+    // pure param-parser; the merge kept the call site but dropped the static.
+    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
+        guard let rawTimeout = params["wait_timeout_seconds"] else {
+            return 0
+        }
+        let seconds: Double?
+        if let number = rawTimeout as? NSNumber {
+            seconds = number.doubleValue
+        } else if let value = rawTimeout as? Double {
+            seconds = value
+        } else if let value = rawTimeout as? Int {
+            seconds = Double(value)
+        } else {
+            seconds = nil
+        }
+        guard let seconds, seconds.isFinite, seconds >= 0, seconds <= 120 else {
+            return nil
+        }
+        return seconds
+    }
 
     private nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
