@@ -91,27 +91,24 @@ extension RemoteTmuxController {
 
     /// Sessions not yet mirrored, using stable tmux ids before mutable names.
     ///
-    /// Identity precedence per session:
-    /// 1. If its stable id parses and matches a mirrored connection's sessionId,
-    ///    the session is already mirrored.
-    /// 2. If its id parses and no id-less mirror shares its name, it is new. This
-    ///    covers a fresh session reusing a stale pre-rename mirror's name.
-    /// 3. Otherwise fall back to name matching, covering mirrors whose connection
-    ///    has not learned its sessionId yet, such as mid-attach.
+    /// Identity per session: a parsed stable id matching a mirrored connection's
+    /// sessionId means already mirrored (so a rename whose `%session-renamed` has
+    /// not re-keyed the mirror yet can never mirror the same session twice);
+    /// otherwise the mutable name decides. A NEW session that reuses a mirrored
+    /// session's stale pre-rename name therefore stays undiscovered until the
+    /// rename event re-keys the mirror — deliberate: the whole attach pipeline
+    /// (`connectionKey`, `mirrorSession`, `tmux attach -t`) keys sessions by
+    /// name, so surfacing it here would only be dropped by those layers.
+    /// Attaching by stable id end to end is follow-up territory.
     nonisolated static func unmirroredSessions(
         _ sessions: [RemoteTmuxSession],
         mirroredSessionIds: Set<Int>,
-        mirroredNames: Set<String>,
-        mirroredNamesWithoutId: Set<String>
+        mirroredNames: Set<String>
     ) -> [RemoteTmuxSession] {
         sessions.filter { session in
-            if let sessionId = tmuxSessionNumericId(session.id) {
-                if mirroredSessionIds.contains(sessionId) {
-                    return false
-                }
-                if !mirroredNamesWithoutId.contains(session.name) {
-                    return true
-                }
+            if let sessionId = tmuxSessionNumericId(session.id),
+               mirroredSessionIds.contains(sessionId) {
+                return false
             }
             return !mirroredNames.contains(session.name)
         }

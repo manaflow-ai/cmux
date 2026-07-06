@@ -53,35 +53,37 @@ struct RemoteTmuxMirrorTargetingTests {
     }
 
     @Test func unmirroredSessionsUsesStableSessionIdsBeforeNames() {
+        // Rename race: the mirrored session's %session-renamed has not re-keyed
+        // yet, so its stable id must prevent a duplicate mirror under the new name.
         let renameRace = RemoteTmuxController.unmirroredSessions(
             [session("zeromain", id: "$0")],
             mirroredSessionIds: [0],
-            mirroredNames: ["0"],
-            mirroredNamesWithoutId: []
+            mirroredNames: ["0"]
         )
         #expect(renameRace.isEmpty)
 
+        // A NEW session reusing a mirrored session's stale pre-rename name stays
+        // undiscovered until the rename event re-keys the mirror (deliberate: the
+        // name-keyed attach pipeline would drop it anyway; see the helper's doc).
         let reusedOldName = RemoteTmuxController.unmirroredSessions(
             [session("0", id: "$5")],
             mirroredSessionIds: [0],
-            mirroredNames: ["0"],
-            mirroredNamesWithoutId: []
+            mirroredNames: ["0"]
         )
-        #expect(reusedOldName.map(\.name) == ["0"])
+        #expect(reusedOldName.isEmpty)
 
+        // Mid-attach mirrors have no sessionId yet; the name fallback covers them.
         let midAttach = RemoteTmuxController.unmirroredSessions(
             [session("dev", id: "$5")],
             mirroredSessionIds: [],
-            mirroredNames: ["dev"],
-            mirroredNamesWithoutId: ["dev"]
+            mirroredNames: ["dev"]
         )
         #expect(midAttach.isEmpty)
 
         let fresh = RemoteTmuxController.unmirroredSessions(
             [session("fresh", id: "$7")],
             mirroredSessionIds: [0],
-            mirroredNames: ["old"],
-            mirroredNamesWithoutId: []
+            mirroredNames: ["old"]
         )
         #expect(fresh.map(\.name) == ["fresh"])
     }

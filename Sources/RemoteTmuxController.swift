@@ -426,31 +426,31 @@ final class RemoteTmuxController {
     /// the active window's sidebar. Prefer ``mirrorHostInNewWindow(host:)``
     /// for the user-facing attach.
     func mirrorHost(host: RemoteTmuxHost) async throws {
-        guard let appDelegate = AppDelegate.shared else {
-            throw RemoteTmuxError.unreachable("app not ready")
-        }
-        guard let tabManager = Self.mirrorTargetTabManager(
-            dedicatedWindowId: windowRegistry.windowId(forHostHash: host.connectionHash),
-            tabManagerForWindow: { appDelegate.tabManagerFor(windowId: $0) },
-            fallbackTabManager: { appDelegate.tabManager }
-        ) else {
-            throw RemoteTmuxError.unreachable("app not ready")
-        }
         let sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
         // Confirm the shared ControlMaster before the per-session attach burst, so
         // concurrent `ControlMaster=auto` attaches don't race to create it (#6732).
         try await ensureControlMasterReadyForBurst(host: host)
+        // Resolve the target only AFTER the awaits: a dedicated window bound at
+        // entry can close mid-flight; its registry unbind then retargets the
+        // fallback instead of an orphaned manager (same invariant as the reuse path).
+        guard let appDelegate = AppDelegate.shared,
+              let tabManager = Self.mirrorTargetTabManager(
+                  dedicatedWindowId: windowRegistry.windowId(forHostHash: host.connectionHash),
+                  tabManagerForWindow: { appDelegate.tabManagerFor(windowId: $0) },
+                  fallbackTabManager: { appDelegate.tabManager }
+              ) else {
+            throw RemoteTmuxError.unreachable("app not ready")
+        }
         mirrorSessions(sessions, host: host, into: tabManager)
     }
 
     /// The subset of `sessions` not yet mirrored for `host`. Stable tmux ids
-    /// take precedence over mutable names so reuse-path discovery does not
-    /// duplicate a session while a `%session-renamed` event is still catching up
+    /// take precedence over mutable names so bulk discovery does not duplicate
+    /// a session while a `%session-renamed` event is still catching up
     /// (#7362, #7365).
     func unmirroredSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost) -> [RemoteTmuxSession] {
         let mirrors = sessionMirrors.values.filter { $0.host.connectionHash == host.connectionHash }
-        let namesWithoutId = Set(mirrors.compactMap { $0.connection.sessionId == nil ? $0.sessionName : nil })
-        return Self.unmirroredSessions(sessions, mirroredSessionIds: Set(mirrors.compactMap(\.connection.sessionId)), mirroredNames: Set(mirrors.map(\.sessionName)), mirroredNamesWithoutId: namesWithoutId)
+        return Self.unmirroredSessions(sessions, mirroredSessionIds: Set(mirrors.compactMap(\.connection.sessionId)), mirroredNames: Set(mirrors.map(\.sessionName)))
     }
 
     /// Mirrors each not-yet-mirrored session into `manager` (one failure must not
