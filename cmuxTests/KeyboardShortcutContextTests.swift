@@ -468,14 +468,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let button = RecorderHostButton(frame: .zero)
         defer {
             if RecorderHostButton.isActivelyRecording {
-                button.debugStopRecording()
+                button.stopRecording()
             }
         }
 
         XCTAssertFalse(RecorderHostButton.isActivelyRecording)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), KeyboardShortcutSettings.shortcut(for: .closeTab))
 
-        button.debugStartRecording()
+        button.startRecording()
 
         XCTAssertTrue(RecorderHostButton.isActivelyRecording)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), .unbound)
