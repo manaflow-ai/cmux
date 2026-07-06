@@ -387,10 +387,12 @@ jobs:
 
       - name: Persist uploaded build metadata
         if: success()
+        env:
+          FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
         run: |
           set -euo pipefail
           cat > "$RUNNER_TEMP/ios-testflight-build.json" <<EOF
-          {"head_sha":"${GITHUB_SHA}","build_number":"${{ steps.upload.outputs.final_build_number }}"}
+          {"head_sha":"${GITHUB_SHA}","build_number":"${FINAL_BUILD_NUMBER}"}
           EOF
 
       - name: Upload build metadata artifact
