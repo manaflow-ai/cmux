@@ -207,6 +207,30 @@ describe("subrouter accounts route", () => {
     expect(upstream.tenantListCalls).toBe(1);
   });
 
+  test("strips unknown upstream account fields before returning to the browser", async () => {
+    upstream.accounts = [{
+      id: "acct-leaky",
+      kind: "claude",
+      label: "Leaky",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      apiKey: "sk-ant-should-never-leak",
+      tokens: { refreshToken: "rt-should-never-leak" },
+    }];
+
+    const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+    const body = await textWithoutTenantKeys(response);
+    const json = JSON.parse(body) as { accounts: Array<Record<string, unknown>> };
+
+    expect(response.status).toBe(200);
+    expect(json.accounts).toEqual([{
+      id: "acct-leaky",
+      kind: "claude",
+      label: "Leaky",
+      createdAt: "2026-07-01T00:00:00.000Z",
+    }]);
+    expect(body).not.toContain("should-never-leak");
+  });
+
   test("posts validated provider credentials with validate=1", async () => {
     const response = await accountsRoute.POST(
       request("/api/subrouter/accounts?validate=1", {

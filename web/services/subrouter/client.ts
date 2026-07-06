@@ -13,7 +13,6 @@ export type SubrouterAccount = {
   readonly kind: string;
   readonly label?: string | null;
   readonly createdAt?: string;
-  readonly [key: string]: unknown;
 };
 
 export type ClaudeAccountInput = {
@@ -310,7 +309,14 @@ function parseAccount(value: unknown): SubrouterAccount {
   if (createdAt !== undefined && typeof createdAt !== "string") {
     throw new SubrouterClientError("parseAccount", null);
   }
-  return value as SubrouterAccount;
+  // Whitelist the browser-facing shape: never forward unknown upstream fields
+  // across this trust boundary, even though the worker sanitizes accounts.
+  return {
+    id,
+    kind,
+    ...(label !== undefined ? { label } : {}),
+    ...(createdAt !== undefined ? { createdAt } : {}),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

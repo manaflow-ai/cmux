@@ -189,8 +189,6 @@
       "deleteConfirmTitle": "Delete this account?",
       "deleteConfirmBody": "This removes the provider account for the whole team. Adding it back requires the original credentials.",
       "cancelAction": "Cancel",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
     }

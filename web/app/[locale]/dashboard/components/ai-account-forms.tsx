@@ -7,6 +7,11 @@ import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Modal } from "../../components/modal";
 
+// JSON structure examples, not translatable copy: keeping them out of the
+// message catalog avoids ICU parsing of the literal braces.
+const CLAUDE_JSON_PLACEHOLDER = '{"accessToken":"...","refreshToken":"...","expiresAt":1770000000000}';
+const CODEX_JSON_PLACEHOLDER = '{"accessToken":"...","refreshToken":"...","idToken":"...","accountID":"..."}';
+
 type FormKind = "claude" | "anthropic" | "codex" | "openai";
 type FormStatus = {
   readonly state: "idle" | "submitting" | "success" | "error";
@@ -124,7 +129,7 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
       >
         <JsonField
           label={t("oauthJsonField")}
-          placeholder={t("claudeJsonPlaceholder")}
+          placeholder={CLAUDE_JSON_PLACEHOLDER}
         />
       </ProviderForm>
 
@@ -153,7 +158,7 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
       >
         <JsonField
           label={t("oauthJsonField")}
-          placeholder={t("codexJsonPlaceholder")}
+          placeholder={CODEX_JSON_PLACEHOLDER}
         />
       </ProviderForm>
 

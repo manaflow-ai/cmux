@@ -189,8 +189,6 @@
       "deleteConfirmTitle": "このアカウントを削除しますか？",
       "deleteConfirmBody": "チーム全体からこのプロバイダーアカウントが削除されます。再追加には元の認証情報が必要です。",
       "cancelAction": "キャンセル",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
     }
