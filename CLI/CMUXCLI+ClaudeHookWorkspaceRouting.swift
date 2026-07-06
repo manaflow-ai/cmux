@@ -69,7 +69,8 @@ extension CMUXCLI {
 
     /// Caller-TTY binding that refuses ambiguous TTY matches: returns a binding only
     /// when every `debug.terminals` entry for the caller's TTY name agrees on a single
-    /// workspace (macOS reuses `ttysNNN` names, and stale entries can shadow live ones).
+    /// workspace and surface (macOS reuses `ttysNNN` names, and stale entries can
+    /// shadow live ones).
     /// PID-derived bindings don't need this guard — a PID lives in exactly one surface.
     func uniqueCallerTerminalBindingByTTY(
         client: SocketClient,
@@ -90,7 +91,7 @@ extension CMUXCLI {
             matched.append(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
         }
         guard let first = matched.first,
-              matched.allSatisfy({ $0.workspaceId == first.workspaceId }) else {
+              matched.allSatisfy({ $0.workspaceId == first.workspaceId && $0.surfaceId == first.surfaceId }) else {
             return nil
         }
         return first

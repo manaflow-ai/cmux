@@ -22922,6 +22922,7 @@ struct CMUXCLI {
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
             ) else {
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
                 print(String(localized: "common.ok", defaultValue: "OK"))
                 return
@@ -23057,6 +23058,7 @@ struct CMUXCLI {
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
                 ) else {
+                    didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.unresolved")
                     print(String(localized: "common.ok", defaultValue: "OK"))
                     return
@@ -23199,6 +23201,7 @@ struct CMUXCLI {
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
             ) else {
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
                 print(String(localized: "common.ok", defaultValue: "OK"))
                 return
@@ -23358,6 +23361,7 @@ struct CMUXCLI {
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
             ) else {
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.unresolved")
                 print(String(localized: "common.ok", defaultValue: "OK"))
                 return
@@ -23639,6 +23643,7 @@ struct CMUXCLI {
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
             ) else {
+                didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
                 print(String(localized: "common.ok", defaultValue: "OK"))
                 return
@@ -24367,7 +24372,7 @@ struct CMUXCLI {
         if let callerTerminalBinding {
             binding = callerTerminalBinding()
         } else {
-            binding = resolveCallerTerminalBindingByTTY(client: client)
+            binding = uniqueCallerTerminalBindingByTTY(client: client)
         }
         guard binding?.workspaceId == workspaceId else {
             return nil
