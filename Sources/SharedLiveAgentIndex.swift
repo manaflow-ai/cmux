@@ -64,7 +64,7 @@ final class SharedLiveAgentIndex {
     func snapshotForForkConversationCandidate(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         guard let index,
-              validatedForkPanels.contains(panelKey) else {
+              validatedForkPanelKey(for: panelKey) != nil else {
             return nil
         }
         return index.snapshot(workspaceId: workspaceId, panelId: panelId)
@@ -73,9 +73,9 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        guard hasFreshForkAvailabilityProbe(for: panelKey),
-              let index,
-              validatedForkPanels.contains(panelKey) else {
+        guard let validationKey = validatedForkPanelKey(for: panelKey),
+              hasFreshForkAvailabilityProbe(for: validationKey),
+              let index else {
             return nil
         }
         return index.snapshot(workspaceId: workspaceId, panelId: panelId)
@@ -96,11 +96,11 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        guard validatedForkPanels.contains(panelKey) else {
+        guard let validationKey = validatedForkPanelKey(for: panelKey) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        guard hasFreshForkAvailabilityProbe(for: panelKey) else {
+        guard hasFreshForkAvailabilityProbe(for: validationKey) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
@@ -240,8 +240,8 @@ final class SharedLiveAgentIndex {
         for panelKey in pendingForkValidationPanels {
             if index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) == nil {
                 validatedMissingForkPanels[panelKey] = now
-            } else if validatedForkPanels.contains(panelKey) {
-                validatedForkPanelProbeCompletedAt[panelKey] = now
+            } else if let validationKey = validatedForkPanelKey(for: panelKey) {
+                validatedForkPanelProbeCompletedAt[validationKey] = now
             }
         }
         pendingForkValidationPanels.removeAll()
@@ -257,6 +257,15 @@ final class SharedLiveAgentIndex {
     private func hasFreshForkAvailabilityProbe(for panelKey: RestorableAgentSessionIndex.PanelKey) -> Bool {
         guard let completedAt = validatedForkPanelProbeCompletedAt[panelKey] else { return false }
         return dateProvider().timeIntervalSince(completedAt) < Self.forkAvailabilityProbeTTL
+    }
+
+    private func validatedForkPanelKey(
+        for panelKey: RestorableAgentSessionIndex.PanelKey
+    ) -> RestorableAgentSessionIndex.PanelKey? {
+        if validatedForkPanels.contains(panelKey) {
+            return panelKey
+        }
+        return validatedForkPanels.first { $0.panelId == panelKey.panelId }
     }
 
     private var isForkAvailabilityRefreshInFlight: Bool {

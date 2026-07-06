@@ -226,6 +226,91 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     }
 
     @Test
+    func forkAvailabilityValidationUsesPanelFallbackAfterWorkspaceMove() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-agent-panel-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let originalWorkspaceId = UUID()
+        let movedWorkspaceId = UUID()
+        let panelId = UUID()
+        let agentId = "forkable-panel-fallback-agent"
+        let sessionId = "panel-fallback-session"
+        let agentPID = 7_489
+        let executable = "/usr/local/bin/\(agentId)"
+        let identity = AgentPIDProcessIdentity(pid: pid_t(agentPID), startSeconds: 61, startMicroseconds: 4)
+        let registry = CmuxVaultAgentRegistry(registrations: [
+            CmuxVaultAgentRegistration(
+                id: agentId,
+                name: "Forkable Panel Fallback Agent",
+                detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "{{executable}} --session {{sessionId}}",
+                forkCommand: "{{executable}} --session {{sessionId}} --fork"
+            ),
+        ])
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: agentPID,
+                    parentPID: 1,
+                    name: agentId,
+                    path: executable,
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: originalWorkspaceId,
+                    cmuxSurfaceID: panelId,
+                    cmuxAttributionReason: "cmux-test",
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 61),
+            includesProcessDetails: true
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                SharedLiveAgentIndexLoader(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: registry,
+                    processSnapshotProvider: { processSnapshot },
+                    capturedAtProvider: { 61 },
+                    processArgumentsProvider: { pid in
+                        guard pid == agentPID else { return nil }
+                        return CmuxTopProcessArguments(
+                            arguments: [executable, "--session", sessionId],
+                            environment: [
+                                "CMUX_WORKSPACE_ID": originalWorkspaceId.uuidString,
+                                "CMUX_SURFACE_ID": panelId.uuidString,
+                            ]
+                        )
+                    },
+                    processIdentityProvider: { pid in
+                        pid == agentPID ? identity : nil
+                    }
+                )
+                .loadResultSynchronously()
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: originalWorkspaceId, panelId: panelId)
+
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: movedWorkspaceId, panelId: panelId))
+        #expect(
+            sharedIndex.snapshotForForkAvailability(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId
+                == sessionId
+        )
+    }
+
+    @Test
     func cachedAgentProcessIdentityRejectsInheritedScopeAndDifferentSession() {
         let agentId = "forkable-identity-agent"
         let sessionId = "expected-session"
