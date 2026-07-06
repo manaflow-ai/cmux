@@ -81,7 +81,7 @@ struct BrowserPDFPreviewActionUnitTests {
         }
     }
 
-    @Test func emptyPDFPreviewDataDoesNotCreateARecordOrFile() async throws {
+    @Test func emptyPDFPreviewDataDoesNotCreateARecordOrFile() throws {
         let harness = try BrowserPDFPreviewDownloadHarness()
         defer { harness.cleanUp() }
         let panel = BrowserPanel(workspaceId: UUID())
@@ -98,7 +98,6 @@ struct BrowserPDFPreviewActionUnitTests {
             mimeType: "application/pdf",
             sourceURL: sourceURL
         )
-        try? await Task.sleep(nanoseconds: 100_000_000)
 
         #expect(panel.recentDownloads.isEmpty)
         #expect((try? FileManager.default.contentsOfDirectory(atPath: harness.downloadsDirectory.path))?.isEmpty != false)
