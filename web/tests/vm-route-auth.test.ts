@@ -1,15 +1,31 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+const realWorkflows = await import("../services/vms/workflows");
+const realWorkflowExports = { ...realWorkflows };
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
   throw new Error("unauthenticated VM routes must not reach the VM workflow");
 });
-const createVm = mock(() => ({ workflow: "create" }));
-const listUserVms = mock(() => ({ workflow: "list" }));
-const destroyVm = mock(() => ({ workflow: "destroy" }));
-const execVm = mock(() => ({ workflow: "exec" }));
-const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
-const openSshEndpoint = mock(() => ({ workflow: "ssh" }));
+const createVm = mock((input: unknown) =>
+  realWorkflowExports.createVm(input as Parameters<typeof realWorkflowExports.createVm>[0])
+);
+const listUserVms = mock((...args: unknown[]) =>
+  realWorkflowExports.listUserVms(...args as Parameters<typeof realWorkflowExports.listUserVms>)
+);
+const destroyVm = mock((input: unknown) =>
+  realWorkflowExports.destroyVm(input as Parameters<typeof realWorkflowExports.destroyVm>[0])
+);
+const execVm = mock((input: unknown) =>
+  realWorkflowExports.execVm(input as Parameters<typeof realWorkflowExports.execVm>[0])
+);
+const openAttachEndpoint = mock((input: unknown) =>
+  realWorkflowExports.openAttachEndpoint(
+    input as Parameters<typeof realWorkflowExports.openAttachEndpoint>[0],
+  )
+);
+const openSshEndpoint = mock((input: unknown) =>
+  realWorkflowExports.openSshEndpoint(input as Parameters<typeof realWorkflowExports.openSshEndpoint>[0])
+);
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_E2B_ENABLED",
@@ -35,6 +51,7 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../services/vms/workflows", () => ({
+  ...realWorkflowExports,
   createVm,
   destroyVm,
   execVm,
