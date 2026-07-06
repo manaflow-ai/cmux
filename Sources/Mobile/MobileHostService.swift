@@ -1352,23 +1352,10 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest
-    ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: [],
-                createdTerminalIDs: []
-            ),
-            request: request
-        )
-    }
-
-    private static func ticketAuthorizationError(
+    static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
-        request: MobileHostRPCRequest
+        request: MobileHostRPCRequest,
+        groupAnchorWorkspaceIDForGroupID: (String) -> String? = { _ in nil }
     ) -> MobileHostRPCError? {
         let workspaceSelection = stringParamSelection(
             request.params,
@@ -1392,6 +1379,14 @@ final class MobileHostService {
             return nil
         case "workspace.move":
             return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
+        case "workspace.group.action":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: groupSelectionWorkspaceID(
+                    params: request.params,
+                    groupAnchorWorkspaceIDForGroupID: groupAnchorWorkspaceIDForGroupID
+                )
+            )
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
             // terminal selection), so it is Mac-scoped like the workspace list and
@@ -1453,17 +1448,6 @@ final class MobileHostService {
             guard let workspaceSelection, workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
         }
         return nil
-    }
-
-    static func debugTicketAuthorizationError(ticket: CmxAttachTicket, request: MobileHostRPCRequest, createdWorkspaceIDs: Set<String> = [], createdTerminalIDs: Set<String> = []) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: createdWorkspaceIDs,
-                createdTerminalIDs: createdTerminalIDs
-            ),
-            request: request
-        )
     }
 
     private static var scopedTicketError: MobileHostRPCError { MobileHostRPCError(code: "forbidden", message: "Attach ticket is not valid for this workspace or terminal.") }

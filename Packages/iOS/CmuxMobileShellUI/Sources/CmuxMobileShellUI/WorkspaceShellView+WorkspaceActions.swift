@@ -9,22 +9,48 @@ extension WorkspaceShellView {
     /// foreground Mac's advertised capabilities.
     var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
         let store = store
-        return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
+        return { id, title in
+            Task { @MainActor in
+                let result = await store.renameWorkspace(id: id, title: title)
+                handleWorkspaceActionResult(result, action: .renameWorkspace)
+            }
+        }
     }
 
     var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
         let store = store
-        return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+        return { id, pinned in
+            Task { @MainActor in
+                let result = await store.setWorkspacePinned(id: id, pinned)
+                handleWorkspaceActionResult(
+                    result,
+                    action: pinned ? .pinWorkspace : .unpinWorkspace
+                )
+            }
+        }
     }
 
     var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
         let store = store
-        return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
+        return { id, unread in
+            Task { @MainActor in
+                let result = await store.setWorkspaceUnread(id: id, unread)
+                handleWorkspaceActionResult(
+                    result,
+                    action: unread ? .markWorkspaceUnread : .markWorkspaceRead
+                )
+            }
+        }
     }
 
     var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
         let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
+        return { id in
+            Task { @MainActor in
+                let result = await store.closeWorkspace(id: id)
+                handleWorkspaceActionResult(result, action: .closeWorkspace)
+            }
+        }
     }
 
     var moveWorkspaceClosure: ((
@@ -35,7 +61,57 @@ extension WorkspaceShellView {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, groupID, beforeWorkspaceID in
-            await store.moveWorkspace(id: id, toGroup: groupID, before: beforeWorkspaceID)
+            let result = await store.moveWorkspace(id: id, toGroup: groupID, before: beforeWorkspaceID)
+            await MainActor.run {
+                handleWorkspaceActionResult(result, action: .moveWorkspace)
+            }
+        }
+    }
+
+    var renameWorkspaceGroupClosure: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? {
+        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
+        let store = store
+        return { id, title in
+            Task { @MainActor in
+                let result = await store.renameWorkspaceGroup(id: id, title: title)
+                handleWorkspaceActionResult(result, action: .renameGroup)
+            }
+        }
+    }
+
+    var setWorkspaceGroupPinnedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
+        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
+        let store = store
+        return { id, pinned in
+            Task { @MainActor in
+                let result = await store.setWorkspaceGroupPinned(id: id, pinned)
+                handleWorkspaceActionResult(
+                    result,
+                    action: pinned ? .pinGroup : .unpinGroup
+                )
+            }
+        }
+    }
+
+    var ungroupWorkspaceGroupClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
+        let store = store
+        return { id in
+            Task { @MainActor in
+                let result = await store.ungroupWorkspaceGroup(id: id)
+                handleWorkspaceActionResult(result, action: .ungroupGroup)
+            }
+        }
+    }
+
+    var deleteWorkspaceGroupClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
+        let store = store
+        return { id in
+            Task { @MainActor in
+                let result = await store.deleteWorkspaceGroup(id: id)
+                handleWorkspaceActionResult(result, action: .deleteGroup)
+            }
         }
     }
 
@@ -65,14 +141,23 @@ extension WorkspaceShellView {
         guard canCreateWorkspaceForMacSelection else { return }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
-        store.createWorkspace(inGroup: groupID)
-        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
-            currentPath: compactNavigationPath,
-            selectedWorkspaceID: store.selectedWorkspaceID,
-            existingWorkspaceIDs: existingWorkspaceIDs
-        ) {
-            pendingCompactCreateNavigationWorkspaceIDs = nil
-            compactNavigationPath = createdPath
+        Task { @MainActor in
+            let result = await store.createWorkspaceRequest(inGroup: groupID)
+            handleWorkspaceActionResult(
+                result,
+                action: groupID == nil ? .createWorkspace : .createWorkspaceInGroup
+            )
+            if case .failure = result {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+            }
+            if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
+                currentPath: compactNavigationPath,
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                existingWorkspaceIDs: existingWorkspaceIDs
+            ) {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+                compactNavigationPath = createdPath
+            }
         }
     }
 
@@ -82,6 +167,12 @@ extension WorkspaceShellView {
 
     func createWorkspaceIfConnected(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
         guard canCreateWorkspaceForMacSelection else { return }
-        store.createWorkspace(inGroup: groupID)
+        Task { @MainActor in
+            let result = await store.createWorkspaceRequest(inGroup: groupID)
+            handleWorkspaceActionResult(
+                result,
+                action: groupID == nil ? .createWorkspace : .createWorkspaceInGroup
+            )
+        }
     }
 }

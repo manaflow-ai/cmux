@@ -75,12 +75,20 @@ struct WorkspaceListView: View {
     /// destructive Delete context-menu and swipe action.
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     /// Optional: move a workspace to a new group/order on the Mac. When present,
-    /// native row drag/drop is enabled while the list is unfiltered and connected.
+    /// native row drag/drop is enabled while the list is unfiltered.
     var moveWorkspace: ((
         _ id: MobileWorkspacePreview.ID,
         _ groupID: MobileWorkspaceGroupPreview.ID?,
         _ beforeWorkspaceID: MobileWorkspacePreview.ID?
     ) async -> Void)? = nil
+    /// Optional: rename a workspace group on the Mac.
+    var renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil
+    /// Optional: pin or unpin a workspace group on the Mac.
+    var setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? = nil
+    /// Optional: dissolve a workspace group on the Mac, keeping its workspaces.
+    var ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+    /// Optional: delete a workspace group on the Mac, including its workspaces.
+    var deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     /// Optional: collapse/expand a group on the Mac. When present, group headers
     /// toggle their section; when `nil` the chevron renders as a passive
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
@@ -504,6 +512,7 @@ struct WorkspaceListView: View {
         ForEach(displayedGroupedListItems, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
+                let anchorCapabilities = workspaces.first(where: { $0.id == group.anchorWorkspaceID })?.actionCapabilities ?? .none
                 WorkspaceGroupHeaderRow(
                     group: group,
                     hasUnread: hasUnread,
@@ -512,6 +521,10 @@ struct WorkspaceListView: View {
                         && selectedWorkspaceID == group.anchorWorkspaceID,
                     selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
                     createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
+                    renameGroup: anchorCapabilities.supportsWorkspaceActions ? renameWorkspaceGroup : nil,
+                    setGroupPinned: anchorCapabilities.supportsWorkspaceActions ? setGroupPinned : nil,
+                    ungroupWorkspaceGroup: anchorCapabilities.supportsWorkspaceActions ? ungroupWorkspaceGroup : nil,
+                    deleteWorkspaceGroup: anchorCapabilities.supportsWorkspaceActions ? deleteWorkspaceGroup : nil,
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )

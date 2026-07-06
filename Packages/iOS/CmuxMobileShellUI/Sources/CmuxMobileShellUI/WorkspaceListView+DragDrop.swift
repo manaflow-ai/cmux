@@ -4,8 +4,6 @@ import Foundation
 extension WorkspaceListView {
     var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
-            && connectionStatus == .connected
-            && canCreateWorkspaceForMacSelection
             && canRenderGroupsForSelection
             && trimmedQuery.isEmpty
             && filter.readState == .all
@@ -14,7 +12,6 @@ extension WorkspaceListView {
 
     var canCreateWorkspaceInGroups: Bool {
         createWorkspaceInGroup != nil
-            && connectionStatus == .connected
             && canCreateWorkspaceForMacSelection
             && canRenderGroupsForSelection
     }

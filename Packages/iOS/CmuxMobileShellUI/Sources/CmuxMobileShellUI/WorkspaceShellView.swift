@@ -25,8 +25,10 @@ struct WorkspaceShellView: View {
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
+    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -50,12 +52,23 @@ struct WorkspaceShellView: View {
         return store.workspaceListConnectionStatus
     }
 
-    private var canCreateWorkspaceOnForegroundConnection: Bool {
-        store.connectionState == .connected
-    }
+    private var canCreateWorkspaceOnForegroundConnection: Bool { true }
 
     var body: some View {
-        layoutContent
+        ZStack(alignment: .bottom) {
+            layoutContent
+            if let workspaceActionToast {
+                WorkspaceActionToast(
+                    content: workspaceActionToast,
+                    clock: workspaceActionToastClock,
+                    dismiss: dismissWorkspaceActionToast
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityIdentifier("MobileWorkspaceActionToast")
+            }
+        }
     }
 
     private var layoutContent: some View {
@@ -123,6 +136,10 @@ struct WorkspaceShellView: View {
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
                 moveWorkspace: moveWorkspaceClosure,
+                renameWorkspaceGroup: renameWorkspaceGroupClosure,
+                setGroupPinned: setWorkspaceGroupPinnedClosure,
+                ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
+                deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
@@ -222,6 +239,10 @@ struct WorkspaceShellView: View {
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
                 moveWorkspace: moveWorkspaceClosure,
+                renameWorkspaceGroup: renameWorkspaceGroupClosure,
+                setGroupPinned: setWorkspaceGroupPinnedClosure,
+                ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
+                deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,

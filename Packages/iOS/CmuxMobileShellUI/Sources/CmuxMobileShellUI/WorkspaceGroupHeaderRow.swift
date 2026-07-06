@@ -10,6 +10,11 @@ import SwiftUI
 /// The anchor is represented by this header and never rendered as a separate row,
 /// so this split is what keeps the anchor's terminals reachable from the phone.
 struct WorkspaceGroupHeaderRow: View {
+    private enum PendingDestructiveAction {
+        case ungroup
+        case delete
+    }
+
     let group: MobileWorkspaceGroupPreview
     /// Aggregate unread state for the header dot, computed by
     /// `MobileWorkspaceListItem.items`: the anchor's unread while expanded,
@@ -23,11 +28,22 @@ struct WorkspaceGroupHeaderRow: View {
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Create a new workspace inside this group. Hidden when `nil`.
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+    /// Rename the group on the Mac. Hidden when `nil`.
+    var renameGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil
+    /// Pin or unpin the group on the Mac. Hidden when `nil`.
+    var setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? = nil
+    /// Dissolve the group on the Mac, keeping its workspaces. Hidden when `nil`.
+    var ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+    /// Delete the group on the Mac, including its workspaces. Hidden when `nil`.
+    var deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     /// Toggle the group's collapsed state on the Mac. When `nil` (previews, or a
     /// Mac without the groups capability), the chevron renders without a tap
     /// action.
     let toggleCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+
+    @State private var isRenaming = false
+    @State private var pendingDestructiveAction: PendingDestructiveAction?
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
     /// collapses/expands and never opens the anchor.
@@ -132,23 +148,146 @@ struct WorkspaceGroupHeaderRow: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .contextMenu {
-            if let createWorkspaceInGroup {
-                Button {
-                    createWorkspaceInGroup(group.id)
-                } label: {
-                    Label(
-                        L10n.string(
-                            "mobile.workspaceGroup.newWorkspace",
-                            defaultValue: "New Workspace in Group"
-                        ),
-                        systemImage: "plus"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)")
+        .contextMenu { contextMenu }
+        .sheet(isPresented: $isRenaming) {
+            WorkspaceGroupRenameSheet(currentName: group.name) { newName in
+                renameGroup?(group.id, newName)
             }
+        }
+        .confirmationDialog(
+            destructiveDialogTitle,
+            isPresented: destructiveDialogIsPresented,
+            titleVisibility: .visible
+        ) {
+            if pendingDestructiveAction == .ungroup, let ungroupWorkspaceGroup {
+                Button(
+                    L10n.string("mobile.workspaceGroup.ungroup.confirmAction", defaultValue: "Ungroup"),
+                    role: .destructive
+                ) {
+                    ungroupWorkspaceGroup(group.id)
+                    pendingDestructiveAction = nil
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupUngroupConfirmButton-\(group.id.rawValue)")
+            }
+            if pendingDestructiveAction == .delete, let deleteWorkspaceGroup {
+                Button(
+                    L10n.string("mobile.workspaceGroup.delete.confirmAction", defaultValue: "Delete Group"),
+                    role: .destructive
+                ) {
+                    deleteWorkspaceGroup(group.id)
+                    pendingDestructiveAction = nil
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupDeleteConfirmButton-\(group.id.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                pendingDestructiveAction = nil
+            }
+        } message: {
+            Text(destructiveDialogMessage)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceGroupHeader-\(group.id.rawValue)")
+    }
+
+    @ViewBuilder
+    private var contextMenu: some View {
+        if let setGroupPinned {
+            Button {
+                setGroupPinned(group.id, !group.isPinned)
+            } label: {
+                if group.isPinned {
+                    Label(L10n.string("mobile.workspaceGroup.unpin", defaultValue: "Unpin Group"), systemImage: "pin.slash")
+                } else {
+                    Label(L10n.string("mobile.workspaceGroup.pin", defaultValue: "Pin Group"), systemImage: "pin")
+                }
+            }
+            .accessibilityIdentifier("MobileWorkspaceGroupPinButton-\(group.id.rawValue)")
+        }
+        if renameGroup != nil {
+            Button {
+                isRenaming = true
+            } label: {
+                Label(L10n.string("mobile.workspaceGroup.rename.action", defaultValue: "Rename Group"), systemImage: "pencil")
+            }
+            .accessibilityIdentifier("MobileWorkspaceGroupRenameButton-\(group.id.rawValue)")
+        }
+        if renameGroup != nil || setGroupPinned != nil {
+            Divider()
+        }
+        if let createWorkspaceInGroup {
+            Button {
+                createWorkspaceInGroup(group.id)
+            } label: {
+                Label(
+                    L10n.string("mobile.workspaceGroup.newWorkspace", defaultValue: "New Workspace in Group"),
+                    systemImage: "plus"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)")
+        }
+        if ungroupWorkspaceGroup != nil || deleteWorkspaceGroup != nil {
+            Divider()
+        }
+        if ungroupWorkspaceGroup != nil {
+            Button(role: .destructive) {
+                pendingDestructiveAction = .ungroup
+            } label: {
+                Label(
+                    L10n.string("mobile.workspaceGroup.ungroup", defaultValue: "Ungroup (Keep Workspaces)"),
+                    systemImage: "rectangle.3.group"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceGroupUngroupButton-\(group.id.rawValue)")
+        }
+        if deleteWorkspaceGroup != nil {
+            Button(role: .destructive) {
+                pendingDestructiveAction = .delete
+            } label: {
+                Label(
+                    L10n.string("mobile.workspaceGroup.delete", defaultValue: "Delete Group (Close Workspaces)"),
+                    systemImage: "trash"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceGroupDeleteButton-\(group.id.rawValue)")
+        }
+    }
+
+    private var destructiveDialogTitle: String {
+        switch pendingDestructiveAction {
+        case .ungroup:
+            return L10n.string("mobile.workspaceGroup.ungroup.confirmTitle", defaultValue: "Ungroup Group?")
+        case .delete:
+            return L10n.string("mobile.workspaceGroup.delete.confirmTitle", defaultValue: "Delete Group?")
+        case nil:
+            return ""
+        }
+    }
+
+    private var destructiveDialogMessage: String {
+        switch pendingDestructiveAction {
+        case .ungroup:
+            return L10n.string(
+                "mobile.workspaceGroup.ungroup.confirmMessage",
+                defaultValue: "This will dissolve the group on your Mac and keep its workspaces."
+            )
+        case .delete:
+            return L10n.string(
+                "mobile.workspaceGroup.delete.confirmMessage",
+                defaultValue: "This will delete the group and close its workspaces on your Mac."
+            )
+        case nil:
+            return ""
+        }
+    }
+
+    private var destructiveDialogIsPresented: Binding<Bool> {
+        Binding(
+            get: { pendingDestructiveAction != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingDestructiveAction = nil
+                }
+            }
+        )
     }
 }

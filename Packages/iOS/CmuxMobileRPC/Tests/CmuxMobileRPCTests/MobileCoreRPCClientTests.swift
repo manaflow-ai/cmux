@@ -255,6 +255,25 @@ import Testing
         #expect(params["group_id"] as? String == "group-target")
     }
 
+    @Test func workspaceGroupActionRequestEncodesActionAndTitle() throws {
+        let data = try MobileCoreRPCClient.requestData(
+            method: "workspace.group.action",
+            params: [
+                "group_id": "group-target",
+                "action": "rename",
+                "title": "Project Alpha",
+            ],
+            id: "group-action-request"
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["id"] as? String == "group-action-request")
+        #expect(request["method"] as? String == "workspace.group.action")
+        #expect(params["group_id"] as? String == "group-target")
+        #expect(params["action"] as? String == "rename")
+        #expect(params["title"] as? String == "Project Alpha")
+    }
+
     @Test func attachTicketInputDecodesAttachURL() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",
