@@ -464,7 +464,7 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(1);
   });
 
-  test("openAttachEndpoint resumes a paused VM and retries attach once", async () => {
+  test("openAttachEndpoint preflight-resumes a paused VM before minting", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000105",
       userId: "user-workflow-attach-resume",
@@ -486,7 +486,6 @@ describe("VM Effect workflows", () => {
       openAttach: () =>
         Effect.suspend(() => {
           attachCalls += 1;
-          if (attachCalls === 1) return Effect.fail(originalError);
           return Effect.succeed(endpoint);
         }),
       getStatus: () =>
@@ -510,7 +509,7 @@ describe("VM Effect workflows", () => {
     );
 
     expect(result).toEqual(endpoint);
-    expect(attachCalls).toBe(2);
+    expect(attachCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(observedStatuses).toEqual([
@@ -582,7 +581,7 @@ describe("VM Effect workflows", () => {
     );
 
     expect(error).toBe(markError);
-    expect(attachCalls).toBe(1);
+    expect(attachCalls).toBe(0);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(pauseCalls).toBe(1);
@@ -590,7 +589,7 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(0);
   });
 
-  test("openAttachEndpoint fails with original error when resumed status persistence updates no row", async () => {
+  test("openAttachEndpoint fails when resumed status persistence updates no row", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000111",
       userId: "user-workflow-attach-mark-false",
@@ -642,8 +641,8 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(error).toBe(originalError);
-    expect(attachCalls).toBe(1);
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(attachCalls).toBe(0);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(pauseCalls).toBe(1);
@@ -651,7 +650,7 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(0);
   });
 
-  test("openSshEndpoint resumes a paused VM and retries SSH endpoint minting once", async () => {
+  test("openSshEndpoint preflight-resumes a paused VM before minting", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000106",
       userId: "user-workflow-ssh-resume",
@@ -673,7 +672,6 @@ describe("VM Effect workflows", () => {
       openSSH: () =>
         Effect.suspend(() => {
           sshCalls += 1;
-          if (sshCalls === 1) return Effect.fail(originalError);
           return Effect.succeed(endpoint);
         }),
       getStatus: () =>
@@ -696,7 +694,7 @@ describe("VM Effect workflows", () => {
     );
 
     expect(result).toEqual(endpoint);
-    expect(sshCalls).toBe(2);
+    expect(sshCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(observedStatuses).toEqual([
@@ -709,6 +707,62 @@ describe("VM Effect workflows", () => {
       vmId: vm.id,
       metadata: { credentialKind: "password" },
     });
+  });
+
+  test("openAttachEndpoint recovers when the VM suspends between preflight and minting", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000112",
+      userId: "user-workflow-attach-race",
+      billingTeamId: "team-workflow-attach-race",
+      providerVmId: "provider-vm-attach-race",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const leases: RecordedLease[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, leases, observedStatuses });
+    const originalError = providerOperationError("openAttach", "provider attach unavailable");
+    const endpoint = testAttachEndpoint();
+    let attachCalls = 0;
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openAttach: () =>
+        Effect.suspend(() => {
+          attachCalls += 1;
+          if (attachCalls === 1) return Effect.fail(originalError);
+          return Effect.succeed(endpoint);
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          // Running at preflight, paused when the mint failure is investigated.
+          return statusCalls === 1 ? ("running" as const) : ("paused" as const);
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-attach-race" });
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-race",
+        providerVmId: "provider-vm-attach-race",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual(endpoint);
+    expect(attachCalls).toBe(2);
+    expect(statusCalls).toBe(2);
+    expect(resumeCalls).toBe(1);
+    expect(observedStatuses).toEqual([
+      { id: vm.id, providerVmId: "provider-vm-attach-race", status: "running" },
+    ]);
+    expect(leases).toHaveLength(1);
+    expect(usageEvents).toHaveLength(1);
   });
 
   dbTest("does not block create when usage event recording fails", async () => {

@@ -411,6 +411,11 @@ export function openAttachEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
+    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
+    // grants an identity), which would hand out an endpoint while Postgres
+    // still says paused. Preflight-resume first; the after-failure recovery
+    // below stays as the backstop for a suspend racing the mint.
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -452,6 +457,11 @@ export function openSshEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
+    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
+    // grants an identity), which would hand out an endpoint while Postgres
+    // still says paused. Preflight-resume first; the after-failure recovery
+    // below stays as the backstop for a suspend racing the mint.
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
