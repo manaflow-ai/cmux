@@ -34,7 +34,7 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
-mock.module("../services/vms/workflows", () => ({
+mock.module("../services/vms/routeWorkflows", () => ({
   createVm,
   destroyVm,
   execVm,

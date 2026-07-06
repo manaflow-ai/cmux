@@ -35,7 +35,7 @@ import {
   createVm,
   listUserVms,
   runVmWorkflow,
-} from "../../../services/vms/workflows";
+} from "../../../services/vms/routeWorkflows";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,

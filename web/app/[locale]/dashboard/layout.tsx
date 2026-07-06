@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { StackProvider, StackTheme } from "@stackframe/stack";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -20,12 +19,10 @@ export default async function DashboardLayout({
   }
 
   return (
-    <Suspense>
-      <StackProvider app={getStackServerApp()}>
-        <StackTheme>
-          <DashboardShell>{children}</DashboardShell>
-        </StackTheme>
-      </StackProvider>
-    </Suspense>
+    <StackProvider app={getStackServerApp()}>
+      <StackTheme>
+        <DashboardShell>{children}</DashboardShell>
+      </StackTheme>
+    </StackProvider>
   );
 }
