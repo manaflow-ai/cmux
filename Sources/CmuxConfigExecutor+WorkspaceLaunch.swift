@@ -14,13 +14,13 @@ extension CmuxConfigExecutor {
         guard let workspace = command.workspace else { return command.name }
         var shellLines: [String] = []
         if let cwd = workspace.cwd {
-            shellLines.append("cwd: \(cwd)")
+            shellLines.append(String(format: Self.cwdDisclosureFormat, cwd))
         }
         if let setup = workspace.setup {
             // Setup runs in the first terminal surface, whose own cwd wins
             // over the workspace cwd — disclose the one that actually applies.
             if let setupCwd = workspace.layout.flatMap(firstTerminalSurfaceCwd) {
-                shellLines.append("cwd \(setupCwd): \(setup)")
+                shellLines.append(String(format: Self.cwdCommandDisclosureFormat, setupCwd, setup))
             } else {
                 shellLines.append(setup)
             }
@@ -33,6 +33,18 @@ extension CmuxConfigExecutor {
         }
         guard !shellLines.isEmpty else { return command.name }
         return ([command.name] + shellLines).joined(separator: "\n")
+    }
+
+    private static var cwdDisclosureFormat: String {
+        String(localized: "dialog.cmuxConfig.disclosure.cwd", defaultValue: "cwd: %@")
+    }
+
+    private static var cwdCommandDisclosureFormat: String {
+        String(localized: "dialog.cmuxConfig.disclosure.cwdCommand", defaultValue: "cwd %1$@: %2$@")
+    }
+
+    private static var urlDisclosureFormat: String {
+        String(localized: "dialog.cmuxConfig.disclosure.url", defaultValue: "url: %@")
     }
 
     private static func envDisclosureLines(_ env: [String: String]) -> [String] {
@@ -65,17 +77,17 @@ extension CmuxConfigExecutor {
             for surface in pane.surfaces {
                 if let command = surface.command {
                     if let cwd = surface.cwd {
-                        lines.append("cwd \(cwd): \(command)")
+                        lines.append(String(format: cwdCommandDisclosureFormat, cwd, command))
                     } else {
                         lines.append(command)
                     }
                 } else if let cwd = surface.cwd {
-                    lines.append("cwd: \(cwd)")
+                    lines.append(String(format: cwdDisclosureFormat, cwd))
                 }
                 if let url = surface.url {
                     // Browser/project surfaces open these on run; URLs can
                     // carry private query strings.
-                    lines.append("url: \(url)")
+                    lines.append(String(format: urlDisclosureFormat, url))
                 }
                 if let env = surface.env {
                     lines.append(contentsOf: envDisclosureLines(env))
