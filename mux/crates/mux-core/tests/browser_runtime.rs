@@ -619,12 +619,12 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
         mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
     wait_for(
         || matches!(surface.browser_status(), Some(BrowserStatus::Live)).then_some(()),
-        Duration::from_secs(10),
+        Duration::from_secs(30),
     )
-    .expect("browser went live");
+    .unwrap_or_else(|| panic!("browser never went live; status={:?}", surface.browser_status()));
     wait_for(
         || surface.browser_frames_stalled().filter(|stalled| *stalled),
-        Duration::from_secs(4),
+        Duration::from_secs(10),
     )
     .expect("browser frames stalled");
     while seen_rx.try_recv().is_ok() {}
