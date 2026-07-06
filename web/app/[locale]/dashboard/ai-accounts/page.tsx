@@ -8,7 +8,7 @@ import {
   subrouterRuntimeConfig,
   type SubrouterAccount,
 } from "../../../../services/subrouter/client";
-import { getOrCreateTenantForTeam } from "../../../../services/subrouter/tenants";
+import { getTenantForTeam } from "../../../../services/subrouter/tenants";
 import { SiteHeader } from "../../components/site-header";
 import {
   AddAiAccountForms,
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ team?: string }>;
+  searchParams: Promise<{ team?: string | string[] }>;
 };
 
 type StackUserLike = {
@@ -52,7 +52,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 export default async function AiAccountsPage({ params, searchParams }: PageProps) {
   const { locale } = await params;
-  const { team } = await searchParams;
+  const { team: teamParam } = await searchParams;
+  const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
   const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
   const stackUser = await getStackServerApp().getUser({ or: "redirect" }) as StackUserLike;
   const teams = await dashboardTeams(stackUser, t("personalTeam"));
@@ -246,10 +247,10 @@ async function loadAccounts(team: DashboardTeam): Promise<AccountState> {
       baseUrl: config.baseUrl,
       adminToken: config.adminToken,
     });
-    const tenant = await getOrCreateTenantForTeam(cloudDb(), team.id, team.name, {
-      client,
+    const tenant = await getTenantForTeam(cloudDb(), team.id, {
       tenantKeySecret: config.tenantKeySecret,
     });
+    if (!tenant) return { kind: "ok", accounts: [] };
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };
   } catch {
