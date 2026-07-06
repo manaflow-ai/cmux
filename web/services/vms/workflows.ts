@@ -251,19 +251,39 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
-// Replay safety: the retry only fires when getStatus — one Effect step after
-// the failure — observes "paused". Freestyle suspends only after ~10s of
-// network inactivity, and an exec that actually started running is itself
-// activity, so a VM observed paused immediately after the failure means the
-// provider rejected the call without executing the command.
-function withResumeOnSuspended<A, E extends VmWorkflowError>(
+function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
-  vmRowId: string,
   providers: VmProviderGatewayShape,
-  provider: ProviderId,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    const resume = providers.resume;
+    if (!getStatus || !resume) return;
+
+    const status = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+    );
+    if (status !== "paused") return;
+
+    yield* resume(vm.provider, providerVmId);
+    yield* recordRunningTransition(
+      repo,
+      vm,
+      providerVmId,
+      new VmNotFoundError({ vmId: providerVmId }),
+    );
+  });
+}
+
+function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
   providerVmId: string,
   op: Effect.Effect<A, E>,
-): Effect.Effect<A, E> {
+): Effect.Effect<A, E | VmDatabaseError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
       const getStatus = providers.getStatus;
@@ -271,29 +291,37 @@ function withResumeOnSuspended<A, E extends VmWorkflowError>(
       if (!getStatus || !resume) return Effect.fail(originalError);
 
       return Effect.gen(function* () {
-        const status = yield* getStatus(provider, providerVmId).pipe(
+        const status = yield* getStatus(vm.provider, providerVmId).pipe(
           Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
         );
         if (status !== "paused") {
           return yield* Effect.fail(originalError);
         }
 
-        yield* resume(provider, providerVmId).pipe(
+        yield* resume(vm.provider, providerVmId).pipe(
           Effect.catchAll(() => Effect.fail(originalError)),
         );
-        // Keep the repository source of truth in sync: a row reconciled to
-        // "paused" would otherwise stay paused while the provider VM runs,
-        // hiding it from active-VM limit enforcement. Best-effort; the
-        // provider-status refresh reconciles it if this write fails.
-        yield* repo.markProviderObservedStatus({
-          id: vmRowId,
-          providerVmId,
-          status: "running",
-        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+        yield* recordRunningTransition(repo, vm, providerVmId, originalError);
         return yield* op;
       });
     }),
   );
+}
+
+function recordRunningTransition<E extends VmWorkflowError>(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  staleRowError: E,
+): Effect.Effect<void, VmDatabaseError | E> {
+  return Effect.gen(function* () {
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "running",
+    });
+    if (!didUpdate) return yield* Effect.fail(staleRowError);
+  });
 }
 
 export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
@@ -332,16 +360,15 @@ export function execVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
-    const result = yield* withResumeOnSuspended(
+    yield* preflightResumeIfSuspended(
       repo,
-      vm.id,
       providers,
-      vm.provider,
+      vm,
       input.providerVmId,
-      providers.exec(vm.provider, input.providerVmId, input.command, {
-        timeoutMs: input.timeoutMs,
-      }),
     );
+    const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
+      timeoutMs: input.timeoutMs,
+    });
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -366,11 +393,10 @@ export function openAttachEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* withResumeOnSuspended(
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
-      vm.id,
       providers,
-      vm.provider,
+      vm,
       input.providerVmId,
       providers.openAttach(vm.provider, input.providerVmId, input.options),
     );
@@ -408,11 +434,10 @@ export function openSshEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* withResumeOnSuspended(
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
-      vm.id,
       providers,
-      vm.provider,
+      vm,
       input.providerVmId,
       providers.openSSH(vm.provider, input.providerVmId),
     );
