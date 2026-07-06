@@ -138,7 +138,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        // connectionCount 2: the deferred feed telemetry (the pre-fix regression this
+        // test guards against) arrives on a second socket connection, which must be
+        // accepted and drained for the feed.push absence assertion to be falsifiable.
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state, connectionCount: 2) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
@@ -199,6 +202,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Ambiguous-TTY notification must not guess workspace \(candidate), saw \(state.commands)"
             )
         }
+        // The telemetry connection is drained on its own accept thread; give a
+        // regression a bounded window to land in state.commands so the pre-fix
+        // failure is deterministic (the CLI process has already exited here, so any
+        // feed.push frame is in flight at most a scheduling delay away).
+        let feedDeadline = Date().addingTimeInterval(1.0)
+        while Date() < feedDeadline, !state.commands.contains(where: { $0.contains("feed.push") }) {
+            usleep(50_000)
+        }
+        XCTAssertFalse(
+            state.commands.contains { $0.contains("feed.push") },
+            "Unresolved notification must not push a feed event, saw \(state.commands)"
+        )
     }
 
     /// An explicit workspace handle ref must resolve strictly to that workspace,
