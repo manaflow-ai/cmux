@@ -69,7 +69,9 @@ extension AppDelegate {
                 NSSound.beep()
                 return
             }
-            _ = context.tabManager.openWorkspace(fromSavedLayout: layout, cwdOverride: nil, focus: true)
+            if context.tabManager.openWorkspace(fromSavedLayout: layout, cwdOverride: nil, focus: true) == nil {
+                NSSound.beep()
+            }
         } catch {
             NSSound.beep()
         }
