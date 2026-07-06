@@ -180,10 +180,10 @@ extension Workspace {
             if let liveCommand = liveCommands[panelId] {
                 // What the terminal is actually running right now (foreground
                 // argv, agent resume flags stripped so relaunch is fresh).
+                // No guessed fallback: when argv can't be read the pane saves
+                // as a plain terminal, visibly absent from the save dialog's
+                // command disclosure.
                 surface.command = liveCommand
-            } else if let agent = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
-                // Fallback: hook-tracked agent with no readable foreground argv.
-                surface.command = agent.kind.rawValue
             }
             surface.focus = focus
             return surface

@@ -1904,29 +1904,6 @@ final class SharedLiveAgentIndex: ObservableObject {
         startReload()
     }
 
-    /// Force the cache to reflect the hook store as of now and await it. For
-    /// user-initiated flows (e.g. "Save Workspace as Action") that must not
-    /// read a cold or stale cache. Skips the reload only when one just landed
-    /// AND no hook-store change is pending behind the coalescing floor, so a
-    /// warm watcher-driven cache stays instant but a dirty one never wins.
-    func waitForFreshIndex() async {
-        ensureWatchingHookStoreDirectory()
-        if let inFlight = refreshTask {
-            await inFlight.value
-        }
-        let hasPendingChange = changePending || deferredReloadTask != nil
-        if !hasPendingChange,
-           let loadedAt,
-           Date().timeIntervalSince(loadedAt) < Self.minEventReloadInterval {
-            return
-        }
-        changePending = false
-        startReload()
-        if let started = refreshTask {
-            await started.value
-        }
-    }
-
     private func startReload() {
         deferredReloadTask?.cancel()
         deferredReloadTask = nil
