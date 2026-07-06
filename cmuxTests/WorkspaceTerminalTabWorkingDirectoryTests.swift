@@ -348,14 +348,13 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: sharedDirectory)
         let trustedFingerprint = manager.sessionAutosaveFingerprint()
 
-        #expect(
-            untrustedFingerprint != trustedFingerprint,
-            "a provenance-only remote cwd trust change must not be skipped by autosave"
-        )
+        #expect(untrustedFingerprint != trustedFingerprint, "remote cwd trust changes must not be skipped by autosave")
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: "/shared/other")
+        #expect(trustedFingerprint != manager.sessionAutosaveFingerprint(), "trusted remote cwd changes must not be skipped")
         let panelSnapshot = try #require(
             workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == remotePanelId }
         )
-        #expect(panelSnapshot.directory == sharedDirectory)
+        #expect(panelSnapshot.directory == "/shared/other")
         #expect(panelSnapshot.directoryIsTrustedRemoteReport == true)
     }
 

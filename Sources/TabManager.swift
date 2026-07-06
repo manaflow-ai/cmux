@@ -5544,7 +5544,6 @@ extension TabManager {
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
         let notificationStore = AppDelegate.shared?.notificationStore
-
         // Workspace groups participate in the session snapshot, so changes
         // that only touch group metadata (rename / collapse / pin a group,
         // or move a workspace between groups without reordering tabs) must
@@ -5587,7 +5586,9 @@ extension TabManager {
             hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)
-                hasher.combine(workspace.remoteDirectoryReportPanelIds.contains(panelId)); hasher.combine(workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId))
+                hasher.combine(workspace.panelDirectories[panelId] ?? "")
+                hasher.combine(workspace.remoteDirectoryReportPanelIds.contains(panelId))
+                hasher.combine(workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId))
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId))
@@ -5628,7 +5629,6 @@ extension TabManager {
                     hasher.combine(false)
                 }
             }
-
             if let progress = workspace.progress {
                 hasher.combine(Int((progress.value * 1000).rounded()))
                 hasher.combine(progress.label)
