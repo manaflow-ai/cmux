@@ -26,6 +26,8 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty

@@ -202,7 +202,7 @@ print("inner OSC 11 query receives seeded background ok")
 os.write(fd, b"clear; printf 'smoke-marker-%s\\n' ok\r")
 wait_screen_contains(surface_id, "smoke-marker-ok")
 lines = rpc({"id": 100, "cmd": "read-screen", "surface": surface_id})["data"]["text"].splitlines()
-vrow = next(i for i, l in enumerate(lines) if "smoke-marker-ok" in l)
+vrow = next(i for i, line in enumerate(lines) if "smoke-marker-ok" in line)
 row = vrow + 2  # +1 top border, +1 SGR 1-based
 col0 = 24 + lines[vrow].index("smoke-marker-ok")
 os.write(fd, f"\x1b[<0;{col0};{row}M".encode())
