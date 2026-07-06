@@ -2236,9 +2236,9 @@ class TerminalController {
         // (list/preview/install/discard/uninstall/link/unlink) run on the
         // socket-worker lane (see socketWorkerV2Response).
         case "extension.open":
-            return v2Result(id: id, v2ExtensionOpen(params: request.params))
+            return v2Result(id: id, v2ExtensionOpen(params: params))
         case "extension.paths":
-            return v2Result(id: id, v2ExtensionPaths(params: request.params))
+            return v2Result(id: id, v2ExtensionPaths(params: params))
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
         // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
         // handled by ControlCommandCoordinator (bodies stay; shared with
