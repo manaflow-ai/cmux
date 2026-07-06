@@ -8,6 +8,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { spawn } from "node:child_process";
+import { chmod, cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -143,6 +145,57 @@ async function runQueueBoundSmoke() {
   );
   await client.close();
   return results;
+}
+
+async function runProviderClosedStdinSmoke() {
+  const tmp = await mkdtemp(join(tmpdir(), "cmux-cu-provider-stdin-"));
+  try {
+    const moduleDir = join(tmp, "computer-use-mcp");
+    const binDir = join(tmp, "bin");
+    await mkdir(moduleDir, { recursive: true });
+    await mkdir(binDir, { recursive: true });
+    const copiedServerPath = join(moduleDir, "cmux-computer-use-mcp.mjs");
+    await cp(serverPath, copiedServerPath);
+    const providerPath = join(binDir, "cmux-computer-use-provider");
+    await writeFile(
+      providerPath,
+      [
+        "#!/usr/bin/env node",
+        "process.stdin.destroy();",
+        "setTimeout(() => process.exit(7), 50);",
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(providerPath, 0o755);
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [copiedServerPath],
+      env: fakeEnv({ CMUX_CU_FAKE_PROVIDER: "0", CMUX_CU_AUTO_APPROVE: "1" }),
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
+    await client.connect(transport);
+    let failed;
+    let followUp;
+    try {
+      failed = summarizeResult(
+        await client.callTool({ name: "computer_state", arguments: { app: "TestApp" } })
+      );
+    } catch (error) {
+      failed = { isError: true, text: String(error?.message ?? error) };
+    }
+    try {
+      followUp = summarizeResult(await client.callTool({ name: "computer_target", arguments: {} }));
+    } catch (error) {
+      followUp = { isError: true, text: String(error?.message ?? error) };
+    }
+    await client.close();
+    return { failed, followUp };
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
 }
 
 async function runCoordinateBoundsSmoke() {
@@ -617,6 +670,40 @@ if (
   !noScreenshotState.text.includes("Screenshot unavailable")
 ) {
   console.error("FAIL: screenshot failure should still return the AX tree with guidance");
+  process.exit(1);
+}
+
+const noImageAppScreenshot = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_screenshot", args: { app: "NoScreenshotApp" } },
+    { tool: "computer_type", args: { app: "NoScreenshotApp", text: "hello" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(
+  `app screenshot without image -> screenshot=${noImageAppScreenshot[0].isError} type=${noImageAppScreenshot[1].isError}`
+);
+if (
+  noImageAppScreenshot[0].isError ||
+  !noImageAppScreenshot[0].text.includes("Screenshot unavailable") ||
+  !noImageAppScreenshot[1].isError ||
+  !noImageAppScreenshot[1].text.includes("visible snapshot")
+) {
+  console.error("FAIL: failed app screenshots must not grant later blind input");
+  process.exit(1);
+}
+
+const providerClosedStdin = await runProviderClosedStdinSmoke();
+console.log(
+  `provider closed stdin -> failed=${providerClosedStdin.failed.isError} followUp=${providerClosedStdin.followUp.isError}`
+);
+if (
+  !providerClosedStdin.failed.isError ||
+  !providerClosedStdin.failed.text.includes("provider process failed") ||
+  providerClosedStdin.followUp.isError
+) {
+  console.error("FAIL: provider stdin errors should return an error without crashing the MCP server");
   process.exit(1);
 }
 

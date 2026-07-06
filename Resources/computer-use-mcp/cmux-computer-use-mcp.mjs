@@ -1126,8 +1126,8 @@ async function appScreenshot(app) {
     return providerError(error);
   }
   throwIfActiveToolCancelled();
-  s.rememberState(normalizedApp, state, { exposeElements: false, exposeCoordinates: !!state.image });
   if (state.image) {
+    s.rememberState(normalizedApp, state, { exposeElements: false, exposeCoordinates: true });
     return ok([{ type: "image", data: state.image.data, mimeType: state.image.mimeType }]);
   }
   return ok([
@@ -1785,11 +1785,20 @@ function execFileWithStdin(file, args, input, options = {}) {
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
-    child.on("error", (error) => {
+    const rejectProcessError = (error) => {
+      if (!settled) {
+        try {
+          child.kill();
+        } catch {
+          // best effort; the process may have already exited or failed to spawn
+        }
+      }
       error.stdout = stdout;
       error.stderr = stderr;
       rejectOnce(error);
-    });
+    };
+    child.on("error", rejectProcessError);
+    child.stdin.on("error", rejectProcessError);
     child.on("close", (code, signal) => {
       if (settled) return;
       settled = true;
@@ -1805,7 +1814,11 @@ function execFileWithStdin(file, args, input, options = {}) {
       error.signal = signal;
       reject(error);
     });
-    child.stdin.end(input);
+    try {
+      child.stdin.end(input);
+    } catch (error) {
+      rejectProcessError(error);
+    }
   });
 }
 
