@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type {
-  AttachEndpoint,
-  AttachOptions,
-  ExecResult,
-  ProviderId,
-  SSHEndpoint,
+import {
+  type AttachEndpoint,
+  type AttachOptions,
+  type ExecResult,
+  type ProviderId,
+  type SSHEndpoint,
+  type VMStatus,
 } from "./drivers";
 import {
   VmBillingGateway,
@@ -21,6 +22,8 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  VmProviderOperationError,
+  isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
@@ -91,6 +94,7 @@ export function createVm(input: {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
+            code: existing.failureCode,
             message: existing.failureMessage ?? "previous VM create failed",
           }),
         );
@@ -250,6 +254,244 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
+const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
+const RESUME_SETTLE_ATTEMPTS = 10;
+const RESUME_SETTLE_INTERVAL = "1 second";
+
+// resume() can legitimately return a not-yet-running handle (Freestyle maps a
+// post-start "starting" state to "creating"), so poll briefly until the VM is
+// observably running; never record a running transition for a VM that has not
+// settled, and fail without a durable write if it does not.
+function waitForRunningStatus(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    if (!getStatus) return true;
+    for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
+      const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        Effect.timeoutFail({
+          duration: RESUME_STATUS_PROBE_TIMEOUT,
+          onTimeout: () =>
+            new VmProviderOperationError({
+              provider: vm.provider,
+              operation: `getStatus(${providerVmId})`,
+              cause: new Error("status probe timed out"),
+            }),
+        }),
+        Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+      );
+      if (status === "running") return true;
+      yield* Effect.sleep(RESUME_SETTLE_INTERVAL);
+    }
+    return false;
+  });
+}
+
+function bestEffortPause(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  const pause = providers.pause;
+  if (!pause) return Effect.void;
+  return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+}
+
+function resumeUntilRunning(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const resume = providers.resume;
+    if (!resume) return;
+    const handle = yield* resume(vm.provider, providerVmId);
+    if (handle.status === "running") return;
+    const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+    if (settled) return;
+    // The provider start already happened; roll back so a started-but-
+    // unrecorded VM is never left running outside Postgres accounting.
+    yield* bestEffortPause(providers, vm, providerVmId);
+    return yield* Effect.fail(
+      new VmProviderOperationError({
+        provider: vm.provider,
+        operation: `resume(${providerVmId})`,
+        cause: new Error("VM did not reach running after resume"),
+      }),
+    );
+  });
+}
+
+// Active-limit note: resuming a user's own existing VM is intentionally not
+// limit-gated here. Freestyle's SSH gateway resumes suspended VMs on any
+// client connect with no control-plane involvement, so this seam cannot
+// enforce the limit; enforcement happens where allocation is decided —
+// beginCreate's reconcile re-counts provider-running VMs on the next create.
+function preflightResumeIfSuspended(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    const resume = providers.resume;
+    if (!getStatus || !resume) return;
+
+    const status = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.timeoutFail({
+        duration: RESUME_STATUS_PROBE_TIMEOUT,
+        onTimeout: () =>
+          new VmProviderOperationError({
+            provider: vm.provider,
+            operation: `getStatus(${providerVmId})`,
+            cause: new Error("status probe timed out"),
+          }),
+      }),
+      Effect.catchAll((err) =>
+        // Fail closed when the row durably says paused and the probe cannot
+        // prove otherwise: minting endpoints against a suspended VM would
+        // hand out unusable credentials and record leases/usage for it.
+        vm.status === "paused"
+          ? Effect.fail(err)
+          : Effect.succeed(null as VMStatus | null),
+      ),
+    );
+    if (status === "creating") {
+      // Another caller's resume is in flight; wait for it rather than
+      // minting endpoints or running commands against a not-yet-ready VM.
+      const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+      if (!settled) {
+        return yield* Effect.fail(
+          new VmProviderOperationError({
+            provider: vm.provider,
+            operation: `getStatus(${providerVmId})`,
+            cause: new Error("VM stayed in a resuming state"),
+          }),
+        );
+      }
+      // Persist the observed running state ourselves in case the resuming
+      // caller dies before its own durable write. An already-running row
+      // still matches the update (returns true); false means the row was
+      // destroyed or replaced concurrently, so fail closed. No pause
+      // rollback here: the caller that started the VM owns compensation.
+      const recorded = yield* repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: "running",
+      });
+      if (!recorded) {
+        return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+      }
+      return;
+    }
+    if (status === "running") {
+      // Freestyle's SSH gateway can resume a VM entirely outside the control
+      // plane; if the durable row still says paused, record the observed
+      // running state so active-limit reconciliation can see the VM.
+      if (vm.status === "paused") {
+        const recorded = yield* repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: "running",
+        });
+        if (!recorded) {
+          return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+        }
+      }
+      return;
+    }
+    if (status !== "paused") return;
+
+    yield* resumeUntilRunning(providers, vm, providerVmId);
+    yield* recordRunningTransition(
+      repo,
+      providers,
+      vm,
+      providerVmId,
+      new VmNotFoundError({ vmId: providerVmId }),
+    );
+  });
+}
+
+function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  op: Effect.Effect<A, E>,
+): Effect.Effect<A, E | VmDatabaseError> {
+  return op.pipe(
+    Effect.catchAll((originalError) => {
+      const getStatus = providers.getStatus;
+      const resume = providers.resume;
+      if (!getStatus || !resume) return Effect.fail(originalError);
+
+      return Effect.gen(function* () {
+        const status = yield* getStatus(vm.provider, providerVmId).pipe(
+          Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+        );
+        if (status === "creating") {
+          const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+          if (!settled) return yield* Effect.fail(originalError);
+          const recorded = yield* repo.markProviderObservedStatus({
+            id: vm.id,
+            providerVmId,
+            status: "running",
+          }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          if (!recorded) return yield* Effect.fail(originalError);
+          return yield* op;
+        }
+        if (status !== "paused") {
+          return yield* Effect.fail(originalError);
+        }
+
+        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+          Effect.catchAll(() => Effect.fail(originalError)),
+        );
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError);
+        return yield* op;
+      });
+    }),
+  );
+}
+
+// After a successful provider resume, Postgres must record the running
+// transition before the workflow proceeds. When the write fails (or the row
+// was destroyed concurrently), roll the provider back to the durable state
+// with a best-effort pause so a running VM is never left invisible to
+// active-limit accounting; Freestyle's idle auto-suspend (~10s) is the
+// backstop if the pause itself fails.
+function recordRunningTransition<E extends VmWorkflowError>(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  staleRowError: E,
+): Effect.Effect<void, VmDatabaseError | E> {
+  const rollbackPause = (): Effect.Effect<void, never> => {
+    const pause = providers.pause;
+    if (!pause) return Effect.void;
+    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+  };
+  return Effect.gen(function* () {
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "running",
+    }).pipe(
+      Effect.tapError(() => rollbackPause()),
+    );
+    if (!didUpdate) {
+      yield* rollbackPause();
+      return yield* Effect.fail(staleRowError);
+    }
+  });
+}
+
 export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -286,6 +528,12 @@ export function execVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+    );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
     });
@@ -312,8 +560,20 @@ export function openAttachEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
+    // grants an identity), which would hand out an endpoint while Postgres
+    // still says paused. Preflight-resume first — and before revoking the
+    // user's existing identities, so a preflight failure never strands them
+    // with old credentials revoked and no replacement minted.
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      providers.openAttach(vm.provider, input.providerVmId, input.options),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -347,8 +607,20 @@ export function openSshEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
+    // grants an identity), which would hand out an endpoint while Postgres
+    // still says paused. Preflight-resume first — and before revoking the
+    // user's existing identities, so a preflight failure never strands them
+    // with old credentials revoked and no replacement minted.
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openSSH(vm.provider, input.providerVmId);
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      providers.openSSH(vm.provider, input.providerVmId),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -506,7 +778,9 @@ function reserveCreateCredit(
           Effect.all([
             repo.markCreateFailed({
               id: vm.id,
-              code: "billing_reserve_failed",
+              code: isVmCreateCreditsInsufficientError(err)
+                ? "billing_credits_insufficient"
+                : "billing_reserve_failed",
               message: errorMessage(err),
             }),
             repo.recordUsageEvent({

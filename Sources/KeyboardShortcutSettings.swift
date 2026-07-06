@@ -76,6 +76,7 @@ enum KeyboardShortcutSettings {
         case toggleSidebar
         case newTab
         case newBrowserWorkspace
+        case saveLayoutTemplate
         case openFolder
         case reopenPreviousSession
         case goToWorkspace
@@ -110,13 +111,13 @@ enum KeyboardShortcutSettings {
         case closeTab
         case closeOtherTabsInPane
         case closeWorkspace
+        case newWorkspaceGroup
         case groupSelectedWorkspaces
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
-        case focusTextBoxInput
-        case attachTextBoxFile
+        case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
         case clearScreenKeepScrollback
 
@@ -199,6 +200,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+            case .saveLayoutTemplate: return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
@@ -232,12 +234,14 @@ enum KeyboardShortcutSettings {
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
+            case .newWorkspaceGroup: return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
             case .groupSelectedWorkspaces: return String(localized: "shortcut.groupSelectedWorkspaces.label", defaultValue: "Group Selected Workspaces")
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
+            case .cycleTextBoxSubmitAction: return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
             case .clearScreenKeepScrollback: return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
@@ -347,6 +351,8 @@ enum KeyboardShortcutSettings {
                 // (Cmd+Shift+N) without colliding with any cmux default or an
                 // AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
+            case .saveLayoutTemplate:
+                return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .reopenPreviousSession:
@@ -403,6 +409,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
+            case .newWorkspaceGroup:
+                return StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
             case .groupSelectedWorkspaces:
                 // Cmd+Shift+G is the user-natural mnemonic. It collides with
                 // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
@@ -471,10 +479,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
-            case .focusTextBoxInput:
-                return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
-            case .attachTextBoxFile:
-                return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
+            case .focusTextBoxInput: return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
+            case .cycleTextBoxSubmitAction: return StoredShortcut(key: "\t", command: false, shift: true, option: false, control: false)
+            case .attachTextBoxFile: return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
             case .sendCtrlFToTerminal:
                 // Unbound by default: this is a deliberate escape hatch for forwarding a
                 // control chord (e.g. Claude Code's Ctrl-F force-stop) to the focused
@@ -604,7 +611,7 @@ enum KeyboardShortcutSettings {
         }
 
         var allowsChordShortcut: Bool {
-            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias
+            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
         }
 
         var isBrowserContentShortcut: Bool {
@@ -1559,6 +1566,7 @@ struct ShortcutStroke: Equatable, Hashable {
 
     var keyEquivalent: KeyEquivalent? {
         if key == "space" { return KeyEquivalent(Character(" ")) }
+        if key == "\t" { return .tab }
 
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
@@ -1573,8 +1581,6 @@ struct ShortcutStroke: Equatable, Hashable {
             return .upArrow
         case "↓":
             return .downArrow
-        case "\t":
-            return .tab
         case "\r":
             return KeyEquivalent(Character("\r"))
         default:
@@ -1603,6 +1609,7 @@ struct ShortcutStroke: Equatable, Hashable {
 
     var menuItemKeyEquivalent: String? {
         if key == "space" { return " " }
+        if key == "\t" { return "\t" }
 
         if Self.usesDirectKeyCodeMatching(key) {
             return nil
@@ -1621,8 +1628,6 @@ struct ShortcutStroke: Equatable, Hashable {
         case "↓":
             guard let scalar = UnicodeScalar(NSDownArrowFunctionKey) else { return nil }
             return String(Character(scalar))
-        case "\t":
-            return "\t"
         case "\r":
             return "\r"
         default:
@@ -2079,7 +2084,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "\t" || key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {

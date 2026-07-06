@@ -11,18 +11,20 @@ import UIKit
 ///
 /// The host creates the ``ChatConversationStore`` (with its platform event
 /// source) and hands it over; this screen owns presentation state only
-/// (expansion, drafts, attachments).
+/// (drafts, attachments).
 public struct ChatScreen: View {
     @State private var store: ChatConversationStore
-    @State private var expandedIDs: Set<String> = []
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
+    @State private var selectedBlockSelection: ChatBlockSelection?
 
+    private let detailBuilder = ChatBlockDetailBuilder()
     @Binding private var draft: String
     private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
     private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
+    private let runsStoreTask: Bool
 
     /// Creates the screen.
     ///
@@ -41,12 +43,16 @@ public struct ChatScreen: View {
     ///     Open-Terminal button. Pass `false` when embedded in a host that
     ///     supplies its own navigation chrome (the in-place workspace
     ///     toggle), so the two don't fight and drop the header.
+    ///   - runsStoreTask: Whether this screen should run the conversation
+    ///     subscription. Pass `false` when a parent keeps the store warm while
+    ///     the chat UI is not mounted.
     public init(
         store: ChatConversationStore,
         draft: Binding<String> = .constant(""),
         accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
+        runsStoreTask: Bool = true,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
@@ -54,6 +60,7 @@ public struct ChatScreen: View {
         self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
         self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
+        self.runsStoreTask = runsStoreTask
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -76,7 +83,18 @@ public struct ChatScreen: View {
             providesOwnChrome: providesOwnChrome,
             onOpenTerminal: onOpenTerminal
         ))
-        .task { await store.run() }
+        .sheet(item: $selectedBlockSelection) { selection in
+            if let detail = blockDetail(for: selection) {
+                ChatBlockDetailSheetView(
+                    detail: detail,
+                    onOpenTerminal: openTerminalAction(for: selection)
+                )
+            }
+        }
+        .task {
+            guard runsStoreTask else { return }
+            await store.run()
+        }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
         .onChange(of: store.lastErrorDescription) { announceLastError() }
@@ -137,7 +155,6 @@ public struct ChatScreen: View {
     private var transcriptContent: some View {
         ChatTranscriptListView(
             rows: store.rows,
-            expandedIDs: expandedIDs,
             agentState: store.agentState,
             hasMoreHistory: store.hasMoreHistory,
             hasLoadedInitialHistory: store.hasLoadedInitialHistory,
@@ -202,15 +219,73 @@ public struct ChatScreen: View {
     }
     #endif
 
+    private func blockDetail(for selection: ChatBlockSelection) -> ChatBlockDetail? {
+        switch selection {
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return nil }
+            return detailBuilder.detail(message: message)
+        case .terminalCommand(let id):
+            guard let block = currentTerminalBlock(id: id) else { return nil }
+            return detailBuilder.detail(block: block)
+        case .codeBlock(let messageID, let segmentIndex):
+            guard let message = currentMessage(id: messageID),
+                  case .prose(let prose) = message.kind,
+                  let segment = contentCache
+                      .proseSegments(messageID: messageID, text: prose.text)
+                      .first(where: { $0.index == segmentIndex }),
+                  case .code(let language) = segment.kind
+            else { return nil }
+            return detailBuilder.codeBlock(
+                id: "code-\(messageID)-\(segmentIndex)",
+                code: segment.content,
+                language: language
+            )
+        }
+    }
+
+    private func currentMessage(id: String) -> ChatMessage? {
+        for row in store.rows {
+            if case .message(let snapshot) = row,
+               snapshot.message.id == id {
+                return snapshot.message
+            }
+        }
+        return nil
+    }
+
+    private func currentTerminalBlock(id: Int) -> TerminalCommandBlock? {
+        for row in store.rows {
+            if case .terminalCommand(let block) = row,
+               block.id == id {
+                return block
+            }
+        }
+        return nil
+    }
+
+    private func openTerminalAction(for selection: ChatBlockSelection) -> (() -> Void)? {
+        guard selectionCanOpenTerminal(selection) else { return nil }
+        return {
+            selectedBlockSelection = nil
+            onOpenTerminal()
+        }
+    }
+
+    private func selectionCanOpenTerminal(_ selection: ChatBlockSelection) -> Bool {
+        switch selection {
+        case .terminalCommand:
+            return true
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return false }
+            if case .terminal = message.kind { return true }
+            return false
+        case .codeBlock:
+            return false
+        }
+    }
+
     private var rowActions: ChatRowActions {
         ChatRowActions(
-            toggleExpanded: { id in
-                if expandedIDs.contains(id) {
-                    expandedIDs.remove(id)
-                } else {
-                    expandedIDs.insert(id)
-                }
-            },
             answerOption: { index in
                 Task { await store.answer(optionIndex: index) }
             },
@@ -220,7 +295,16 @@ public struct ChatScreen: View {
             discardPending: { id in
                 store.discard(pendingID: id)
             },
-            openTerminal: onOpenTerminal
+            openTerminal: onOpenTerminal,
+            showMessageDetail: { message in
+                selectedBlockSelection = .message(id: message.id)
+            },
+            showTerminalCommandDetail: { block in
+                selectedBlockSelection = .terminalCommand(id: block.id)
+            },
+            showCodeBlockDetail: { messageID, segmentIndex in
+                selectedBlockSelection = .codeBlock(messageID: messageID, segmentIndex: segmentIndex)
+            }
         )
     }
 }

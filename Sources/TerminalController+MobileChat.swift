@@ -32,7 +32,7 @@ extension TerminalController {
     func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
         switch method {
         case "mobile.chat.sessions":
-            return v2MobileChatSessions(params: params)
+            return await v2MobileChatSessions(params: params)
         case "mobile.chat.session":
             return v2MobileChatSession(params: params)
         case "mobile.chat.history":
@@ -73,20 +73,21 @@ extension TerminalController {
     /// still matches its agent against THAT workspace+panel. Each returned
     /// session is re-stamped to W so its seed and live `descriptorChanged`
     /// pushes both scope to the current workspace.
-    func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatSessions(params: [String: Any]) async -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        // Observe-floor detection: kick a throttled, off-main process-table scan
-        // so a live codex/claude launched through any indirection (a subrouter, a
-        // wrapper) that fired no hook is still discovered. Fire-and-forget: a new
-        // detection creates a record that pushes itself to record-change
-        // observers, so it lands without blocking this list pull.
-        Task { await service.observeAgentProcesses() }
         guard let workspaceID else {
-            // No filter: return all current-agent sessions across workspaces,
-            // resolving each via its stored binding as before.
+            let observedBeforeListing = await service.observeAgentProcessesForListing(
+                surfaceIDs: nil,
+                waitUpTo: .milliseconds(750)
+            )
+            #if DEBUG
+            if !observedBeforeListing {
+                cmuxDebugLog("agentChat.list observeTimedOut workspace=nil")
+            }
+            #endif
             let descriptors = service.sessionRecords(workspaceID: nil)
                 .filter { mobileChatBindingIsCurrentAgent($0) }
                 .map(\.descriptor)
@@ -108,9 +109,20 @@ extension TerminalController {
             return .ok(["sessions": []])
         }
         let workspace = resolved.workspace
+        let terminalSurfaceIDs = Set(workspace.panels.compactMap { panelID, panel in panel is TerminalPanel ? panelID : nil })
+        // Workspace GUI pulls force a scoped scan and wait only to a local deadline.
+        let observedBeforeListing = await service.observeAgentProcessesForListing(
+            surfaceIDs: terminalSurfaceIDs,
+            waitUpTo: .milliseconds(750)
+        )
+        #if DEBUG
+        if !observedBeforeListing {
+            cmuxDebugLog("agentChat.list observeTimedOut workspace=\(workspaceID.prefix(8))")
+        }
+        #endif
         var encoded: [[String: Any]] = []
         #if DEBUG
-        var dropNotInWorkspace = 0, dropDeadPID = 0, kept = 0
+        var dropNotInWorkspace = 0, dropDeadPID = 0, dropEndedMissingTranscript = 0, kept = 0
         let allRecords = service.sessionRecords(workspaceID: nil)
         #endif
         for record in service.sessionRecords(workspaceID: nil) {
@@ -122,13 +134,8 @@ extension TerminalController {
                 #endif
                 continue
             }
-            // A LIVE session must still be the current agent on the terminal, so
-            // a reused/restored terminal never exposes a false live toggle. An
-            // ENDED session is RETAINED whenever its surface is a live terminal
-            // in W, regardless of what the terminal runs now: the GUI keeps a
-            // finished conversation visible read-only (input bar disabled), so a
-            // fresh pull must not drop it — dropping it is what made the toggle
-            // go stale and vanish on tap after the agent exited.
+            // Live sessions must match the terminal's current agent. Ended
+            // sessions stay visible read-only while their surface is still in W.
             if record.state != .ended,
                !mobileChatRecordMatchesAgent(record: record) {
                 #if DEBUG
@@ -137,12 +144,18 @@ extension TerminalController {
                 #endif
                 continue
             }
+            if record.state == .ended,
+               !service.shouldListEndedSession(record) {
+                #if DEBUG
+                dropEndedMissingTranscript += 1
+                cmuxDebugLog("agentChat.list drop=endedMissingTranscript session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil")")
+                #endif
+                continue
+            }
             #if DEBUG
             kept += 1
             #endif
-            // Re-stamp stale-workspace records to W so the seed and live pushes
-            // both scope to the current workspace, then encode the re-stamped
-            // descriptor.
+            // Re-stamp stale-workspace records so seeds and pushes scope to W.
             if record.workspaceID != workspaceID {
                 service.updateSessionWorkspace(sessionID: record.sessionID, workspaceID: workspaceID)
             }
@@ -152,7 +165,7 @@ extension TerminalController {
             }
         }
         #if DEBUG
-        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) kept=\(kept) returned=\(encoded.count)")
+        cmuxDebugLog("agentChat.list workspace=\(workspaceID.prefix(8)) total=\(allRecords.count) dropNotInWS=\(dropNotInWorkspace) dropDeadPID=\(dropDeadPID) dropEndedMissingTranscript=\(dropEndedMissingTranscript) kept=\(kept) returned=\(encoded.count)")
         #endif
         return .ok(["sessions": encoded])
     }

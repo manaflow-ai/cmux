@@ -24,8 +24,8 @@
     "howTitle": "仕組み",
     "howBody": "Mobile Connect ウィンドウから iPhone と Mac をペアリングし、任意のワークスペースにアタッチします。接続は自分の Tailscale やローカルネットワーク経由で行われるため、ターミナルが第三者のサーバーを経由することはありません。",
     "galleryTitle": "ターミナルで動くものは何でも",
-    "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}",
-    "backToMac": "cmux for Mac"
+    "backToMac": "cmux for Mac",
+    "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}"
   },
   "meta": {
     "title": "cmux — マルチタスク、整理、プログラマビリティのために作られたターミナル",
@@ -43,11 +43,168 @@
     "viewChangelog": "変更履歴を見る",
     "otherPlatforms": "その他のプラットフォーム"
   },
+  "dashboard": {
+    "nav": {
+      "brand": "cmux",
+      "vaultGroup": "vault",
+      "vaultOverview": "概要",
+      "vaultSessions": "セッション",
+      "vaultCliSetup": "CLI設定",
+      "subrouterGroup": "subrouter",
+      "subrouterOverview": "概要"
+    },
+    "home": {
+      "title": "ダッシュボード",
+      "description": "プロダクトのダッシュボードを選択します。",
+      "vaultName": "vault",
+      "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
+      "vaultLink": "vaultを開く",
+      "subrouterName": "subrouter",
+      "subrouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "subrouterLink": "subrouterを開く"
+    },
+    "subrouter": {
+      "title": "subrouter",
+      "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    },
+    "aiAccounts": {
+      "metaTitle": "AIアカウント — cmux",
+      "metaDescription": "cmuxのチームAIプロバイダーアカウントを管理します。",
+      "section": "ダッシュボード",
+      "title": "AIアカウント",
+      "description": "このチームがcmux AIで使えるプロバイダーアカウントを管理します。",
+      "personalTeam": "個人",
+      "teamSwitcherLabel": "チーム",
+      "notConfiguredTitle": "AIアカウント管理はまだ利用できません",
+      "notConfiguredBody": "このデプロイではチームAIアカウントが有効になっていません。しばらくしてから再試行するか、サポートにお問い合わせください。",
+      "loadErrorTitle": "アカウントを読み込めませんでした",
+      "loadErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
+      "accountsTitle": "接続済みアカウント",
+      "accountsCount": "{count}件のアカウント",
+      "emptyTitle": "まだアカウントがありません",
+      "emptyBody": "プロバイダーアカウントを追加すると、このチームで利用できます。",
+      "providerColumn": "プロバイダー",
+      "labelColumn": "ラベル",
+      "createdColumn": "作成日",
+      "actionsColumn": "操作",
+      "unlabeledAccount": "ラベルなし",
+      "unknownCreatedAt": "不明",
+      "addAccountsTitle": "アカウントを追加",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "Anthropic APIキー",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "OpenAI APIキー",
+      "providerUnknown": "不明なプロバイダー",
+      "labelField": "ラベル",
+      "labelPlaceholder": "チーム既定",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "APIキー",
+      "addClaude": "Claudeを追加",
+      "addAnthropic": "Anthropicを追加",
+      "addCodex": "Codexを追加",
+      "addOpenAi": "OpenAIを追加",
+      "addSuccess": "アカウントを追加しました。",
+      "addError": "アカウントを保存できませんでした。",
+      "deleteError": "アカウントを削除できませんでした。",
+      "jsonError": "有効なJSONオブジェクトを貼り付けてください。",
+      "validationError": "アカウント情報を確認して再試行してください。",
+      "teamAccessError": "このチームへのアクセス権がありません。",
+      "deletingAction": "削除中",
+      "deleteAction": "削除",
+      "deleteConfirmTitle": "このアカウントを削除しますか？",
+      "deleteConfirmBody": "チーム全体からこのプロバイダーアカウントが削除されます。再追加には元の認証情報が必要です。",
+      "cancelAction": "キャンセル",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
+    }
+  },
+  "vault": {
+    "overview": {
+      "eyebrow": "cmux Vault",
+      "title": "Vault概要",
+      "description": "同期済みセッションのストレージ使用量とアップロード状況です。",
+      "emptyTitle": "同期済みセッションはまだありません",
+      "emptyBody": "ローカルのエージェントセッションがあるマシンでCLIの同期コマンドを実行してください。",
+      "totalSessions": "合計セッション",
+      "totalRawBytes": "元サイズ",
+      "totalCompressedBytes": "圧縮サイズ",
+      "latestUpload": "最新アップロード",
+      "never": "なし"
+    },
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "CLIアクセスを承認",
+      "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
+      "codeLabel": "ユーザーコード",
+      "approveButton": "アクセスを承認",
+      "approving": "承認中...",
+      "success": "アクセスを承認しました。ターミナルに戻れます。",
+      "error": "このコードを承認できませんでした。有効期限が切れていないか確認してください。"
+    },
+    "sessions": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "同期済みセッション",
+      "description": "ローカルマシンから同期された最近のコーディングエージェントのトランスクリプトです。",
+      "backToOverview": "概要に戻る",
+      "agent": "エージェント",
+      "session": "セッション",
+      "cwd": "作業ディレクトリ",
+      "rawSize": "元サイズ",
+      "compressedSize": "圧縮サイズ",
+      "snapshots": "スナップショット",
+      "firstUploaded": "初回アップロード",
+      "lastUploaded": "最終アップロード",
+      "unknownCwd": "不明なディレクトリ",
+      "searchLabel": "セッションを検索",
+      "searchPlaceholder": "cwd、パス、セッションIDを検索",
+      "tableLabel": "Vaultセッション",
+      "loadingMore": "さらに読み込み中...",
+      "loadError": "追加のセッションを読み込めませんでした。",
+      "scrollForMore": "スクロールするとさらに表示",
+      "noResults": "この条件に一致するセッションはありません。",
+      "endOfList": "セッションの末尾です",
+      "copySession": "コピー",
+      "copiedSession": "コピー済み"
+    },
+    "detail": {
+      "backToSessions": "← セッション",
+      "detailsSummary": "詳細",
+      "snapshotsSummary": "スナップショット（{count}）",
+      "cwd": "作業ディレクトリ",
+      "rawSize": "元サイズ",
+      "compressedSize": "圧縮サイズ",
+      "firstUploaded": "初回アップロード",
+      "lastUploaded": "最終アップロード",
+      "unknownCwd": "不明なディレクトリ",
+      "unknownSize": "不明なサイズ",
+      "copyCommand": "コマンドをコピー",
+      "copiedCommand": "コピー済み",
+      "copySessionId": "セッションIDをコピー",
+      "copiedSessionId": "コピー済み",
+      "downloadLink": "最新トランスクリプトをダウンロード",
+      "downloadExpires": "この署名付きリンクはまもなく期限切れになります。",
+      "downloadUnavailable": "現在ダウンロードできません。",
+      "loadingMessages": "読み込み中… {count}件のメッセージ",
+      "loadedMessages": "{count}件のメッセージ",
+      "streamError": "{count}件のメッセージ後にストリームが失敗しました",
+      "transcriptTooLarge": "{count}件のメッセージ後に停止しました（トランスクリプトが大きすぎます）",
+      "emptyTranscript": "表示可能なトランスクリプトメッセージが見つかりません。",
+      "roles": {
+        "user": "user",
+        "assistant": "assistant",
+        "system": "system",
+        "tool": "tool"
+      }
+    }
+  },
   "nav": {
     "docs": "ドキュメント",
     "blog": "ブログ",
     "changelog": "変更履歴",
     "community": "コミュニティ",
+    "pricing": "料金",
     "github": "GitHub"
   },
   "footer": {
@@ -55,6 +212,7 @@
     "resources": "リソース",
     "legal": "法的事項",
     "social": "ソーシャル",
+    "pricing": "料金",
     "blog": "ブログ",
     "community": "コミュニティ",
     "docs": "ドキュメント",
@@ -71,7 +229,294 @@
     "language": "言語",
     "assets": "アセット",
     "openSource": "オープンソース",
-    "guides": "ガイド"
+    "guides": "ガイド",
+    "compare": "比較"
+  },
+  "pricing": {
+    "metaTitle": "料金 — cmux",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "title": "料金",
+    "perMonth": "/月",
+    "perUserMonth": "/ユーザー/月",
+    "currentPlan": "現在のプラン",
+    "manageBilling": "請求を管理",
+    "free": {
+      "name": "Free",
+      "price": "$0",
+      "cta": "Mac版をダウンロード",
+      "featuresLead": "含まれるもの:",
+      "features": [
+        "Ghostty 上に構築された、完全オープンソースのネイティブ macOS ターミナル",
+        "Claude Code、Codex、Gemini など任意の CLI エージェントを自分のキーで実行",
+        "縦型タブ、ワークスペース、分割ペイン、完了通知",
+        "ブラウザパネル、スクリプト可能なソケット API、カスタムスキル",
+        "ローカルのセッション履歴と Cloud VM の1回限りのトライアル",
+        "Discord と GitHub でのコミュニティサポート"
+      ]
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$30",
+      "cta": "Pro を入手",
+      "featuresLead": "Free のすべてに加えて:",
+      "features": [
+        "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
+        "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
+        "モデルゲートウェイ: 複数プロバイダーへのルーティングと使用量・コスト分析",
+        "cmux iOS アプリとメールサポート"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: すべてのセッションをクラウドにバックアップし検索可能に",
+        "すべてのマシンをまたいだ無制限のセッション履歴"
+      ],
+      "hostedNetworkingFeatures": [
+        "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要"
+      ]
+    },
+    "team": {
+      "name": "Team",
+      "price": "$35",
+      "cta": "Teams を入手",
+      "featuresLead": "Pro のすべてに加えて:",
+      "features": [
+        "一元請求: チーム全体をまとめて1つの請求書に",
+        "シート管理: メンバーをいつでも追加・削除",
+        "チームで共有する Cloud VM のプール計算時間",
+        "共有のチームルール、設定、ワークスペーステンプレート",
+        "メンバーごとの使用量・コスト分析付きのチーム全体モデルゲートウェイ",
+        "一元管理と優先メールサポート"
+      ]
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "price": "カスタム",
+      "cta": "営業に問い合わせ",
+      "featuresLead": "Team のすべてに加えて:",
+      "features": [
+        "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
+        "組織全体の使用量・コスト分析を備えたセルフホストのモデルゲートウェイ",
+        "SSO と SAML サインイン",
+        "一元管理と共有チームルール",
+        "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
+        "コミット型のクラウド利用とボリューム価格",
+        "SOC 2 と SLA、専任サポート付き"
+      ]
+    },
+    "compare": {
+      "title": "プラン比較",
+      "rows": [
+        {
+          "label": "ネイティブ macOS ターミナル、オープンソース",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "自分のキーで使うローカル CLI エージェント",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "縦型タブ、分割、通知、ソケット API",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "セッション履歴",
+          "free": "ローカル",
+          "pro": "無制限",
+          "team": "無制限",
+          "enterprise": "無制限",
+          "vault": true
+        },
+        {
+          "label": "cmux Vault: クラウドセッションバックアップ",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "すべてのセッションを横断検索",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Cloud VM 上のクラウドエージェント",
+          "free": "VM 1台トライアル",
+          "pro": "月20時間、以降従量課金",
+          "team": "プール制・従量課金",
+          "enterprise": "コミット利用"
+        },
+        {
+          "label": "同時 Cloud VM 数",
+          "free": "1",
+          "pro": "従量制",
+          "team": "従量制",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "モデルゲートウェイ: ルーティングと使用量分析",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS アプリ",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Mac に接続するネットワーク",
+          "free": "持ち込み",
+          "pro": "ホスト型",
+          "team": "ホスト型",
+          "enterprise": "セルフホスト",
+          "hostedNetworking": true
+        },
+        {
+          "label": "一元請求とシート管理",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "SSO と SAML サインイン",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "セルフホストとエアギャップ実行",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "一元管理と共有チームルール",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "監査ログ: セッション、ネットワーク、ブラウザ",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "コミット利用とボリューム価格",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 と SLA",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "サポート",
+          "free": "コミュニティ",
+          "pro": "メール",
+          "team": "優先",
+          "enterprise": "専任"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "Cloud VM サイズ",
+      "body": "エージェントごとに VM サイズを選べます。アクティブな計算時間に対して課金され、アイドルの VM は自動的に一時停止します。Pro には 4 vCPU / 16 GB サイズで毎月20時間が含まれます。",
+      "colSize": "サイズ",
+      "colUse": "おすすめ用途",
+      "colRate": "アクティブ1時間あたり",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "軽いエージェントと短いタスク",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 vCPU / 16 GB",
+          "use": "標準的な開発",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "重いビルドと並列エージェント",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "ご質問は <discord>Discord</discord> へ、<github>GitHub の Issue</github> を立てるか、<email>メール</email>でどうぞ。",
+    "faq": {
+      "title": "よくある質問",
+      "items": [
+        {
+          "q": "ターミナルは本当に無料ですか?",
+          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。料金が発生するのは Cloud VM でエージェントを実行したときだけです。"
+        },
+        {
+          "q": "Cloud VM とは何ですか?",
+          "a": "エージェントがリポジトリをクローンし、コマンドを実行し、プルリクエストをクラウド上で開くためのリモート Linux サンドボックスで、お使いのマシンには触れません。並列作業、バックグラウンドジョブ、PR レビューに対応します。アイドルの VM は自動的に一時停止するため、課金されるのはアクティブな計算時間だけです。"
+        },
+        {
+          "q": "cmux Vault とは何ですか?",
+          "a": "Vault はすべてのターミナルセッションをクラウドにバックアップし、それらを横断検索できるようにします。マシンをまたいだ無制限の履歴を保持します。Free では履歴は各マシンのローカルに残り、Pro でクラウドバックアップと検索が追加されます。",
+          "vault": true
+        },
+        {
+          "q": "モデルゲートウェイとは何ですか?",
+          "a": "各リクエストを複数プロバイダーの強力なモデルにルーティングし、使用量とコストの分析を1か所で提供するホスト型ゲートウェイです。自分のプロバイダーキーを持ち込めます。Enterprise では組織全体の管理のためにゲートウェイをセルフホストできます。"
+        },
+        {
+          "q": "iOS アプリにまだ Tailscale が必要ですか?",
+          "a": "はい、現時点では必要です。どのプランでも Tailscale などお使いのネットワーク経由で iPhone と Mac をペアリングできます。Enterprise ではセルフホストも可能です。設定不要のホスト型ネットワークはロードマップにあります。"
+        },
+        {
+          "q": "課金はどのように行われますか?",
+          "a": "Pro は月額 $30、または年額 $240(年払いでは月あたり約 $20)で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます(上記の Cloud VM サイズを参照)。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+        },
+        {
+          "q": "クラウドをセルフホストできますか?",
+          "a": "はい、Enterprise で可能です。エージェントの実行を自社インフラ上で、または完全なエアギャップで動かせるため、ソースコードがネットワーク外に出ることはありません。"
+        },
+        {
+          "q": "チームプランはありますか?",
+          "a": "はい。Team は1ユーザーあたり月額 $35 です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+        }
+      ]
+    },
+    "welcomeSuccess": "cmux Proへようこそ。サブスクリプションが有効になりました。",
+    "welcomeActive": "cmux Proはすでに有効です。",
+    "welcomePending": "決済を受け付けました。Proの有効化には1分ほどかかることがあります。",
+    "welcomePendingAction": "再確認",
+    "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
+    "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
+    "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
+    "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
+    "welcomeTeam": "cmux Team のご購入が完了しました。"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -109,7 +554,7 @@
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
     "faqPlatformQ": "対応プラットフォームは？",
-    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。",
+    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。Linux・Windows・Android 版が公開され次第お知らせします。<waitlist>順番待ちリストに登録</waitlist>してください。",
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
@@ -383,6 +828,25 @@
         "p3": "優れた開発者は常に自分のツールを構築してきました。エージェントとの最適な作業方法はまだ誰も見つけていませんし、クローズドな製品を作っているチームも見つけていません。自分のコードベースに最も近い開発者が最初に見つけるでしょう。",
         "p4": "100万人の開発者にコンポーザブルなプリミティブを与えれば、どんなプロダクトチームがトップダウンで設計するよりも速く、最も効率的なワークフローを集合的に見つけ出すでしょう。"
       },
+      "claudeCodeBestWorktreeManager": {
+        "title": "Claude Code は最高のワークツリー マネージャーです",
+        "summary": "Claude Code、Codex、スクリプト、cmux プリミティブを使用して、コードベースが実際に必要とするワークツリー ワークフローを構築します。",
+        "date": "2026 年 7 月 3 日",
+        "p1": "組み込みのワークツリー マネージャーには制限があることが保証されています。彼らは通常、1 つのリポジトリ、Git、祝福されたブランチ フロー、およびセットアップが何を意味するかについての製品チームのアイデアを前提としています。実際のコードベースはこれらの行内に留まりません。",
+        "p2": "<zen>cmuxの禅</zen>は、開発者が自分たちのツールを作り、コードとの向き合い方の探索空間を広げるべきだという考え方です。ワークツリーは便利なプリミティブの一つですが、複数のチェックアウト、別フォルダにあるバックエンド/フロントエンドのリポジトリ、リモートマシン、Gitを使わないプロジェクト、ローカルスクリプト、時にはそのタスクで最速だからmain上で直接書くことも同じくプリミティブです。",
+        "superRepoTitle": "スーパーリポパターン",
+        "superRepoP1": "スーパー リポジトリは、すべての実際のリポジトリがどこに存在するか、ワークツリーがどのように作成されるか、関連するリポジトリがどのようにペアになるか、どのスクリプトが各ワークスペースを準備するか、PR がどのようにレビューおよびマージされるかを認識する 1 つのコントロール チェックアウトです。 cmuxterm-hq はスーパー リポジトリです。これには、プライマリ cmux チェックアウト、タスクごとの cmux ワークツリー、Zed チェックアウト、hq スクリプト、再利用可能なスキル、およびエージェントが互いに踏みつけないようにするために従うルールが含まれています。",
+        "superRepoP2": "重要なのは、誰もがこのディレクトリ ツリーをそのままコピーする必要があるということではありません。重要なのは、1 つのローカル コントロール リポジトリでエンジニアリング オペレーティング システム全体を記述できるということです。バックエンド リポジトリとフロントエンド リポジトリを一緒に開くことができます。モバイルアプリとWeb APIを一緒にリロードできます。あるリポジトリにブランチを作成し、別のリポジトリに対応するブランチを作成できます。その形状は、一般的なワークツリー ボタンではなく、チームに属します。",
+        "agentTitle": "エージェントにワークツリーを管理させる",
+        "agentP1": "Claude Code と Codex は、リポジトリ ルールの読み取り、スクリプトの実行、複数のリポジトリにわたるワークツリーの作成、独自のワークツリーのクリーンアップ、競合の修正、ブランチのプッシュ、PR のオープン、CI とレビュー ゲート通過後のマージができるため、ほとんどの組み込みワークツリー マネージャーよりも優れたワークツリー マネージャーです。",
+        "agentP2": "最もよく使用されるフローは、task-worktree-pr と autoreview です。これらが機能するのは、エージェントがファイルの読み取り、ファイルの書き込み、コマンドの実行、GitHub の検査、CI の待機、レビュー コメントへの応答、およびリポジトリ間での操作ができるためです。タスクでクラウドとデスクトップの両方の変更が必要な場合は、エージェントに両方の場所を確認し、残りをスーパー リポジトリにエンコードするように指示できます。",
+        "limitsTitle": "組み込みワークツリーのサポートが失われる理由",
+        "limitsP1": "製品レベルのワークツリー機能は一般的なケースに合わせて磨くことができますが、エッジケースはすぐに発生します。つまり、Git が存在しない、複数のリポジトリ、生成されたクライアント、プライベート セットアップ スクリプト、バックエンド/フロントエンド ブランチのペア、異常なマージ ポリシー、または小さな内部変更のために意図的にメインにプッシュするチームなどです。",
+        "limitsP2": "プログラム可能なワークフローは適応可能です。 Claude Code にワークツリーの作成を依頼し、その横で Codex を起動し、セットアップ コマンドを実行し、右側のブラウザ ペインを開いてテストを監視し、PR がマージされたらワークツリーを削除します。明日はそのワークフローを変更します。",
+        "cmuxTitle": "cmux はワークフローに表面を与えます",
+        "cmuxP1": "cmuxには組み込みの汎用ワークツリーマネージャーは必要ありません。<customCommands>カスタムコマンド</customCommands>、プログラム可能な<api>CLIとソケットAPI</api>、再利用できる<skills>スキル</skills>を提供します。プラスボタンから、自分のワークツリーコマンド、マルチリポジトリのセットアップ、Gitを使わないサンドボックス、リモート環境を起動できます。",
+        "cmuxP2": "だからこそ<home>cmux home</home>が重要です。最良のワークツリーマネージャーは、ワークフローが変わったときにエージェントが変更できるものです。そしてそのループに最良のターミナルは、通知、Cmd+Shift+U、Cmd+Control+Uを画面の操作面に組み込んでいます。"
+      },
       "showHnLaunch": {
         "title": "Show HNでcmuxをローンチ",
         "summary": "cmuxはHacker Newsで2位に到達し、Mitchell Hashimotoにシェアされ、日本でバイラルになりました。",
@@ -438,7 +902,20 @@
         "p1": "cmuxにタスクマネージャが追加され、コーディングエージェントやターミナルプロセスがどれだけCPUとRAMを使っているか確認できるようになりました。",
         "p2": "CLIから開くには：",
         "p3": "またはCmd+Shift+Pを押して、コマンドパレットからタスクマネージャを選びます。",
-        "p4": "cmux v0.64.4+が必要です。"
+        "p4": "cmux v0.64.4+が必要です。",
+        "workflowTitle": "負荷の高いエージェント実行を調べる流れ",
+        "workflowOpen": "ファンが回り始めたとき、ワークスペースが重いとき、またはエージェントが止まって見えるときにタスクマネージャを開きます。",
+        "workflowScan": "CPUやメモリを多く使っているワークスペース、ペイン、サーフェス、エージェント、ブラウザwebviewを一覧から探します。",
+        "workflowJump": "マネージャから該当サーフェスへ戻り、実際のプロセス文脈を確認します。",
+        "workflowAct": "OSのプロセス情報に加えてcmux内の所属を見ながら、問題のタスクを停止、再起動、または分割します。",
+        "useTitle": "役立つ場面",
+        "useP": "Claude Code、Codex、OpenCode、ブラウザペインを複数同時に動かしていて、Activity Monitorだけではどのワークスペースが負荷元か分からないときに便利です。",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "コーディングエージェントを識別できますか？",
+        "faqAgentsBody": "はい。cmuxは既知のエージェントプロセスを、それが動いているワークスペースとサーフェスに対応付けるため、リソース表示がサイドバーの構造と一致します。",
+        "faqCliTitle": "ウィンドウを開かずに使えますか？",
+        "faqCliBody": "はい。スクリプト、SSHセッション、通常のシェルで同じ情報が欲しい場合は、cmux topでターミナル上のスナップショットを表示できます。",
+        "docsCta": "コマンド、ウィンドウからの開き方、推奨トラブルシューティング手順は<link>タスクマネージャのドキュメント</link>をご覧ください。"
       },
       "sessionRestore": {
         "seoP": "ターミナルのクラッシュ後にClaude Code、OpenCode、opencode、Codex、Gemini CLI、Antigravity CLI、Grok Build CLI、Amp、Cursor CLI、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder、Hermes Agentのセッションを復元する方法を探している場合は、cmux hooksをインストールし、エージェント再開を有効にしておいてください。",
@@ -461,7 +938,17 @@
         "implementationP2": "エージェントhooksは~/.cmuxtermにセッション対応表を書き込みます。復元時、cmuxはまずUIを再構築します。自動エージェント再開が有効なら、保存されたセッションIDを使って各対応エージェントのネイティブ再開コマンドを起動します。",
         "limitsTitle": "対象外のもの",
         "limitsP": "tmux、vim、シェル、未対応ツールは、安全なネイティブ再開コマンドを記録するcmux連携がない限り、通常のターミナルとして再び開きます。これにより復元は予測可能になり、古いプロンプトやシークレットの再生を避けられます。",
-        "docsCta": "設定コマンド、対応エージェント、トラブルシューティングは<link>セッション復元ドキュメント</link>を読んでください。"
+        "docsCta": "設定コマンド、対応エージェント、トラブルシューティングは<link>セッション復元ドキュメント</link>を読んでください。",
+        "workflowTitle": "推奨セットアップ",
+        "workflowInstall": "使うエージェントCLIをインストールし、cmux hooks setupを実行してcmuxがネイティブのセッションIDを取得できるようにします。",
+        "workflowWork": "通常のcmuxターミナルでエージェントを実行します。作業中にhookがセッションID、cwd、ワークスペース、サーフェスを記録します。",
+        "workflowRelaunch": "再起動後、cmuxは保存済みのエージェント復元コマンドを開始する前に、ウィンドウとペインのツリーを再構築します。",
+        "workflowVerify": "復元されたエージェントが同じ上流セッションを継続していることを確認し、同じワークスペースで作業を続けます。",
+        "faqTitle": "FAQ",
+        "faqCrashTitle": "クラッシュ後にも復旧できますか？",
+        "faqCrashBody": "最後に保存されたスナップショットから、アプリが管理するレイアウトと対応エージェントセッションを復元します。エージェントやシェルが復元APIとして公開していない任意のプロセスメモリは復元できません。",
+        "faqTmuxTitle": "tmuxも使うべきですか？",
+        "faqTmuxBody": "リモートホスト上でtmuxのセマンティクスが必要な場合はtmuxを使います。アプリレイアウト、ブラウザ状態、対応エージェントの復元をまとめて戻したい場合はcmuxのセッション復元を使います。"
       },
       "cmuxFinder": {
         "title": "cmux Finder",
@@ -480,7 +967,20 @@
         "p1": "cmuxの右サイドバーに、古いエージェントセッション用のVaultペインが追加されました。",
         "p2": "Codex、Claude Code、OpenCode、Piのセッションをインデックスし、トランスクリプト全体を全文検索できます。",
         "p3": "Vaultからセッションをワークスペースへドラッグすると、作業中の場所で再び開けます。",
-        "p4": "cmux v0.64+が必要です。"
+        "p4": "cmux v0.64+が必要です。",
+        "workflowTitle": "古いエージェント作業を見つける流れ",
+        "workflowOpen": "タスクは覚えているが、ワークスペースや日付を覚えていないときに右サイドバーからVaultを開きます。",
+        "workflowSearch": "ファイル名、issueタイトル、エラーメッセージ、ブランチ名、またはエージェントの発言を検索します。",
+        "workflowDrag": "一致したセッションを現在のワークスペースへドラッグし、今触っているコードの横で再び開きます。",
+        "workflowContinue": "新しいエージェントに同じ状態を再発見させる代わりに、復元した文脈から続けます。",
+        "useTitle": "ターミナル履歴よりVaultが向いている場面",
+        "useP": "シェル履歴で分かるのは、どのコマンドでエージェントを起動したかです。Vaultはエージェントが実際に話し、変更し、報告した内容を検索できるため、開発者が古い作業を思い出す方法に近くなります。",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "どのセッションがインデックスされますか？",
+        "faqAgentsBody": "cmuxがローカルのセッション記録を読める場合、対応するCodex、Claude Code、OpenCode、Piセッションをインデックスします。",
+        "faqRestoreTitle": "Vaultはセッション復元と同じですか？",
+        "faqRestoreBody": "いいえ。セッション復元は再起動後に現在のアプリレイアウトを戻します。Vaultは古いエージェントセッションを検索し、必要なときに再び開くためのものです。",
+        "docsCta": "インデックス対象エージェント、検索の流れ、復元の制限は<link>Vaultドキュメント</link>をご覧ください。"
       },
       "markdownViewer": {
         "title": "cmuxの改善されたMarkdownビューア",
@@ -517,6 +1017,22 @@
         "fullHistoryP": "直近の一つ以上が必要なときは、履歴ペインを開きます。閉じたものとフォーカスしたものを日付ごとにまとめ、タイムスタンプ付きで検索でき、Clear Closed で消去もできます。",
         "docsCta": "履歴ナビゲーションの再割り当てを含む一覧は<link>キーボードショートカット</link>をご覧ください。"
       },
+      "cmuxSsh": {
+        "title": "cmux SSH",
+        "summary": "1つのコマンドで永続的なリモートセッション、リモートポートに届くブラウザペイン、ローカルに届くエージェント通知を使えます。",
+        "date": "2026年3月30日",
+        "p1": "<code>cmux ssh user@remote</code> はリモートマシン用のワークスペースを作成します。画像をリモートのClaude Codeセッションへドラッグすると自動でアップロードされます。ブラウザペインはリモートネットワーク経由でルーティングされるため、localhostがそのまま動きます。<code>~/.ssh/config</code>を使い、切断時には再接続します。",
+        "workflowTitle": "リモート開発の流れ",
+        "workflowConnect": "cmux sshで接続し、cmuxにリモートホスト専用のワークスペースを作らせます。",
+        "workflowPreview": "ターミナルの横にブラウザペインを開き、dev serverがローカルにあるかのようにlocalhost URLを使います。",
+        "workflowNotify": "Claude Code、Codex、OpenCodeなどのエージェントをリモートマシン上で動かし、通知はcmux経由でMacへ戻します。",
+        "workflowUpload": "エージェントにローカルの文脈やテスト用ファイルが必要なときは、ファイルや画像をリモートターミナルへドラッグします。",
+        "faqTitle": "FAQ",
+        "faqPortTitle": "localhostにはssh -Lが必要ですか？",
+        "faqPortBody": "通常は不要です。リモートワークスペース内のブラウザペインはHTTPとWebSocketの通信をリモートマシン経由でルーティングするため、ローカルプレビューURLはリモートホスト基準で解決されます。",
+        "faqConfigTitle": "既存のSSH設定を使いますか？",
+        "faqConfigBody": "はい。cmuxは~/.ssh/configからエイリアス、identity file、proxy設定、host optionを読み取り、その上にcmux固有のルーティングと再接続動作を追加します。"
+      },
       "cmuxHome": {
         "title": "cmux home",
         "summary": "cmuxにワークツリー機能は追加しません。プリミティブなので、ワークツリーや複数チェックアウト、リモート開発を自分でスクリプト化して、自分の居場所にできます。",
@@ -531,6 +1047,21 @@
     "zenOfCmux": {
       "metaTitle": "cmuxの禅",
       "metaDescription": "cmuxはソリューションではなくプリミティブ。組み合わせ可能なパーツを提供し、ワークフローはあなた次第。"
+    },
+    "claudeCodeBestWorktreeManager": {
+      "metaTitle": "Claude Code は最高のワークツリー マネージャーです",
+      "metaDescription": "エージェント、スーパー リポジトリ、cmux カスタム コマンド、プログラマブル ターミナル プリミティブが実際のコードベースの組み込みワークツリー マネージャーに勝る理由。",
+      "metaKeywords": [
+        "Claude Code ワークツリー管理",
+        "git worktree",
+        "cmux スーパーリポジトリ",
+        "AI コーディングエージェント",
+        "Codex",
+        "cmux カスタムコマンド",
+        "cmux スキル",
+        "ターミナルワークフロー",
+        "エージェント型開発"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -655,6 +1186,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: 閉じたターミナルやセッションを再び開く",
       "metaDescription": "cmux は閉じたものとフォーカスの履歴を記録します。Cmd+Shift+T で閉じたターミナル、ブラウザ、ワークスペース、そして Claude Code / Codex / OpenCode のセッションを再び開き、Cmd+[ と Cmd+] でフォーカスを前後に移動できます。"
+    },
+    "cmuxSsh": {
+      "metaTitle": "cmux SSH",
+      "metaDescription": "1つのコマンドで永続的なリモートセッション、リモートポートに届くブラウザペイン、ローカルに届くエージェント通知を使えます。"
     },
     "cmuxHome": {
       "metaTitle": "cmux home",
@@ -877,13 +1412,13 @@
       "layoutItem1": "ピン留めされたトップレベルの行（ワークスペースとグループ）。",
       "layoutItem2": "ピン留めされていないトップレベルの行（ワークスペースとグループ）。",
       "creatingTitle": "グループの作成",
-      "creatingIntro": "グループは 2 つの方法で作成できます。キーボードショートカット、またはワークスペースのコンテキストメニューです。どちらも選択範囲の上に新しいアンカーワークスペースを挿入し、選択したワークスペースをグループに移動します。グループが作成された後は、グループヘッダーからグループを管理したりワークスペースを追加したりできます（後述の「グループの管理」を参照）。",
-      "keyboardTitle": "キーボードから（{shortcut}）",
-      "keyboardDesc": "サイドバーで 2 つ以上のワークスペースを選択し、{shortcut} を押します。選択範囲の上に新しいアンカーワークスペースが挿入され、選択したすべてのワークスペースが子になります。グループは Group 1、Group 2 のように自動的に名前が付けられ、ヘッダーのコンテキストメニューからいつでも名前を変更できます。",
+      "creatingIntro": "グループは、キーボードショートカットまたはサイドバーのコンテキストメニューから作成できます。空のグループでは、新しいアンカーワークスペースがグループヘッダーとして挿入されます。選択範囲から作るグループでは、そのアンカーが選択範囲の上に挿入され、選択したワークスペースがグループに移動します。グループが作成された後は、グループヘッダーからグループを管理したりワークスペースを追加したりできます（後述の「グループの管理」を参照）。",
+      "keyboardTitle": "キーボードショートカットから",
+      "keyboardDesc": "⌃⌘G を押すと、空のワークスペースグループを作成できます。サイドバーで 2 つ以上のワークスペースを選択し、{shortcut} を押すと、選択範囲をグループ化できます。どちらも新しいアンカーワークスペースを作成し、グループは Group 1、Group 2 のように自動的に名前が付けられます。ヘッダーのコンテキストメニューからいつでも名前を変更できます。",
       "keyboardNote": "{shortcut} は React Grab のデフォルトと競合します。グループハンドラーは、サイドバーで 2 つ以上のワークスペースが明示的に複数選択されている場合にのみこのショートカットを消費するため、単一選択時やブラウザ・ターミナルのコンテキストでは React Grab が引き続き動作します。2 つでキーを共有させたくない場合は、設定 → キーボードで再割り当てしてください。",
       "keyboardSingle": "単一タブのグループはショートカットからは作成されません。それには、ワークスペースのコンテキストメニューの「ワークスペースからグループを作成」項目を使用してください。",
       "contextMenuTitle": "ワークスペースのコンテキストメニューから",
-      "contextMenuDesc": "サイドバーで任意のワークスペースを右クリックし、「ワークスペースからグループを作成」を選択するか、複数のワークスペースが選択されている場合は「選択からグループを作成」を選択します。これはショートカットと同じ自動命名の動作を使用します。",
+      "contextMenuDesc": "サイドバーで任意のワークスペースを右クリックし、「空のワークスペースグループを作成」、「ワークスペースからグループを作成」、または複数のワークスペースが選択されている場合は「選択からグループを作成」を選択します。サイドバー一覧の下にある空白部分にも「空のワークスペースグループを作成」があります。これらはショートカットと同じ自動命名の動作を使用します。",
       "managingTitle": "グループの管理",
       "managingIntro": "グループが作成された後は、ヘッダーのコンテキストメニューとヘッダーの + ボタンを使って、グループの管理やワークスペースの追加ができます。どちらも新しいグループは作成しません。",
       "headerMenuTitle": "グループヘッダーのコンテキストメニューから",
@@ -962,12 +1497,24 @@
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
-          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。"
+          "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
+          "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",
+          "textBoxSubmitActions": "送信ボタン、Shift-Tab の切り替え、右クリックメニューに表示する設定可能な TextBox 送信アクションです。",
+          "textBoxSubmitActionId": "terminal.textBoxDefaultSubmitAction から参照される安定したアクション ID です。",
+          "textBoxSubmitActionTitle": "この送信アクションのメニュー表示名です。",
+          "textBoxSubmitActionKind": "このアクションが通常のテキスト入力として送信するか、シェルコマンドテンプレートを展開するかを指定します。",
+          "textBoxSubmitActionCommandTemplate": "commandTemplate アクション用のシェルコマンドテンプレートです。{{prompt}} を含めると、プロンプトをシェル用にクォートしてコマンドへ挿入します。",
+          "textBoxSubmitActionPreservePromptAfterLaunch": "true の場合、commandTemplate をプロンプトなしで起動し、アクティブなエージェント用にプロンプトを TextBox に残します。",
+          "textBoxSubmitActionSystemImage": "送信ボタンに表示するフォールバックの SF Symbol 名です。",
+          "textBoxSubmitActionAssetName": "送信ボタンに表示する任意のアプリ Asset Catalog 画像名です。",
+          "textBoxSubmitActionImagePath": "送信ボタンに表示する任意の PNG または画像ファイルパスです。チルダは展開されます。",
+          "textBoxSubmitActionBackgroundColorHex": "アクション色のメタデータを RGB または RGBA の 16 進数で指定します。送信ボタンの塗りは白のままで、有効状態と無効状態では不透明度だけが変わります。"
         },
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
@@ -998,8 +1545,16 @@
           "defaultLayout": "新しく開く diff ビューアの既定レイアウトです。ツールバーのレイアウト切り替えはユーザーの最後の選択を保持し、明示的な `cmux diff --layout` オプションはその両方を上書きします。"
         },
         "shortcuts": {
-          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
+          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
+        },
+        "paneBorderColor": "分割ワークスペースで cmux ペインの区切り線の色を上書きします。Ghostty 内部の分割ではなく、cmux のペイン境界に適用されます。",
+        "activePaneBorderColor": "分割ワークスペースでフォーカス中の cmux ペインの周囲に描画する任意の境界線色です。",
+        "notifications": {
+          "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。",
+          "agentPermissionPrompt": "エージェント（Claude Code など）がツールの実行にあなたの許可を待って停止しているときに通知します。エージェントの停止を解除するには操作が必要なため、既定でオンです。",
+          "agentTurnComplete": "エージェントがターンを終えたことを通知するタイミングです。whenIdle（既定）は、実行中のバックグラウンドタスクや保留中のスケジュール再開が残っている間は通知を抑制し、作業が完全に片付いてから通知します。always はターン終了ごとに通知し、never は通知しません。",
+          "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -1269,7 +1824,9 @@
       "pythonClient": "Pythonクライアント",
       "shellScript": "シェルスクリプト",
       "buildScriptNotification": "通知付きビルドスクリプト",
-      "metaTitle": "CLIリファレンス"
+      "metaTitle": "CLIリファレンス",
+      "listPanelsDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
+      "listPaneSurfacesDesc": "フォーカスされたペイン内のサーフェスを一覧表示。"
     },
     "notifications": {
       "title": "通知",
@@ -1654,7 +2211,10 @@
       "changelog": "変更履歴",
       "dock": "Dock",
       "textBox": "TextBox（ベータ）",
-      "ios": "iOSアプリ"
+      "ios": "iOSアプリ",
+      "vault": "Vault",
+      "taskManager": "タスクマネージャ",
+      "ssh": "SSH"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1794,6 +2354,50 @@
       "dataNot": "インタラクティブなターミナルセッション（その内容とキー入力）は、あなた自身のネットワークを通じてスマートフォンとMacの間を直接流れ、cmuxサーバーを経由したり保存されたりすることはありません。唯一の例外は転送される通知テキストで、これはスマートフォンに届くためにcmuxとAppleのプッシュサービスを経由します（「コンテンツを隠す」を有効にしている場合を除く。上記の「通知」を参照）。",
       "enterpriseTitle": "エンタープライズとセルフホスト",
       "enterpriseDesc": "セルフホストまたはエアギャップ環境での導入については、<link>founders@manaflow.com</link>までご連絡ください。"
+    },
+    "vault": {
+      "title": "Vault",
+      "metaTitle": "Vault",
+      "metaDescription": "cmux Vaultで古いCodex、Claude Code、OpenCode、Piセッションを検索し、必要なワークスペースで再び開けます。",
+      "intro": "Vaultは、ターミナル履歴ではなくトランスクリプトの内容から古いAIコーディングエージェントセッションを見つけるための右サイドバーペインです。",
+      "indexesTitle": "Vaultがインデックスするもの",
+      "indexesDesc": "Vaultは対応エージェントのローカルセッション記録を読み取り、cmux内でトランスクリプトを検索可能にします。",
+      "indexCodex": "Codexセッション",
+      "indexClaude": "Claude Codeセッション",
+      "indexOpenCode": "OpenCodeセッション",
+      "indexPi": "Piセッション",
+      "workflowTitle": "ワークフロー",
+      "workflowOpen": "右サイドバーからVaultを開きます。",
+      "workflowSearch": "ファイル、ブランチ、issueタイトル、エラーメッセージ、会話内の語句を検索します。",
+      "workflowDrag": "一致したセッションを現在のワークスペースへドラッグします。",
+      "workflowContinue": "今使っているコードやブラウザペインの横で、復元した文脈から続けます。",
+      "useTitle": "Vaultを使う場面",
+      "useDesc": "エージェントが何に取り組んだかは覚えているが、ワークスペース、日付、起動コマンドを覚えていないときに使います。Vaultは過去のエージェント文脈を再発見するためのもので、再起動後に現在のアプリレイアウトを戻す機能ではありません。",
+      "limitsTitle": "制限",
+      "limitsDesc": "Vaultがインデックスできるのは、cmuxがローカルマシン上で読み取れる形式のセッションだけです。ローカルのcmuxから利用できない限り、プライベートなリモートホスト上のセッションは検索しません。",
+      "blogCta": "ワークフロー重視の概要は<link>Vaultの機能紹介</link>をご覧ください。"
+    },
+    "taskManager": {
+      "title": "タスクマネージャ",
+      "metaTitle": "タスクマネージャ",
+      "metaDescription": "cmuxのタスクマネージャまたはcmux topを使って、コーディングエージェント、ターミナルプロセス、ブラウザペインの高いCPUとRAM使用量を見つけます。",
+      "intro": "タスクマネージャは、cmuxのウィンドウ、ワークスペース、ペイン、ターミナルプロセス、コーディングエージェント、ブラウザwebviewのリソース使用量を表示します。",
+      "openTitle": "タスクマネージャを開く",
+      "openDesc": "任意のcmuxターミナルからCLIコマンドを実行します。",
+      "paletteDesc": "Cmd+Shift+Pを押して、コマンドパレットからタスクマネージャを選ぶこともできます。",
+      "showsTitle": "表示されるもの",
+      "showsWindows": "ウィンドウ、ワークスペース、ペイン、サーフェス",
+      "showsWorkspaces": "ターミナルやブラウザ活動が属するワークスペース",
+      "showsAgents": "Claude Code、Codex、OpenCodeなどの既知のコーディングエージェントプロセス",
+      "showsBrowsers": "ブラウザwebviewと関連ヘルパープロセス",
+      "workflowTitle": "トラブルシューティングの流れ",
+      "workflowOpen": "cmuxが重いとき、ファンが回るとき、またはエージェントが止まって見えるときにタスクマネージャを開きます。",
+      "workflowSort": "CPUまたはメモリを最も使っているプロセスを並べ替えや一覧から探します。",
+      "workflowJump": "所有しているワークスペースまたはサーフェスへ戻ります。",
+      "workflowFix": "適切な文脈を見ながら、負荷の高いプロセスを停止、再起動、または分割します。",
+      "useTitle": "使う場面",
+      "useDesc": "Activity Monitorではcmuxの負荷は分かるが、原因のワークスペース、エージェント、ブラウザペインが分からないときに使います。",
+      "blogCta": "ワークフローと導入背景は<link>タスクマネージャの機能紹介</link>をご覧ください。"
     }
   },
   "legal": {
@@ -1892,33 +2496,6 @@
     "heading": "cmux をダウンロードいただきありがとうございます！",
     "subtext": "ダウンロードが始まらない場合は<link>こちら</link>をクリックしてください。"
   },
-  "platforms": {
-    "macos": "macOS",
-    "ios": "iOS",
-    "linux": "Linux",
-    "android": "Android",
-    "windows": "Windows"
-  },
-  "waitlist": {
-    "title": "{platform}版の順番待ちリストに登録",
-    "titleAny": "順番待ちリストに登録",
-    "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
-    "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
-    "calloutText": "Linux・Windows・Android 版も準備中です。",
-    "platformsLabel": "対象プラットフォーム",
-    "selectPlatform": "1つ以上選択してください。",
-    "emailLabel": "メールアドレス",
-    "emailPlaceholder": "you@example.com",
-    "join": "リストに登録",
-    "joining": "登録中…",
-    "cancel": "キャンセル",
-    "invalidEmail": "有効なメールアドレスを入力してください。",
-    "sendError": "送信できませんでした。もう一度お試しください。",
-    "successTitle": "登録が完了しました",
-    "successBody": "{platform}版が利用可能になりましたらメールでお知らせします。",
-    "successBodyAny": "cmux がお使いのプラットフォームで利用可能になりましたらメールでお知らせします。",
-    "done": "完了"
-  },
   "testimonialSubtitles": {
     "steipete": "OpenClaw の開発者。PSPDFKit の創業者。"
   },
@@ -1942,7 +2519,17 @@
   "afterSignIn": {
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
-    "button": "cmux に戻る"
+    "button": "cmux に戻る",
+    "switchAccountButton": "別のアカウントを使用"
+  },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro が有効になりました",
+    "title": "cmux Pro が有効になりました",
+    "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
+    "emailLabel": "購入メールアドレス",
+    "openCmux": "cmux を開く",
+    "manageBilling": "請求を管理",
+    "manageSignInMethods": "サインイン方法を管理"
   },
   "landing": {
     "bestTerminal": {
@@ -1964,9 +2551,9 @@
       "kittyBuiltFor": "高速・スクリプト可能・多機能",
       "weztermBuiltFor": "マルチプレクサ内蔵のGPUターミナル",
       "tmuxBuiltFor": "あらゆるターミナル内でのマルチプレクシング",
-      "cmuxBody": "libghostty を基盤とするネイティブ macOS ターミナルで、マルチタスク、整理、プログラマビリティという3つのことのために作られています。垂直サイドバーが作業をワークスペースごとにまとめ、それぞれの git ブランチ、ディレクトリ、ポート、エージェント出力の最新行を表示するので、多くの作業を同時に進めても見失いません。エージェントが注意を求めるとペインがリングで知らせます。すべての操作は CLI と Unix ソケットからスクリプト可能で、プログラムから操作できるアプリ内ブラウザも備えています。さらに、スマホからターミナルを確認できる iOS コンパニオンアプリもあります。複数のタスクや AI コーディングエージェントを並行して扱い、マルチプレクサの設定なしで整理・自動化したい人に最適です。",
+      "cmuxBody": "cmux は Ghostty のターミナルエンジンである libghostty 上に作られたネイティブ macOS ターミナルです。つまり、ターミナルグリッドは Ghostty の強み、高速な GPU レンダリング、優れたフォントとカラー表示、現代的なターミナル互換性、既存の Ghostty テーマ、フォント、カラー、カーソル設定を受け継ぎます。cmux は、Ghostty があえて担わないレイヤー、垂直ワークスペース、分割ペイン、通知リング、サイドバーの git/ポート/エージェント文脈、スクリプト可能な CLI と Unix ソケット、プログラムから操作できるブラウザ、iOS コンパニオンを追加します。Ghostty 品質のターミナル描画に、多数のタスクや AI コーディングエージェントの整理と自動化を加えたいなら cmux が向いています。",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "高速で GPU アクセラレーション対応のターミナル。そのエンジンである libghostty は cmux を支えています。ワークスペースや自動化のレイヤーは不要で、優れた描画を備えたクリーンな単一ターミナルウィンドウが欲しいなら、Ghostty 単体で十分に優秀です。",
+      "ghosttyBody": "Ghostty は高速なネイティブターミナルで、そのエンジン libghostty が cmux を支えています。古い CPU レンダリング型ターミナルや重い Electron 系ターミナルと比べると、Ghostty の強みは低遅延の GPU レンダリング、鮮明なフォントとカラー処理、高いターミナル互換性、シンプルなファイルベース設定、クラウドアカウント不要の設計です。これらの描画上の利点を備えたクリーンな単一ターミナルウィンドウが欲しく、ワークスペースや自動化レイヤーが不要なら Ghostty 単体で非常に優秀です。同じ Ghostty の描画上の利点に、ワークスペース、通知、スクリプト、自動化、エージェント実行の整理を加えたいなら cmux を使ってください。",
       "iterm2Title": "iTerm2",
       "iterm2Body": "成熟した、果てしなくカスタマイズできる macOS ターミナル。深いプロファイル、トリガー、tmux 連携。最大限の機能が欲しく、多くのタスクを同時にオーケストレーションするわけではないなら、安全な定番です。",
       "warpTitle": "Warp",
@@ -2083,6 +2670,1499 @@
       "title": "ガイド",
       "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
     },
+    "compare": {
+      "metaTitle": "cmux と AI コーディング端末およびエージェント ワークスペースを比較する",
+      "metaDescription": "cmux を、Superset、Conductor、Cursor、Devin、VS Code、Zed、Warp、Ghostty、iTerm2、Kitty、Alacritty、WezTerm、Herdr、および Claude Code、Codex、OpenCode、およびコーディング エージェントを実行するためのその他のツールと比較します。",
+      "title": "cmux の比較",
+      "intro": "AI コーディング エージェント用のターミナルまたはワークスペースを選択する開発者向けに焦点を当てた比較。 cmux は、macOS のネイティブ パフォーマンス、表示されるマルチタスク、通知リング、Cmd+Shift+U や Cmd+Control+U などのキーボード ショートカット、および 1 つのエージェント ランタイムへのロックインを必要としない場合に最も強力です。",
+      "pages": {
+        "bestTerminalForAgents": {
+          "metaTitle": "AIコーディングエージェント向けの最良のターミナルとエージェントワークスペース（2026年） - cmux",
+          "metaDescription": "cmux、Conductor、Superset、Cursor、Devin、VS Code、Zed、Warp、Ghostty、iTerm2、Kitty、Alacritty、WezTerm、tmux、OpenCode、Herdr、および AI コーディング エージェントを実行するためのその他のツールを比較します。",
+          "title": "AIコーディングエージェント向けの最良のターミナルとエージェントワークスペース（2026年）",
+          "intro": "コーディングエージェントに最適なターミナルまたはエージェントワークスペースは、多数の長時間実行セッションを見える状態、応答しやすい状態、制御しやすい状態に保てるものです。cmuxは、一日中多くのエージェントを並行して扱う人たちが作っています。ネイティブSwift/AppKitの性能、縦型ワークスペース、通知リング、最新の未読へ移動するCmd+Shift+U、現在の項目を最古の未読としてマークして次の未読項目へ移動するCmd+Control+U、そしてプログラム可能なCLIを備えています。",
+          "summaryTitle": "短い答え",
+          "summaryBody": "新しいエージェント、エディタ、クラウド ランタイム、クレジット システムを強制せずに多くのエージェントを監視できるネイティブ macOS ターミナルが必要な場合は、cmux を選択してください。タスク オーケストレーションと組み込みのレビュー フローが必要な場合は、エージェント ワークスペースを選択してください。一度に 1 つのエージェントを主に実行する場合は、クラシック ターミナルを選択してください。",
+          "table": {
+            "headers": [
+              "道具",
+              "こんな方に最適",
+              "エージェントサポート",
+              "トレード・オフ"
+            ],
+            "rows": [
+              [
+                "cmux",
+                "多くのエージェントに対するネイティブ端末監視",
+                "任意の CLI エージェント",
+                "macOSのみ"
+              ],
+              [
+                "導体",
+                "Mac 上のコーディング エージェント チーム",
+                "Claude Code、Codex、Cursor、および OpenCode ハーネス",
+                "独立したタスクのワークスペースに関してより意見がまとまるようになりました"
+              ],
+              [
+                "スーパーセット",
+                "ワークツリーベースのエージェントオーケストレーション",
+                "多くの CLI エージェント",
+                "ソースから入手可能な Electron アプリとより独自のワークフロー"
+              ],
+              [
+                "ヘルドル",
+                "ターミナルネイティブエージェントの多重化",
+                "多くの CLI エージェント",
+                "Mac アプリではなく、別のターミナル内で実行されます"
+              ],
+              [
+                "オープンコード",
+                "オープンソースコーディングエージェント",
+                "ターミナル、デスクトップ、IDE にわたる OpenCode 自体",
+                "これはエージェントであり、端末のコントロール プレーンではありません"
+              ],
+              [
+                "カーソル",
+                "AI 編集とホスト型エージェントのワークフロー",
+                "カーソル中心のエージェントワークフローと統合",
+                "エディターとアカウント中心のワークフロー"
+              ],
+              [
+                "デビンデスクトップ",
+                "IDE とエージェント コマンド センター",
+                "デビンとウィンドサーフィンの系譜",
+                "エディターとアカウント中心のワークフロー"
+              ],
+              [
+                "VSコード",
+                "一般的なエディターおよび拡張プラットフォーム",
+                "エディターに統合されたエージェントと拡張機能",
+                "ターミナルエージェントの監視はエディター画面内に留まります"
+              ],
+              [
+                "ゼッド",
+                "高速な共同編集",
+                "エディターに統合された AI ワークフロー",
+                "ターミナルエージェントの監視は編集者と結びついたままになる"
+              ],
+              [
+                "ワープ",
+                "エージェント型ターミナルとクラウドオーケストレーション",
+                "Warp Agent、Oz、持ち込みのCLIエージェント",
+                "オープンソースのクライアントはマネージドなWarp/Ozサービスと結び付いている"
+              ],
+              [
+                "ゴーストティ",
+                "高速汎用端末",
+                "任意の CLI エージェント",
+                "エージェント組織が組み込まれていない"
+              ],
+              [
+                "iTerm2",
+                "成熟した macOS ターミナルのワークフロー",
+                "任意の CLI エージェント",
+                "エージェントのステータスは手動のままです"
+              ],
+              [
+                "キティ",
+                "高速機能が豊富な GPU ターミナル",
+                "任意の CLI エージェント",
+                "エージェントレビューキューが組み込まれていない"
+              ],
+              [
+                "アラクリティ",
+                "高速でシンプルな OpenGL ターミナル",
+                "任意の CLI エージェント",
+                "最小限のアプリレベルのワークフロー機能"
+              ],
+              [
+                "ウェズターム",
+                "クロスプラットフォームのターミナルとマルチプレクサ",
+                "任意の CLI エージェント",
+                "エージェントの注意には依然としてカスタム配線が必要です"
+              ],
+              [
+                "tmux",
+                "SSH を介した端末多重化",
+                "任意の CLI エージェント",
+                "プレフィックス キーのワークフローとネイティブ アプリ UI なし"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux が異なる理由",
+              "body": "cmux はエージェントではなくターミナルから起動します。 Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp、および Cursor CLI はすべて正常に実行されますが、cmux はそれらの周囲に不足しているコントロール プレーン (ワークスペース、分割ペイン、未読状態、通知リング、ソケット API) を追加します。"
+            },
+            {
+              "title": "マルチタスクと組織化",
+              "body": "すべてのセッションが曖昧なタイトルの別のタブになると、エージェントの負荷がかかる作業が中断されます。 cmux は、ブランチ、ディレクトリ、ポート、および最新の通知テキストを表示する垂直ワークスペースで作業を維持するため、いくつかのエージェントは実行中に読みやすくなります。"
+            },
+            {
+              "title": "負荷時のパフォーマンス",
+              "body": "cmuxはlibghostty上に構築されたネイティブSwift/AppKitアプリで、Electronではありません。これにより、ネイティブMac UIとGhosttyベースのターミナル描画を備えつつ、オーケストレーション層を、その中で実行するエージェント、テストランナー、ブラウザ、開発サーバーから分離できます。"
+            },
+            {
+              "title": "キーボードファーストの監視",
+              "body": "cmux は、attention を最上級のワークフローとして扱います。 Cmd+Shift+U は最新の未読ペインにジャンプし、Cmd+Control+U は未読の作業をクリアせずに循環させます。これらのショートカットは、手動タブ スキャンが機能しなくなるほどのエージェントを実行しているユーザー向けに構築されています。"
+            },
+            {
+              "title": "ワークツリーのサポートは基本的なものであり、製品ボックスではありません",
+              "body": "組み込みのworktreeサポートは、フロントエンドとバックエンドのリポジトリが分かれているチーム、セットアップスクリプト、リモートマシン、Gitを使わないプロジェクト、またはmainへ直接コードを書くフローでは狭すぎることがあります。cmuxはプログラム可能なままなので、Claude Code、Codex、カスタムコマンド、リポジトリスクリプトが、コードベースに合うワークスペース形状を作れます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は AI コーディング エージェントですか?",
+          "faqA1": "いいえ、cmux は、すでに使用しているエージェントを中心としたネイティブの端末およびブラウザーのワークスペースです。",
+          "faqQ2": "cmux で動作するエージェントはどれですか?",
+          "faqA2": "Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp、Cursor CLI など、あらゆる CLI エージェントが機能します。",
+          "faqQ3": "なぜ端末タブを使用しないのでしょうか?",
+          "faqA3": "タブはいくつかのシェルで機能します。 cmux は、ワークスペース メタデータ、通知リング、未読ナビゲーション、分割ペイン、ブラウザ自動化、およびエージェント負荷の高いワークフロー用のスクリプト可能ソケットを追加します。"
+        },
+        "cmuxVsAlacritty": {
+          "metaTitle": "AI コーディング エージェントの cmux と Alacritty - cmux",
+          "metaDescription": "高速ターミナル レンダリング、AI コーディング エージェント、通知、未読ショートカット、ワークスペース、プログラマビリティについて cmux と Alacritty を比較してください。",
+          "title": "cmux 対 Alacritty",
+          "intro": "Alacritty は、意図的に無駄のない機能セットを備えた、高速でクロスプラットフォームな OpenGL ターミナル エミュレーターです。 cmux は、通知リング、未読ショートカット、およびプログラム可能なアプリ制御を備えた多くの AI コーディング エージェントを実行するために、libghostty 上に構築されたネイティブ macOS ターミナルおよびブラウザ ワークスペースです。",
+          "summaryTitle": "高速端末とエージェント監視端末",
+          "summaryBody": "最小構成で高性能なターミナルが欲しく、残りをAlacritty設定、alacritty msg、シェルツール、またはマルチプレクサで組み立てるつもりならAlacrittyを使います。ネイティブmacOS性能に加えて、見えるワークスペース、Cmd+Shift+U、Cmd+Control+U、ブラウザペイン、通知、エージェント中心の作業向けソケットAPIが欲しいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "アラクリティ"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "多くのコーディングエージェントを監督する",
+                "高速汎用端末"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "Rust/OpenGLターミナルエミュレータ。Electron/Tauriではありません"
+              ],
+              [
+                "レンダリングエンジン",
+                "libghostty 上に構築され、最新の GPU アクセラレーションによるターミナル レンダリングを実現",
+                "OpenGLターミナルレンダラー"
+              ],
+              [
+                "エージェントの可視性",
+                "垂直ワークスペース、ブランチおよびポートのメタデータ、未読状態",
+                "手動ウィンドウ、シェル、外部ツール"
+              ],
+              [
+                "注目モデル",
+                "通知リング、未読バッジ、Cmd+Shift+U、Cmd+Control+U",
+                "ビジュアルベル、ベルコマンド、外部通知スクリプト"
+              ],
+              [
+                "オートメーション",
+                "CLI、UnixソケットAPI、ブラウザ自動化、フック",
+                "設定、キー/マウスバインド、alacritty msg IPC、外部プログラム"
+              ],
+              [
+                "向いている用途",
+                "Mac 開発者がエージェント間でマルチタスクを実行",
+                "無駄のない端末プリミティブを求めるユーザー"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Alacritty はエミュレーターを最適化します",
+              "body": "Alacritty は、ターミナル エミュレーターが高速かつシンプルである必要がある場合に最も強力です。 cmux は高速なターミナル サーフェスから始まり、エージェント ワークフローに必要なアプリレベルの制御を追加します。"
+            },
+            {
+              "title": "cmux は libghostty を使用します",
+              "body": "cmux は、Ghostty ターミナル エンジンである libghostty からターミナル レンダリングを取得します。これにより、cmux の最新のターミナル プロトコルのサポート、GPU アクセラレーションによるレンダリング、ターミナル グラフィックスのサポート、およびフォント、テーマ、色、およびカーソル動作の Ghostty スタイルの構成が提供されます。"
+            },
+            {
+              "title": "通知はワークフローに組み込まれています",
+              "body": "cmux は、多くのエージェントを同時に実行し続ける人々によって構築されました。ペインリング、未読バッジ、Cmd+Shift+U、および Cmd+Control+U を使用すると、完了またはブロックされたエージェントがキーボードでナビゲート可能なレビューキューに入れられます。"
+            },
+            {
+              "title": "サイドバーにはコンテキストが含まれます",
+              "body": "エージェント セッションにはプロンプト以上のものが必要です。 cmux は、ワークスペース名、ブランチ コンテキスト、ディレクトリ、ポート、最新の出力、および未読の状態を表示するため、多数のセッションを判読できる状態に保ちます。"
+            },
+            {
+              "title": "プログラマビリティはブラウザのチェックにまで到達",
+              "body": "cmux は、同じソケット API を通じてターミナル制御とブラウザ自動化を公開するため、エージェントは 1 つのワークスペースからコマンドを実行し、Web ページを検査し、スクリーンショットをキャプチャし、ステータスをレポートできます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は Alacritty より速いですか?",
+          "faqA1": "さまざまなレイヤーを最適化します。 Alacritty は無駄のない端末エミュレーションに重点を置いています。 cmux は、高速端末サーフェスを中心としたネイティブ macOS エージェント ワークフローに焦点を当てています。",
+          "faqQ2": "Alacritty はコーディング エージェントを実行できますか?",
+          "faqA2": "はい。どの端末でも CLI エージェントを実行できます。 cmux は、これらのセッションの周囲にマルチタスク、通知、ブラウザ、および自動化レイヤーを追加します。",
+          "faqQ3": "どのような場合に cmux を選択すればよいでしょうか?",
+          "faqA3": "1 つの端末を迅速にレンダリングするだけでなく、多数のエージェントを監視することがボトルネックの場合は、cmux を選択してください。"
+        },
+        "cmuxVsConductor": {
+          "metaTitle": "コーディングエージェント用の cmux と Conductor - cmux",
+          "metaDescription": "複数のコーディングエージェント、ネイティブターミナル性能、分離ワークスペース、レビューフロー、ワークフローの柔軟性についてcmuxとConductorを比較します。",
+          "title": "cmux とコンダクタの比較",
+          "intro": "Conductorは、早期アクセスのConductor Cloudを含むMacアプリで、分離ワークスペース内でコーディングエージェントを実行し、タスク設定、diff、レビューフローをエージェント作業の周囲に提供します。cmuxは、すでに使っている任意のCLIエージェント、シェル、ブラウザ、開発サーバー、スクリプトを監督するためのネイティブターミナル兼ブラウザワークスペースです。",
+          "summaryTitle": "エージェント タスク ワークスペースとターミナル コントロール プレーン",
+          "summaryBody": "分離されたコピーとレビュー サーフェスを含むパッケージ化されたエージェント タスク ワークフローが必要な場合は、Conductor を使用します。 1 つのプログラム可能なワークスペースで Claude Code、Codex、OpenCode、Gemini CLI、Aider、スクリプト、SSH、ブラウザー、開発サーバーを実行できる無料のオープンソース ネイティブ ターミナルが必要な場合は、cmux を使用します。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "導体"
+            ],
+            "rows": [
+              [
+                "一次表面",
+                "ネイティブターミナル、ブラウザ、ワークスペース、分割",
+                "並列コーディング エージェント タスク用の Mac アプリ"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "Macアプリ。公式ドキュメントはデスクトップスタック全体を明記していない一方、公開されている創業者の投稿ではTauri、Rustバックエンド、ネイティブMacレンダラーと説明されている"
+              ],
+              [
+                "エージェントモデル",
+                "任意の CLI エージェントまたはシェル ツール",
+                "Claude Code、Codex、Cursor、および OpenCode ハーネス"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "サードパーティのオープンソースコンポーネントを含む無料のプロプライエタリ製品"
+              ],
+              [
+                "組織",
+                "垂直ワークスペース、ペインリング、未読状態、ブランチおよびポートのメタデータ",
+                "分離されたタスクのワークスペースとレビュー フロー"
+              ],
+              [
+                "プログラマビリティ",
+                "CLI、UnixソケットAPI、ブラウザ自動化、フック",
+                "エージェントのタスクに関する製品ワークフロー"
+              ],
+              [
+                "向いている用途",
+                "多くのツール用のターミナル プリミティブが必要な開発者",
+                "パッケージ化されたエージェント タスク マネージャーが必要な開発者"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux は 1 つのエージェント ワークフローよりも幅広い",
+              "body": "複数の分離されたコーディングエージェントタスクを実行することが目的なら、Conductorは魅力的です。cmuxはその種の作業のターミナル監督層をカバーしつつ、Gemini CLI、Aider、Amp、通常のシェル、SSH、ブラウザ、ローカルサービス、その他のCLIツールも、ターミナルというプリミティブを変えずに実行します。"
+            },
+            {
+              "title": "ネイティブ端末のパフォーマンスは一日中重要です",
+              "body": "cmux は、libghostty レンダリングを備えた Swift/AppKit です。エージェント、テスト ランナー、言語サーバー、開発サーバーが CPU とメモリを消費しても、UI は軽量のままです。"
+            },
+            {
+              "title": "アテンションはキーボードでアドレス指定可能です",
+              "body": "cmux は、アプリ内でエージェントの完了と質問を未読状態にします。通知音が鳴り、Cmd+Shift+U で最新の未読を確認し、Cmd+Control+U で未読作業を循環させると、すべてのワークスペースをスキャンしなくてもレビュー キューを操作できるようになります。"
+            },
+            {
+              "title": "プログラマビリティには制限がありません",
+              "body": "cmux CLI とソケット API は、ワークスペースの作成、ペインの分割、入力の送信、端末画面の読み取り、スクリーンショットのキャプチャ、およびブラウザ ペインの駆動を行うことができます。これにより、チームはターミナル上に独自の車掌のようなフローを構築できるようになります。"
+            },
+            {
+              "title": "Git worktree優先モデルがすべてのワークフローではない",
+              "body": "Conductorの文書化されたワークスペースモデルはGitベースです。各ワークスペースはブランチとGit worktreeに対応します。バックエンドとフロントエンドのリポジトリが別の場所にあるチームもあり、Git優先ではないワークフローもあり、既存のチェックアウトから直接実行する必要があるローカルチェックもあります。cmuxはターミナル、ブラウザ、ワークスペース、ソケットのプリミティブを公開するため、開発者とエージェントがそれらのワークフローを自分たちで構成できます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は Conductor の代替品ですか?",
+          "faqA1": "端末監視層を置き換えることができます。 Conductor は、ワークツリーとレビュー フローが組み込まれたパッケージ化されたエージェント タスク ワークフローを必要とするチームに依然として適しています。",
+          "faqQ2": "cmux は複数のクロード コード エージェントを実行できますか?",
+          "faqA2": "はい。独自のワークスペースまたはブランチ/ワークツリー設定で各クロード コード セッションを実行し、未読リングとキーボード ナビゲーションを使用してセッションを確認します。",
+          "faqQ3": "専用のエージェント タスク マネージャーではなく cmux を選択するのはなぜですか?",
+          "faqA3": "ワークフローに任意のターミナル、ブラウザ、スクリプト、マルチリポジトリ設定、または Git を使用しないフローが含まれており、1 つの固定タスク モデルではなくプログラム可能なネイティブ ターミナルが必要な場合は、cmux を選択してください。"
+        },
+        "multipleClaudeAgents": {
+          "metaTitle": "複数のクロード コード エージェントを並行して実行する方法 - cmux",
+          "metaDescription": "cmuxワークスペース、縦型タブ、未読ナビゲーション、hooks、OSCエスケープシーケンス、cmux notifyで駆動される通知リングを使って、複数のClaude Code、Codex、OpenCode、その他のCLIエージェントセッションを並列実行します。",
+          "title": "複数のクロード コード エージェントを並行して実行する方法",
+          "intro": "並列クロード コード作業には、分離性、可視性、および入力が必要なセッションを迅速に見つける方法が必要です。同じことが、Codex、OpenCode、Gemini CLI、Aider、Amp、Cursor CLI、およびシェルで実行されるエージェントにも当てはまります。 cmux はすべてのタスクに表示可能なワークスペースを提供し、並列実行中にセッションを読み取り可能な状態に保ちます。",
+          "summaryTitle": "安全な並列エージェントのワークフロー",
+          "summaryBody": "タスクごとに1つのブランチ、worktree、チェックアウト、リポジトリフォルダ、またはカスタムワークスペースを作成し、それぞれをcmuxで開いて通常どおりエージェントを実行し、hooks、OSC、cmux notifyからの未読ショートカットとcmux通知で、対応が必要なセッションをレビューします。Claude Code、Codex、OpenCodeはエージェントのままで、cmuxが監督用の画面を担います。",
+          "table": {
+            "headers": [
+              "アプローチ",
+              "分離",
+              "可視性",
+              "最適な使用方法"
+            ],
+            "rows": [
+              [
+                "タスクごとに 1 つのターミナル タブ",
+                "マニュアル",
+                "弱い",
+                "小さな実験"
+              ],
+              [
+                "tmux ペイン",
+                "マニュアル",
+                "中くらい",
+                "リモートシェルのワークフロー"
+              ],
+              [
+                "手動 Git ワークツリー",
+                "強い",
+                "マニュアル",
+                "慎重な並行作業"
+              ],
+              [
+                "cmux ワークスペース",
+                "ブランチ、ワークツリー、チェックアウト、またはリポジトリのセットアップで動作します",
+                "強い",
+                "macOS 上の多数の可視エージェント セッション"
+              ],
+              [
+                "cmux クロード チーム",
+                "チームメイトセッションのネイティブペインマッピング",
+                "強い",
+                "tmux/iTerm2ペインではなくネイティブcmux分割を使うClaude Codeエージェントチーム"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "すべてのタスクに目に見えるホームを与える",
+              "body": "並列エージェントの主な障害モードは、どの端末がどのタスクを所有しているかを追跡できなくなることです。 cmux ワークスペースでは、ブランチ、ディレクトリ、ポート、未読の状態、および最新の出力がサイドバーに表示されます。"
+            },
+            {
+              "title": "通知リングをレビューキューとして使用する",
+              "body": "エージェントがhooks、OSC 99/777、またはcmux notifyを通じてcmux通知を発行すると、cmuxはワークスペースを未読にしてペインをリング表示します。Cmd+Shift+Uは最新の未読項目へ移動します。Cmd+Control+Uは現在の項目を最古の未読としてマークし、次に新しい未読へ移動します。複数のエージェントが同時に完了したときに便利です。"
+            },
+            {
+              "title": "各エージェントを変更しないでください",
+              "body": "cmuxはClaude Code、Codex、OpenCodeを置き換えません。同じCLIを既存のアカウントと設定で実行し、cmuxがワークスペース、通知、ソケット自動化をターミナルセッションの周囲に追加します。"
+            },
+            {
+              "title": "必要に応じてチームメイト モードを使用する",
+              "body": "クロード コード チームメイト モードの場合、cmux は tmux スタイルのチームメイト ペインをネイティブの cmux 分割に変換できるため、生成されたチームメイトはサイドバーのメタデータと通知とともに表示されたままになります。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は Git ワークツリーを自動的に作成しますか?",
+          "faqA1": "デフォルトでは作成しません。cmuxは、ブランチ、worktree、複数リポジトリ、Gitなし、code-to-main、リモート開発フローの周囲にワークスペースを作成するようスクリプト化できるため、プロジェクトに合うリポジトリ構成を保てます。",
+          "faqQ2": "Claude Code と Codex を同時に実行できますか?",
+          "faqA2": "はい。 cmux はエージェントに依存しないため、Claude Code、Codex、OpenCode、およびその他の CLI エージェントを別々のワークスペースで同時に実行できます。",
+          "faqQ3": "並列エージェントにとって最も重要なショートカットは何ですか?",
+          "faqA3": "Cmd+Shift+Uは最新の未読項目へ移動するため、監督作業の中心になるショートカットです。Cmd+Control+Uは、現在の項目を最古の未読としてマークし、次に新しい未読項目へ移動したいときに便利です。"
+        },
+        "cmuxVsSuperset": {
+          "metaTitle": "AI コーディング エージェントの cmux とスーパーセット — cmux",
+          "metaDescription": "並列コーディングエージェント、ネイティブターミナル性能、エージェントの柔軟性、整理、プログラム可能性についてcmuxとSupersetを比較します。",
+          "title": "cmux とスーパーセット",
+          "intro": "cmux と Superset は両方とも、開発者が複数のコーディング エージェントを実行するのに役立ちます。違いは製品の形状です。Superset はワークツリー オーケストレーションを備えたエージェント ワークスペースですが、cmux は CLI エージェントを監視するために構築されたネイティブ ターミナルおよびブラウザです。",
+          "summaryTitle": "ワークフローで選ぶ",
+          "summaryBody": "高速で無料のオープンソースのネイティブ ターミナル、可視的なマルチタスク、キーボード駆動のアテンション管理、およびプログラム可能なソケット API が必要な場合は、cmux を選択してください。ワークツリー オーケストレーションと組み込みのレビュー フローを中心とした、より独自のタスク ワークスペースが必要な場合は、「スーパーセット」を選択します。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "スーパーセット"
+            ],
+            "rows": [
+              [
+                "コア製品",
+                "ネイティブ macOS ターミナルとブラウザ",
+                "エージェント オーケストレーション ワークスペース"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "@xterm/xtermとnode-ptyを使うElectron/Reactデスクトップアプリ"
+              ],
+              [
+                "ランタイム",
+                "Swift/AppKit と libghostty",
+                "Electron デスクトップ アプリ"
+              ],
+              [
+                "エージェントモデル",
+                "任意の CLI エージェント、cmux ランタイム ロックインなし",
+                "Superset管理ワークスペース内の任意のCLIエージェント"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "Elastic License 2.0 に基づいてソースが利用可能"
+              ],
+              [
+                "組織",
+                "垂直ワークスペース、分割、未読状態、通知リング",
+                "タスク、ワークツリー、レビュー サーフェス"
+              ],
+              [
+                "プログラマビリティ",
+                "CLI、UnixソケットAPI、ブラウザ自動化、フック",
+                "ワークスペースとエージェントのオーケストレーション向けCLIベータ、MCP、SDK、自動化"
+              ],
+              [
+                "向いている用途",
+                "ターミナル内に常駐し、多くのツールを実行する開発者",
+                "パッケージ化されたエージェント タスク マネージャーが必要な開発者"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux はターミナルをプリミティブとして保持します",
+              "body": "エージェントがシェルで実行される場合は、cmux で実行されます。そのため、cmux は、Claude Code、Codex、OpenCode、Gemini CLI、Aider、スクリプト、SSH、およびローカル開発サーバーを切り替えるチームに適しています。"
+            },
+            {
+              "title": "高い同時実行性ではネイティブのパフォーマンスが重要",
+              "body": "多数のエージェントを動かすこと自体がCPUとメモリを多く使います。cmuxはSwift/AppKitとlibghosttyを使うため、ターミナルUIはElectronのオーバーヘッドを避け、エージェントプロセス、コンパイラ、開発サーバーはそれぞれのリソースを使えます。"
+            },
+            {
+              "title": "注目は製品表面",
+              "body": "cmux は、エージェントが人間を必要とする瞬間に焦点を当てています。通知リング、未読バッジ、通知パネル、最新の未読には Cmd+Shift+U、未読作業を循環させるには Cmd+Control+U を使用すると、終了したセッションやブロックされたセッションを簡単に見つけることができます。"
+            },
+            {
+              "title": "プログラマビリティは脱出ハッチです",
+              "body": "cmuxはワークスペース、ペイン、画面読み取り、スクリーンショット、ブラウザ自動化をCLIとソケットAPIで公開します。Supersetにもワークスペースとエージェントのオーケストレーション向けCLI/MCP/SDKがあります。cmuxの違いは、ターミナルとブラウザペインそのものがスクリプト可能なことです。"
+            },
+            {
+              "title": "ワークツリーのサポートは決して普遍的ではありません",
+              "body": "組み込みのworktreeマネージャーは、すべてのタスクがブランチへきれいに対応するときに便利です。cmuxはターミナルにより近い位置に留まるため、Claude Code、Codex、スクリプト、カスタムコマンドが、製品のワークスペースモデルに合わないリポジトリ構成、Gitではないディレクトリ、SSHセッション、一回限りのセットアップ手順を扱えます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux はスーパーセットの代替品ですか?",
+          "faqA1": "Supersetを何に使うかによります。cmuxはターミナル監督層を置き換えられる一方、Supersetにはより意見の強いタスクとworktreeのワークフローがあります。",
+          "faqQ2": "cmux は同じエージェントを実行できますか?",
+          "faqA2": "はい。 cmux は、Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp、Cursor CLI などの CLI エージェントを直接実行します。",
+          "faqQ3": "スーパーセットにワークツリーがあるのに、なぜ cmux を選ぶのでしょうか?",
+          "faqA3": "ネイティブターミナル性能、キーボード駆動のマルチタスク、エディタに依存しないターミナルワークフロー、自分のワークフローに合わせて調整できるスクリプト可能なターミナル/ブラウザ面を優先するならcmuxを選びます。"
+        },
+        "cmuxVsCursor": {
+          "metaTitle": "AI コーディング エージェントの cmux と Cursor — cmux",
+          "metaDescription": "エージェントワークフロー、ターミナル監督、エディタ統合、ネイティブmacOS性能、ワークフローの柔軟性についてcmuxとCursorを比較します。",
+          "title": "cmux とカーソル",
+          "intro": "Cursor は AI エディターおよびエージェント プラットフォームです。 cmux は、選択したエージェントとツールを実行するためのネイティブ ターミナルおよびブラウザです。多くの開発者は、編集にはカーソル、端末エージェントの監視には cmux の両方を使用します。",
+          "summaryTitle": "異なるレイヤー",
+          "summaryBody": "エディタ内AI、Cursor CLI、ブラウザツール、クラウドエージェントが欲しいならCursorを使います。1つのエディタ、アカウント、クラウドエージェントランタイムをすべてのワークフローの中心にせず、CLIエージェント、開発サーバー、SSHセッション、ブラウザチェックを実行して監視する無料のオープンソースターミナルが欲しいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "カーソル"
+            ],
+            "rows": [
+              [
+                "一次表面",
+                "ターミナル、ブラウザ、ワークスペース、分割",
+                "エディタ、CLI、エージェントワークスペース、ブラウザ、クラウドエージェント"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "VS Codeベースのデスクトップエディタ。VS CodeはElectronを使用"
+              ],
+              [
+                "エージェントの選択",
+                "任意の CLI エージェント",
+                "エディタ、CLI、クラウド、統合をまたぐCursor Agent"
+              ],
+              [
+                "ワークフローの中心",
+                "自分のターミナルエージェントとキーを持ち込む",
+                "Cursorのアカウント、プラン、エディタ、CLI、クラウド機能"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "VS Codeコードベースに基づくプロプライエタリなCursor製品"
+              ],
+              [
+                "パフォーマンスプロファイル",
+                "ネイティブ Swift/AppKit ターミナル",
+                "クロスプラットフォームエディタとローカル/クラウドのエージェント面"
+              ],
+              [
+                "向いている用途",
+                "多くのシェルベースのエージェントを監督",
+                "AI 支援によるコードの作成と編集"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux はどのエディターでも動作します",
+              "body": "cmux がエディターになる必要はありません。 cmux がエージェント、テスト、シェル、ブラウザ ペイン、およびリモート セッションを実行している間、Cursor、Xcode、Neovim、VS Code、または JetBrains を使用し続けることができます。"
+            },
+            {
+              "title": "CLI エージェントは移植性を維持します",
+              "body": "Claude Code、Codex、OpenCode、およびその他の CLI は、独自のアカウント、モデルの選択、構成を保持します。 cmux は、エージェント ランタイムを新しいホストされたプラットフォームに移動せずに、監視を追加します。"
+            },
+            {
+              "title": "ターミナルワークフローにはターミナルコントロールが必要です",
+              "body": "エージェントの作業には、多くの場合、テストの実行、ログ、開発サーバー、SSH、ローカル スクリプトが含まれます。 cmux はこれらのサーフェスを 1 つのネイティブ アプリに保持し、通知リング、Cmd+Shift+U、Cmd+Control+U、およびソケット API を使用して作業を制御可能にします。"
+            },
+            {
+              "title": "組み合わせが強い",
+              "body": "実際のセットアップは、集中編集用の Cursor と並列ターミナル エージェント用の cmux です。 cmux がどの自律セッションが実行中、終了、またはブロックされているかを追跡している間、エディターはクリーンな状態を保ちます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux を使用している場合、Cursor の使用を中止する必要がありますか?",
+          "faqA1": "いいえ、cmux はターミナルおよびブラウザーのワークスペースであるため、Cursor または他のエディターと並行して適切に動作します。",
+          "faqQ2": "cmux は Cursor CLI を実行できますか?",
+          "faqA2": "はい。 Cursor CLI は、他のターミナル エージェントと同様に cmux で実行されます。",
+          "faqQ3": "cmux は Cursor に何を追加しますか?",
+          "faqA3": "cmux は、ネイティブ端末マルチタスク、可視エージェント ワークスペース、通知リング、未読ナビゲーション、プログラム可能なブラウザと端末制御を追加します。"
+        },
+        "cmuxVsDevin": {
+          "metaTitle": "AI コーディング エージェントの cmux と Devin - cmux",
+          "metaDescription": "ローカル端末エージェントの監視、クラウド ソフトウェア エンジニアリング エージェント、マルチエージェント ワークフロー、プログラマビリティ、およびレビュー フローについて、cmux と Devin を比較します。",
+          "title": "cmux vs Devin",
+          "intro": "Devin は、コードベースとチーム ツールにわたるエンジニアリング タスクを計画および実行する AI ソフトウェア エンジニアです。 cmux は、自分で実行する CLI エージェント、シェル、テスト、およびブラウザー チェックを監視するためのローカル ネイティブ ターミナルおよびブラウザー ワークスペースです。",
+          "summaryTitle": "ローカルの監督 vs 委任されたソフトウェア エンジニアリング",
+          "summaryBody": "マネージド エージェント プラットフォームにエンジニアリング作業を割り当てる場合は、Devin を使用します。最も生産性の高いローカル ループが必要な場合は、cmux を使用してください。これは、Claude Code、Codex、OpenCode、Gemini CLI、Aider、SSH、スクリプト、通知、ブラウザーをネイティブ パフォーマンスとプログラム可能なソケットで Mac 上に表示し続ける、無料のオープン ソース ターミナルです。",
+          "table": {
+            "headers": [
+              "寸法",
+              "cmux",
+              "Devin"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "ローカル端末とブラウザのワークフローを監視する",
+                "委任されたエンジニアリングタスクを計画および実行する"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "Devin CloudとVS CodeフォークのDevin Desktop"
+              ],
+              [
+                "作業が行われる場所",
+                "Mac、シェル、リポジトリ、開発環境",
+                "Devin Cloud VM、ローカルのDevin CLIとDevin Local"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "プロプライエタリなCognitionサービスとデスクトップソフトウェア"
+              ],
+              [
+                "エージェントの選択",
+                "任意の CLI エージェントまたはシェル ツール",
+                "Devin Cloud、Devin Local、Devin CLI、ACP互換エージェント"
+              ],
+              [
+                "人間によるレビュー",
+                "未読リング、ペイン、スクリーンショット、ブラウザチェック、ローカル差分",
+                "プラットフォームのレビューと統合のフロー"
+              ],
+              [
+                "ベストフィット",
+                "多くのローカル エージェントを実行する開発者",
+                "チームがより大きなタスクをマネージド AI エンジニアに委任する"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux はローカル作業用のオペレーター コンソールです。",
+              "body": "cmux はエンジニアになろうとはしていません。これにより、エージェント セッション、テスト、ログ、開発サーバー、ブラウザ、SSH ペイン、通知リング、Cmd+Shift+U、および Cmd+Control+U が表示され、制御可能なローカル ワークスペースが提供されます。"
+            },
+            {
+              "title": "1 つのプラットフォームではなく複数のエージェントを導入する",
+              "body": "1つのタスクにはClaude Code、別のタスクにはCodex、3つ目にはOpenCodeを実行し、その横に通常のシェルコマンドを置けます。cmuxは監督層をDevinアプリやクラウドワークフローの外にあるターミナルとブラウザワークスペース内に保ちます。"
+            },
+            {
+              "title": "ローカル作業は迅速かつ検査可能を維持",
+              "body": "多くのタスクでは、編集、実行、確認、別のエージェントへの依頼、ブラウザを開く、diffが準備できたらpushする、というローカルなループが今でも最も生産的です。cmuxは、すべてのタスクをマネージドなDevin Cloudセッションにするのではなく、そのループをMac上に保ちます。"
+            },
+            {
+              "title": "同時実行時のネイティブ Mac パフォーマンス",
+              "body": "エージェントの並行作業は、UI が本格化する前に大量のリソースを消費します。 cmux は Swift/AppKit と libghostty を使用するため、ローカル プロセスが作業を行っている間、端末の表面は無駄のない状態を保ちます。"
+            },
+            {
+              "title": "プログラマビリティによりワークフローを検査可能に保つ",
+              "body": "cmux CLI およびソケット API は、ペイン、ワークスペース、画面読み取り、スクリーンショット、ブラウザ自動化、フック、およびカスタム コマンドを公開します。チームは、ローカル エージェントを中心に必要な正確なワークフローをスクリプト化できます。"
+            }
+          ],
+          "faqTitle": "よくある質問",
+          "faqQ1": "cmux は Devin を置き換えますか?",
+          "faqA1": "いいえ。Devinはクラウド委任とローカルのエージェント支援にまたがります。cmuxは、直接実行するエージェントとツールの周囲にあるローカルのターミナル兼ブラウザワークスペースです。",
+          "faqQ2": "cmux を Devin Desktop または Windsurf と一緒に使用できますか?",
+          "faqA2": "はい。 cmux は、CLI エージェント、シェル、テスト、ブラウザー チェックを監視しながら、任意のエディターまたはデスクトップ エージェント サーフェスの横に配置できます。",
+          "faqQ3": "cmux と Devin を比較する理由は何ですか?",
+          "faqA3": "どちらもマルチエージェント開発を扱いますが、層が異なります。cmuxはターミナルとブラウザのコントロールプレーンです。Devinはクラウド委任、ローカルエージェント、VS CodeフォークIDEのコマンドセンターにまたがります。"
+        },
+        "cmuxVsIterm2": {
+          "metaTitle": "AI コーディング エージェントの cmux と iTerm2 - cmux",
+          "metaDescription": "macOS ターミナルのワークフロー、AI コーディング エージェント、分割、キーボード ナビゲーション、通知、プログラマビリティについて cmux と iTerm2 を比較します。",
+          "title": "cmux と iTerm2 の比較",
+          "intro": "iTerm2 は、成熟した macOS 端末の代替品です。 cmux は、垂直ワークスペース、通知リング、ブラウザ ペイン、およびスクリプト可能なソケット API を備えた、多くの AI コーディング エージェントを実行するために libghostty 上に構築されたネイティブ macOS ターミナルです。",
+          "summaryTitle": "一般端末とエージェント監視端末",
+          "summaryBody": "幅広く構成可能な端末エミュレータが必要な場合は、iTerm2 を使用してください。ターミナルがエージェント オペレーション コンソールになり、libghostty ターミナル レンダリングに加えて、すべてのセッション、ブランチ、ポート、未読状態、ブラウザ チェック、通知リング、および Cmd+Shift+U/Cmd+Control+U レビュー ショートカットを表示したままにしておく場合は、cmux を使用します。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "iTerm2"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "多くのコーディングエージェントを監督する",
+                "汎用macOS端末"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "ネイティブmacOSターミナルアプリ。Electron/Tauriではありません"
+              ],
+              [
+                "エージェントの可視性",
+                "垂直ワークスペース、最新の出力、ブランチおよびポートのメタデータ",
+                "タブ、ウィンドウ、分割、プロファイル、シェル統合、ステータスバー"
+              ],
+              [
+                "レンダリングエンジン",
+                "GPU アクセラレーションによる最新のターミナル レンダリングを備えた libghostty 上に構築",
+                "iTerm2 ターミナル レンダラー"
+              ],
+              [
+                "注目モデル",
+                "通知音が鳴る、Cmd+Shift+U、Cmd+Control+U",
+                "OSC通知、マークとアラート、トリガー通知、セッション検索"
+              ],
+              [
+                "オートメーション",
+                "CLI、UnixソケットAPI、ブラウザ自動化、フック",
+                "Python API、非推奨のAppleScript、トリガー、プロファイル、tmux統合"
+              ],
+              [
+                "向いている用途",
+                "エージェント中心のローカル開発",
+                "一般の端末パワー ユーザー"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux はエージェント状態を端末に追加します",
+              "body": "ターミナル タブでは、どのエージェントがブロックされているか、どのエージェントが所有しているブランチか、どの開発サーバーが起動されているかがわかりません。 cmux はそのコンテキストをサイドバーに配置し、待機ペインを簡単に見つけられるようにします。"
+            },
+            {
+              "title": "ブラウザ自動化はワークフローの一部",
+              "body": "iTerm2にもブラウザプロファイルがあります。cmuxの違いは、ブラウザペインがワークスペースやターミナルと同じCLIおよびソケットワークフローからアドレス指定でき、DOM操作、スクリーンショット、コンソールとエラーログ、Cookie、ストレージ、JavaScript評価のコマンドを備えていることです。"
+            },
+            {
+              "title": "注目を集めるキーボード ショートカット",
+              "body": "Cmd+Shift+U は、最新の未読エージェントにジャンプします。 Cmd+Control+U は、未読セッションを未読のまま循環させます。 iTerm2 は成熟しており、構成可能ですが、これらのエージェントレビューのショートカットは、重いマルチタスク向けに構築されているため、cmux が追加する一種の製品詳細です。"
+            },
+            {
+              "title": "cmux は Ghostty の長所を継承しています",
+              "body": "cmux は libghostty 上に構築されているため、最新の GPU アクセラレーション端末エンジン、強力なレンダリング パフォーマンス、広範な端末互換性、フォント、テーマ、色、カーソル動作などの端末の詳細に関する Ghostty スタイルの構成を備えています。"
+            },
+            {
+              "title": "プログラマビリティがアプリにも及ぶ",
+              "body": "スクリプトとエージェントは、cmux を介してワークスペースの作成、ペインの分割、入力の送信、画面の読み取り、スクリーンショットのキャプチャ、ブラウザの駆動を行うことができます。端末は制御可能なインフラになります。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "すべての iTerm2 ユーザーは cmux に切り替える必要がありますか?",
+          "faqA1": "いいえ、iTerm2は一般端末としては優れています。 cmux は、端末が並列コーディング エージェントによって支配されている開発者を対象としています。",
+          "faqQ2": "cmux は通常のシェル動作を実行できますか?",
+          "faqA2": "はい。 cmux はまだターミナルであるため、シェル、SSH、スクリプト、テスト、パッケージ マネージャー、およびローカル サービスは通常どおり実行されます。",
+          "faqQ3": "cmux はタブと分割以外に何を追加しますか?",
+          "faqA3": "cmuxは、エージェントワークスペースのメタデータ、通知リング、未読ナビゲーション、ソケットでアドレス指定できるブラウザ面、エージェント中心のワークフロー向けに設計されたソケットAPIを追加します。"
+        },
+        "cmuxVsKitty": {
+          "metaTitle": "AI コーディング エージェントの cmux と Kitty の比較 - cmux",
+          "metaDescription": "GPU ターミナルのパフォーマンス、AI コーディング エージェント、通知リング、未読キーボード ショートカット、ブラウザ ペイン、およびプログラム可能性について cmux と Kitty を比較します。",
+          "title": "cmux vs キティ",
+          "intro": "Kitty は、高速で機能が豊富な GPU ベースのターミナル エミュレーターです。 cmux は、多くの AI コーディング エージェントを実行し、表示されるワークスペース、通知、未読ナビゲーション、アプリレベルの自動化を必要とする開発者向けに、libghostty 上に構築されたネイティブ macOS ターミナルおよびブラウザ ワークスペースです。",
+          "summaryTitle": "機能豊富なターミナルとエージェントのマルチタスク ワークスペース",
+          "summaryBody": "強力な設定可能な端末が必要な場合は、Kitty を使用してください。コーディング エージェントによって端末がマルチタスク キューになり、Cmd+Shift+U、Cmd+Control+U、通知リング、ワークスペース メタデータ、ブラウザ チェック、およびスクリプト可能な制御が必要な場合は、cmux を使用します。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "キティ"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "エージェントの監視とマルチタスク",
+                "高速かつ機能豊富な端末エミュレーション"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "C、Python、Goで書かれたOpenGL描画のターミナルエミュレータで、ElectronやTauriアプリではない"
+              ],
+              [
+                "レンダリングエンジン",
+                "libghostty 上に構築され、最新の GPU アクセラレーションによるターミナル レンダリングを実現",
+                "Kitty ターミナル レンダラとプロトコル エコシステム"
+              ],
+              [
+                "エージェントの可視性",
+                "垂直ワークスペース、最新の出力、ブランチおよびポートのメタデータ",
+                "ウィンドウ、タブ、レイアウト、セッション、kittens、リモート制御スクリプト"
+              ],
+              [
+                "注目モデル",
+                "通知リング、未読バッジ、Cmd+Shift+U、Cmd+Control+U",
+                "OSC 99デスクトップ通知とkitten notify、未読ワークフロー向けのカスタムスクリプト"
+              ],
+              [
+                "ブラウザのワークフロー",
+                "自動化された組み込みブラウザ ペイン",
+                "URLをOS/デフォルトハンドラーで開く。組み込みブラウザペインやDOM自動化はない"
+              ],
+              [
+                "向いている用途",
+                "多くのローカル エージェントを実行している Mac ユーザー",
+                "端末の詳細な機能を必要とする端末ユーザー"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Kitty は素晴らしい端末プリミティブです",
+              "body": "Kitty は強力な端末機能とパフォーマンスを備えています。 cmux は、どのエージェントが実行されているか、どのエージェントがあなたを必要としているか、どのエージェントが所有しているか、どのブラウザ チェックがその隣に属しているかという、上の層に焦点を当てています。"
+            },
+            {
+              "title": "cmux が Ghostty のターミナル エンジンを取得",
+              "body": "cmux は端末レンダリングに libghostty を使用するため、最新の GPU アクセラレーション エンジン、強力な端末互換性、グラフィック サポート、同期レンダリング動作、視覚的な端末の詳細のための Ghostty スタイルの構成を継承しています。"
+            },
+            {
+              "title": "cmux は通知を状態として扱います",
+              "body": "10 人のエージェントが終了すると、デスクトップ通知が見落とされやすくなります。 cmux はアプリ内の未読状態を維持し、ペインを呼び出し、追跡を失わずにキュー内を移動するためのショートカットを提供します。"
+            },
+            {
+              "title": "キーボード ショートカットはマルチタスク用に構築されています",
+              "body": "Cmd+Shift+U は、最新の未読エージェントにジャンプします。 Cmd+Control+U は、未読の作業を未読のまま循環させます。 cmux は一度に多数のエージェントを実行する人々によって構築されているため、これらのショートカットが存在します。"
+            },
+            {
+              "title": "プログラム可能性にはアプリシェルが含まれます",
+              "body": "cmux CLI とソケット API は、ワークスペースの作成、ペインの分割、入力の送信、画面の読み取り、ブラウザ ペインの駆動、スクリプトまたはエージェントからのサイドバーの状態の更新を行うことができます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "キティはクロード コード、コーデックス、オープンコードを実行できますか?",
+          "faqA1": "はい。 Kitty は端末なので、CLI エージェントはそこで実行されます。 cmux は、エージェント対応のワークスペース構成と、これらの CLI 周りの通知ナビゲーションを追加します。",
+          "faqQ2": "Kitty がスクリプト可能であるのに、なぜ cmux を使用するのでしょうか?",
+          "faqA2": "cmux は、ワークスペース、ペイン、ブラウザー サーフェイス、スクリーンショット、未読状態、通知リング、サイドバー メタデータなどの高レベルのアプリ プリミティブを公開します。",
+          "faqQ3": "キティがより良い選択となるのはいつですか?",
+          "faqA3": "構成可能なターミナル エミュレーターが必要で、それを中心としたエージェント ワークフローを自分で構築する計画がある場合は、Kitty を使用します。"
+        },
+        "cmuxVsHerdr": {
+          "metaTitle": "AI コーディング エージェントの cmux と Herdr - cmux",
+          "metaDescription": "複数のコーディング エージェントの実行、ネイティブ macOS ターミナル UX、SSH アタッチ、永続ペイン、通知、ブラウザの自動化、およびプログラマビリティについて cmux と Herdr を比較します。",
+          "title": "cmux 対 Herdr",
+          "intro": "Herdr はオープンソースのターミナル ネイティブ エージェント マルチプレクサで、すでに使用しているターミナル内で実行され、SSH 経由で実際のペインを維持できます。 cmux は、libghostty 上に構築された GPL ライセンスのネイティブ macOS アプリで、垂直ワークスペース、通知リング、ブラウザ ペイン、ローカル エージェント ワークフロー用のソケット API を備えています。",
+          "summaryTitle": "ネイティブ Mac アプリとターミナルネイティブ マルチプレクサー",
+          "summaryBody": "任意のターミナル内で、特に SSH や小さい画面から tmux 風のエージェントマルチプレクサーを使いたいなら Herdr を使います。libghostty レンダリング、アプリレベルのワークスペース、内蔵ブラウザー自動化、通知リング、Cmd+Shift+U、Cmd+Control+U、プログラム可能なローカル制御を備えたネイティブ Mac ターミナルアプリが必要なら cmux を使います。実用的な組み合わせは、Herdr を cmux のターミナルペイン内で、ローカルまたは cmux から開いた SSH セッション内で実行することです。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "ヘルドル"
+            ],
+            "rows": [
+              [
+                "一次表面",
+                "ネイティブ macOS ターミナルおよびブラウザ アプリ",
+                "既存の端末内の端末ネイティブ マルチプレクサ"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "単一のRust製ターミナルネイティブバイナリで、GUIデスクトップアプリやElectronラッパーではない"
+              ],
+              [
+                "ランタイムモデル",
+                "ローカル アプリのワークスペース、ペイン、ブラウザー サーフェス、ソケット API",
+                "バックグラウンド サーバー、永続的な PTY、アタッチ/デタッチ"
+              ],
+              [
+                "レンダリングエンジン",
+                "ターミナルレンダリング用に libghostty 上に構築",
+                "Herdr を内部で実行するターミナル エミュレータを使用します"
+              ],
+              [
+                "リモートフィット",
+                "SSH ペインとローカル アプリの監視",
+                "強力な SSH 接続とターミナルの永続性"
+              ],
+              [
+                "エージェントの状態",
+                "ペインリング、サイドバーの未読状態、Cmd+Shift+U、Cmd+Control+U",
+                "ターミナルマルチプレクサのエージェント状態"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "商用ライセンスが利用可能なオープンソース AGPL"
+              ],
+              [
+                "向いている用途",
+                "ネイティブ アプリの UX とブラウザーの検証を必要とする Mac 開発者",
+                "SSH できる場所であればどこでも永続的なエージェントを多重化したい端末ユーザー"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Herdr は cmux 内で実行できる",
+              "body": "Herdr はターミナルネイティブなので、通常の cmux ターミナルペイン内で実行できます。cmux から開いた SSH セッション内でもよく機能します。Herdr はリモートペインを永続化し、cmux はワークスペースの周囲に Mac 側のネイティブアプリ、ブラウザーペイン、通知、未読ショートカットを提供します。"
+            },
+            {
+              "title": "cmux はネイティブ デスクトップ サーフェスを所有します",
+              "body": "cmux は、libghostty ターミナル レンダリングを備えた Swift/AppKit macOS アプリとして構築されています。これにより、別の端末内に存在することなく、垂直タブ、アプリレベルのワークスペース、ネイティブ ペイン、スクリーンショット、ブラウザー サーフェス、デスクトップ通知動作を提供できるようになります。"
+            },
+            {
+              "title": "どちらもエージェントの状態を考慮します",
+              "body": "正直な比較は、cmux だけがエージェントを理解するということではありません。 Herdr はエージェントの状態も追跡します。 cmux は、Mac ネイティブのペイン リング、サイドバーの未読状態、Cmd+Shift+U、Cmd+Control+U、ターミナルの横のブラウザ オートメーションによって区別されます。"
+            },
+            {
+              "title": "ブラウザの自動化は cmux の一部です",
+              "body": "cmux は、アプリ内ブラウザをエージェントの横に分割し、ナビゲーション、DOM スナップショット、クリック、入力、スクリーンショット、コンソール ログ、およびネットワーク検査を同じ CLI/ソケット コントロール プレーンを通じて公開できます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "Herdr はオープンソースですか?",
+          "faqA1": "はい。 Herdr は AGPL に基づくオープンソースであり、商用ライセンスが利用可能です。",
+          "faqQ2": "Herdr が適しているのはどのような場合ですか?",
+          "faqA2": "別の端末内で実行され、SSH 経由で稼働し、リモートまたは小さな画面の端末クライアントから適切に動作する、端末ネイティブのマルチプレクサが必要な場合は、Herdr を使用します。",
+          "faqQ3": "cmux がより適しているのはどのような場合ですか?",
+          "faqA3": "ターミナル ワークスペース、ブラウザ ペイン、通知リング、未読のキーボード ショートカット、およびスクリプト可能なデスクトップ コントロール プレーンを備えたネイティブ Mac アプリを libghostty 上に構築する場合は、cmux を使用します。"
+        },
+        "cmuxVsOpencode": {
+          "metaTitle": "AI コーディング エージェントの cmux と OpenCode - cmux",
+          "metaDescription": "ターミナルAIコーディング、オープンソースのコーディングエージェント、マルチセッション作業、ネイティブターミナル監督、プログラム可能なワークフローについてcmuxとOpenCodeを比較します。",
+          "title": "cmux と OpenCode の比較",
+          "intro": "OpenCode は、ターミナル、デスクトップ、IDE サーフェスで利用できるオープン ソースのコーディング エージェントです。 cmux は、OpenCode と他の CLI エージェントを並行して実行できるネイティブ ターミナルおよびブラウザ ワークスペースです。",
+          "summaryTitle": "エージェント対エージェントのワークスペース",
+          "summaryBody": "オープンソースのコーディングエージェントが欲しいならOpenCodeを使います。OpenCode、Claude Code、Codex CLI、Gemini CLI、Aider、Amp、Cursor CLI、通常のシェルワークフローをまとめて監督し、別個のCodexアプリやIDE拡張のワークフローも並べられるネイティブmacOSワークスペースが欲しいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "オープンコード"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "端末とブラウザの監視レイヤー",
+                "オープンソースコーディングエージェント"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "ターミナルTUI + Electronデスクトップベータ"
+              ],
+              [
+                "エージェントの選択",
+                "任意の CLI エージェントまたはシェル コマンド",
+                "構成されたモデルプロバイダーを使用した OpenCode"
+              ],
+              [
+                "並行作業",
+                "多くのワークスペース、ペイン、未読リング、ブランチメタデータ",
+                "OpenCode セッションとエージェント機能"
+              ],
+              [
+                "プログラマビリティ",
+                "cmux CLI、Unix ソケット API、ブラウザ自動化",
+                "OpenCode CLI、設定、SDK、カスタムツール"
+              ],
+              [
+                "向いている用途",
+                "複数のエージェントとツールを実行するオペレーター",
+                "OpenCode をエージェントとして使用したい開発者"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "OpenCodeはcmux内で実行可能",
+              "body": "OpenCode はエージェントです。cmux は、OpenCode、Claude Code、Codex CLI、その他のシェルエージェントを同時に見える状態にするターミナル面です。Codex アプリや IDE 拡張のワークフローはそれぞれの面に残しつつ、cmux はエージェント、テスト、サーバー、ログが実際に動き続けるターミナルを監督します。"
+            },
+            {
+              "title": "cmux はエージェントの選択をポータブルに保ちます",
+              "body": "1 つのモデルまたはエージェントの方がタスクに適している場合は、別のワークスペースで実行します。 cmux は、すべてのタスクで同じエージェントを使用する必要がなく、組織化と注意の追跡を追加します。"
+            },
+            {
+              "title": "欠けている層は監視です",
+              "body": "複数のエージェント セッションが数分または数時間にわたって実行される場合、難しいのは、どのセッションを確認する必要があるかを判断することです。 cmux は、そのループに未読状態、通知リング、Cmd+Shift+U、および Cmd+Control+U を使用します。"
+            },
+            {
+              "title": "ブラウザとターミナルのオートメーションが 1 つのサーフェスを共有",
+              "body": "cmux は、ソケット API を介して端末画面の読み取り、スクリーンショット、ブラウザーの自動化を公開するため、エージェントはコマンドを実行したのと同じワークスペースから Web の変更を確認できます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は OpenCode の代替となるのでしょうか?",
+          "faqA1": "いいえ、OpenCode はコーディング エージェントです。 cmux は、OpenCode およびその他のエージェントを実行できるターミナルおよびブラウザーのワークスペースです。",
+          "faqQ2": "cmux で複数の OpenCode セッションを実行できますか?",
+          "faqA2": "はい。個別の cmux ワークスペースまたはペインを使用して、各セッションにコンテキスト、未読状態、キーボード ナビゲーションが表示されるようにします。",
+          "faqQ3": "OpenCode に独自のサーフェスがあるのに、なぜ cmux を使用するのでしょうか?",
+          "faqA3": "cmux は、OpenCode が他のエージェント、シェル ツール、開発サーバー、SSH、ブラウザ チェックを含む広範なワークフローの一部である場合に役立ちます。"
+        },
+        "cmuxVsTmux": {
+          "metaTitle": "AI コーディング エージェントの cmux と tmux - cmux",
+          "metaDescription": "ターミナル多重化、AI コーディング エージェント、ネイティブ macOS UI、通知、ブラウザ自動化、プログラム可能なワークフローについて cmux と tmux を比較します。",
+          "title": "cmux と tmux の比較",
+          "intro": "tmux は古典的なターミナル マルチプレクサです。ポータブルでスクリプト可能で、SSH 経由での優れた機能を備えています。 cmux は、AI コーディング エージェント用のネイティブ macOS ターミナル ワークスペースで、視覚的な構成、通知リング、ブラウザ ペイン、および Unix ソケット API を追加します。",
+          "summaryTitle": "マルチプレクサとエージェントの操作コンソール",
+          "summaryBody": "移植性、デタッチ/再アタッチ、およびリモート端末の多重化が優先される場合は、tmux を使用します。 macOS を使用していて、表示可能なエージェント メタデータ、ブラウザ自動化、未読ナビゲーション、および多くのローカル エージェント セッションにわたる摩擦の少ないレビューを備えた libghostty ベースのネイティブ ターミナル アプリが必要な場合は、cmux を使用してください。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "tmux"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "ネイティブ macOS エージェントの監視",
+                "端末多重化"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "利用中のターミナル内で動くターミナルマルチプレクサ"
+              ],
+              [
+                "プラットフォーム",
+                "Swift/AppKit および libghostty 上に構築された macOS アプリ",
+                "Unix ライクなシステムのターミナル内で実行"
+              ],
+              [
+                "レンダリングエンジン",
+                "ターミナルレンダリング用に libghostty 上に構築",
+                "外部ターミナルエミュレータのレンダリングを使用します"
+              ],
+              [
+                "組織",
+                "ワークスペース、垂直サイドバー、ブランチおよびポートのメタデータ",
+                "セッション、ウィンドウ、ペイン、ステータス行"
+              ],
+              [
+                "注目モデル",
+                "通知リング、未読バッジ、Cmd+Shift+U、Cmd+Control+U",
+                "アクティビティ、無音、ベルのステータスラインアラート、hooks、シェルカスタマイズ"
+              ],
+              [
+                "向いている用途",
+                "Mac 上のローカル AI コーディング エージェント制御",
+                "リモートシェルと携帯端末の多重化"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "tmux は依然として優れたインフラストラクチャです",
+              "body": "リモート サーバー、永続的なシェル セッション、および端末内のキーボード駆動の多重化では、tmux が強力なデフォルトのままです。 cmux は、コーディング エージェントを中心としたローカル Mac アプリ層に焦点を当てています。"
+            },
+            {
+              "title": "cmux はエージェントの状態を可視化します",
+              "body": "エージェントの作業には、名前、ブランチ、ディレクトリ、ポート、最新の出力、未読の状態、ブラウザのチェックが役立ちます。 cmux は、そのコンテキストをペイン タイトルやステータス スクリプトに埋め込むのではなく、表示されたままにします。"
+            },
+            {
+              "title": "cmux は独自の Ghostty ベースのレンダラーを導入します",
+              "body": "tmuxは周囲のターミナルエミュレータに依存します。cmuxはターミナルアプリそのものであり、libghosttyによる滑らかなGPUアクセラレーション描画とGhostty風の見た目設定を使います。"
+            },
+            {
+              "title": "ネイティブ UI によりレビューの手間が軽減されます",
+              "body": "cmux は垂直サイドバー、分割ペイン、ブラウザー サーフェス、スクリーンショット、通知リング、Cmd+Shift+U、および Cmd+Control+U を使用するため、レビュー ループは端末考古学ではなくアプリ ナビゲーションのように感じられます。"
+            },
+            {
+              "title": "ソケット API はアプリレベルの自動化です",
+              "body": "tmuxはターミナル多重化について深くスクリプト可能です。cmuxはさらに、ターミナルの周囲のアプリも公開します。ワークスペース、ブラウザペイン、画面読み取り、スクリーンショット、通知メタデータです。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux 内で tmux を使用できますか?",
+          "faqA1": "はい。 tmux は、セッション モデルまたはリモート ワークフローが必要な場合に cmux ターミナル ペイン内で実行できます。",
+          "faqQ2": "tmux ペインを使用してエージェントを管理してみませんか?",
+          "faqA2": "可能ですが、cmux はネイティブのサイドバー メタデータ、未読ナビゲーション、通知リング、ブラウザ ペイン、およびそれらのセッションの周囲にアプリレベルのソケット API を追加します。",
+          "faqQ3": "tmux がより良い選択となるのはどのような場合ですか?",
+          "faqA3": "リモート サーバー、ポータブル デタッチ/再アタッチ、および端末内で実行する必要があるワークフローには tmux を使用します。"
+        },
+        "cmuxVsVscode": {
+          "metaTitle": "AI コーディング エージェントの cmux と VS Code - cmux",
+          "metaDescription": "AI コーディング エージェント、ターミナルファースト ワークフロー、エディター拡張機能、通知、ブラウザー検証、およびプログラマビリティについて cmux と VS Code を比較します。",
+          "title": "cmux と VS コード",
+          "intro": "VS Code は、エージェント ワークフローを備えた汎用エディターおよび拡張プラットフォームです。 cmux は、VS Code などのエディターの横でシェルネイティブ エージェントを監視するための、GPL ライセンスのネイティブ macOS ターミナルおよびブラウザー ワークスペースです。",
+          "summaryTitle": "エディター プラットフォームとターミナル コントロール プレーン",
+          "summaryBody": "VS Code内で編集、拡張機能、組み込みエージェントセッション、エージェント/ブラウザツールを使いたいならVS Codeを使います。Claude Code、Codex、OpenCode、Gemini CLI、開発サーバー、SSH、スクリプト、ブラウザチェックを、未読作業向けの通知リングとキーボードショートカットを備えたlibghosttyベースのターミナルワークスペースで見える状態にしたいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "VSコード"
+            ],
+            "rows": [
+              [
+                "一次表面",
+                "ターミナル、ブラウザ、ワークスペース、分割",
+                "エディター、拡張機能、端末、およびエージェントのビュー"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "Electronデスクトップエディタ"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "Code - OSSはMIT。Microsoft VS Codeは、Microsoft製のカスタマイズをMicrosoft製品ライセンスの下で加えたディストリビューション"
+              ],
+              [
+                "エージェントのワークフロー",
+                "表示されたワークスペース内の任意の CLI エージェントまたはシェル ツール",
+                "組み込みVS Codeエージェント、Copilot CLI/クラウド/サードパーティエージェント種別、ブラウザツール、拡張機能"
+              ],
+              [
+                "注目モデル",
+                "ペインリング、サイドバーの未読状態、Cmd+Shift+U、Cmd+Control+U",
+                "エディターの通知、ビュー、タブ、拡張機能 UI"
+              ],
+              [
+                "ブラウザのワークフロー",
+                "ソケットオートメーションを備えた組み込みブラウザペイン",
+                "統合ブラウザ、Live Preview/HTMLプレビュー、ブラウザデバッグ、エージェントブラウザツール、外部ブラウザフロー"
+              ],
+              [
+                "向いている用途",
+                "エディターの傍らで多数のターミナル エージェントを監視する",
+                "広範な拡張機能エコシステムを使用してコードを編集する"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux は VS Code と並行して動作します",
+              "body": "実際のセットアップでは、多くの場合、編集には VS Code、エージェント操作には cmux が使用されます。 cmux がシェル、エージェント、ローカル サービス、ブラウザ ペイン、およびレビュー キューを追跡している間、エディターは集中し続けます。"
+            },
+            {
+              "title": "端末エージェントには端末状態が必要です",
+              "body": "Claude Code、Codex、OpenCode、同種のCLIは、多くの時間をコマンド、テスト、ツールの実行に使います。cmuxは、ブランチ、ディレクトリ、ポート、最新の通知テキスト、未読メタデータをサイドバーに表示し、その作業を見える状態に保ちます。"
+            },
+            {
+              "title": "通知はマルチタスク向けに設計されています",
+              "body": "cmux は、一度に多数のエージェントを実行する人々によって構築されました。ペインリング、未読バッジ、Cmd+Shift+U、および Cmd+Control+U を使用すると、完了またはブロックされたエージェント セッションがレビュー キューに入れられます。"
+            },
+            {
+              "title": "プログラム可能性はエディターの外に留まります",
+              "body": "cmux CLI とソケット API を使用すると、エージェントは 1 つのエディタ拡張モデルに依存せずに、ワークスペースの作成、ペインの分割、画面の読み取り、入力の送信、スクリーンショットのキャプチャ、ブラウザ ペインの操作を行うことができます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は VS Code を置き換えますか?",
+          "faqA1": "いいえ、cmux はターミナルおよびブラウザーのワークスペースです。 VS Code やその他のエディタと併用しても問題なく動作します。",
+          "faqQ2": "VS Code はオープンソースですか?",
+          "faqA2": "Code - OSSリポジトリはMITライセンスです。Microsoft Visual Studio CodeはCode - OSSのディストリビューションで、Microsoft製のカスタマイズがMicrosoft製品ライセンスの下で加えられています。",
+          "faqQ3": "VS Code で cmux を使用する理由",
+          "faqA3": "エージェントの作業が端末、ブラウザ、スクリプト、SSH、ローカル サービス、および複数のリポジトリにまたがり、そのワークフローをエディターの外に表示したい場合は、cmux を使用します。"
+        },
+        "cmuxVsWindsurf": {
+          "metaTitle": "cmux 対 Windsurf および Devin デスクトップ - cmux",
+          "metaDescription": "IDEエージェント、ターミナルエージェント監督、マルチエージェント整理、ブラウザチェック、プログラム可能なワークフローについて、cmuxと旧WindsurfであるDevin Desktopを比較します。",
+          "title": "cmux 対ウィンドサーフィン",
+          "intro": "Windsurfは現在Devin Desktopであり、エージェントを管理するAgent Command Centerを備えたWindsurfのIDE基盤上に構築されています。cmuxは任意のエディタの横に置けるネイティブターミナル兼ブラウザワークスペースで、選んだCLIエージェントとツールを監督します。",
+          "summaryTitle": "IDE エージェント サーフェスとターミナル エージェント サーフェス",
+          "summaryBody": "IDE内でエージェント型コーディングをしたいなら、旧WindsurfであるDevin Desktopを使います。ターミナルエージェント、シェル、テスト、ローカルサーバー、ブラウザチェック、SSH、複数エディタ向けの無料オープンソースのターミナルコントロールプレーンが欲しいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "Devin Desktop（旧Windsurf）"
+            ],
+            "rows": [
+              [
+                "一次表面",
+                "ターミナル、ブラウザ、ワークスペース、分割",
+                "エージェント コマンド センターを備えた IDE"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "VS CodeのインターフェイスとOpen VSX拡張機能を使うDevin Desktop IDE"
+              ],
+              [
+                "編集者のロックイン",
+                "Cursor、Xcode、Neovim、VS Code、JetBrains、またはその他のエディターと併用可能",
+                "エディター中心のワークフロー"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "VS Code OSS風のエディタ面を備えたプロプライエタリなDevin Desktopサービス"
+              ],
+              [
+                "エージェントの選択",
+                "任意の CLI エージェントまたはシェル コマンド",
+                "Devin Desktop内のDevin、Cascade、ACP互換エージェント"
+              ],
+              [
+                "組織",
+                "垂直ワークスペース、未読リング、ブランチおよびポートのメタデータ",
+                "Spaces、Kanbanビュー、ローカルおよびクラウドのエージェント管理"
+              ],
+              [
+                "向いている用途",
+                "多くの端末ワークフローを監督する開発者",
+                "エージェントをエディタに統合したい開発者"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux がエディターである必要はありません",
+              "body": "多くのチームはすでに強力なエディター設定を持っています。 cmux を使用すると、ターミナル エージェント、ブラウザ チェック、開発サーバー、ログ、SSH セッションがエージェント対応のワークスペースに存在している間、エディタはコードに集中できます。"
+            },
+            {
+              "title": "編集者の境界を越えたターミナル作業",
+              "body": "AI コーディングには、多くの場合、パッケージ マネージャー、テスト ランナー、データベース、ローカル プレビュー、デプロイメント CLI、ブラウザー検証、およびリポジトリ スクリプトが含まれます。 cmux は、プロジェクトを 1 つの IDE に移動せずに、これらのサーフェスを整理します。"
+            },
+            {
+              "title": "マルチエージェントの作業にはルーティングに注意が必要です",
+              "body": "複数のエージェントを同時に実行すると、人間を待機しているエージェントを見つけることがボトルネックになります。 cmux は、そのループにペイン リング、未読バッジ、通知パネル、Cmd+Shift+U、および Cmd+Control+U を使用します。"
+            },
+            {
+              "title": "プログラマビリティによりワークフローを自分のものにできる",
+              "body": "cmux CLIとソケットAPIにより、チームは既存のツールの周囲に、ワークスペース作成、ペイン分割、入力送信、画面読み取り、スクリーンショット取得、ブラウザペイン操作を組み込めます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は IDE ですか?",
+          "faqA1": "いいえ、cmux はターミナルおよびブラウザーのワークスペースです。 IDE を置き換えるのではなく、IDE の横で動作します。",
+          "faqQ2": "Windsurf または Devin Desktop で cmux を使用できますか?",
+          "faqA2": "はい。編集には IDE を使用し、ターミナル エージェント、ローカル サーバー、シェル ツール、ブラウザ チェック、およびレビュー キューには cmux を使用します。",
+          "faqQ3": "cmux と IDE エージェント製品を比較する理由は何ですか?",
+          "faqA3": "エージェント開発環境を選択する開発者は、コントロール プレーンがエディターに属するかターミナル ワークスペースに属するかを決定する必要があります。"
+        },
+        "cmuxVsZed": {
+          "metaTitle": "AI コーディング エージェントの cmux と Zed の比較 - cmux",
+          "metaDescription": "AI コーディング ワークフロー、ターミナル エージェント、オープン ソース エディター、ネイティブ パフォーマンス、通知、ブラウザ ペイン、およびプログラマビリティに関して cmux と Zed を比較します。",
+          "title": "cmux vs ゼッド",
+          "intro": "Zed は、共同作業機能と AI 機能を備えた高速なオープンソース コード エディターです。 cmux は、GPL ライセンスのネイティブ macOS ターミナルおよびブラウザ ワークスペースであり、Zed またはその他のエディタの横でシェルネイティブ エージェントを監視します。",
+          "summaryTitle": "高速エディターとターミナル エージェントのワークスペース",
+          "summaryBody": "コラボレーション、統合AI、ACP External Agents、Terminal Threadsを備えた高速なオープンソースエディタが欲しいならZedを使います。Claude Code、Codex、OpenCode、Gemini CLI、テストランナー、開発サーバー、SSH、ブラウザチェックを、通知リング、Cmd+Shift+U、Cmd+Control+U、スクリプト可能なソケットAPIを備えたlibghosttyベースのターミナルアプリで見える状態にしたいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "ゼッド"
+            ],
+            "rows": [
+              [
+                "一次表面",
+                "ターミナル、ブラウザ、ワークスペース、分割",
+                "コラボレーション機能と AI 機能を備えたコードエディター"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "Rust/GPUIのGPUアクセラレーションデスクトップエディタで、Electron/Tauriではない"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "オープンソース。主にGPL-3.0-or-laterで、明示されたコンポーネントはApache-2.0"
+              ],
+              [
+                "エージェントのワークフロー",
+                "表示されるターミナル ワークスペース内の任意の CLI エージェントまたはシェル ツール",
+                "エディタ内のZed Agent、ACP External Agents、ターミナル backed agent threads"
+              ],
+              [
+                "ターミナルエンジン",
+                "ターミナルレンダリング用に libghostty 上に構築",
+                "Alacrittyをバックエンドとして使う組み込みターミナルエミュレータ"
+              ],
+              [
+                "注目モデル",
+                "ペインリング、サイドバーの未読状態、Cmd+Shift+U、Cmd+Control+U",
+                "エディターのタブ、パネル、および通知"
+              ],
+              [
+                "向いている用途",
+                "エディターの傍らで多数のターミナル エージェントを監視する",
+                "共同エディター機能を使用してコードを迅速に編集する"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux と Zed はペアリング可能",
+              "body": "cmux がエディタである必要はありません。編集には Zed を使用し、ターミナル エージェント、ブラウザ チェック、ローカル サービス、ログ、レビュー キューには cmux を使用します。"
+            },
+            {
+              "title": "ターミナルエージェントにはターミナルコントロールプレーンが必要です",
+              "body": "エージェントがシェルで実行される場合、ワークフローにはコマンド、テスト、ファイル ウォッチャー、ポート、ログ、権限、プロンプトが含まれます。 cmux は、これらのセッションをブランチ、ディレクトリ、最新の出力、および未読の状態を含むワークスペースとして表示します。"
+            },
+            {
+              "title": "通知は第一級です",
+              "body": "cmux は、エージェントの完了を使い捨てのデスクトップ通知として扱いません。アプリ内で未読状態を維持し、ペインを呼び出し、Cmd+Shift+U および Cmd+Control+U を使用して迅速なレビュー ナビゲーションを提供します。"
+            },
+            {
+              "title": "ワークフローはプログラム可能です",
+              "body": "cmux CLI とソケット API を使用すると、スクリプトとエージェントでワークスペースの作成、ペインの分割、入力の送信、画面の読み取り、スクリーンショットのキャプチャ、使用するエディターの周囲のブラウザ ペインの操作が可能になります。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は Zed に代わるものですか?",
+          "faqA1": "いいえ、ゼッドは編集者です。 cmux は、エディターの横でエージェントとツールを実行するためのターミナルおよびブラウザーのワークスペースです。",
+          "faqQ2": "Zed はオープンソースですか?",
+          "faqA2": "はい。 Zed はオープン ソースであるため、比較はオープン ソースとクローズ ソースではなく、製品レイヤーに関するものです。",
+          "faqQ3": "Zed で cmux を使用する理由",
+          "faqA3": "ターミナル エージェントの監視、通知リング、ブラウザの自動化、およびエディタ外のスクリプト可能なワークスペースが必要な場合は、cmux を使用します。"
+        },
+        "cmuxVsWarp": {
+          "metaTitle": "AI コーディング エージェントの cmux と Warp — cmux",
+          "metaDescription": "ターミナルAIワークフロー、エージェント監督、ネイティブmacOS性能、ローカルのプログラム可能性、クラウドエージェントオーケストレーションについてcmuxとWarpを比較します。",
+          "title": "cmux とワープ",
+          "intro": "Warpはターミナルを起点にしたオープンソースのエージェント型開発環境で、組み込みエージェント、サードパーティCLIエージェント対応、Ozクラウドワークフローを備えています。cmuxは、多数のローカルコーディングエージェントセッションを中心に作られたネイティブmacOSターミナルで、縦型ワークスペース、通知リング、スクリプト可能なソケットを備えています。",
+          "summaryTitle": "AI端末 vs エージェント監視端末",
+          "summaryBody": "組み込みエージェント、サードパーティCLIエージェント対応、クラウド実行、Oz自動化を備えたエージェント型開発環境が欲しいならWarpが強みを発揮します。すでに使っているCLIエージェント向けに、通知リング、Cmd+Shift+U、Cmd+Control+U、ブラウザペイン、プログラム可能なソケットを備えたGPLライセンス、ローカルファースト、libghosttyベースのネイティブMacターミナルが欲しいならcmuxが強みを発揮します。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "ワープ"
+            ],
+            "rows": [
+              [
+                "コアワークフロー",
+                "多くの CLI エージェントを監視する",
+                "AI端末体験"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "オープンソースのAGPLクライアント。公式ドキュメントはクロスプラットフォームのRust + GPU描画コードベースと説明している"
+              ],
+              [
+                "レンダリングエンジン",
+                "ターミナルレンダリング用に libghostty 上に構築",
+                "Rust + GPU描画のターミナルクライアント"
+              ],
+              [
+                "エージェントの選択",
+                "任意のシェルベースのエージェント",
+                "Warp Agentに加え、Claude Code、Codex、Gemini CLI、OpenCodeなどの対応サードパーティCLIエージェント"
+              ],
+              [
+                "ソースモデル",
+                "無料のオープンソース GPL アプリ",
+                "オープンソース クライアントとマネージド製品およびクラウド サービス"
+              ],
+              [
+                "組織",
+                "垂直ワークスペース、通知リング、Cmd+Shift+U、Cmd+Control+U",
+                "縦型タブ、分割、エージェントメタデータ、通知、Warp/Ozワークフロー"
+              ],
+              [
+                "プログラマビリティ",
+                "Unix ソケット、CLI、ブラウザ自動化",
+                "Oz CLI/API/SDK、settings.toml、Warp/Oz自動化。cmuxのローカルアプリソケットとブラウザ自動化に相当する文書化された機能はない"
+              ],
+              [
+                "向いている用途",
+                "エージェントを多用する macOS ユーザー",
+                "Warp を端末として採用しているチーム"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux はエージェントを長時間実行される作業として扱います",
+              "body": "コーディング エージェントは、テストの実行、質問、レビューの待機に多くの時間を費やします。 cmux はこれらのセッションを表示したままにし、注意が必要なペインを呼び出して、未読の作業をキーボードからジャンプできるようにします。"
+            },
+            {
+              "title": "ローカルなシェルエージェントの柔軟性",
+              "body": "cmux は、どの CLI がペインを所有しているかを気にしません。 1 つのワークスペースで Claude Code、別のワークスペースで Codex、3 番目のワークスペースで OpenCode を実行し、それらすべての隣で通常のシェル コマンドを実行できます。"
+            },
+            {
+              "title": "Macのネイティブパフォーマンス",
+              "body": "cmux は、libghostty レンダリングを備えた Swift/AppKit です。これにより、Ghostty エンジンによる最新の端末の動作を維持しながら、多くの端末、ブラウザ ペイン、開発サーバー、エージェントが開いているときに UI レイヤーを無駄のない状態に保ちます。"
+            },
+            {
+              "title": "カスタムワークフローのプログラマビリティ",
+              "body": "cmux CLI とソケット API を使用すると、スクリプトとエージェントでワークスペースの作成、ペインの分割、入力の送信、画面の読み取り、スクリーンショットの取得、組み込みブラウザの駆動を行うことができます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は Warp のような AI 端末ですか?",
+          "faqA1": "Warpは組み込みエージェントとクラウドワークフローを備えたエージェント型開発環境です。cmuxは、ターミナルに埋め込まれたAIアシスタントではなく、シェルベースのAIエージェントを監督するためのローカルMacターミナルです。",
+          "faqQ2": "Warp と cmux を併用できますか?",
+          "faqA2": "はい。それぞれのタスクに適した端末を使用してください。 cmux は、多くのエージェント セッションが整理と注意の追跡を必要とする場合に最も効果的です。",
+          "faqQ3": "コーディングエージェントに cmux を選択する理由は何ですか?",
+          "faqA3": "cmux は、ワークスペース、通知リング、未読ナビゲーション、ブラウザ自動化、およびすでに使用している CLI エージェントの周囲にプログラム可能なソケットを追加します。"
+        },
+        "cmuxVsWezterm": {
+          "metaTitle": "AI コーディング エージェントの cmux と WezTerm の比較 - cmux",
+          "metaDescription": "ターミナルの多重化、AI コーディング エージェント、通知リング、未読のショートカット、ブラウザの自動化、プログラム可能なワークフローについて cmux と WezTerm を比較します。",
+          "title": "cmux と WezTerm の比較",
+          "intro": "WezTerm は、GPU で高速化されたクロスプラットフォームのターミナル エミュレータおよびマルチプレクサです。 cmux は、libghostty 上に構築されたネイティブ macOS ターミナルおよびブラウザ ワークスペースで、エージェント対応ワークスペース、通知リング、未読キーボード ナビゲーション、および Unix ソケット API を追加します。",
+          "summaryTitle": "クロスプラットフォームのターミナル マルチプレクサと Mac エージェント コンソール",
+          "summaryBody": "強力なクロスプラットフォームターミナル、Lua設定、ターミナル/mux自動化が欲しいならWezTermを使います。Mac上でローカルに作業し、多くのコーディングエージェントを実行し、通知リング、Cmd+Shift+U、Cmd+Control+U、ブラウザペイン、サイドバーメタデータ、アプリレベルのソケット制御が欲しいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "ウェズターム"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "ネイティブ macOS エージェントの監視",
+                "クロスプラットフォームのターミナルエミュレータとマルチプレクサ"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "Rust製GPUターミナルエミュレータ兼マルチプレクサ"
+              ],
+              [
+                "レンダリングエンジン",
+                "libghostty 上に構築され、最新の GPU アクセラレーションによるターミナル レンダリングを実現",
+                "組み込みmuxを備えたGPUアクセラレーションターミナルレンダラー"
+              ],
+              [
+                "組織",
+                "垂直ワークスペース、ブランチおよびポートのメタデータ、未読状態",
+                "タブ、ペイン、ウィンドウ、および多重化"
+              ],
+              [
+                "注目モデル",
+                "通知リング、未読バッジ、Cmd+Shift+U、Cmd+Control+U",
+                "端末通知とカスタムステータス"
+              ],
+              [
+                "ブラウザのワークフロー",
+                "自動化された組み込みブラウザ ペイン",
+                "リンクとWebチェック用の外部ブラウザ"
+              ],
+              [
+                "向いている用途",
+                "Mac 開発者がエージェント間でマルチタスクを実行",
+                "クロスプラットフォーム端末の電源を必要とするユーザー"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "WezTerm は端末としての幅が広い",
+              "body": "WezTerm はさまざまなプラットフォームで動作し、端末多重化機能を備えています。 cmux は、macOS エージェントのワークフローとローカル コーディング セッション周辺の UI に意図的に重点を置いています。"
+            },
+            {
+              "title": "cmux は Ghostty のターミナル コアを使用します",
+              "body": "cmux はターミナル レンダリングに libghostty を使用し、Mac アプリに最新の GPU アクセラレーション ターミナル エンジン、最新のターミナル プロトコルとの強力な互換性、グラフィック サポート、および Ghostty スタイルのビジュアル構成を提供します。"
+            },
+            {
+              "title": "cmux はエージェントの注意を可視化します",
+              "body": "多くのエージェントを同時に実行する場合、最も難しい問題はレビューを待っているエージェントを見つけることです。 cmux は、ペイン リングとサイドバー バッジを使用して未読状態を表示し続け、キーボードでアドレス指定できるようにします。"
+            },
+            {
+              "title": "ショートカットはマルチタスクのワークフローをエンコードします",
+              "body": "Cmd+Shift+U は、最新の未読ペインにジャンプします。 Cmd+Control+U は、未読のセッションをクリアせずに循環させます。これらは一般的な端末ショートカットではありません。これらはエージェントレビューのショートカットです。"
+            },
+            {
+              "title": "ブラウザの自動化は端末のそばにあります",
+              "body": "cmux はターミナルの隣にブラウザ ペインを分割し、同じソケット API を通じてブラウザ自動化を公開できるため、エージェントはワークスペースを離れることなくローカル Web アプリを検証できます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "WezTerm は AI コーディング エージェントを実行できますか?",
+          "faqA1": "はい。WezTermは任意のターミナルと同じようにCLIエージェントを実行でき、CLIでターミナルペインを自動化できます。cmuxは、それらのターミナルの横に、エージェント固有の未読状態、通知リング、サイドバーメタデータ、ブラウザ自動化を追加します。",
+          "faqQ2": "macOS で cmux を選択する理由?",
+          "faqA2": "ボトルネックが多数のローカル エージェントにわたるマルチタスクであり、ターミナル アプリ自体で注意を追跡したい場合は、cmux を選択してください。",
+          "faqQ3": "WezTerm がより良い選択となるのはどのような場合ですか?",
+          "faqA3": "クロスプラットフォームの端末の動作、端末の多重化、Lua で構成された端末のワークフローが Mac ネイティブのエージェント コンソールよりも重要な場合は、WezTerm を使用します。"
+        },
+        "cmuxVsGhostty": {
+          "metaTitle": "コーディングエージェントのための cmux と Ghostty — cmux",
+          "metaDescription": "macOS ターミナルのワークフロー、コーディング エージェント、libghostty のパフォーマンス、垂直タブ、通知、およびプログラム可能性について、cmux と Ghostty を比較します。",
+          "title": "cmux 対 Ghostty",
+          "intro": "Ghostty は高速ターミナル エミュレータです。 cmux は、libghostty 上に構築された個別のネイティブ macOS アプリで、ワークスペース、垂直タブ、通知リング、ブラウザ ペイン、およびコーディング エージェント ワークフロー用のソケット API を追加します。",
+          "summaryTitle": "同じレンダリング エンジン ファミリ、異なるジョブ",
+          "summaryBody": "集中したターミナルエミュレータが欲しいならGhosttyを使います。永続的な未読状態、ブラウザペイン、エージェントがペイン作成、ターミナル読み取り、スクリーンショット取得、Webチェック操作をできるUnixソケットを備えたエージェントワークスペース内でlibghostty描画を使いたいならcmuxを使います。",
+          "table": {
+            "headers": [
+              "項目",
+              "cmux",
+              "ゴーストティ"
+            ],
+            "rows": [
+              [
+                "主な仕事",
+                "エージェントの監視とマルチタスク",
+                "汎用端子"
+              ],
+              [
+                "デスクトップ構成",
+                "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
+                "共有Zigコアとlibghosttyを備えたネイティブSwiftUI macOSアプリ"
+              ],
+              [
+                "レンダリング",
+                "libghostty 上に構築",
+                "macOSではMetal、LinuxではOpenGL、共有Ghostty/libghosttyターミナルコア"
+              ],
+              [
+                "組織",
+                "垂直ワークスペース、分割、サイドバーのメタデータ",
+                "ターミナルウィンドウ、タブ、分割"
+              ],
+              [
+                "エージェントの注意",
+                "通知音が鳴る、Cmd+Shift+U、Cmd+Control+U",
+                "デスクトップ通知、タブ、分割、AppleScript。cmux風の未読リングやブラウザペインは文書化されていない"
+              ],
+              [
+                "オートメーション",
+                "cmux CLI、ソケット API、ブラウザ自動化",
+                "ターミナルウィンドウ、タブ、分割、入力用のAppleScriptとショートカット"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux は Ghostty フォークではありません",
+              "body": "Ghosttyは優れたターミナルエミュレータで、現在はターミナル自動化向けAppleScriptも備えています。cmuxはエージェントワークフロー向けにさらに進め、ターミナル制御、ワークスペース状態、通知、スクリーンショット、ブラウザペインを1つのCLI/ソケット面で公開します。そのためエージェントはワークスペースを離れずにコマンドを実行し、Webアプリを検証できます。"
+            },
+            {
+              "title": "垂直型ワークスペースはエージェントにとってより適切に拡張できます",
+              "body": "エージェント セッションは、永続的な名前、ブランチ コンテキスト、ディレクトリ コンテキスト、ポート、および未読状態から恩恵を受けます。 cmux はそのメタデータをサイドバーに配置するため、多数のセッションをスキャン可能な状態に保ちます。"
+            },
+            {
+              "title": "通知がナビゲート可能な状態になる",
+              "body": "デスクトップ通知は消えると見逃しやすいものです。cmuxは未読状態をアプリ内に保ち、ペインをリング表示し、サイドバーに印を付け、Cmd+Shift+Uで最新の未読セッションへ移動できるようにします。"
+            },
+            {
+              "title": "自動化はシェルの外側にまで到達します",
+              "body": "cmux は、ブラウザの自動化を含む、CLI および Unix ソケットを介してアプリレベルのアクションを公開します。エージェントは、同じワークスペースから Web ページの検査、クリック、入力、端末画面の読み取り、スクリーンショットの取得を行うことができます。"
+            }
+          ],
+          "faqTitle": "FAQ",
+          "faqQ1": "cmux は Ghostty チームによって構築されていますか?",
+          "faqA1": "いいえ。cmux は、ターミナルのレンダリングに libghostty を使用する別のプロジェクトです。",
+          "faqQ2": "cmux は Ghostty 構成を読み取りますか?",
+          "faqA2": "はい。 cmux は、フォント、テーマ、色、カーソルの動作などの端末レンダリングの選択のために Ghostty 構成を読み取ります。",
+          "faqQ3": "Ghostty の代わりに cmux を使用する必要があるのはどのような場合ですか?",
+          "faqA3": "複数のコーディング エージェントを実行し、ワークスペース、通知リング、未読ナビゲーション、ブラウザ ペイン、およびそれらの周りのプログラミング機能が必要な場合は、cmux を使用します。"
+        }
+      }
+    },
     "cta": {
       "freeOpenSource": "cmuxはmacOS向けの無料・オープンソースです。",
       "seeAlso": "関連項目"
@@ -2104,7 +4184,10 @@
       "geminiCli": "Gemini CLI のためのターミナル",
       "aider": "Aider のためのターミナル",
       "amp": "Amp のためのターミナル",
-      "cursorCli": "Cursor CLI のためのターミナル"
+      "cursorCli": "Cursor CLI のためのターミナル",
+      "keyboardShortcuts": "キーボードショートカット",
+      "browserAutomation": "ブラウザ自動化",
+      "compare": "cmuxを比較"
     },
     "agents": {
       "metaTitle": "コーディングエージェントのためのターミナル | cmux",
@@ -2220,6 +4303,91 @@
       "faqA3": "Cursor CLI が完了したり入力を求めたりすると、ペインがリングで知らせ、サイドバーに未読バッジが表示されるので、走らせておいて必要なときに戻ってこられます。",
       "faqQ4": "Cursor CLI と一緒に使う cmux は無料ですか？",
       "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
+    }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "{platform}版の順番待ちリストに登録",
+    "titleAny": "順番待ちリストに登録",
+    "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
+    "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
+    "calloutText": "Linux・Windows・Android 版も準備中です。",
+    "platformsLabel": "対象プラットフォーム",
+    "selectPlatform": "1つ以上選択してください。",
+    "emailLabel": "メールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "join": "リストに登録",
+    "joining": "登録中…",
+    "cancel": "キャンセル",
+    "invalidEmail": "有効なメールアドレスを入力してください。",
+    "sendError": "送信できませんでした。もう一度お試しください。",
+    "successTitle": "登録が完了しました",
+    "successBody": "{platform}版が利用可能になりましたらメールでお知らせします。",
+    "successBodyAny": "cmux がお使いのプラットフォームで利用可能になりましたらメールでお知らせします。",
+    "done": "完了"
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "cmux Enterprise の導入、SSO、セルフホスト Cloud VM、監査ログ、コミット利用について相談できます。",
+    "section": "Enterprise",
+    "title": "cmux Cloud VM、SSO、監査管理をチームに導入できます。",
+    "body": "組織で cmux を展開するために必要な内容をお知らせください。Enterprise の問い合わせは創業者に直接届くため、セキュリティレビュー、購買、セルフホスト要件をすぐに確認できます。",
+    "points": [
+      "コードを自社環境内に残すためのセルフホスト Cloud 実行とネットワーク。",
+      "SSO、SAML、監査ログ、一元管理、共有チームルール。",
+      "コミット利用、ボリューム価格、セキュリティや購買レビューのサポート。"
+    ],
+    "formAriaLabel": "Enterprise 問い合わせフォーム",
+    "form": {
+      "firstName": "名",
+      "lastName": "姓",
+      "companyName": "会社名",
+      "jobFunction": "職種",
+      "jobTitle": "役職",
+      "businessEmail": "勤務先メールアドレス",
+      "phoneNumber": "電話番号",
+      "country": "国",
+      "companySize": "会社規模",
+      "deploymentNeeds": "導入要件",
+      "comments": "コメント",
+      "selectPlaceholder": "選択してください",
+      "jobFunctionOptions": [
+        "エンジニアリング",
+        "プラットフォーム",
+        "セキュリティ",
+        "IT",
+        "購買",
+        "経営層",
+        "その他"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO または SAML",
+        "セルフホスト Cloud VM",
+        "セルフホスト モデルゲートウェイ",
+        "監査ログとコンプライアンス",
+        "Cloud VM のコミット利用",
+        "セキュリティまたは購買レビュー",
+        "その他"
+      ],
+      "privacy": "この情報は Enterprise のご相談への返信と、適切な創業者への共有に使用します。連絡先情報を販売することはありません。",
+      "submit": "送信",
+      "submitting": "送信中...",
+      "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   }
 }
