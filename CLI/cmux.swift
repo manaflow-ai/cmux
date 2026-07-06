@@ -13808,7 +13808,7 @@ struct CMUXCLI {
         return isUUID(value) ? value : nil
     }
 
-    private func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
+    func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
@@ -22855,7 +22855,7 @@ struct CMUXCLI {
         func callerTTYBinding() -> CallerTerminalBinding? {
             if !didResolveCallerTTYBinding {
                 didResolveCallerTTYBinding = true
-                let ttyBinding = resolveCallerTerminalBindingByTTY(
+                let ttyBinding = uniqueCallerTerminalBindingByTTY(
                     client: client,
                     includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
                 )

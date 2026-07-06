@@ -45,27 +45,62 @@ extension CMUXCLI {
 
     /// Resolve `raw` to a workspace id only when that workspace currently exists.
     func strictClaudeHookWorkspaceId(_ raw: String, client: SocketClient) -> String? {
-        // Only trust UUID identities. `resolveWorkspaceId` falls through to
-        // `workspace.current` (the focused tab) for any input that isn't a UUID,
-        // handle ref, or numeric index — which would structurally reintroduce the
-        // focused-tab misroute this resolver exists to prevent (e.g. a non-UUID
-        // CMUX_WORKSPACE_ID). Hook identities are always workspace UUIDs, so this
-        // costs nothing and enforces the "never fall back to focused" invariant.
-        guard isUUID(raw), claudeHookWorkspaceExists(raw, client: client) else {
+        // UUID identities (hook session records, live CMUX_WORKSPACE_ID) validate directly.
+        if isUUID(raw) {
+            return claudeHookWorkspaceExists(raw, client: client) ? raw : nil
+        }
+        // Explicit non-UUID selectors (handle refs like "workspace:1", numeric indexes —
+        // both documented for --workspace) resolve strictly. `resolveWorkspaceId` fails
+        // closed for every non-blank selector, and `raw` is non-blank here (callers pass
+        // it through `nonEmptyClaudeHookIdentifier`), so the focused-tab fallback inside
+        // `resolveWorkspaceId` is structurally unreachable and the "never fall back to
+        // focused" invariant holds.
+        guard let resolved = try? resolveWorkspaceId(raw, client: client),
+              isUUID(resolved),
+              claudeHookWorkspaceExists(resolved, client: client) else {
             return nil
         }
-        return raw
+        return resolved
     }
 
     func claudeHookWorkspaceExists(_ workspaceId: String, client: SocketClient) -> Bool {
         (try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])) != nil
     }
 
+    /// Caller-TTY binding that refuses ambiguous TTY matches: returns a binding only
+    /// when every `debug.terminals` entry for the caller's TTY name agrees on a single
+    /// workspace (macOS reuses `ttysNNN` names, and stale entries can shadow live ones).
+    /// PID-derived bindings don't need this guard — a PID lives in exactly one surface.
+    func uniqueCallerTerminalBindingByTTY(
+        client: SocketClient,
+        includeAmbientTTY: Bool = true
+    ) -> CallerTerminalBinding? {
+        guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY),
+              let payload = try? client.sendV2(method: "debug.terminals") else {
+            return nil
+        }
+        let terminals = payload["terminals"] as? [[String: Any]] ?? []
+        var matched: [CallerTerminalBinding] = []
+        for terminal in terminals {
+            guard normalizedTTYName(terminal["tty"] as? String) == ttyName,
+                  let workspaceId = normalizedHandleValue(terminal["workspace_id"] as? String),
+                  let surfaceId = normalizedHandleValue(terminal["surface_id"] as? String) else {
+                continue
+            }
+            matched.append(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
+        }
+        guard let first = matched.first,
+              matched.allSatisfy({ $0.workspaceId == first.workspaceId }) else {
+            return nil
+        }
+        return first
+    }
+
     /// Like `resolveCallerWorkspaceIdForClaudeHook`, but refuses to guess when the
     /// caller's TTY name maps to more than one workspace. macOS reuses `ttysNNN`
     /// device names across panes/sessions, so a first-match on a shared name would
-    /// route to an arbitrary sibling session. A PID/closure-provided binding is
-    /// authoritative (unique by construction) and used directly.
+    /// route to an arbitrary sibling session. The provider closure yields only
+    /// unambiguous-TTY or PID-derived bindings, so it is trusted directly.
     func uniqueCallerWorkspaceIdForClaudeHook(
         callerTerminalBinding: (() -> CallerTerminalBinding?)?,
         client: SocketClient
