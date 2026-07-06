@@ -156,6 +156,11 @@ extension Workspace {
             unsupportedSurfaceCount += 1
             definition = CmuxSurfaceDefinition(type: .terminal)
         }
+        // The declarative schema models only the single focused surface
+        // (`focus`); per-pane tab selection is not representable without a
+        // schema extension, so non-focused multi-tab panes reopen with their
+        // first tab selected (tracked in
+        // https://github.com/manaflow-ai/cmux/issues/7444).
         if focusedPanelId == panelId {
             definition.focus = true
         }
