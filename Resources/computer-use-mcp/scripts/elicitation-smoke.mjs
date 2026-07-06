@@ -425,6 +425,35 @@ if (
   process.exit(1);
 }
 
+const malformedScroll = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_scroll", args: { app: "TestApp", element: 1, direction: "sideways" } },
+    { tool: "computer_scroll", args: { app: "TestApp", element: 1, direction: "down" } },
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_scroll", args: { app: "TestApp", element: 1, direction: "down", pages: 0 } },
+    { tool: "computer_scroll", args: { app: "TestApp", element: 1, direction: "down", pages: 1 } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(
+  `malformed scroll -> state=${malformedScroll[0].isError} direction=${malformedScroll[1].isError} after-direction=${malformedScroll[2].isError} state2=${malformedScroll[3].isError} pages=${malformedScroll[4].isError} after-pages=${malformedScroll[5].isError}`
+);
+if (
+  malformedScroll[0].isError ||
+  !malformedScroll[1].isError ||
+  !malformedScroll[1].text.includes("direction") ||
+  malformedScroll[2].isError ||
+  malformedScroll[3].isError ||
+  !malformedScroll[4].isError ||
+  !malformedScroll[4].text.includes("pages") ||
+  malformedScroll[5].isError
+) {
+  console.error("FAIL: malformed scroll arguments should be rejected before consuming the snapshot");
+  process.exit(1);
+}
+
 const nullElement = await runCalls({
   withElicitation: true,
   calls: [

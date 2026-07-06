@@ -148,42 +148,56 @@ func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: Stri
     return nil
 }
 
-func windowInfoFor(pid: pid_t, windowId: Int?) -> [String: Any]? {
+func visibleWindowEntries(pid: pid_t? = nil) -> [[String: Any]] {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-    guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return nil }
-    for entry in list {
+    guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
+    return list.filter { entry in
         let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.intValue ?? -1
         let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
-        let number = (entry[kCGWindowNumber as String] as? NSNumber)?.intValue ?? -1
-        if ownerPID != Int(pid) || layer != 0 { continue }
-        if let windowId, number != windowId { continue }
-        var output: [String: Any] = [
-            "id": number,
-            "title": entry[kCGWindowName as String] ?? "",
-            "app": entry[kCGWindowOwnerName as String] ?? "",
-            "pid": ownerPID,
-        ]
-        if let bounds = entry[kCGWindowBounds as String] as? [String: Any] {
-            output["bounds"] = [
-                "x": Double((bounds["X"] as? NSNumber)?.doubleValue ?? 0),
-                "y": Double((bounds["Y"] as? NSNumber)?.doubleValue ?? 0),
-                "width": Double((bounds["Width"] as? NSNumber)?.doubleValue ?? 0),
-                "height": Double((bounds["Height"] as? NSNumber)?.doubleValue ?? 0),
-            ]
+        if let pid {
+            return layer == 0 && ownerPID == Int(pid)
         }
-        return output
+        return layer == 0
+    }
+}
+
+func windowEntryBounds(_ entry: [String: Any]) -> [String: Double]? {
+    guard let bounds = entry[kCGWindowBounds as String] as? [String: Any] else { return nil }
+    return [
+        "x": Double((bounds["X"] as? NSNumber)?.doubleValue ?? 0),
+        "y": Double((bounds["Y"] as? NSNumber)?.doubleValue ?? 0),
+        "width": Double((bounds["Width"] as? NSNumber)?.doubleValue ?? 0),
+        "height": Double((bounds["Height"] as? NSNumber)?.doubleValue ?? 0),
+    ]
+}
+
+func windowInfo(_ entry: [String: Any]) -> [String: Any] {
+    var output: [String: Any] = [
+        "id": (entry[kCGWindowNumber as String] as? NSNumber)?.intValue ?? -1,
+        "title": entry[kCGWindowName as String] ?? "",
+        "app": entry[kCGWindowOwnerName as String] ?? "",
+        "pid": (entry[kCGWindowOwnerPID as String] as? NSNumber)?.intValue ?? -1,
+    ]
+    if let bounds = windowEntryBounds(entry) {
+        output["bounds"] = bounds
+    }
+    return output
+}
+
+func windowInfoFor(pid: pid_t, windowId: Int?) -> [String: Any]? {
+    for entry in visibleWindowEntries(pid: pid) {
+        let number = (entry[kCGWindowNumber as String] as? NSNumber)?.intValue ?? -1
+        if let windowId, number != windowId { continue }
+        return windowInfo(entry)
     }
     return nil
 }
 
 func listWindows(match: String?) -> [[String: Any]] {
-    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-    guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
     let needle = (match ?? "").lowercased()
     var windows: [[String: Any]] = []
-    for entry in list {
+    for entry in visibleWindowEntries() {
         let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
-        if layer != 0 { continue }
         let app = entry[kCGWindowOwnerName as String] ?? ""
         let title = entry[kCGWindowName as String] ?? ""
         if !needle.isEmpty &&
@@ -206,13 +220,33 @@ func listWindows(match: String?) -> [[String: Any]] {
     return windows
 }
 
+func resolvedWindowIdFor(_ window: AXUIElement, pid: pid_t) -> Int? {
+    if let number = windowNumberFor(window) { return number }
+    guard let axBounds = boundsFor(window) else { return nil }
+    let axTitle = stringAttr(window, kAXTitleAttribute as String)
+    let candidates = visibleWindowEntries(pid: pid).filter { entry in
+        guard let bounds = windowEntryBounds(entry) else { return false }
+        return boundsNearlyEqual(axBounds, bounds)
+    }
+    if candidates.count == 1 {
+        return (candidates[0][kCGWindowNumber as String] as? NSNumber)?.intValue
+    }
+    let titleMatches = candidates.filter { entry in
+        String(describing: entry[kCGWindowName as String] ?? "") == axTitle
+    }
+    if titleMatches.count == 1 {
+        return (titleMatches[0][kCGWindowNumber as String] as? NSNumber)?.intValue
+    }
+    return nil
+}
+
 func appRoot(_ app: NSRunningApplication, windowIndex: Int?, windowId: Int?) -> (AXUIElement, String, Int?, Int?) {
     let root = AXUIElementCreateApplication(app.processIdentifier)
     let windows = childrenAttr(root, kAXWindowsAttribute as String)
     if !windows.isEmpty {
         if let windowId {
             for (index, window) in windows.enumerated() {
-                if windowNumberFor(window) == windowId {
+                if resolvedWindowIdFor(window, pid: app.processIdentifier) == windowId {
                     return (window, "window", index, windowId)
                 }
             }
@@ -220,7 +254,7 @@ func appRoot(_ app: NSRunningApplication, windowIndex: Int?, windowId: Int?) -> 
         }
         let index = min(max(windowIndex ?? 0, 0), windows.count - 1)
         let window = windows[index]
-        return (window, "window", index, windowNumberFor(window))
+        return (window, "window", index, resolvedWindowIdFor(window, pid: app.processIdentifier))
     }
     if let windowId {
         fail("window no longer exists: \(windowId)")
@@ -239,9 +273,29 @@ func waitForFrontmost(_ app: NSRunningApplication, timeoutMS: Int) -> Bool {
     return NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
 }
 
+func requestActivation(_ app: NSRunningApplication) {
+    _ = app.activate(options: [.activateAllWindows])
+    if waitForFrontmost(app, timeoutMS: 350) { return }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    if let bundleIdentifier = app.bundleIdentifier, !bundleIdentifier.isEmpty {
+        process.arguments = ["-b", bundleIdentifier]
+    } else if let bundleURL = app.bundleURL {
+        process.arguments = [bundleURL.path]
+    } else {
+        return
+    }
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return
+    }
+}
+
 func ensureFrontmostForInput(_ app: NSRunningApplication) {
     if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return }
-    _ = app.activate()
+    requestActivation(app)
     guard waitForFrontmost(app, timeoutMS: 1200) else {
         fail("target app did not become frontmost for input")
     }
@@ -249,7 +303,7 @@ func ensureFrontmostForInput(_ app: NSRunningApplication) {
 
 func ensureFocusedWindow(_ app: NSRunningApplication, _ window: AXUIElement, windowId: Int?) {
     guard let windowId else { return }
-    guard windowNumberFor(window) == windowId else { fail("window no longer exists: \(windowId)") }
+    guard resolvedWindowIdFor(window, pid: app.processIdentifier) == windowId else { fail("window no longer exists: \(windowId)") }
     let appElement = AXUIElementCreateApplication(app.processIdentifier)
     _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
     _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
@@ -264,7 +318,7 @@ func ensureFocusedWindow(_ app: NSRunningApplication, _ window: AXUIElement, win
         fail("target window did not become focused for input")
     }
     let focusedWindow = focusedValue as! AXUIElement
-    guard windowNumberFor(focusedWindow) == windowId else {
+    guard resolvedWindowIdFor(focusedWindow, pid: app.processIdentifier) == windowId else {
         fail("target window did not become focused for input")
     }
 }

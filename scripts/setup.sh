@@ -16,6 +16,13 @@ if ! command -v zig &> /dev/null; then
     exit 1
 fi
 
+echo "==> Checking for bun..."
+if ! command -v bun &> /dev/null; then
+    echo "Error: bun is not installed."
+    echo "Install via: brew install oven-sh/bun/bun"
+    exit 1
+fi
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"
