@@ -144,10 +144,14 @@ extension TerminalController: ControlWorkspaceTodoContext {
             return .notFound
         case .found(let tabManager, let workspace):
             if let statusRaw {
-                guard let status = WorkspaceTaskStatus(rawValue: statusRaw) else {
-                    return .invalidStatus(statusRaw)
+                if statusRaw == "none" {
+                    workspace.hideTaskStatus()
+                } else {
+                    guard let status = WorkspaceTaskStatus(rawValue: statusRaw) else {
+                        return .invalidStatus(statusRaw)
+                    }
+                    workspace.setTaskStatusOverride(status)
                 }
-                workspace.setTaskStatusOverride(status)
             } else {
                 workspace.clearTaskStatusOverride()
             }

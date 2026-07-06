@@ -32,17 +32,27 @@ extension TabItemView {
         // one apply path) so both surfaces stay in lockstep.
         let statusLanes = WorkspaceTodoStatusLane.lanes(
             inferred: inferred,
-            activeOverride: activeOverride
+            activeOverride: activeOverride,
+            isHidden: tab.todoState.statusHidden
         )
         Menu(String(localized: "contextMenu.workspaceStatus", defaultValue: "Status")) {
             ForEach(statusLanes) { lane in
+                // Divider before the None row (separates opt-out from lanes).
+                if lane.isNone {
+                    Divider()
+                }
                 workspaceTodoStatusMenuButton(
                     title: lane.title,
                     isSelected: lane.isSelected
                 ) {
-                    WorkspaceTodoActions.applyStatusOverride(lane.status, to: workspaceTodoTargetWorkspaces())
+                    if lane.isNone {
+                        WorkspaceTodoActions.hideStatus(for: workspaceTodoTargetWorkspaces())
+                    } else {
+                        WorkspaceTodoActions.applyStatusOverride(lane.status, to: workspaceTodoTargetWorkspaces())
+                    }
                 }
-                if lane.status == nil {
+                // Divider after the Auto row (first lane, nil status, not None).
+                if lane.status == nil, !lane.isNone {
                     Divider()
                 }
             }

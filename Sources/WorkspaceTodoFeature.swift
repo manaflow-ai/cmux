@@ -62,6 +62,15 @@ enum WorkspaceTodoActions {
         WorkspaceTodoFeature.markUsed()
     }
 
+    /// Opts each workspace out of the status feature (None): hide the glyph.
+    static func hideStatus(for workspaces: [Workspace]) {
+        guard !workspaces.isEmpty else { return }
+        for workspace in workspaces {
+            workspace.hideTaskStatus()
+        }
+        WorkspaceTodoFeature.markUsed()
+    }
+
     /// The glyph's option-click one-step toggle: pin `.done` unless the
     /// workspace already reads done, in which case return it to automatic.
     static func toggleDone(for workspace: Workspace) {

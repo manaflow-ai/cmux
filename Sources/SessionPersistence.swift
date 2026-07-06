@@ -1865,6 +1865,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// `SessionPersistence+Todos.swift`.
     var taskStatusOverride: String? = nil
     var taskStatusInferredAtOverride: String? = nil
+    /// `true` when the workspace opted out of the status feature (None); absent
+    /// for the default (feature engaged), so old manifests decode unchanged.
+    var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
 }
 

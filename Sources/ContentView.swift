@@ -13806,6 +13806,9 @@ struct TabItemView: View, Equatable {
                         onSelectLane: { [tab] status in
                             WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
                         },
+                        onSelectNone: { [tab] in
+                            WorkspaceTodoActions.hideStatus(for: [tab])
+                        },
                         onOptionToggleDone: { [tab] in
                             WorkspaceTodoActions.toggleDone(for: tab)
                         }
@@ -15004,7 +15007,10 @@ struct TabItemView: View, Equatable {
         // Pure reads only: effective-status resolution never mutates; the
         // expired-override cleanup happens at explicit mutation entry points.
         let workspaceTodosEnabled = settings.workspaceTodosEnabled
-        let inferredTaskStatus = workspaceTodosEnabled ? tab.inferredTaskStatus : nil
+        // A workspace can opt out of the status feature (None): no glyph slot
+        // is reserved, exactly like when the feature is globally disabled.
+        let workspaceStatusVisible = workspaceTodosEnabled && !tab.todoState.statusHidden
+        let inferredTaskStatus = workspaceStatusVisible ? tab.inferredTaskStatus : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
             WorkspaceTaskStatusOverride.effectiveStatus(
                 override: tab.todoState.statusOverride,

@@ -291,9 +291,11 @@ struct SidebarWorkspaceChecklistSection: View {
         if isAddingItem {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 // A `plus.circle` "add" affordance, not an empty checkbox, so
-                // the add row never reads as a real (unchecked) item.
+                // the add row never reads as a real (unchecked) item. Uses the
+                // row's secondary color (which inverts on the selected row) so
+                // it never clashes as accent-blue on a blue selected row.
                 CmuxSystemSymbolImage(magnified: "plus.circle", pointSize: 8 * fontScale)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(secondaryColor)
                 TextField(
                     String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
                     text: $pendingItemText
@@ -379,15 +381,31 @@ private struct ChecklistSummaryPopoverModifier: ViewModifier {
     let onConsumeAddFieldActivation: () -> Void
     let onPopoverPresentedChange: @MainActor (Bool) -> Void
 
+    // The checklist popover embeds a first-responder TextField (the add / edit
+    // fields). SwiftUI's native `.popover` does not make its window key in
+    // cmux's focus-managed environment, so keystrokes fall through to the
+    // terminal. Host it in a real NSPopover (which takes key) instead. This
+    // anchor only exists on rows that actually have a checklist summary line,
+    // so it does not touch the every-row hover path the status glyph uses.
     func body(content: Content) -> some View {
-        content.popover(isPresented: $isPresented, arrowEdge: .trailing) {
-            SidebarWorkspaceChecklistPopover(
+        content.background(
+            SidebarWorkspaceTodoPopoverHost(
+                isPresented: $isPresented,
                 model: model,
-                actions: actions,
-                onConsumeAddFieldActivation: onConsumeAddFieldActivation,
-                onClose: { onPopoverPresentedChange(false) }
-            )
-            .frame(width: 320)
-        }
+                minWidth: 320,
+                maxHeight: 520,
+                preferredEdge: .maxX
+            ) { model, close in
+                SidebarWorkspaceChecklistPopover(
+                    model: model,
+                    actions: actions,
+                    onConsumeAddFieldActivation: onConsumeAddFieldActivation,
+                    onClose: {
+                        close()
+                        onPopoverPresentedChange(false)
+                    }
+                )
+            }
+        )
     }
 }

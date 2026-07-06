@@ -9,36 +9,46 @@ import SwiftUI
 /// identical lanes, titles, and selection through one model, and apply through
 /// the same `WorkspaceTodoActions.applyStatusOverride` path.
 struct WorkspaceTodoStatusLane: Equatable, Identifiable {
-    /// The lane to pin, or `nil` for Auto (clear the override).
+    /// The lane to pin, or `nil` for Auto (clear the override) and for None.
     let status: WorkspaceTaskStatus?
     let title: String
     let isSelected: Bool
+    /// The None row: opt the workspace out of the feature (hide the glyph).
+    var isNone: Bool = false
 
-    var id: String { status?.rawValue ?? "auto" }
+    var id: String { isNone ? "none" : (status?.rawValue ?? "auto") }
 }
 
 extension WorkspaceTodoStatusLane {
-    /// The ordered lane list: Auto first, then the five status lanes.
+    /// The ordered lane list: Auto first, then the five status lanes, then None.
     ///
     /// - Parameters:
     ///   - inferred: The lane the live signals currently infer.
     ///   - activeOverride: The pinned lane, or `nil` while automatic.
+    ///   - isHidden: Whether the workspace is opted out (None active).
     static func lanes(
         inferred: WorkspaceTaskStatus,
-        activeOverride: WorkspaceTaskStatus?
+        activeOverride: WorkspaceTaskStatus?,
+        isHidden: Bool = false
     ) -> [WorkspaceTodoStatusLane] {
         var lanes = [WorkspaceTodoStatusLane(
             status: nil,
             title: autoTitle(inferred: inferred, hasOverride: activeOverride != nil),
-            isSelected: activeOverride == nil
+            isSelected: activeOverride == nil && !isHidden
         )]
         lanes += WorkspaceTaskStatus.allCases.map { status in
             WorkspaceTodoStatusLane(
                 status: status,
                 title: status.displayName,
-                isSelected: activeOverride == status
+                isSelected: !isHidden && activeOverride == status
             )
         }
+        lanes.append(WorkspaceTodoStatusLane(
+            status: nil,
+            title: String(localized: "sidebar.status.none", defaultValue: "None (hide status)"),
+            isSelected: isHidden,
+            isNone: true
+        ))
         return lanes
     }
 
@@ -75,6 +85,8 @@ struct SidebarWorkspaceStatusPopoverModel: Equatable {
     let inferred: WorkspaceTaskStatus
     /// The pinned lane, or `nil` while automatic.
     let activeOverride: WorkspaceTaskStatus?
+    /// Whether the workspace is opted out (None active).
+    var isHidden: Bool = false
 }
 
 // MARK: - Popover content
@@ -87,6 +99,8 @@ struct SidebarWorkspaceStatusPopover: View {
     let model: SidebarWorkspaceStatusPopoverModel
     /// Applies a lane (`nil` = Auto) through the shared status action path.
     let onSelectLane: @MainActor (WorkspaceTaskStatus?) -> Void
+    /// Opts the workspace out (None): hide the status glyph.
+    let onSelectNone: @MainActor () -> Void
     let onClose: @MainActor () -> Void
 
     @State private var highlightedIndex: Int
@@ -98,14 +112,17 @@ struct SidebarWorkspaceStatusPopover: View {
     init(
         model: SidebarWorkspaceStatusPopoverModel,
         onSelectLane: @escaping @MainActor (WorkspaceTaskStatus?) -> Void,
+        onSelectNone: @escaping @MainActor () -> Void,
         onClose: @escaping @MainActor () -> Void
     ) {
         self.model = model
         self.onSelectLane = onSelectLane
+        self.onSelectNone = onSelectNone
         self.onClose = onClose
         let lanes = WorkspaceTodoStatusLane.lanes(
             inferred: model.inferred,
-            activeOverride: model.activeOverride
+            activeOverride: model.activeOverride,
+            isHidden: model.isHidden
         )
         _highlightedIndex = State(initialValue: lanes.firstIndex(where: \.isSelected) ?? 0)
     }
@@ -113,7 +130,8 @@ struct SidebarWorkspaceStatusPopover: View {
     private var lanes: [WorkspaceTodoStatusLane] {
         WorkspaceTodoStatusLane.lanes(
             inferred: model.inferred,
-            activeOverride: model.activeOverride
+            activeOverride: model.activeOverride,
+            isHidden: model.isHidden
         )
     }
 
@@ -216,8 +234,13 @@ struct SidebarWorkspaceStatusPopover: View {
     /// inferred lane and thus visually identical) gives immediate feedback.
     /// Dismissal is left to Esc / `onExitCommand` / click-away.
     private func apply(_ lane: WorkspaceTodoStatusLane) {
-        onSelectLane(lane.status)
-        highlightedIndex = lanes.firstIndex(of: lane) ?? highlightedIndex
+        if lane.isNone {
+            onSelectNone()
+            onClose()
+        } else {
+            onSelectLane(lane.status)
+            highlightedIndex = lanes.firstIndex(of: lane) ?? highlightedIndex
+        }
     }
 
     private func applyHighlighted(_ lanes: [WorkspaceTodoStatusLane]) {
@@ -263,6 +286,8 @@ struct SidebarWorkspaceTaskStatusGlyphControl: View {
     let onPopoverPresentedChange: @MainActor (Bool) -> Void
     /// Applies a lane (`nil` = Auto) through the shared status action path.
     let onSelectLane: @MainActor (WorkspaceTaskStatus?) -> Void
+    /// Opts the workspace out (None): hide the status glyph.
+    let onSelectNone: @MainActor () -> Void
     let onOptionToggleDone: @MainActor () -> Void
 
     var body: some View {
@@ -301,6 +326,7 @@ struct SidebarWorkspaceTaskStatusGlyphControl: View {
                     activeOverride: hasOverride ? status : nil
                 ),
                 onSelectLane: onSelectLane,
+                onSelectNone: onSelectNone,
                 onClose: { onPopoverPresentedChange(false) }
             )
             .frame(minWidth: 200)

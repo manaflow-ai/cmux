@@ -67,7 +67,7 @@ extension CMUXCLI {
             printWorkspaceStatusPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case "set":
             guard rest.count >= 2 else {
-                throw CLIError(message: "Usage: cmux workspace status set <todo|working|needs-attention|review|done|auto>")
+                throw CLIError(message: "Usage: cmux workspace status set <todo|working|needs-attention|review|done|auto|none>")
             }
             var setParams = params
             setParams["status"] = rest[1]

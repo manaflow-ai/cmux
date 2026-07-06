@@ -65,8 +65,10 @@ extension Workspace {
     }
 
     /// Applies a manual status override, recording the current inference so
-    /// the override expires as soon as the live signals change lanes.
+    /// the override expires as soon as the live signals change lanes. Picking
+    /// a lane re-engages the feature (clears any None opt-out).
     func setTaskStatusOverride(_ status: WorkspaceTaskStatus) {
+        todoState.statusHidden = false
         notifyingStatusTransition {
             todoState.statusOverride = WorkspaceTaskStatusOverride(
                 status: status,
@@ -75,11 +77,20 @@ extension Workspace {
         }
     }
 
-    /// Returns the status to automatic by clearing the manual override.
+    /// Returns the status to automatic by clearing the manual override (and
+    /// any None opt-out), so the glyph shows the inferred lane again.
     func clearTaskStatusOverride() {
+        todoState.statusHidden = false
         notifyingStatusTransition {
             todoState.statusOverride = nil
         }
+    }
+
+    /// Opts this workspace out of the status feature: no glyph is drawn before
+    /// the title (the "None" state, distinct from Auto). Clears any override.
+    func hideTaskStatus() {
+        todoState.statusOverride = nil
+        todoState.statusHidden = true
     }
 
     /// Cycles the effective status one lane forward (round-robin
@@ -183,6 +194,7 @@ extension Workspace {
     /// so an override or checklist change triggers a save.
     func combineTodoStateIntoSessionAutosaveFingerprint(into hasher: inout Hasher) {
         hasher.combine(todoState.statusOverride)
+        hasher.combine(todoState.statusHidden)
         hasher.combine(todoState.checklist)
     }
 
@@ -190,6 +202,7 @@ extension Workspace {
     /// from manifests written before this feature, restore to empty state).
     func restoreTodoState(from snapshot: SessionWorkspaceSnapshot) {
         todoState.statusOverride = snapshot.restoredTaskStatusOverride
+        todoState.statusHidden = snapshot.taskStatusHidden ?? false
         todoState.checklist = snapshot.restoredChecklist
     }
 }
