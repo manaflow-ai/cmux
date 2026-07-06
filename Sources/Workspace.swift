@@ -4736,8 +4736,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
         if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) { return false }
+        let routedRemoteReport = source == .remoteReport && !allowsLocalDirectoryFallback(panelId: panelId)
         let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
-            (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror || remoteDirectoryTrustRequiredPanelIds.contains(panelId)))
+            (source.establishesRemoteProvenance &&
+                (routedRemoteReport || isRemoteTerminalReport || isRemoteTmuxMirror || remoteDirectoryTrustRequiredPanelIds.contains(panelId)))
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
         if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId); remoteDirectoryTrustRequiredPanelIds.insert(panelId)
