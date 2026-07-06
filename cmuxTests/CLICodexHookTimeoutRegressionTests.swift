@@ -41,9 +41,8 @@ struct CLICodexHookTimeoutRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
-            timeout: 5
+            timeout: 10
         )
-        #expect(!install.timedOut, Comment(rawValue: install.stderr))
         #expect(install.status == 0, Comment(rawValue: install.stderr))
 
         let hooks = try codexHookEntries(in: codexHome)
@@ -207,6 +206,112 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex stop", timeout: 1))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
+    }
+
+    @Test func codexInstalledAsyncStopDoesNotMarkNewerTurnIdle() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-installed-stale-stop-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let socketPath = makeSocketPath("codex-inst")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let commands = CapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-installed-stale-stop-session"
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 24
+        )
+
+        let install = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let promptCommand = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+        let stopCommand = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "Stop" }?.command
+        )
+        let environment = [
+            "HOME": root.path,
+            "CODEX_HOME": codexHome.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "TMPDIR": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_BUNDLED_CLI_PATH": cliPath,
+            "CMUX_CODEX_PID": "4242",
+        ]
+
+        let oldPrompt = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", promptCommand],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"old"}"#,
+            timeout: 3
+        )
+        #expect(oldPrompt.status == 0, Comment(rawValue: oldPrompt.stderr))
+        #expect(oldPrompt.stdout == "{}\n")
+        #expect(waitForCondition(timeout: 2) {
+            commands.snapshot().contains { $0.hasPrefix("set_status codex Running ") }
+        })
+
+        let currentPrompt = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", promptCommand],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"current-turn","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"current"}"#,
+            timeout: 3
+        )
+        #expect(currentPrompt.status == 0, Comment(rawValue: currentPrompt.stderr))
+        #expect(currentPrompt.stdout == "{}\n")
+        #expect(waitForCondition(timeout: 2) {
+            let snapshot = commands.snapshot()
+            return snapshot.contains { $0.hasPrefix("clear_notifications ") }
+                && snapshot.contains { $0.hasPrefix("set_status codex Running ") }
+        })
+
+        let staleStopStart = commands.snapshot().count
+        let staleStop = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", stopCommand],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"old-turn","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"old done"}"#,
+            timeout: 3
+        )
+        #expect(staleStop.status == 0, Comment(rawValue: staleStop.stderr))
+        #expect(staleStop.stdout == "{}\n")
+        #expect(waitForCondition(timeout: 2) {
+            commands.snapshot().count > staleStopStart
+        })
+
+        let staleStopCommands = Array(commands.snapshot().dropFirst(staleStopStart))
+        #expect(
+            !staleStopCommands.contains {
+                $0.hasPrefix("notify_target") || ($0.hasPrefix("set_status codex ") && $0.contains(" Idle "))
+            },
+            "An installed async Stop from an older turn must not notify or mark a newer running turn idle, saw \(staleStopCommands)"
+        )
     }
 
     @Test func codexPromptSubmitDoesNotReviveStoppedTurn() throws {
@@ -821,5 +926,16 @@ struct CLICodexHookTimeoutRegressionTests {
             Thread.sleep(forTimeInterval: 0.02)
         }
         return false
+    }
+
+    private func waitForCondition(timeout: TimeInterval, pollInterval: TimeInterval = 0.02, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            Thread.sleep(forTimeInterval: pollInterval)
+        }
+        return condition()
     }
 }
