@@ -251,6 +251,11 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
+// Active-limit note: resuming a user's own existing VM is intentionally not
+// limit-gated here. Freestyle's SSH gateway resumes suspended VMs on any
+// client connect with no control-plane involvement, so this seam cannot
+// enforce the limit; enforcement happens where allocation is decided —
+// beginCreate's reconcile re-counts provider-running VMs on the next create.
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -263,7 +268,14 @@ function preflightResumeIfSuspended(
     if (!getStatus || !resume) return;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
-      Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+      Effect.catchAll((err) =>
+        // Fail closed when the row durably says paused and the probe cannot
+        // prove otherwise: minting endpoints against a suspended VM would
+        // hand out unusable credentials and record leases/usage for it.
+        vm.status === "paused"
+          ? Effect.fail(err)
+          : Effect.succeed(null as VMStatus | null),
+      ),
     );
     if (status !== "paused") return;
 

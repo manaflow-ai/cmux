@@ -765,6 +765,49 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(1);
   });
 
+  test("openAttachEndpoint fails closed when the row is paused and the status probe fails", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000113",
+      userId: "user-workflow-attach-probe-fail",
+      billingTeamId: "team-workflow-attach-probe-fail",
+      providerVmId: "provider-vm-attach-probe-fail",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, leases });
+    const probeError = providerOperationError("getStatus", "provider status unavailable");
+    let attachCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openAttach: () =>
+        Effect.suspend(() => {
+          attachCalls += 1;
+          return Effect.succeed(testAttachEndpoint());
+        }),
+      getStatus: () => Effect.fail(probeError),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-attach-probe-fail" });
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-probe-fail",
+        providerVmId: "provider-vm-attach-probe-fail",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(probeError);
+    expect(attachCalls).toBe(0);
+    expect(resumeCalls).toBe(0);
+    expect(leases).toHaveLength(0);
+    expect(usageEvents).toHaveLength(0);
+  });
+
   dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",
