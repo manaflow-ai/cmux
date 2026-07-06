@@ -127,10 +127,6 @@ func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: Stri
 
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed.isEmpty { return nil }
-    if trimmed.lowercased().hasPrefix("pid:"),
-       let pid = pid_t(trimmed.dropFirst(4).trimmingCharacters(in: .whitespacesAndNewlines)) {
-        return NSRunningApplication(processIdentifier: pid)
-    }
     let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
     let lower = trimmed.lowercased()
     let exact = apps.filter { $0.bundleIdentifier == trimmed || $0.localizedName == trimmed }
@@ -219,24 +215,8 @@ func listWindows(match: String?) -> [[String: Any]] {
     return windows
 }
 
-func resolvedWindowIdFor(_ window: AXUIElement, pid: pid_t) -> Int? {
-    if let number = windowNumberFor(window) { return number }
-    guard let axBounds = boundsFor(window) else { return nil }
-    let axTitle = stringAttr(window, kAXTitleAttribute as String)
-    let candidates = visibleWindowEntries(pid: pid).filter { entry in
-        guard let bounds = windowEntryBounds(entry) else { return false }
-        return boundsNearlyEqual(axBounds, bounds)
-    }
-    if candidates.count == 1 {
-        return (candidates[0][kCGWindowNumber as String] as? NSNumber)?.intValue
-    }
-    let titleMatches = candidates.filter { entry in
-        String(describing: entry[kCGWindowName as String] ?? "") == axTitle
-    }
-    if titleMatches.count == 1 {
-        return (titleMatches[0][kCGWindowNumber as String] as? NSNumber)?.intValue
-    }
-    return nil
+func resolvedWindowIdFor(_ window: AXUIElement, pid _: pid_t) -> Int? {
+    windowNumberFor(window)
 }
 
 func appRoot(_ app: NSRunningApplication, windowIndex: Int?, windowId: Int?) -> (AXUIElement, String, Int?, Int?) {
