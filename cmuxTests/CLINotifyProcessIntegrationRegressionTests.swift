@@ -3857,16 +3857,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
     }
 
-    func testSSHPTYAttachWaitTreatsTransientBridgeStartupFailureAsRetryable() throws {
+    func testSSHPTYAttachWaitTreatsOnlyKnownTransientBridgeStartupFailuresAsRetryable() throws {
         let cases = [
-            ("daemon", "remote daemon is not ready"),
-            ("generic", "remote PTY operation failed"),
-            ("rebootstrap", "Remote daemon transport needs re-bootstrap after proxy failure"),
+            (
+                name: "daemon",
+                message: "remote daemon is not ready",
+                expectedStatus: Int32(255),
+                expectedStderr: "remote daemon is not ready",
+                expectedMethods: ["workspace.remote.pty_bridge"]
+            ),
+            (
+                name: "rebootstrap",
+                message: "Remote daemon transport needs re-bootstrap after proxy failure",
+                expectedStatus: Int32(255),
+                expectedStderr: "remote daemon transport is re-bootstrapping after proxy failure",
+                expectedMethods: ["workspace.remote.pty_bridge"]
+            ),
+            (
+                name: "generic",
+                message: "remote PTY operation failed",
+                expectedStatus: Int32(1),
+                expectedStderr: "remote PTY operation failed",
+                expectedMethods: ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"]
+            ),
+            (
+                name: "unrelated-proxy",
+                message: "HTTP proxy failure: authentication refused",
+                expectedStatus: Int32(1),
+                expectedStderr: "remote PTY operation failed",
+                expectedMethods: ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"]
+            ),
         ]
 
         for testCase in cases {
             let cliPath = try bundledCLIPath()
-            let socketPath = makeSocketPath("sshpty\(testCase.0)")
+            let socketPath = makeSocketPath("sshpty\(testCase.name)")
             let listenerFD = try bindUnixSocket(at: socketPath)
             let state = MockSocketServerState()
             let workspaceId = "22222222-2222-2222-2222-222222222222"
@@ -3894,7 +3919,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     return self.v2Response(
                         id: id,
                         ok: false,
-                        error: ["code": "remote_pty_error", "message": testCase.1]
+                        error: ["code": "remote_pty_error", "message": testCase.message]
+                    )
+                case "workspace.remote.pty_attach_end":
+                    XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                    XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                    XCTAssertEqual(params["session_id"] as? String, sessionId)
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                            "session_id": sessionId,
+                            "cleared_remote_pty_session": true,
+                        ]
                     )
                 default:
                     return self.v2Response(
@@ -3924,18 +3963,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             wait(for: [socketHandled], timeout: 5)
             XCTAssertFalse(result.timedOut, result.stderr)
-            XCTAssertEqual(result.status, 255, result.stderr)
+            XCTAssertEqual(result.status, testCase.expectedStatus, result.stderr)
             XCTAssertTrue(result.stdout.isEmpty, result.stdout)
-            if testCase.0 == "rebootstrap" {
-                XCTAssertTrue(
-                    result.stderr.contains("ssh-pty-attach: remote daemon transport is re-bootstrapping after proxy failure"),
-                    result.stderr
-                )
-            } else {
-                XCTAssertTrue(result.stderr.contains("ssh-pty-attach: \(testCase.1)"), result.stderr)
-            }
+            XCTAssertTrue(result.stderr.contains("ssh-pty-attach: \(testCase.expectedStderr)"), result.stderr)
             let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-            XCTAssertEqual(methods, ["workspace.remote.pty_bridge"])
+            XCTAssertEqual(methods, testCase.expectedMethods)
         }
     }
 

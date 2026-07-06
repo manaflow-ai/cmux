@@ -11479,7 +11479,7 @@ struct CMUXCLI {
         if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
             return "remote daemon is not ready"
         }
-        if lowered.contains("daemon transport") || lowered.contains("proxy failure") {
+        if isRemoteDaemonProxyRebootstrapMessage(lowered) {
             return "remote daemon transport is re-bootstrapping after proxy failure"
         }
         if lowered.contains("missing workspace_id in ssh pty session list response") {
@@ -11509,12 +11509,16 @@ struct CMUXCLI {
         case "remote connection is not active",
              "remote daemon is not ready",
              "remote daemon transport is re-bootstrapping after proxy failure",
-             "remote daemon did not respond in time",
-             "remote pty operation failed":
+             "remote daemon did not respond in time":
             return true
         default:
             return false
         }
+    }
+
+    private func isRemoteDaemonProxyRebootstrapMessage(_ lowered: String) -> Bool {
+        lowered.contains("remote daemon transport needs re-bootstrap after proxy failure") ||
+            lowered.contains("remote daemon transport is re-bootstrapping after proxy failure")
     }
 
     private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
