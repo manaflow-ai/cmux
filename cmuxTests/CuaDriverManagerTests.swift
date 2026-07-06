@@ -85,6 +85,82 @@ final class CuaDriverManagerTests: XCTestCase {
         }
     }
 
+    func testStartPassesSkyCursorArguments() async throws {
+        let directory = try makeTemporaryDirectory()
+        let argumentsFile = directory.appendingPathComponent("arguments.txt")
+        let executable = try makeStubExecutable(
+            name: "cua-driver-arguments",
+            directory: directory,
+            body: """
+            printf '%s\\n' "$*" > \(shellQuoted(argumentsFile.path))
+            while IFS= read -r line; do
+              if [[ "$line" == *'"method":"initialize"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.1"}}}'
+              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"}]}}'
+              fi
+            done
+            """
+        )
+        let manager = CuaDriverManager(registerTerminationObserver: false)
+
+        await manager.start(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+
+        guard case .running = manager.state else {
+            XCTFail("Expected running state, got \(manager.state)")
+            return
+        }
+        XCTAssertEqual(try readRecordedLines(from: argumentsFile), ["mcp --no-daemon-relaunch --cursor-shape sky"])
+        await manager.stop()
+    }
+
+    func testFallsBackWithoutCursorArgumentsWhenFirstAttemptExitsBeforeHandshake() async throws {
+        let directory = try makeTemporaryDirectory()
+        let attemptsFile = directory.appendingPathComponent("attempts.txt")
+        let executable = try makeStubExecutable(
+            name: "cua-driver-fallback",
+            directory: directory,
+            body: """
+            printf '%s\\n' "$*" >> \(shellQuoted(attemptsFile.path))
+            if [[ " $* " == *" --cursor-shape "* ]]; then
+              printf '%s\\n' "error: invalid value 'sky' for '--cursor-shape <CURSOR_SHAPE>'" >&2
+              exit 2
+            fi
+            while IFS= read -r line; do
+              if [[ "$line" == *'"method":"initialize"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.1"}}}'
+              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"},{"name":"two"}]}}'
+              fi
+            done
+            """
+        )
+        let manager = CuaDriverManager(registerTerminationObserver: false)
+
+        await manager.start(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+
+        guard case let .running(info) = manager.state else {
+            XCTFail("Expected running state, got \(manager.state)")
+            return
+        }
+        XCTAssertEqual(info.toolCount, 2)
+        XCTAssertEqual(try readRecordedLines(from: attemptsFile), [
+            "mcp --no-daemon-relaunch --cursor-shape sky",
+            "mcp --no-daemon-relaunch",
+        ])
+        await manager.stop()
+    }
+
     private func nextState(
         from updates: CuaDriverStateUpdateIterator,
         matching predicate: @escaping @Sendable (CuaDriverManager.State) -> Bool
@@ -133,9 +209,13 @@ final class CuaDriverManagerTests: XCTestCase {
         }
     }
 
-    private func makeStubExecutable(name: String, body: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CuaDriverManagerTests-\(UUID().uuidString)", isDirectory: true)
+    private func makeStubExecutable(name: String, directory providedDirectory: URL? = nil, body: String) throws -> URL {
+        let directory: URL
+        if let providedDirectory {
+            directory = providedDirectory
+        } else {
+            directory = try makeTemporaryDirectory()
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(name)
         let script = """
@@ -145,6 +225,23 @@ final class CuaDriverManagerTests: XCTestCase {
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CuaDriverManagerTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func readRecordedLines(from url: URL) throws -> [String] {
+        try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+    }
+
+    private func shellQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 

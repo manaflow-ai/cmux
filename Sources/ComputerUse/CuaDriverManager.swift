@@ -22,6 +22,8 @@ final class CuaDriverManager {
     }
 
     static let shared = CuaDriverManager()
+    private static let skyCursorArguments = ["mcp", "--no-daemon-relaunch", "--cursor-shape", "sky"]
+    private static let plainArguments = ["mcp", "--no-daemon-relaunch"]
 
     private(set) var state: State = .stopped {
         didSet { yieldState(state) }
@@ -121,9 +123,31 @@ final class CuaDriverManager {
 
         state = .starting
 
+        let firstAttempt = await startResolvedDriver(
+            resolution: resolution,
+            arguments: Self.skyCursorArguments,
+            environment: environment,
+            retryWhenProcessExitsBeforeHandshake: true
+        )
+        if case .retryWithoutCursor = firstAttempt {
+            _ = await startResolvedDriver(
+                resolution: resolution,
+                arguments: Self.plainArguments,
+                environment: environment,
+                retryWhenProcessExitsBeforeHandshake: false
+            )
+        }
+    }
+
+    private func startResolvedDriver(
+        resolution: CuaDriverBinaryResolution,
+        arguments: [String],
+        environment: [String: String],
+        retryWhenProcessExitsBeforeHandshake: Bool
+    ) async -> CuaDriverStartAttemptResult {
         let process = Process()
         process.executableURL = resolution.url
-        process.arguments = ["mcp", "--no-daemon-relaunch"]
+        process.arguments = arguments
         process.environment = environment
 
         let stdin = Pipe()
@@ -138,7 +162,8 @@ final class CuaDriverManager {
             process: process,
             stdin: stdin,
             stdoutDrainTask: nil,
-            stderrDrainTask: CuaDriverLineStream.drain(fileHandle: stderr.fileHandleForReading)
+            stderrDrainTask: CuaDriverLineStream.drain(fileHandle: stderr.fileHandleForReading),
+            suppressTerminationFailureBeforeHandshake: retryWhenProcessExitsBeforeHandshake
         )
         session = runningSession
 
@@ -155,24 +180,35 @@ final class CuaDriverManager {
             let info = try await performHandshake(input: stdin.fileHandleForWriting, lines: lineInbox, pid: process.processIdentifier)
             guard process.isRunning else {
                 if runningSession.isStopping {
-                    return
+                    return .stopped
                 }
                 if self.session === runningSession {
                     self.session = nil
                 }
-                state = .failed(String(localized: "settings.computerUse.driver.status.exited", defaultValue: "cua-driver exited with status \(process.terminationStatus)."))
-                return
+                if retryWhenProcessExitsBeforeHandshake {
+                    return .retryWithoutCursor
+                }
+                state = .failed(Self.exitedStatusMessage(process.terminationStatus))
+                return .failed
             }
             guard self.session === runningSession else {
                 state = .stopped
-                return
+                return .stopped
             }
+            runningSession.suppressTerminationFailureBeforeHandshake = false
             runningSession.stdoutDrainTask = CuaDriverLineStream.drain(lines: lineInbox)
             state = .running(info)
+            return .running
         } catch {
             if self.session === runningSession {
+                if retryWhenProcessExitsBeforeHandshake, !process.isRunning, !runningSession.isStopping {
+                    self.session = nil
+                    return .retryWithoutCursor
+                }
                 await stopSession(runningSession, finalState: .failed(error.localizedDescription))
+                return .failed
             }
+            return .stopped
         }
     }
 
@@ -258,8 +294,15 @@ final class CuaDriverManager {
         if terminatedSession.isStopping {
             return
         }
+        if terminatedSession.suppressTerminationFailureBeforeHandshake {
+            return
+        }
         session = nil
-        state = .failed(String(localized: "settings.computerUse.driver.status.exited", defaultValue: "cua-driver exited with status \(status)."))
+        state = .failed(Self.exitedStatusMessage(status))
+    }
+
+    private static func exitedStatusMessage(_ status: Int32) -> String {
+        String(localized: "settings.computerUse.driver.status.exited", defaultValue: "cua-driver exited with status \(status).")
     }
 
     private func yieldState(_ state: State) {
@@ -268,6 +311,13 @@ final class CuaDriverManager {
         }
     }
 
+}
+
+private enum CuaDriverStartAttemptResult {
+    case running
+    case retryWithoutCursor
+    case stopped
+    case failed
 }
 
 // Process and pipe handles are touched from MainActor; the termination inbox is an actor.
@@ -279,17 +329,20 @@ private final class CuaDriverProcessSession: @unchecked Sendable {
     var stderrDrainTask: Task<Void, Never>?
     var pid: Int32?
     var isStopping = false
+    var suppressTerminationFailureBeforeHandshake: Bool
 
     init(
         process: Process,
         stdin: Pipe,
         stdoutDrainTask: Task<Void, Never>?,
-        stderrDrainTask: Task<Void, Never>?
+        stderrDrainTask: Task<Void, Never>?,
+        suppressTerminationFailureBeforeHandshake: Bool = false
     ) {
         self.process = process
         self.stdin = stdin
         self.stdoutDrainTask = stdoutDrainTask
         self.stderrDrainTask = stderrDrainTask
+        self.suppressTerminationFailureBeforeHandshake = suppressTerminationFailureBeforeHandshake
     }
 
     deinit {
