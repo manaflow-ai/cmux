@@ -251,7 +251,14 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
+// Replay safety: the retry only fires when getStatus — one Effect step after
+// the failure — observes "paused". Freestyle suspends only after ~10s of
+// network inactivity, and an exec that actually started running is itself
+// activity, so a VM observed paused immediately after the failure means the
+// provider rejected the call without executing the command.
 function withResumeOnSuspended<A, E extends VmWorkflowError>(
+  repo: VmRepositoryShape,
+  vmRowId: string,
   providers: VmProviderGatewayShape,
   provider: ProviderId,
   providerVmId: string,
@@ -274,6 +281,15 @@ function withResumeOnSuspended<A, E extends VmWorkflowError>(
         yield* resume(provider, providerVmId).pipe(
           Effect.catchAll(() => Effect.fail(originalError)),
         );
+        // Keep the repository source of truth in sync: a row reconciled to
+        // "paused" would otherwise stay paused while the provider VM runs,
+        // hiding it from active-VM limit enforcement. Best-effort; the
+        // provider-status refresh reconciles it if this write fails.
+        yield* repo.markProviderObservedStatus({
+          id: vmRowId,
+          providerVmId,
+          status: "running",
+        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
         return yield* op;
       });
     }),
@@ -317,6 +333,8 @@ export function execVm(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     const result = yield* withResumeOnSuspended(
+      repo,
+      vm.id,
       providers,
       vm.provider,
       input.providerVmId,
@@ -349,6 +367,8 @@ export function openAttachEndpoint(input: {
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
     const endpoint = yield* withResumeOnSuspended(
+      repo,
+      vm.id,
       providers,
       vm.provider,
       input.providerVmId,
@@ -389,6 +409,8 @@ export function openSshEndpoint(input: {
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
     const endpoint = yield* withResumeOnSuspended(
+      repo,
+      vm.id,
       providers,
       vm.provider,
       input.providerVmId,

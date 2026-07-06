@@ -92,7 +92,8 @@ describe("VM Effect workflows", () => {
       status: "running",
     });
     const usageEvents: RecordedUsageEvent[] = [];
-    const repo = testWorkflowRepo({ vm, usageEvents });
+    const observedStatuses: Array<{ id: string; providerVmId: string; status: string }> = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
     const originalError = providerOperationError("exec", "provider exec unavailable");
     let execCalls = 0;
     let statusCalls = 0;
@@ -130,6 +131,9 @@ describe("VM Effect workflows", () => {
     expect(execCalls).toBe(2);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
+    expect(observedStatuses).toEqual([
+      { id: vm.id, providerVmId: "provider-vm-exec-resume", status: "running" },
+    ]);
     expect(usageEvents).toHaveLength(1);
     expect(usageEvents[0]).toMatchObject({
       eventType: "vm.exec",
@@ -1820,6 +1824,7 @@ function testWorkflowRepo(input: {
   readonly vm: CloudVmRow;
   readonly usageEvents?: RecordedUsageEvent[];
   readonly leases?: RecordedLease[];
+  readonly observedStatuses?: Array<{ id: string; providerVmId: string; status: string }>;
 }): VmRepositoryShape {
   return {
     listUserVms: () => Effect.succeed([]),
@@ -1828,7 +1833,11 @@ function testWorkflowRepo(input: {
     deleteBillingGrant: () => Effect.void,
     beginCreate: () => unusedDatabaseEffect("beginCreate"),
     activeLimitCandidates: () => Effect.succeed([]),
-    markProviderObservedStatus: () => Effect.succeed(false),
+    markProviderObservedStatus: (update) =>
+      Effect.sync(() => {
+        input.observedStatuses?.push(update);
+        return true;
+      }),
     markCreateRunning: () => unusedDatabaseEffect("markCreateRunning"),
     markCreateFailed: () => Effect.void,
     findUserVm: ({ userId, providerVmId }) =>
