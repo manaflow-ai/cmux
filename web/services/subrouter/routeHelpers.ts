@@ -13,6 +13,10 @@ export type TeamResolution =
   | { ok: true; teamId: string; teamName: string }
   | { ok: false; response: Response };
 
+// Authorization is membership-based by design: cmux teams are flat today (no
+// role system exists anywhere in the web API; Cloud VM create/destroy and
+// billing are membership-gated the same way), so any member may manage the
+// team's AI accounts. Revisit when team roles land platform-wide.
 export function resolveTeam(request: Request, user: AuthedUser): TeamResolution {
   const requested = requestedVmTeamIdFromRequest(request);
   if (requested) {
