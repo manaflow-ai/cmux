@@ -8619,7 +8619,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
-    private struct ClaudeHookContext {
+    struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -8672,7 +8672,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return transcriptURL
     }
 
-    private func runCodexHook(
+    func runCodexHook(
         context: ClaudeHookContext,
         subcommand: String,
         standardInput: String,
@@ -8715,7 +8715,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func startAgentHookMockServerAccepting(
+    func startAgentHookMockServerAccepting(
         context: ClaudeHookContext,
         connectionLimit: Int
     ) {
@@ -8784,7 +8784,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+    func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
         let socketPath = makeSocketPath(String(name.prefix(6)))
@@ -8800,7 +8800,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func runClaudeHook(
+    func runClaudeHook(
         context: ClaudeHookContext,
         arguments: [String],
         standardInput: String,

@@ -735,61 +735,40 @@ private extension FeedCoordinator {
             #endif
 
             let categoryId: String
-            let title: String
-            let body: String
             switch event.hookEventName {
             case .permissionRequest:
                 categoryId = Self.permissionNotificationCategoryId(for: event)
-                title = String(
-                    localized: "feed.notification.permission.title",
-                    defaultValue: "\(event.source.capitalized) permission"
-                )
-                body = event.toolName.map {
-                    String(
-                        localized: "feed.notification.permission.body",
-                        defaultValue: "\($0) needs approval"
-                    )
-                } ?? String(
-                    localized: "feed.notification.decisionNeeded",
-                    defaultValue: "Decision needed"
-                )
             case .exitPlanMode:
                 categoryId = "CMUXFeedExitPlan"
-                title = String(
-                    localized: "feed.notification.exitPlan.title",
-                    defaultValue: "\(event.source.capitalized) plan ready"
-                )
-                body = String(
-                    localized: "feed.notification.exitPlan.body",
-                    defaultValue: "Review and approve the plan"
-                )
             case .askUserQuestion:
                 categoryId = "CMUXFeedQuestion"
-                title = String(
-                    localized: "feed.notification.question.title",
-                    defaultValue: "\(event.source.capitalized) question"
-                )
-                body = String(
-                    localized: "feed.notification.question.body",
-                    defaultValue: "Agent is asking a question"
-                )
             default:
+                return
+            }
+            guard let content = NotificationBannerComposer.composeFeedNotificationContent(
+                hookEventName: event.hookEventName,
+                source: event.source,
+                toolName: event.toolName,
+                toolInputJSON: event.toolInputJSON,
+                workspaceTitle: Self.workspaceTitle(for: event.workspaceId)
+            ) else {
                 return
             }
 
             let policyContext = makeFeedNotificationPolicyContext(
                 event: event,
-                title: title,
-                body: body
+                title: content.title,
+                subtitle: content.subtitle,
+                body: content.body
             )
             let deliverDefault = { [weak self] in
                 self?.deliverFeedNotificationIfStillAwaiting(
                     requestId: requestId,
                     event: event,
                     categoryId: categoryId,
-                    title: title,
-                    subtitle: "",
-                    body: body,
+                    title: content.title,
+                    subtitle: content.subtitle,
+                    body: content.body,
                     effects: policyContext.envelope.effects
                 )
             }
@@ -852,6 +831,18 @@ private extension FeedCoordinator {
         if supportsAlways { suffix += "Always" }
         if supportsAll { suffix += "All" }
         return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
+    }
+
+    @MainActor
+    private static func workspaceTitle(for workspaceId: String?) -> String? {
+        guard let workspaceId,
+              let uuid = UUID(uuidString: workspaceId),
+              let title = AppDelegate.shared?.tabTitle(for: uuid)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return nil
+        }
+        return title
     }
 
     @MainActor
@@ -1038,6 +1029,7 @@ private struct FeedNotificationPolicyContext {
 private func makeFeedNotificationPolicyContext(
     event: WorkstreamEvent,
     title: String,
+    subtitle: String,
     body: String
 ) -> FeedNotificationPolicyContext {
     let appDelegate = AppDelegate.shared
@@ -1066,7 +1058,7 @@ private func makeFeedNotificationPolicyContext(
                 workspaceId: event.workspaceId ?? event.sessionId,
                 surfaceId: nil,
                 title: title,
-                subtitle: "",
+                subtitle: subtitle,
                 body: body
             ),
             context: TerminalNotificationPolicyContext(

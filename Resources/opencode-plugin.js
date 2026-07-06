@@ -408,6 +408,10 @@ export const CMUXFeed = async (ctx) => {
       typeof process.env.CMUX_WORKSPACE_ID === "string" && process.env.CMUX_WORKSPACE_ID.trim()
         ? process.env.CMUX_WORKSPACE_ID.trim()
         : null;
+    const surfaceId =
+      typeof process.env.CMUX_SURFACE_ID === "string" && process.env.CMUX_SURFACE_ID.trim()
+        ? process.env.CMUX_SURFACE_ID.trim()
+        : null;
     const event = {
       session_id: `opencode-${sessionId}`,
       _source: "opencode",
@@ -416,6 +420,7 @@ export const CMUXFeed = async (ctx) => {
       ...extra,
     };
     if (workspaceId) event.workspace_id = workspaceId;
+    if (surfaceId) event.surface_id = surfaceId;
     if (context) event.context = context;
     return event;
   };
@@ -446,6 +451,11 @@ export const CMUXFeed = async (ctx) => {
     const state = sessionState(meta.sessionId);
     if (meta.role === "user") {
       state.lastUserMessage = text;
+      // A new prompt starts a new turn; drop the previous turn's assistant
+      // text so a session.idle that fires before this turn produces any text
+      // part doesn't resurface the prior turn's summary as this turn's
+      // completion body.
+      state.assistantPreamble = null;
       return base(meta.sessionId, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
@@ -508,9 +518,12 @@ export const CMUXFeed = async (ctx) => {
         case "session.idle": {
           const sid = event.properties?.sessionID;
           if (!sid) break;
-          pushTelemetry(base(sid, {
+          const state = sessionState(sid);
+          const idleEvent = {
             hook_event_name: "Stop",
-          }));
+          };
+          if (state.assistantPreamble) idleEvent.last_assistant_message = state.assistantPreamble;
+          pushTelemetry(base(sid, idleEvent));
           break;
         }
         case "session.deleted": {

@@ -5754,6 +5754,7 @@ class TerminalController {
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyIMessageModeSideEffects(for: event)
+        v2PostOpenCodeStopNotificationIfNeeded(for: event)
         Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
 
         let result = FeedCoordinator.shared.ingestBlocking(
@@ -12230,7 +12231,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentId: meta?.agentId
             )
             return "OK"
         }
@@ -12266,7 +12268,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentId: meta?.agentId
             )
             return "OK"
         }
@@ -12313,7 +12316,8 @@ class TerminalController {
                     surfaceId: fastPath.panelId,
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    agentId: meta?.agentId
                 )
                 return "OK"
             }
@@ -12336,7 +12340,8 @@ class TerminalController {
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentId: meta?.agentId
             )
             return "OK"
         }
@@ -12394,6 +12399,7 @@ class TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
+            agentId: meta?.agentId,
             coalesces: false
         )
         return "OK"
@@ -13237,12 +13243,11 @@ class TerminalController {
         return nil
     }
 
-    /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
-    /// delivery by user config. The 4th segment is only treated as meta when it
-    /// begins with `c=`; otherwise it is folded back into the body, so legacy
-    /// callers whose body itself contains `|` parse byte-identically to before
-    /// (the fold reconstructs exactly the `maxSplits: 2` result).
+    /// `meta` segment (`c=<category>;p=<0|1>` or `c=...;p=...;a=<agent-id>`)
+    /// that agent hooks append to gate delivery and identify the source agent.
+    /// The 4th segment is only treated as meta when it fully parses;
+    /// otherwise it is folded back into the body, so legacy callers whose body
+    /// itself contains `|` parse byte-identically to before.
     /// `nonisolated`: pure string parsing, run by the worker-lane notify
     /// bodies on the socket-worker thread.
     private nonisolated func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
@@ -13251,19 +13256,13 @@ class TerminalController {
         var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
-            // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
-            // a legacy body that happens to contain "|c=..." — is folded back into
-            // the body so pre-meta callers parse byte-identically to before.
-            // Conscious tradeoff: this reserves exactly three trailing literals
-            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
-            // tail (unknown categories included) stays part of the body. Accepted
-            // because the only meta producers are cmux's own agent hooks (whose
-            // fields are |-sanitized) and a collision requires one of those exact
-            // suffixes.
-            let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
-            if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
+            // The 4th segment is metadata only when it parses as the full strict
+            // c=-anchored grammar. Anything else — including whitespace-prefixed
+            // tails such as "| c=..." or bare "|a=..." — is folded back into the
+            // body so pre-meta callers parse byte-identically to before.
+            let candidate = parts[3]
+            if candidate.hasPrefix("c="),
+               let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed
             } else {
                 parts[2] += "|" + parts[3]

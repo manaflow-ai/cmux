@@ -2,7 +2,7 @@ import Foundation
 
 /// Category an agent hook attaches to a notification so the app can gate
 /// delivery by user config. Mirrors the CLI's `ClaudeNotifyCategory`; serialized
-/// into the `notify_target_async` payload's optional `c=<category>;p=<0|1>` meta.
+/// into the `notify_target_async` payload's optional meta segment.
 enum AgentNotifyCategory: String {
     case turnComplete = "turn-complete"
     case needsPermission = "needs-permission"
@@ -17,32 +17,54 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>` meta segment. Returns `nil` unless BOTH a
-/// KNOWN category literal and a valid `p=0|1` pending flag are present, so the
-/// reserved suffix grammar is exactly the three known categories — any other
-/// `c=...` tail stays part of the legacy notification body. (`.other` never
-/// rides the wire: senders omit the meta entirely for ungated alerts.)
+/// Parsed notification meta segment. Accepted forms are exactly:
+/// `c=<category>;p=<0|1>` and `c=<category>;p=<0|1>;a=<agent-id>`, where
+/// `c=other` is valid only in the 3-field form (the CLI serializes
+/// uncategorized agent notifications as `c=other;p=0;a=<agent-id>`). A bare
+/// `a=<agent-id>` is deliberately NOT metadata: keeping the grammar to one
+/// `c=`-anchored shape means a legacy body tail like "|a=prod" can never be
+/// swallowed as meta. Any other string stays part of the legacy body.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
+    let agentId: String?
 
     init?(meta: String) {
-        // Accept ONLY the exact canonical serialization the CLI emits
-        // (`c=<known-category>;p=<0|1>`, two fields, this order, no extras).
-        // Anything else — reordered, duplicated, or trailing fields — is not
-        // metadata and stays part of the legacy notification body.
+        // Accept ONLY the exact canonical serializations the CLI emits, in
+        // field order, with no extras. Anything else — reordered, duplicated,
+        // unknown, or trailing fields — is not metadata and stays part of the
+        // legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard fields.count == 2,
+        guard (fields.count == 2 || fields.count == 3),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
-        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))),
-              known != .other else { return nil }
+        guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else { return nil }
+        // `.other` is never serialized without agent identity; a bare
+        // `c=other;p=<x>` is not a canonical producer form, so reject it.
+        if known == .other, fields.count != 3 { return nil }
         switch fields[1].dropFirst(2) {
         case "1": self.pending = true
         case "0": self.pending = false
         default: return nil
         }
+        if fields.count == 3 {
+            guard fields[2].hasPrefix("a="),
+                  let agentId = Self.validAgentId(String(fields[2].dropFirst(2))) else { return nil }
+            self.agentId = agentId
+        } else {
+            self.agentId = nil
+        }
         self.category = known
+    }
+
+    private static func validAgentId(_ value: String) -> String? {
+        guard (1...32).contains(value.count) else { return nil }
+        guard value.utf8.allSatisfy({ byte in
+            (byte >= 0x61 && byte <= 0x7A)
+                || (byte >= 0x30 && byte <= 0x39)
+                || byte == 0x2D
+        }) else { return nil }
+        return value
     }
 }
 

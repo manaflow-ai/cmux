@@ -7,7 +7,7 @@ import Testing
 #endif
 
 /// Exhaustive decision-table coverage for the app-side agent notification gate
-/// and the `c=<category>;p=<0|1>` meta parser it consumes.
+/// and the optional `c=<category>;p=<0|1>;a=<agent-id>` meta parser it consumes.
 @Suite struct AgentNotificationGateTests {
     @Test func needsPermissionFollowsToggleAndIgnoresPending() {
         for pending in [false, true] {
@@ -64,26 +64,56 @@ import Testing
         let a = AgentNotificationMeta(meta: "c=turn-complete;p=1")
         #expect(a?.category == .turnComplete)
         #expect(a?.pending == true)
+        #expect(a?.agentId == nil)
 
         let b = AgentNotificationMeta(meta: "c=needs-permission;p=0")
         #expect(b?.category == .needsPermission)
         #expect(b?.pending == false)
+        #expect(b?.agentId == nil)
 
         let c = AgentNotificationMeta(meta: "c=idle-reminder;p=1")
         #expect(c?.category == .idleReminder)
         #expect(c?.pending == true)
+        #expect(c?.agentId == nil)
+    }
+
+    @Test func metaParsesCategoryPendingAndAgent() {
+        let meta = AgentNotificationMeta(meta: "c=turn-complete;p=1;a=claude")
+        #expect(meta?.category == .turnComplete)
+        #expect(meta?.pending == true)
+        #expect(meta?.agentId == "claude")
+    }
+
+    @Test func metaParsesUncategorizedAgentFormAsOther() {
+        let meta = AgentNotificationMeta(meta: "c=other;p=0;a=pi")
+        #expect(meta?.category == .other)
+        #expect(meta?.pending == false)
+        #expect(meta?.agentId == "pi")
+        // A bare agent tag is NOT metadata: only the c=-anchored grammar is,
+        // so a legacy body tail like "|a=prod" can never be swallowed as meta.
+        #expect(AgentNotificationMeta(meta: "a=pi") == nil)
+        #expect(agentNotificationShouldDeliver(
+            category: meta?.category ?? .needsPermission,
+            pending: meta?.pending ?? true,
+            permissionEnabled: false,
+            turnMode: .never,
+            idleEnabled: false
+        ) == true)
     }
 
     @Test func metaUnknownCategoryIsRejected() {
         // Only the three known category literals are wire-valid; anything else
         // (including "c=other") stays part of the legacy notification body.
         #expect(AgentNotificationMeta(meta: "c=bogus;p=1") == nil)
+        // "other" is wire-valid only with agent identity attached.
         #expect(AgentNotificationMeta(meta: "c=other;p=1") == nil)
+        #expect(AgentNotificationMeta(meta: "c=other;p=0") == nil)
+        #expect(AgentNotificationMeta(meta: "c=other;p=0;a=pi")?.category == .other)
         #expect(AgentNotificationMeta(meta: "c=note;p=1") == nil)
     }
 
     @Test func metaWithoutCategoryIsNil() {
-        // A segment lacking `c=` is not our grammar; upstream never treats it as meta.
+        // A segment lacking `c=` or canonical `a=` is not our grammar; upstream never treats it as meta.
         #expect(AgentNotificationMeta(meta: "p=1") == nil)
     }
 
@@ -97,11 +127,21 @@ import Testing
     }
 
     @Test func metaRequiresExactCanonicalForm() {
-        // Only the CLI's exact two-field serialization parses; reordered,
-        // duplicated, or trailing fields stay part of the legacy body.
+        // Only the CLI's exact serialization parses; reordered, duplicated, or
+        // trailing fields stay part of the legacy body.
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;note") == nil)
         #expect(AgentNotificationMeta(meta: "p=1;c=turn-complete") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;a=claude") == nil)
+        #expect(AgentNotificationMeta(meta: "a=claude;c=turn-complete;p=1") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=claude;extra=1") == nil)
+    }
+
+    @Test func metaRejectsInvalidAgentIds() {
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=UPPER") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=has_underscore") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=abcdefghijklmnopqrstuvwxyzabcdefg") == nil)
     }
 }

@@ -173,54 +173,6 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
-struct TerminalNotification: Identifiable, Hashable, Sendable {
-    let id: UUID
-    let tabId: UUID
-    let surfaceId: UUID?
-    let panelId: UUID?
-    let title: String
-    let subtitle: String
-    let body: String
-    let createdAt: Date
-    var isRead: Bool
-    var paneFlash: Bool = true
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID? = nil,
-        title: String,
-        subtitle: String,
-        body: String,
-        createdAt: Date,
-        isRead: Bool,
-        paneFlash: Bool = true,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.tabId = tabId
-        self.surfaceId = surfaceId
-        self.panelId = panelId
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        guard tabId == targetTabId else { return false }
-        guard let targetSurfaceId else {
-            return surfaceId == nil && panelId == nil
-        }
-        return surfaceId == targetSurfaceId || panelId == targetSurfaceId
-    }
-}
-
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -880,6 +832,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        agentId: String? = nil,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
@@ -914,6 +867,7 @@ final class TerminalNotificationStore: ObservableObject {
         if let cooldownReservation {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
         }
+        let workspaceTitle = resolvedWorkspaceTitle(forTabId: tabId)
 
         let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
@@ -928,6 +882,8 @@ final class TerminalNotificationStore: ObservableObject {
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
                 cooldownReservation: cooldownReservation,
+                agentId: agentId,
+                workspaceTitle: workspaceTitle,
                 clickAction: clickAction
             )
             return
@@ -945,6 +901,8 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    agentId: agentId,
+                    workspaceTitle: workspaceTitle,
                     clickAction: clickAction
                 )
                 return
@@ -961,6 +919,8 @@ final class TerminalNotificationStore: ObservableObject {
                     envelope: envelope,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    agentId: agentId,
+                    workspaceTitle: workspaceTitle,
                     clickAction: clickAction
                 )
             case .failure(let failure):
@@ -969,6 +929,8 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    agentId: agentId,
+                    workspaceTitle: workspaceTitle,
                     clickAction: clickAction
                 )
                 self.reportNotificationHookFailure(failure)
@@ -1064,9 +1026,19 @@ final class TerminalNotificationStore: ObservableObject {
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        agentId: String?,
+        workspaceTitle: String?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let payload = envelope.notification
+        // A notification hook that rewrote any text field owns the banner
+        // verbatim: drop the workspace title so the workspace-aware agent
+        // recomposition (which would demote a hook-provided title into the
+        // subtitle) never overrides hook output. Untouched notifications keep
+        // the composed banner.
+        let hookModifiedText = payload.title != request.title
+            || payload.subtitle != request.subtitle
+            || payload.body != request.body
         applyNotification(
             request: TerminalNotificationPolicyRequest(
                 tabId: request.tabId,
@@ -1082,6 +1054,8 @@ final class TerminalNotificationStore: ObservableObject {
             effects: envelope.effects,
             now: now,
             cooldownReservation: cooldownReservation,
+            agentId: agentId,
+            workspaceTitle: hookModifiedText ? nil : workspaceTitle,
             clickAction: clickAction
         )
     }
@@ -1091,6 +1065,8 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        agentId: String?,
+        workspaceTitle: String?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
@@ -1105,6 +1081,8 @@ final class TerminalNotificationStore: ObservableObject {
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
+            agentId: agentId,
+            workspaceTitle: workspaceTitle,
             createdAt: now,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
@@ -1275,7 +1253,28 @@ final class TerminalNotificationStore: ObservableObject {
             // mutated above, so it includes this notification); the server
             // stamps it as `aps.badge` so the icon badge is SET, not incremented.
             if effects.desktop {
-                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
+                // The phone push leaves the Mac entirely, so it must carry the
+                // same scrubbed banner content as the desktop notification, not
+                // the raw stored fields (which can still hold secrets/tokens
+                // from a completion body assembled before the banner
+                // materialization point).
+                let banner = bannerContent(for: notification)
+                let scrubbedNotification = TerminalNotification(
+                    id: notification.id,
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId,
+                    panelId: notification.panelId,
+                    title: banner.title,
+                    subtitle: banner.subtitle,
+                    body: banner.body,
+                    agentId: notification.agentId,
+                    workspaceTitle: notification.workspaceTitle,
+                    createdAt: notification.createdAt,
+                    isRead: notification.isRead,
+                    paneFlash: notification.paneFlash,
+                    clickAction: notification.clickAction
+                )
+                let queued = PhonePushClient.shared.forward(scrubbedNotification, badgeCount: indexes.unreadCount)
                 // Only once the replacement banner push is queued is it safe to
                 // clear the superseded banners it replaces (deferred from
                 // `recordNotification`); a throttled push leaves them stashed
@@ -1588,6 +1587,8 @@ final class TerminalNotificationStore: ObservableObject {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
+            agentId: notification.agentId,
+            workspaceTitle: notification.workspaceTitle,
             createdAt: notification.createdAt,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
@@ -1679,6 +1680,8 @@ final class TerminalNotificationStore: ObservableObject {
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body,
+                agentId: notification.agentId,
+                workspaceTitle: notification.workspaceTitle,
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
@@ -1730,31 +1733,25 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func resolvedNotificationTitle(for notification: TerminalNotification) -> String {
-        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "cmux"
-        return notification.title.isEmpty ? appName : notification.title
-    }
-
     private func scheduleUserNotification(
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        let banner = bannerContent(for: notification)
         guard effects.desktop else {
             playLocalNotificationFeedback(
-                title: resolvedNotificationTitle(for: notification),
-                subtitle: notification.subtitle,
-                body: notification.body,
+                title: banner.title,
+                subtitle: banner.subtitle,
+                body: banner.body,
                 effects: effects
             )
             return
         }
 
         let nativeDeliveryHooks = nativeNotificationDeliveryHooks
-        let notificationTitle = resolvedNotificationTitle(for: notification)
-        let notificationSubtitle = notification.subtitle
-        let notificationBody = notification.body
+        let notificationTitle = banner.title
+        let notificationSubtitle = banner.subtitle
+        let notificationBody = banner.body
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
@@ -1814,10 +1811,11 @@ final class TerminalNotificationStore: ObservableObject {
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        let banner = bannerContent(for: notification)
         nativeNotificationDeliveryHooks.runLocalFeedback(
-            title: resolvedNotificationTitle(for: notification),
-            subtitle: notification.subtitle,
-            body: notification.body,
+            title: banner.title,
+            subtitle: banner.subtitle,
+            body: banner.body,
             effects: effects
         )
     }

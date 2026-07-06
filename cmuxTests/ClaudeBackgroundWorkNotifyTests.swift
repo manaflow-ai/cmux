@@ -185,6 +185,94 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Permission-cue notification without notification_type must tag needs-permission; saw \(context.state.snapshot())")
     }
 
+    @Test func idlePromptUsesSavedStopBodyAndAgentMeta() throws {
+        let session = "idle-saved-body"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "idle-saved-body")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-idle-saved-body",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-idle-saved-body",
+            storeURL: storeURL
+        )
+
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"Saved assistant summary","background_tasks":[],"session_crons":[]}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+
+        let notifResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notifResult)
+
+        let snapshot = context.state.snapshot()
+        #expect(
+            notifyLine(snapshot, containing: "Claude Code|Waiting|Saved assistant summary|c=idle-reminder;p=0;a=claude") != nil,
+            "idle_prompt must replace Claude's stock body with the saved assistant message and tag agent identity; saw \(snapshot)"
+        )
+    }
+
+    @Test func idlePromptFallsBackToTranscriptAssistantMessage() throws {
+        let session = "idle-transcript-body"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "idle-transcript-body")
+        defer { context.cleanup() }
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript.jsonl")
+        try [
+            #"{"message":{"role":"user","content":"old request"}}"#,
+            #"{"message":{"role":"assistant","content":"Transcript assistant summary"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-idle-transcript-body",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-idle-transcript-body",
+            storeURL: storeURL
+        )
+
+        let notifResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notifResult)
+
+        let snapshot = context.state.snapshot()
+        #expect(
+            notifyLine(snapshot, containing: "Claude Code|Waiting|Transcript assistant summary|c=idle-reminder;p=0;a=claude") != nil,
+            "idle_prompt without a saved body must fall back to the transcript assistant message; saw \(snapshot)"
+        )
+    }
+
     @Test func idlePromptAfterPendingStopReadsCachedPending() throws {
         // Stop (pending) then idle_prompt on the SAME session: the idle nag must
         // inherit the cached pending flag because its payload lacks background_tasks.
