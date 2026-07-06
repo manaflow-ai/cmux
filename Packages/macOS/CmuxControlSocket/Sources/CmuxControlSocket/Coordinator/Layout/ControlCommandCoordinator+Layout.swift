@@ -27,6 +27,11 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "Saved layout context not available", data: nil)
         }
         let workspaceID = uuidAny(params["workspace_id"]) ?? uuidAny(params["workspace_ref"])
+        // A workspace selector that is present but unresolvable must error, not
+        // silently capture the focused workspace.
+        if workspaceID == nil, hasNonNull(params, "workspace_id") || hasNonNull(params, "workspace_ref") {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
         let resolution = context.controlLayoutSave(
             routing: routingSelectors(params),
             workspaceID: workspaceID,

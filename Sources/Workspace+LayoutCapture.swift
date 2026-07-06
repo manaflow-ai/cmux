@@ -146,7 +146,7 @@ extension Workspace {
                     type: .project,
                     name: savedLayoutPanelName(panelId),
                     command: nil,
-                    cwd: projectPath,
+                    cwd: Self.savedLayoutRelocatablePath(projectPath, baseCwd: baseCwd) ?? ".",
                     env: nil,
                     url: nil,
                     focus: nil
@@ -176,9 +176,23 @@ extension Workspace {
         for candidate in candidates {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !trimmed.isEmpty else { continue }
-            return trimmed == baseCwd ? nil : trimmed
+            return Self.savedLayoutRelocatablePath(trimmed, baseCwd: baseCwd)
         }
         return nil
+    }
+
+    /// Store paths so `applyCustomLayout`'s `resolveCwd` re-roots them under a
+    /// different base cwd: nil at the base itself, a relative path under the
+    /// base, and absolute only for paths outside the base (which should not
+    /// relocate).
+    private static func savedLayoutRelocatablePath(_ path: String, baseCwd: String) -> String? {
+        let normalized = (path as NSString).standardizingPath
+        let base = (baseCwd as NSString).standardizingPath
+        if normalized == base { return nil }
+        if !base.isEmpty, normalized.hasPrefix(base + "/") {
+            return String(normalized.dropFirst(base.count + 1))
+        }
+        return normalized
     }
 
     private static func clampedSavedLayoutSplit(_ value: Double) -> Double {

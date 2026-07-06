@@ -352,7 +352,7 @@ enum KeyboardShortcutSettings {
                 // AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .saveLayoutTemplate:
-                return StoredShortcut(key: "s", command: true, shift: true, option: false, control: false)
+                return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .reopenPreviousSession:

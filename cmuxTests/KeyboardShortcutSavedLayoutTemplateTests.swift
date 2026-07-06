@@ -18,7 +18,7 @@ final class KeyboardShortcutSavedLayoutTemplateTests: XCTestCase {
             XCTFail("Expected CmuxSettings.ShortcutAction for saveLayoutTemplate")
             return
         }
-        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "s", command: true, shift: true))
+        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "s", command: true, control: true))
         XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.saveLayoutTemplate.label)
     }
 }
