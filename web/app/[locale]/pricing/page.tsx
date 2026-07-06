@@ -61,7 +61,7 @@ export default function PricingPage() {
   const faqItems = visibleFaqItems(t.raw("faq.items") as FaqItem[]);
 
   const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+    "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
   return (
     <div className="min-h-screen">

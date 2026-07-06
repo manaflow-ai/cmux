@@ -27,7 +27,7 @@ function HomeContent() {
   const locale = useLocale();
 
   const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+    "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
   // FAQPage structured data, built from the same FAQ copy rendered below so the
   // Q&As are eligible for Google rich results and AI answer engines.
@@ -544,13 +544,13 @@ function HomeContent() {
         <div className="flex justify-center gap-4 mt-6">
           <Link
             href="/docs"
-            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
+            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-link-underline hover:decoration-foreground"
           >
             {tc("readTheDocs")}
           </Link>
           <Link
             href="/docs/changelog"
-            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
+            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-link-underline hover:decoration-foreground"
           >
             {tc("viewChangelog")}
           </Link>
