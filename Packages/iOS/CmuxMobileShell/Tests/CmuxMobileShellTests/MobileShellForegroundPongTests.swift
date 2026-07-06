@@ -82,3 +82,41 @@ import Testing
     )
     collector.unmount()
 }
+
+@MainActor
+@Test func foregroundResumeWithoutEventPingCapabilityDoesNotPingOrRestart() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing mixed-version foreground resume"
+    )
+
+    store.setAppForegroundActive(false)
+    store.resumeForegroundRefresh()
+    let reasserted = try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    }
+    #expect(reasserted, "foreground resume should still reassert older Mac subscriptions")
+    let pinged = try await pollUntil(attempts: 30) {
+        await router.count(of: "mobile.events.ping") >= 1
+    }
+    #expect(pinged == false, "older Macs without terminal.event_ping.v1 must not receive mobile.events.ping")
+    #expect(
+        await router.count(of: "mobile.host.status") == 1,
+        "missing the event-ping capability must not be treated as a dead stream"
+    )
+    collector.unmount()
+}

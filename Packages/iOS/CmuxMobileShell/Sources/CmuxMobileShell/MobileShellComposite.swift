@@ -88,6 +88,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    private static let terminalEventPingCapability = "terminal.event_ping.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
@@ -6383,7 +6384,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 return
             }
-            if restartOnFailure {
+            if restartOnFailure && self.supportedHostCapabilities.contains(Self.terminalEventPingCapability) {
                 let streamDelivered = await self.verifyTerminalEventStreamDelivery(client: client, timeoutNanoseconds: timeoutNanoseconds)
                 guard streamDelivered else {
                     guard self.isAppForegroundActive else { return }

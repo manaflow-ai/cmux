@@ -80,7 +80,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var omitAlreadySubscribedFromSubscribeResponse = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
-    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.event_ping.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0

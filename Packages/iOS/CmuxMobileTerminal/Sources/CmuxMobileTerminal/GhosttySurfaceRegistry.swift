@@ -43,13 +43,14 @@ extension GhosttySurfaceView {
     @MainActor
     @discardableResult
     public static func focusMountedInput(surfaceID: String, sceneID: ObjectIdentifier?) -> Bool {
+        guard let sceneID else { return false }
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         let matchingView = registeredSurfaceViews
             .sorted { $0.key < $1.key }
             .compactMap(\.value.value)
             .first { candidate in
                 candidate.hostSurfaceID == surfaceID && candidate.window != nil
-                    && (sceneID == nil || candidate.window?.windowScene.map(ObjectIdentifier.init) == sceneID)
+                    && candidate.window?.windowScene.map(ObjectIdentifier.init) == sceneID
                     && candidate.surface != nil && !candidate.isDismantled
                     && !candidate.isHidden && candidate.alpha > 0.01
             }
