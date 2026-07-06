@@ -140,6 +140,7 @@ extension CmuxSettingsFileStore {
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
                     "showSSH": SidebarWorkspaceDetailDefaults.showSSH,
+                    "showSSHHosts": SidebarWorkspaceDetailDefaults.showSSHHosts,
                     "showPorts": SidebarWorkspaceDetailDefaults.showPorts,
                     "showLog": SidebarWorkspaceDetailDefaults.showLog,
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,

@@ -872,6 +872,11 @@
           "default": true,
           "description": "Show SSH connection details."
         },
+        "showSSHHosts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the SSH Hosts section listing Host entries from ~/.ssh/config."
+        },
         "showPorts": {
           "type": "boolean",
           "default": true,

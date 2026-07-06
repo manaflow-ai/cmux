@@ -6157,6 +6157,9 @@ extension Notification.Name {
     static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
     /// Posted after TabManager has applied a terminal title to workspace state.
     static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
+    /// Posted by Workspace when `remoteConnectionState` transitions; sidebar
+    /// surfaces that derive per-host state (SSH Hosts section) re-read on it.
+    static let workspaceRemoteConnectionStateDidChange = Notification.Name("cmux.workspaceRemoteConnectionStateDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
 }

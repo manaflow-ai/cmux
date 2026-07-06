@@ -11,7 +11,7 @@ import SwiftUI
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
-    private let rightSidebarWidthSettings = RightSidebarWidthSettings()
+    let rightSidebarWidthSettings = RightSidebarWidthSettings()
 
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
@@ -31,12 +31,13 @@ public struct SidebarSection: View {
     @State private var prLinks: DefaultsValueModel<Bool>
     @State private var portLinks: DefaultsValueModel<Bool>
     @State private var showSSH: DefaultsValueModel<Bool>
+    @State private var showSSHHosts: DefaultsValueModel<Bool>
     @State private var showPorts: DefaultsValueModel<Bool>
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
     @State private var showMetadata: DefaultsValueModel<Bool>
-    @State private var rightMaxWidth: DefaultsValueModel<Double>
-    @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    @State var rightMaxWidth: DefaultsValueModel<Double>
+    @State var rememberedRightMaxWidth: DefaultsValueModel<Double>
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
@@ -57,6 +58,7 @@ public struct SidebarSection: View {
         _prLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser))
         _portLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPortLinksInCmuxBrowser))
         _showSSH = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showSSH))
+        _showSSHHosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showSSHHosts))
         _showPorts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts))
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
@@ -90,6 +92,7 @@ public struct SidebarSection: View {
             prLinks,
             portLinks,
             showSSH,
+            showSSHHosts,
             showPorts,
             showLog,
             showProgress,
@@ -109,62 +112,6 @@ public struct SidebarSection: View {
             let saved = await hostActions.setSidebarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
-    }
-
-    private var rightMaxWidthOverrideEnabled: Bool {
-        rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
-    }
-
-    private var rightMaxWidthOverrideBinding: Binding<Bool> {
-        Binding(
-            get: { rightMaxWidthOverrideEnabled },
-            set: { enabled in
-                if enabled {
-                    let restored = rightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
-                        rememberedStoredValue: rememberedRightMaxWidth.current
-                    )
-                    rememberedRightMaxWidth.set(restored)
-                    rightMaxWidth.set(restored)
-                } else {
-                    rememberedRightMaxWidth.set(
-                        rightSidebarWidthSettings.storedRememberedMaximumWidth(
-                            activeStoredValue: rightMaxWidth.current,
-                            rememberedStoredValue: rememberedRightMaxWidth.current
-                        )
-                    )
-                    rightMaxWidth.set(RightSidebarWidthSettings.noOverrideValue)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthEditorBinding: Binding<Double> {
-        Binding(
-            get: {
-                rightSidebarWidthSettings.editorMaximumWidth(
-                    activeStoredValue: rightMaxWidth.current,
-                    rememberedStoredValue: rememberedRightMaxWidth.current
-                )
-            },
-            set: {
-                let clamped = clampedRightMaxWidth($0)
-                rememberedRightMaxWidth.set(clamped)
-                if rightMaxWidthOverrideEnabled {
-                    rightMaxWidth.set(clamped)
-                }
-            }
-        )
-    }
-
-    private var rightMaxWidthSubtitle: String {
-        if rightMaxWidthOverrideEnabled {
-            return String(localized: "settings.sidebar.rightMaxWidth.subtitleOn", defaultValue: "The Dock can grow past the built-in width cap while preserving terminal space.")
-        }
-        return String(localized: "settings.sidebar.rightMaxWidth.subtitleOff", defaultValue: "Use the built-in dynamic cap that keeps extra terminal space reserved.")
-    }
-
-    private func clampedRightMaxWidth(_ value: Double) -> Double {
-        rightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
     }
 
     @ViewBuilder
@@ -247,6 +194,17 @@ public struct SidebarSection: View {
                     Text(String(localized: "settings.sidebar.rightMaxWidth.unit", defaultValue: "pt"))
                         .foregroundStyle(.secondary)
                 }
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showSSHHosts"),
+                String(localized: "settings.app.showSSHHosts", defaultValue: "Show SSH Hosts in Sidebar"),
+                subtitle: String(localized: "settings.app.showSSHHosts.subtitle", defaultValue: "List Host entries from your SSH config for one-click remote workspaces.")
+            ) {
+                Toggle("", isOn: Binding(get: { showSSHHosts.current }, set: { showSSHHosts.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
             }
             SettingsCardDivider()
 

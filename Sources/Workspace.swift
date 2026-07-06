@@ -2564,7 +2564,12 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
-    @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
+    @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected {
+        didSet {
+            guard oldValue != remoteConnectionState else { return }
+            NotificationCenter.default.post(name: .workspaceRemoteConnectionStateDidChange, object: self)
+        }
+    }
     @Published var remoteConnectionDetail: String?
     @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
     @Published var remoteDetectedPorts: [Int] = []

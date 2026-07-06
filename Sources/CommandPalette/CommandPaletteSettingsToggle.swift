@@ -679,6 +679,17 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "showSSHHostsInSidebar",
+                settingsKey: "sidebar.showSSHHosts",
+                title: {
+                    String(localized: "settings.app.showSSHHosts", defaultValue: "Show SSH Hosts in Sidebar")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.showSSHHosts", "sidebar", "ssh", "hosts", "config", "connect"],
+                defaultValue: SidebarWorkspaceDetailDefaults.showSSHHosts,
+                defaultsKey: SidebarWorkspaceDetailDefaults.showSSHHostsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showPortsInSidebar",
                 settingsKey: "sidebar.showPorts",
                 title: {

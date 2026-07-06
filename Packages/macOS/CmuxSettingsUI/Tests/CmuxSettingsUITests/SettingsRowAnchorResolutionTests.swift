@@ -105,6 +105,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showProgress",
         "sidebar.showPullRequests",
         "sidebar.showSSH",
+        "sidebar.showSSHHosts",
         "sidebar.showWorkspaceDescription",
         "sidebar.stackBranchDirectory",
         "sidebar.watchGitStatus",

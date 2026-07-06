@@ -9993,6 +9993,7 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
+    @State var sshHostsSidebarModel = SSHHostsSidebarModel()
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
@@ -10021,6 +10022,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.showSSHHosts) var showSSHHostsSidebarSection
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -11811,10 +11813,15 @@ struct VerticalTabsSidebar: View {
         // SidebarRowsFillLayout measured it (`sizeThatFits(height: nil)`) every
         // pass, realizing all rows and re-livelocking at scale (#2586 / #5764 /
         // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
-        let content = workspaceRows(
-            renderContext: renderContext,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
-        )
+        // The SSH Hosts section sits after the rows block (not inside it) so
+        // the end-of-list drop indicator above still hugs the last workspace
+        // row, while the interaction-neutralizing background below also covers
+        // the section.
+        let content = VStack(alignment: .leading, spacing: 0) {
+            workspaceRows(
+                renderContext: renderContext,
+                shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            )
             .overlay(alignment: .bottom) {
                 if emptyAreaTopDropIndicatorVisible() {
                     Rectangle()
@@ -11824,6 +11831,8 @@ struct VerticalTabsSidebar: View {
                         .offset(y: tabRowSpacing / 2)
                 }
             }
+            sshHostsSidebarSection
+        }
             // Neutralize ALL end-of-list empty-area interactions over the rows
             // block (2pt gaps, row padding, and the entire list when it
             // overflows) so none fall through to SidebarEmptyArea behind:
