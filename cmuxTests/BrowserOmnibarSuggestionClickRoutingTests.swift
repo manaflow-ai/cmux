@@ -24,6 +24,54 @@ import Testing
         #expect(!overlayClaims(hit, in: setup.slot))
     }
 
+    @Test func offsetOverlayFrameClickRoutesToSuggestionsOverlay() throws {
+        let contentRect = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = NSView(frame: contentRect)
+        let container = NSView(frame: contentRect)
+        window.contentView = contentView
+        contentView.addSubview(container)
+
+        let popupFrame = CGRect(x: 0, y: 0, width: 400, height: 60)
+        let configuration = BrowserPortalOmnibarSuggestionsConfiguration(
+            panelId: UUID(),
+            popupFrame: popupFrame,
+            colorScheme: .light,
+            engineName: "TestEngine",
+            items: [
+                OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "alpha")),
+                OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "beta")),
+            ],
+            selectedIndex: 0,
+            isLoadingRemoteSuggestions: false,
+            searchSuggestionsEnabled: true,
+            onCommit: { _ in },
+            onHighlight: { _ in }
+        )
+        let overlay = BrowserPortalOmnibarSuggestionsHostingView(
+            rootView: BrowserPortalOmnibarSuggestionsOverlay(configuration: configuration)
+        )
+        overlay.popupFrameInTopLeftCoordinates = popupFrame
+        overlay.frame = CGRect(x: 200, y: 100, width: 400, height: 300)
+        container.addSubview(overlay)
+
+        // macOS 15 CI has an unflipped NSHostingView, where aligned-frame cases
+        // cannot distinguish the old math from the fixed conversion. Offsetting
+        // the frame exposes the superview-coordinate contract under both flip
+        // regimes: container (350, 380) -> local bottom-left (150, 280) ->
+        // local top-left (150, 20), inside the popup strip.
+        let popupHit = container.hitTest(NSPoint(x: 350, y: 380))
+        #expect(overlayClaims(popupHit, in: container))
+
+        let belowPopupHit = container.hitTest(NSPoint(x: 350, y: 150))
+        #expect(!overlayClaims(belowPopupHit, in: container))
+    }
+
     private func makeSlotWithSuggestions() throws -> (window: NSWindow, slot: WindowBrowserSlotView) {
         let contentRect = NSRect(x: 0, y: 0, width: 800, height: 600)
         let window = NSWindow(
@@ -64,11 +112,11 @@ import Testing
         return (window, slot)
     }
 
-    private func overlayClaims(_ view: NSView?, in slot: NSView) -> Bool {
+    private func overlayClaims(_ view: NSView?, in boundary: NSView) -> Bool {
         var current = view
         while let candidate = current {
             if candidate is BrowserPortalOmnibarSuggestionsHostingView { return true }
-            if candidate === slot { return false }
+            if candidate === boundary { return false }
             current = candidate.superview
         }
         return false
