@@ -18,6 +18,7 @@
 6359	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/GhosttyConfigTests.swift
 6167	Sources/TabManager.swift
+500	Sources/Search/SearchIndex.swift
 500	Sources/Mobile/AgentChat/AgentChatTranscriptService.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5809	Sources/TextBoxInput.swift

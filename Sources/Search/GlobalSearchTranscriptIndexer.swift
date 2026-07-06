@@ -21,6 +21,7 @@ actor GlobalSearchTranscriptIndexer {
     private var sessions: [String: SessionState] = [:]
     private var sessionOrder: [String] = []
     private var flushTasks: [String: Task<Void, Never>] = [:]
+    private var nextRevision: Int = 0
 
     init(
         index: any SearchIndexWriting,
@@ -37,7 +38,11 @@ actor GlobalSearchTranscriptIndexer {
     func ingest(sessionID: String, batch: AgentChatTranscriptTailer.Batch) async {
         let previousState = sessions[sessionID]
         if batch.didReset {
-            sessions[sessionID] = nil
+            sessions[sessionID] = SessionState(
+                title: previousState?.title,
+                workspaceID: previousState?.workspaceID,
+                panelID: previousState?.panelID
+            )
             flushTasks[sessionID]?.cancel()
             flushTasks[sessionID] = nil
             try? await index.deleteDocuments(
@@ -48,15 +53,14 @@ actor GlobalSearchTranscriptIndexer {
         var state = sessions[sessionID] ?? SessionState(
             title: previousState?.title,
             workspaceID: previousState?.workspaceID,
-            panelID: previousState?.panelID,
-            revisionCounter: previousState?.revisionCounter ?? 0
+            panelID: previousState?.panelID
         )
         if let title = Self.nonEmpty(batch.discoveredTitle) {
             state.title = title
         }
         let messages = batch.appended + batch.updated
         for message in messages {
-            state.upsert(message: message)
+            state.upsert(message: message, nextRevision: &nextRevision)
         }
         sessions[sessionID] = state
         markRecentlyUsed(sessionID)
@@ -264,20 +268,19 @@ private struct SessionState {
     var title: String?
     var workspaceID: String?
     var panelID: String?
-    var revisionCounter: Int = 0
     var chunks: [Int: TranscriptChunkState] = [:]
     var dirtyOrdinals: Set<Int> = []
 
-    mutating func upsert(message: ChatMessage) {
+    mutating func upsert(message: ChatMessage, nextRevision: inout Int) {
         let ordinal = message.seq / GlobalSearchTranscriptIndexer.messagesPerChunk
         var chunk = chunks[ordinal] ?? TranscriptChunkState()
-        revisionCounter += 1
+        nextRevision += 1
         chunk.messages[message.seq] = IndexedMessageText(
             seq: message.seq,
             transcriptText: GlobalSearchTranscriptDocuments.transcriptText(for: message),
             commandText: GlobalSearchTranscriptDocuments.commandText(for: message)
         )
-        chunk.revision = revisionCounter
+        chunk.revision = nextRevision
         chunks[ordinal] = chunk
         dirtyOrdinals.insert(ordinal)
     }
