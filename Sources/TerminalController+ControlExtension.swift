@@ -194,7 +194,7 @@ extension TerminalController {
         case .notInstalled, .paneNotFound, .manifestNotFound, .linkedDirectoryMissing:
             code = "not_found"
         case .needsReconsent, .extensionDisabled, .duplicateId, .minCmuxVersionNotSatisfied,
-             .platformNotSupported:
+             .platformNotSupported, .operationInProgress, .tooManyPendingPreviews:
             code = "failed_precondition"
         case .gitUnavailable, .hostUnavailable:
             code = "unavailable"

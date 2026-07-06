@@ -120,19 +120,31 @@ final class DockExtensionsRuntime {
 
     // MARK: - Socket/CLI consent flow
 
-    /// Stages a preview for `cmux extension install/update` and returns a
-    /// one-shot token the CLI confirms or discards after showing the preview.
     /// The most simultaneous unconfirmed socket previews. Each grant holds a
     /// staged checkout on disk, so the set is bounded: minting beyond the cap
     /// evicts (and discards) the oldest grant first.
     static let maxSocketPreviewGrants = 4
 
+    /// Previews currently resolving/cloning. Counted alongside grants: this
+    /// runtime is MainActor-reentrant across the preview awaits, so grants
+    /// alone can't bound in-flight work — N clients could all start clones
+    /// while the grant count sits under the cap.
+    private var inFlightSocketPreviews = 0
+
+    /// Stages a preview for `cmux extension install/update` and returns a
+    /// one-shot token the CLI confirms or discards after showing the preview.
     func socketPreview(
         sourceInput: String?,
         updateId: String?,
         ref: String?
     ) async throws -> (token: String, preview: DockExtensionInstallPreview) {
         expireStaleSocketPreviews()
+        // Reserve a bounded slot BEFORE any network/disk work starts.
+        guard socketPreviewGrants.count + inFlightSocketPreviews < Self.maxSocketPreviewGrants else {
+            throw DockExtensionError.tooManyPendingPreviews
+        }
+        inFlightSocketPreviews += 1
+        defer { inFlightSocketPreviews -= 1 }
         let preview: DockExtensionInstallPreview
         if let updateId, !updateId.isEmpty {
             preview = try await store.previewUpdate(id: updateId)
@@ -155,8 +167,21 @@ final class DockExtensionsRuntime {
     /// expired token.
     func socketInstall(token: String) async throws -> DockExtensionInstallPreview? {
         expireStaleSocketPreviews()
-        guard let grant = socketPreviewGrants.removeValue(forKey: token) else { return nil }
-        try await store.install(grant.preview)
+        guard let grant = socketPreviewGrants[token] else { return nil }
+        // Busy pre-check without consuming the token; and if the store still
+        // reports busy after we commit (lost race), restore the grant so the
+        // caller can retry with the same token instead of leaking staging.
+        let id = grant.preview.manifest.id
+        guard !store.busyExtensionIds.contains(id) else {
+            throw DockExtensionError.operationInProgress(id: id)
+        }
+        socketPreviewGrants.removeValue(forKey: token)
+        do {
+            try await store.install(grant.preview)
+        } catch DockExtensionError.operationInProgress(let busyId) {
+            socketPreviewGrants[token] = grant
+            throw DockExtensionError.operationInProgress(id: busyId)
+        }
         return grant.preview
     }
 
