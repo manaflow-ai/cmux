@@ -10,11 +10,13 @@ public import Foundation
 /// serial queue, and exposes one `persist` method whose body is byte-identical
 /// to the legacy write block: the early-return guard (nothing to write), the
 /// geometry branch (`saveEncoded` when geometry data is present, else
-/// `removeLegacy`), the snapshot branch (`save` when present, else
-/// `removeSnapshot` only when `removeWhenEmpty`), and the synchronous-vs-queued
-/// dispatch decision. The geometry and snapshot stores still own the actual
-/// wire format and `UserDefaults`/file access; this type only sequences the two
-/// writes and chooses the dispatch lane.
+/// `removeLegacy`), the snapshot branch (`save` when present, else marker
+/// update + `removeSnapshot` only when `removeWhenEmpty`), and the
+/// synchronous-vs-queued dispatch decision. The geometry and snapshot stores
+/// still own the actual wire format and `UserDefaults`/file access; this type
+/// only sequences the writes and chooses the dispatch lane. The crash-only
+/// primary-removal marker remains app-owned and is reached through injected
+/// callbacks.
 ///
 /// **Isolation.** `Sendable`, dispatch-queue-confined work, no actor. The write
 /// block escapes to the injected serial queue (`qos: .utility`) on the queued
@@ -41,6 +43,8 @@ public struct SessionSnapshotPersistor<SnapshotValue: SessionSnapshotRepresentin
     // unchecked capture is intentional and behaviorally unchanged.
     private nonisolated(unsafe) let geometryDefaults: UserDefaults
     private let queue: DispatchQueue
+    private let markCrashOnlyPrimarySnapshotRemoval: @Sendable () -> Void
+    private let clearCrashOnlyPrimarySnapshotRemovalMarker: @Sendable () -> Void
 
     /// Creates a persistor.
     ///
@@ -55,16 +59,26 @@ public struct SessionSnapshotPersistor<SnapshotValue: SessionSnapshotRepresentin
     ///   - queue: the serial queue the queued (asynchronous) write dispatches
     ///     onto. Pass the legacy `com.cmuxterm.app.sessionPersistence`
     ///     `qos: .utility` queue.
+    ///   - markCrashOnlyPrimarySnapshotRemoval: effect seam for marking that the
+    ///     primary snapshot was removed because it contained only crash
+    ///     diagnostics. Defaults to no-op for tests and package-only callers.
+    ///   - clearCrashOnlyPrimarySnapshotRemovalMarker: effect seam for clearing
+    ///     the crash-only primary removal marker. Defaults to no-op for tests
+    ///     and package-only callers.
     public init(
         snapshotStore: any SessionSnapshotStoring<SnapshotValue>,
         geometryStore: WindowGeometryStore<GeometryPayload>,
         geometryDefaults: UserDefaults,
-        queue: DispatchQueue
+        queue: DispatchQueue,
+        markCrashOnlyPrimarySnapshotRemoval: @escaping @Sendable () -> Void = {},
+        clearCrashOnlyPrimarySnapshotRemovalMarker: @escaping @Sendable () -> Void = {}
     ) {
         self.snapshotStore = snapshotStore
         self.geometryStore = geometryStore
         self.geometryDefaults = geometryDefaults
         self.queue = queue
+        self.markCrashOnlyPrimarySnapshotRemoval = markCrashOnlyPrimarySnapshotRemoval
+        self.clearCrashOnlyPrimarySnapshotRemovalMarker = clearCrashOnlyPrimarySnapshotRemovalMarker
     }
 
     /// Persists `snapshot` and the primary-window geometry in one write block.
@@ -84,11 +98,15 @@ public struct SessionSnapshotPersistor<SnapshotValue: SessionSnapshotRepresentin
     ///   - persistedGeometryData: the already-encoded primary-window geometry,
     ///     or nil to clear the legacy geometry keys.
     ///   - synchronously: whether to run the write inline (true) or queue it.
+    ///   - preserveManualRestoreBackupOnMissingPrimary: when removing an empty
+    ///     primary snapshot, whether to mark the removal as crash-only so the app
+    ///     can keep the manual-restore backup.
     public func persist(
         _ snapshot: SnapshotValue?,
         removeWhenEmpty: Bool,
         persistedGeometryData: Data?,
-        synchronously: Bool
+        synchronously: Bool,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
@@ -97,6 +115,8 @@ public struct SessionSnapshotPersistor<SnapshotValue: SessionSnapshotRepresentin
         // Justification: see the stored-property note. `.standard` is the
         // process-global defaults the legacy write block captured directly.
         nonisolated(unsafe) let geometryDefaults = self.geometryDefaults
+        let markCrashOnlyPrimarySnapshotRemoval = self.markCrashOnlyPrimarySnapshotRemoval
+        let clearCrashOnlyPrimarySnapshotRemovalMarker = self.clearCrashOnlyPrimarySnapshotRemovalMarker
         let writeBlock: @Sendable () -> Void = {
             if let persistedGeometryData {
                 geometryStore.saveEncoded(persistedGeometryData, defaults: geometryDefaults)
@@ -104,8 +124,14 @@ public struct SessionSnapshotPersistor<SnapshotValue: SessionSnapshotRepresentin
                 geometryStore.removeLegacy(defaults: geometryDefaults)
             }
             if let snapshot {
+                clearCrashOnlyPrimarySnapshotRemovalMarker()
                 _ = snapshotStore.save(snapshot, fileURL: nil)
             } else if removeWhenEmpty {
+                if preserveManualRestoreBackupOnMissingPrimary {
+                    markCrashOnlyPrimarySnapshotRemoval()
+                } else {
+                    clearCrashOnlyPrimarySnapshotRemovalMarker()
+                }
                 snapshotStore.removeSnapshot(fileURL: nil)
             }
         }

@@ -1489,7 +1489,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         snapshotStore: sessionSnapshotStore,
         geometryStore: Self.windowGeometryStore,
         geometryDefaults: .standard,
-        queue: sessionPersistenceQueue
+        queue: sessionPersistenceQueue,
+        markCrashOnlyPrimarySnapshotRemoval: {
+            AppDelegate.markCrashOnlyPrimarySnapshotRemoval()
+        },
+        clearCrashOnlyPrimarySnapshotRemovalMarker: {
+            AppDelegate.clearCrashOnlyPrimarySnapshotRemovalMarker()
+        }
     )
     /// External-open URL classifier (CmuxWorkspaces); composition-root owned.
     /// The deep-link/services shims forward the pure URL-shaping rules here,
@@ -2543,9 +2549,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.windowGeometryStore.removeLegacy(defaults: .standard)
-        sessionSnapshotStore.syncManualRestoreSnapshotCache()
+        syncManualRestoreSnapshotCachePruningCrashDiagnostics()
+        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy().shouldAttemptRestore else { return }
-        startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot()
+        startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+        guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
+        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            if let prunedSnapshot = SessionPersistencePolicy
+                .pruningCmuxCrashDiagnosticWindows(from: snapshot)
+                .snapshot {
+                return prunedSnapshot
+            }
+            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+        case .missing:
+            if Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+                return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+            }
+            return nil
+        case .unusable:
+            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+        }
+    }
+
+    private func loadManualRestoreSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+        sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil).flatMap {
+            SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: $0).snapshot
+        }
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
@@ -3010,6 +3043,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
@@ -3040,16 +3074,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        guard let snapshot = buildSessionSnapshot(
+        let snapshotBuildResult = buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
-        ) else {
+        )
+        guard let snapshot = snapshotBuildResult.snapshot else {
+            let preserveManualRestoreBackup =
+                preserveManualRestoreBackupOnMissingPrimary ||
+                snapshotBuildResult.removedCrashDiagnosticState
             persistSessionSnapshot(
                 nil,
-                removeWhenEmpty: removeWhenEmpty,
+                removeWhenEmpty: removeWhenEmpty || snapshotBuildResult.removedCrashDiagnosticState,
                 persistedGeometryData: nil,
-                synchronously: writeSynchronously
+                synchronously: writeSynchronously,
+                preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackup
             )
             return false
         }
@@ -3221,12 +3260,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
+        removeWhenEmpty: Bool = false,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) -> Bool {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
+            preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
             surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
@@ -3237,7 +3278,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // session snapshot.
     func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
+        removeWhenEmpty: Bool = false,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         Task { @MainActor [weak self] in
@@ -3248,6 +3290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,
                 removeWhenEmpty: removeWhenEmpty,
+                preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary,
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
@@ -3282,13 +3325,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
         persistedGeometryData: Data?,
-        synchronously: Bool
+        synchronously: Bool,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         sessionSnapshotPersistor.persist(
             snapshot,
             removeWhenEmpty: removeWhenEmpty,
             persistedGeometryData: persistedGeometryData,
-            synchronously: synchronously
+            synchronously: synchronously,
+            preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary
         )
     }
 
@@ -3310,13 +3355,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
+        buildSessionSnapshotResult(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: suppliedRestorableAgentIndex,
+            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+        ).snapshot
+    }
+
+    private func buildSessionSnapshotResult(
+        includeScrollback: Bool,
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
-        guard !contexts.isEmpty else { return nil }
+        guard !contexts.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
         // `lazy` so per-window snapshots beyond the window cap are not built,
         // matching the legacy `contexts.lazy.compactMap { ... }.prefix(...)`.
+        let createdAt = Date().timeIntervalSince1970
         let inputs = contexts.lazy.map { context -> SessionSnapshotWindowInput<SessionWindowSnapshot> in
             let snapshot = self.sessionWindowSnapshot(
                 for: context,
@@ -3332,23 +3390,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let dropsWhenEmptyDedicatedRemoteWindow =
                 self.remoteTmuxController.isDedicatedRemoteWindow(context.windowId)
                     && snapshot.tabManager.workspaces.isEmpty
+            if dropsWhenEmptyDedicatedRemoteWindow {
+                return SessionSnapshotWindowInput(
+                    snapshot: snapshot,
+                    dropsWhenEmptyDedicatedRemoteWindow: true
+                )
+            }
+
+            let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
+                from: AppSessionSnapshot(
+                    version: AppSessionSnapshot.currentSchemaVersion,
+                    createdAt: createdAt,
+                    windows: [snapshot]
+                )
+            )
+            let prunedWindow = pruned.snapshot?.windows.first
             return SessionSnapshotWindowInput(
-                snapshot: snapshot,
-                dropsWhenEmptyDedicatedRemoteWindow: dropsWhenEmptyDedicatedRemoteWindow
+                snapshot: prunedWindow ?? snapshot,
+                dropsWhenEmptyDedicatedRemoteWindow: false,
+                dropsWhenCrashDiagnosticWindowRemoved: pruned.removedAny && prunedWindow == nil,
+                removedCrashDiagnosticState: pruned.removedAny
             )
         }
 
-        let windows = Self.sessionSnapshotBuilder.assembleWindows(
+        let buildResult = Self.sessionSnapshotBuilder.assembleWindowSnapshotResult(
             from: inputs,
             maxWindows: SessionPersistencePolicy.maxWindowsPerSnapshot
         )
 
-        guard !windows.isEmpty else { return nil }
-        return AppSessionSnapshot(
+        guard !buildResult.windows.isEmpty else {
+            return (nil, buildResult.removedCrashDiagnosticState)
+        }
+        return (AppSessionSnapshot(
             version: AppSessionSnapshot.currentSchemaVersion,
-            createdAt: Date().timeIntervalSince1970,
-            windows: windows
-        )
+            createdAt: createdAt,
+            windows: buildResult.windows
+        ), buildResult.removedCrashDiagnosticState)
     }
 
     private func sessionWindowSnapshot(
@@ -10555,11 +10632,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPalettePresentation.removeWindow(windowId)
     }
 
-    /// Clears every notification owned by `context`'s tabs once the window is
-    /// gone. The ``WindowLifecycleHosting`` teardown witness.
+    /// Clears every notification owned by `context`'s window id and tabs once
+    /// the window is gone. The ``WindowLifecycleHosting`` teardown witness.
     func clearNotifications(forClosing context: RegisteredMainWindow) {
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         guard let store = notificationStore else { return }
+        store.clearNotifications(forTabId: context.windowId)
         for tab in context.tabManager.tabs {
             store.clearNotifications(forTabId: tab.id)
         }
@@ -10574,13 +10652,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Saves a post-unregister session snapshot (no scrollback) when the
     /// persistence policy allows it. The ``WindowLifecycleHosting`` teardown
     /// witness.
-    func saveSessionSnapshotOnWindowUnregisterIfNeeded() {
+    func saveSessionSnapshotOnWindowUnregisterIfNeeded(
+        removeWhenEmpty: Bool,
+        preserveManualRestoreBackupOnMissingPrimary: Bool
+    ) {
         // During app termination we already persisted a full snapshot (with scrollback)
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.sessionPersistenceDecisionPolicy.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+                includeScrollback: false,
+                removeWhenEmpty: removeWhenEmpty,
+                preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary
+            )
         }
+    }
+
+    func closingWindowIsCrashDiagnostic(_ context: RegisteredMainWindow) -> Bool {
+        closeWindowSnapshotPruningCrashDiagnostics(
+            for: context,
+            includeScrollback: false,
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
+        )
+            .isCrashDiagnostic
+    }
+
+    private func closeWindowSnapshotPruningCrashDiagnostics(
+        for context: RegisteredMainWindow,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> (snapshot: SessionWindowSnapshot?, isCrashDiagnostic: Bool) {
+        let windowSnapshot = sessionWindowSnapshot(
+            for: context,
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex
+        )
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
+            from: AppSessionSnapshot(
+                version: AppSessionSnapshot.currentSchemaVersion,
+                createdAt: Date().timeIntervalSince1970,
+                windows: [windowSnapshot]
+            )
+        )
+        return (
+            pruned.snapshot?.windows.first,
+            pruned.removedAny && pruned.snapshot == nil
+        )
     }
 
     func recordClosedWindowHistoryIfNeeded(for context: RegisteredMainWindow) {
@@ -10594,19 +10711,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cached agent index over a synchronous `RestorableAgentSessionIndex.load()` so the
         // close does not freeze the main thread; fall back to a fresh load only while the
         // cache has not loaded yet (see closedPanelHistoryEntry).
-        let snapshot = sessionWindowSnapshot(
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? RestorableAgentSessionIndex.load()
+        guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
             includeScrollback: true,
-            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                ?? RestorableAgentSessionIndex.load()
-        )
+            restorableAgentIndex: restorableAgentIndex
+        ).snapshot else {
+            return
+        }
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
         closedItemHistory.push(.window(ClosedWindowHistoryEntry(
             windowId: context.windowId,
             snapshot: snapshot,
-            workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
+            workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
         )))
     }
 

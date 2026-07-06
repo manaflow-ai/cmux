@@ -33,14 +33,7 @@ extension AppDelegate {
     }
 
     func tabManagerFor(windowId: UUID) -> TabManager? {
-        if let tabManager = windowRegistry.tabManagerFor(windowId: windowId) {
-            return tabManager
-        }
-        // A registered context remains the windowId -> manager authority even
-        // when its NSWindow is gone (mid-teardown) or absent (windowless test
-        // contexts); otherwise window-scoped routing silently falls back to
-        // another window's manager.
-        return registeredMainWindows.first(where: { $0.windowId == windowId })?.tabManager
+        windowRegistry.tabManagerFor(windowId: windowId)
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {

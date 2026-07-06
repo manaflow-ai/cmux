@@ -13,6 +13,25 @@ private struct GeometryFixture: WindowGeometryPersisting, Equatable {
     var version: Int
 }
 
+// UserDefaults is thread-safe; this wrapper lets @Sendable marker callbacks
+// mutate a suite-scoped test defaults without touching global state.
+private struct MarkerFixture: @unchecked Sendable {
+    let defaults: UserDefaults
+    let key = "cmux.session.crashOnlyPrimarySnapshotRemoval.test"
+
+    func mark() {
+        defaults.set(true, forKey: key)
+    }
+
+    func clear() {
+        defaults.removeObject(forKey: key)
+    }
+
+    var isMarked: Bool {
+        defaults.bool(forKey: key)
+    }
+}
+
 @Suite("SessionSnapshotPersistor")
 struct SessionSnapshotPersistorTests {
     private let snapshotKey = "cmux.session.snapshot.v1"
@@ -29,7 +48,8 @@ struct SessionSnapshotPersistorTests {
     private func makePersistor(
         appSupport: URL,
         geometryDefaults: UserDefaults,
-        synchronousQueue: DispatchQueue
+        synchronousQueue: DispatchQueue,
+        marker: MarkerFixture? = nil
     ) -> SessionSnapshotPersistor<SnapshotFixture, GeometryFixture> {
         let snapshotStore = SessionSnapshotRepository<SnapshotFixture>(
             schemaVersion: 1,
@@ -45,7 +65,13 @@ struct SessionSnapshotPersistorTests {
             snapshotStore: snapshotStore,
             geometryStore: geometryStore,
             geometryDefaults: geometryDefaults,
-            queue: synchronousQueue
+            queue: synchronousQueue,
+            markCrashOnlyPrimarySnapshotRemoval: {
+                marker?.mark()
+            },
+            clearCrashOnlyPrimarySnapshotRemovalMarker: {
+                marker?.clear()
+            }
         )
     }
 
@@ -121,6 +147,61 @@ struct SessionSnapshotPersistorTests {
         )
 
         #expect(snapshotStore.load(fileURL: nil) == nil)
+    }
+
+    @Test("saving a snapshot clears the crash-only primary removal marker")
+    func savingSnapshotClearsCrashOnlyRemovalMarker() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let defaults = makeDefaults()
+        let marker = MarkerFixture(defaults: defaults)
+        marker.mark()
+        let persistor = makePersistor(
+            appSupport: dir,
+            geometryDefaults: defaults,
+            synchronousQueue: DispatchQueue(label: "unused"),
+            marker: marker
+        )
+
+        persistor.persist(
+            SnapshotFixture(version: 1, hasWindows: true),
+            removeWhenEmpty: false,
+            persistedGeometryData: nil,
+            synchronously: true
+        )
+
+        #expect(!marker.isMarked)
+    }
+
+    @Test("crash-only empty primary removal marks backup preservation")
+    func crashOnlyRemovalMarksBackupPreservation() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let defaults = makeDefaults()
+        let marker = MarkerFixture(defaults: defaults)
+        let snapshotStore = SessionSnapshotRepository<SnapshotFixture>(
+            schemaVersion: 1,
+            bundleIdentifier: "com.cmuxterm.tests",
+            appSupportDirectory: dir
+        )
+        _ = snapshotStore.save(SnapshotFixture(version: 1, hasWindows: true), fileURL: nil)
+        let persistor = makePersistor(
+            appSupport: dir,
+            geometryDefaults: defaults,
+            synchronousQueue: DispatchQueue(label: "unused"),
+            marker: marker
+        )
+
+        persistor.persist(
+            nil,
+            removeWhenEmpty: true,
+            persistedGeometryData: nil,
+            synchronously: true,
+            preserveManualRestoreBackupOnMissingPrimary: true
+        )
+
+        #expect(snapshotStore.load(fileURL: nil) == nil)
+        #expect(marker.isMarked)
     }
 
     @Test("nothing to write is a no-op: snapshot file and geometry key untouched")

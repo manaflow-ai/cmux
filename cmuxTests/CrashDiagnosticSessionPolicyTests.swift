@@ -86,6 +86,35 @@ struct CrashDiagnosticSessionPolicyTests {
         #expect(restoredDirectories == [projectDirectory])
     }
 
+    @MainActor
+    @Test
+    func closedWindowHistorySkipsCrashDiagnosticWindow() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let crashManager = TabManager(
+            initialWorkingDirectory: crashDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let crashWindowId = app.registerMainWindowContextForTesting(tabManager: crashManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: crashWindowId)
+        }
+
+        app.recordClosedWindowHistoryForTesting(windowId: crashWindowId)
+
+        #expect(!ClosedItemHistoryStore.shared.canReopen)
+    }
+
     @Test
     func sessionSnapshotDropsEmptyCrashDiagnosticWorkspace() {
         let projectDirectory = "/tmp/cmux-project"

@@ -128,7 +128,11 @@ nonisolated public struct SurfaceResumeBindingSnapshot: Codable, Equatable, Send
         guard isAgentHookBinding else { return self }
         let normalizedCwd = Self.normalized(workingDirectory)
         let retargetedCommand = TerminalStartupWorkingDirectoryPrefix()
-            .replacingRequiredChangeDirectoryPrefix(in: command, workingDirectory: normalizedCwd)
+            .replacingRequiredChangeDirectoryPrefix(
+                in: command,
+                previousWorkingDirectory: cwd,
+                workingDirectory: normalizedCwd
+            )
         return SurfaceResumeBindingSnapshot(
             name: name,
             kind: kind,
@@ -219,6 +223,15 @@ nonisolated public struct SurfaceResumeBindingSnapshot: Codable, Equatable, Send
 
         let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+
+    /// Returns the startup input used when replaying this binding through a
+    /// remote terminal restore path.
+    ///
+    /// Remote replay must preserve paths as recorded for the remote host instead
+    /// of applying local executable repair.
+    public func remoteStartupInputWithLauncherScript(allowLauncherScript: Bool = false) -> String? {
+        startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
     }
 
     /// Returns a launcher command used when the restored terminal should run a

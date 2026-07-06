@@ -63,6 +63,25 @@ struct SessionSnapshotBuilderTests {
         #expect(builder.assembleWindows(from: inputs, maxWindows: 12).isEmpty)
     }
 
+    @Test("snapshot result reports crash diagnostic removal while dropping removed windows")
+    func snapshotResultReportsCrashDiagnosticRemoval() {
+        let inputs = [
+            SessionSnapshotWindowInput(snapshot: "project", dropsWhenEmptyDedicatedRemoteWindow: false),
+            SessionSnapshotWindowInput(
+                snapshot: "crash",
+                dropsWhenEmptyDedicatedRemoteWindow: false,
+                dropsWhenCrashDiagnosticWindowRemoved: true,
+                removedCrashDiagnosticState: true
+            ),
+            SessionSnapshotWindowInput(snapshot: "after", dropsWhenEmptyDedicatedRemoteWindow: false),
+        ]
+
+        let result = builder.assembleWindowSnapshotResult(from: inputs, maxWindows: 12)
+
+        #expect(result.windows == ["project", "after"])
+        #expect(result.removedCrashDiagnosticState)
+    }
+
     // MARK: - fingerprint
 
     private func input(

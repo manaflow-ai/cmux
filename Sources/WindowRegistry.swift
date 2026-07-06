@@ -286,6 +286,13 @@ final class WindowRegistry {
         if let snapshot = liveRegisteredMainWindowRouteSnapshots().first(where: { $0.windowId == windowId }) {
             return snapshot.tabManager
         }
+        // A registered context remains the windowId -> manager authority even
+        // when its NSWindow is gone (mid-teardown) or absent (windowless test
+        // contexts); otherwise window-scoped routing silently falls back to
+        // another window's manager.
+        if let context = hostSeams.registeredMainWindowForWindowId(windowId) {
+            return context.tabManager
+        }
         return recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager
     }
 

@@ -1191,6 +1191,17 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertTrue(app.tabManagerFor(windowId: terminalWindowId) === terminalManager)
     }
 
+    func testWindowRegistryTabManagerForFindsRegisteredWindowlessContext() {
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        XCTAssertTrue(app.environment.windowRegistry.tabManagerFor(windowId: windowId) === manager)
+    }
+
     func testWorkspaceCreationContinuesAfterStaleActiveContextDiscard() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

@@ -62,6 +62,27 @@ public struct TerminalStartupWorkingDirectoryPrefix: Sendable, Equatable {
         return prefix(command, workingDirectory: workingDirectory)
     }
 
+    /// Normalizes `command` by first stripping a prefix for
+    /// `previousWorkingDirectory`, then applying the current `workingDirectory`
+    /// prefix.
+    public func replacingRequiredChangeDirectoryPrefix(
+        in command: String,
+        previousWorkingDirectory: String?,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stripped = normalized(previousWorkingDirectory).map {
+            strippedSavedWorkingDirectoryOptions(
+                from: strippedRequiredChangeDirectoryPrefix(from: trimmed, workingDirectory: $0),
+                workingDirectory: $0
+            )
+        } ?? trimmed
+        return replacingRequiredChangeDirectoryPrefix(
+            in: stripped,
+            workingDirectory: workingDirectory
+        )
+    }
+
     private func strippedRequiredChangeDirectoryPrefix(
         from command: String,
         workingDirectory: String

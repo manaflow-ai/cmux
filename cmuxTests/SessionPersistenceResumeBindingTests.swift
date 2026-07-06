@@ -261,10 +261,9 @@ import Testing
                 autoResume: true
             )
 
-            let startupInput = try #require(binding.startupInputWithLauncherScript(
-                allowLauncherScript: false,
-                repairPortableAgentExecutable: false
-            ))
+            let startupInput = try #require(
+                binding.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
+            )
             #expect(
                 startupInput.contains("'\(executablePath)' 'resume' 'session-remote-local-looking-cli'"),
                 "\(startupInput)"

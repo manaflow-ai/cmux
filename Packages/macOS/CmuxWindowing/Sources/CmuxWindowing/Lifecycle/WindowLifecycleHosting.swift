@@ -177,8 +177,9 @@ public protocol WindowLifecycleHosting: AnyObject {
     /// coordinator (the teardown counterpart of `commandPaletteRegisterWindow`).
     func commandPaletteRemoveWindow(_ windowId: UUID)
 
-    /// Clears every notification owned by `context`'s tab manager's tabs once the
-    /// window is gone, so stale notifications can't reopen a dead window.
+    /// Clears every notification owned by `context`'s window id and tab manager
+    /// tabs once the window is gone, so stale notifications can't reopen a dead
+    /// window.
     func clearNotifications(forClosing context: RegisteredWindow)
 
     /// Whether `context`'s tab manager is the app's current active tab manager,
@@ -201,6 +202,10 @@ public protocol WindowLifecycleHosting: AnyObject {
     /// snapshot capture).
     func recordClosedWindowHistoryIfNeeded(for context: RegisteredWindow)
 
+    /// Whether closing `context` would remove only crash-diagnostic session state.
+    /// The app-side witness owns the snapshot inspection policy.
+    func closingWindowIsCrashDiagnostic(_ context: RegisteredWindow) -> Bool
+
     /// Persists `window`'s geometry as a placement fallback for the next window,
     /// skipped while the app is terminating (the `!isTerminatingApp` guard stays
     /// app-side).
@@ -217,7 +222,10 @@ public protocol WindowLifecycleHosting: AnyObject {
     /// Saves a post-unregister session snapshot (no scrollback) when the app-side
     /// persistence policy allows it (skipped during termination, which already
     /// persisted a full snapshot).
-    func saveSessionSnapshotOnWindowUnregisterIfNeeded()
+    func saveSessionSnapshotOnWindowUnregisterIfNeeded(
+        removeWhenEmpty: Bool,
+        preserveManualRestoreBackupOnMissingPrimary: Bool
+    )
 
     /// The key window used to prefer the next active context during teardown (the
     /// app-side shortcut-routing key window).

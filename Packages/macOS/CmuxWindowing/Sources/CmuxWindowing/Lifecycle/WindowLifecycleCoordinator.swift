@@ -516,11 +516,12 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
 
     /// Runs the full teardown for a closing main `window`, sequencing the
     /// app-side effects through the seam: cascade-point reset (coordinator-owned),
-    /// closed-window history, geometry persist, visibility-controller discard,
-    /// context unregistration (slice + identity drop), `window.closed` lifecycle
-    /// publish, palette + notification cleanup, active-window repoint to the next
-    /// viable context, and the post-unregister snapshot save. Driven once per
-    /// window from ``observeWindowCoordinatorClosures()``.
+    /// crash-diagnostic close detection, closed-window history for non-diagnostic
+    /// windows, geometry persist, visibility-controller discard, context
+    /// unregistration (slice + identity drop), `window.closed` lifecycle publish,
+    /// palette + notification cleanup, active-window repoint to the next viable
+    /// context, and the post-unregister snapshot save. Driven once per window
+    /// from ``observeWindowCoordinatorClosures()``.
     public func unregisterMainWindow(_ window: NSWindow) {
         guard let host else { return }
         // Reset cascade point so the next new window appears near the closing
@@ -528,8 +529,11 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
         let closingContext = contextForMainTerminalWindow(window, reindex: false)
+        let closingWindowIsCrashDiagnostic = closingContext.map {
+            host.closingWindowIsCrashDiagnostic($0)
+        } ?? false
 
-        if let closingContext {
+        if let closingContext, !closingWindowIsCrashDiagnostic {
             host.recordClosedWindowHistoryIfNeeded(for: closingContext)
         }
 
@@ -563,7 +567,10 @@ public final class WindowLifecycleCoordinator<Host: WindowLifecycleHosting> {
         // During app termination we already persisted a full snapshot (with
         // scrollback). Saving again here would overwrite it as windows tear down
         // one-by-one, dropping closed windows and replay (policy in the witness).
-        host.saveSessionSnapshotOnWindowUnregisterIfNeeded()
+        host.saveSessionSnapshotOnWindowUnregisterIfNeeded(
+            removeWhenEmpty: closingWindowIsCrashDiagnostic,
+            preserveManualRestoreBackupOnMissingPrimary: closingWindowIsCrashDiagnostic
+        )
     }
 
     // MARK: - Focus + close decisions

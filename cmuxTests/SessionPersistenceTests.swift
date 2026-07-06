@@ -5568,6 +5568,94 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testRestoreRetargetsAgentHookResumeBindingToRestorableAgentCwd() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            source.panelDirectories[sourcePanelId] = "/tmp/old"
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-retarget-session",
+                arguments: [
+                    "/usr/local/bin/codex",
+                    "resume",
+                    "codex-retarget-session",
+                ]
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "cd -- '/tmp/old' 2>/dev/null || [ ! -d '/tmp/old' ] && codex resume codex-retarget-session",
+                    cwd: "/tmp/old",
+                    checkpointId: "codex-retarget-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredBinding = try XCTUnwrap(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding
+            )
+
+            XCTAssertEqual(restoredBinding.cwd, "/tmp/repo")
+            XCTAssertTrue(restoredBinding.command.contains("/tmp/repo"), restoredBinding.command)
+            XCTAssertFalse(restoredBinding.command.contains("/tmp/old"), restoredBinding.command)
+        }
+    }
+
+    @MainActor
+    func testRestoreDropsRestorableAgentWhenAgentHookBindingCheckpointMismatches() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-agent-session",
+                arguments: [
+                    "/usr/local/bin/codex",
+                    "resume",
+                    "codex-agent-session",
+                ]
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume codex-binding-session",
+                    cwd: "/tmp/binding",
+                    checkpointId: "codex-binding-session",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredTerminal = restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal
+
+            XCTAssertNil(restoredTerminal?.agent)
+            XCTAssertEqual(restoredTerminal?.resumeBinding?.checkpointId, "codex-binding-session")
+        }
+    }
+
+    @MainActor
     func testRestoreDoesNotPassDeletedAgentHookCwdToTerminalRuntime() throws {
         try withAutoResumeAgentSessionsEnabled {
             let source = Workspace()

@@ -1003,6 +1003,67 @@ extension Workspace {
         )
     }
 
+    nonisolated private static func resumeBindingForSessionRestore(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
+            return binding
+        }
+        guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
+            return binding
+        }
+        if let bindingKind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bindingKind.isEmpty,
+           RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
+            return binding
+        }
+
+        // Restore has no live hook cwd; use the snapshot's derived restorable cwd
+        // and fall back to launch capture only for older snapshots.
+        let snapshotRestorableWorkingDirectory =
+            restorableAgent.workingDirectory ?? restorableAgent.launchCommand?.workingDirectory
+        let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
+            kind: binding.kind ?? restorableAgent.kind.rawValue,
+            runtimeCwd: binding.cwd,
+            launchWorkingDirectory: snapshotRestorableWorkingDirectory
+        )
+        guard resolvedWorkingDirectory != binding.cwd else {
+            return binding
+        }
+        return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
+    }
+
+    nonisolated private static func restorableAgentForSessionRestore(
+        _ restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let restorableAgent else { return nil }
+        guard let resumeBinding, resumeBinding.isAgentHookBinding else {
+            return restorableAgent
+        }
+
+        if let checkpointId = normalizedResumeBindingValue(resumeBinding.checkpointId),
+           checkpointId != restorableAgent.sessionId {
+            return nil
+        }
+        if let kindValue = normalizedResumeBindingValue(resumeBinding.kind) {
+            guard let bindingKind = RestorableAgentKind(rawValue: kindValue),
+                  bindingKind == restorableAgent.kind else {
+                return nil
+            }
+        }
+        return restorableAgent
+    }
+
+    nonisolated private static func normalizedResumeBindingValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
     private func createPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
@@ -1010,9 +1071,16 @@ extension Workspace {
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let resumeBinding = snapshot.terminal?.resumeBinding
-            let restorableAgent = snapshot.terminal?.agent
-            let restoredHibernation = snapshot.terminal?.hibernation
+            let snapshotRestorableAgent = snapshot.terminal?.agent
+            let resumeBinding = Self.resumeBindingForSessionRestore(
+                snapshot.terminal?.resumeBinding,
+                restorableAgent: snapshotRestorableAgent
+            )
+            let restorableAgent = Self.restorableAgentForSessionRestore(
+                snapshotRestorableAgent,
+                resumeBinding: resumeBinding
+            )
+            let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
@@ -1030,9 +1098,11 @@ extension Workspace {
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
             let remoteStartupCommand = remoteTerminalStartupCommand()
-            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if remoteStartupCommand != nil {
+            let restoresRemoteWorkspaceTerminalSnapshot =
+                remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal != false
+            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup?
-                    .startupInputWithLauncherScript(allowLauncherScript: false)
+                    .remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
                 effectiveResumeBindingForStartup.flatMap {
@@ -1078,7 +1148,7 @@ extension Workspace {
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
-                    if remoteStartupCommand != nil {
+                    if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             allowLauncherScript: false,
                             allowOversizedInlineInput: true
@@ -1131,8 +1201,6 @@ extension Workspace {
                 snapshot.terminal?.isRemoteTerminal == false &&
                 restoredRemotePTYAttachCommand == nil
             let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
-            let restoresRemoteWorkspaceTerminalSnapshot =
-                remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal == true
             let localWorkingDirectory = effectiveRemoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&

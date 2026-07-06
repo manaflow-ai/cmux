@@ -56,13 +56,40 @@ public struct SessionSnapshotBuilder: Sendable {
         from inputs: Inputs,
         maxWindows: Int
     ) -> [Window] where Inputs.Element == SessionSnapshotWindowInput<Window> {
-        Array(
-            inputs.lazy
-                .compactMap { input -> Window? in
-                    input.dropsWhenEmptyDedicatedRemoteWindow ? nil : input.snapshot
-                }
-                .prefix(maxWindows)
-        )
+        assembleWindowSnapshotResult(from: inputs, maxWindows: maxWindows).windows
+    }
+
+    /// Selects the window snapshots that survive and reports whether app-side
+    /// crash-diagnostic pruning removed any state while building them.
+    ///
+    /// This is the same window-selection policy as ``assembleWindows(from:maxWindows:)``,
+    /// with the extra `removedCrashDiagnosticState` bit the app uses to preserve
+    /// the manual-restore backup when the primary snapshot becomes crash-only.
+    ///
+    /// - Parameters:
+    ///   - inputs: the per-window snapshot inputs, already ordered by the host.
+    ///   - maxWindows: the per-snapshot window cap.
+    /// - Returns: The surviving windows plus whether any evaluated input removed
+    ///   crash-diagnostic state.
+    public func assembleWindowSnapshotResult<Inputs: Sequence, Window>(
+        from inputs: Inputs,
+        maxWindows: Int
+    ) -> (windows: [Window], removedCrashDiagnosticState: Bool) where Inputs.Element == SessionSnapshotWindowInput<Window> {
+        var windows: [Window] = []
+        var removedCrashDiagnosticState = false
+        for input in inputs {
+            removedCrashDiagnosticState =
+                removedCrashDiagnosticState || input.removedCrashDiagnosticState
+            if input.dropsWhenEmptyDedicatedRemoteWindow ||
+                input.dropsWhenCrashDiagnosticWindowRemoved {
+                continue
+            }
+            windows.append(input.snapshot)
+            if windows.count >= maxWindows {
+                break
+            }
+        }
+        return (windows, removedCrashDiagnosticState)
     }
 
     /// Folds the per-window autosave-fingerprint fields into a single `Int`,
