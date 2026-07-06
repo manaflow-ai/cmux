@@ -52,13 +52,12 @@
 //! (`selection-background`/`selection-foreground`), then the built-in
 //! default.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use mux_core::platform;
 use ratatui::style::Color;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -669,16 +668,8 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
     tabs.agents.iter().find(|agent| words.contains(&agent.as_str())).cloned()
 }
 
-fn config_path() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("CMUX_MUX_CONFIG") {
-        return Some(PathBuf::from(path));
-    }
-    let home = std::env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".config/cmux/mux.json"))
-}
-
 fn load_raw_config() -> RawConfig {
-    let Some(path) = config_path() else { return RawConfig::default() };
+    let Some(path) = platform::config_path() else { return RawConfig::default() };
     let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
     match serde_json::from_str(&text) {
         Ok(config) => config,
@@ -715,12 +706,8 @@ fn parse_color(s: &str) -> Option<Color> {
 /// Returns (background, foreground); either may be absent. Ghostty's
 /// config is `key = value` lines; later entries win, matching Ghostty.
 fn ghostty_selection_colors() -> Option<(Option<Color>, Option<Color>)> {
-    let home = std::env::var("HOME").ok()?;
-    let candidates = [
-        PathBuf::from(&home).join(".config/ghostty/config"),
-        PathBuf::from(&home).join("Library/Application Support/com.mitchellh.ghostty/config"),
-    ];
-    let text = candidates.iter().find_map(|p| std::fs::read_to_string(p).ok())?;
+    let text =
+        platform::ghostty_config_paths().iter().find_map(|p| std::fs::read_to_string(p).ok())?;
     let mut bg = None;
     let mut fg = None;
     for line in text.lines() {

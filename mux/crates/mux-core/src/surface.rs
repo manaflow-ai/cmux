@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, Weak};
 use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
+use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{BrowserFrame, BrowserSource};
@@ -21,7 +22,7 @@ use crate::browser::{BrowserRuntime, BrowserSurface};
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
 pub struct SurfaceOptions {
-    /// Command argv; defaults to `$SHELL` (interactive) or `/bin/sh`.
+    /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
     /// TERM value for children. xterm-256color is the compatible default;
@@ -171,10 +172,11 @@ impl Surface {
             pixel_height: 0,
         })?;
 
-        let argv =
-            opts.command.clone().filter(|argv| !argv.is_empty()).unwrap_or_else(|| {
-                vec![std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())]
-            });
+        let argv = opts
+            .command
+            .clone()
+            .filter(|argv| !argv.is_empty())
+            .unwrap_or_else(|| vec![platform::default_shell()]);
         let mut cmd = CommandBuilder::new(&argv[0]);
         cmd.args(&argv[1..]);
         cmd.env("TERM", &opts.term);
@@ -183,7 +185,7 @@ impl Surface {
         }
         if let Some(cwd) = opts.cwd.as_deref() {
             cmd.cwd(cwd);
-        } else if let Ok(home) = std::env::var("HOME") {
+        } else if let Some(home) = platform::home_dir() {
             cmd.cwd(home);
         }
 

@@ -1,4 +1,4 @@
-//! Control socket: a JSON-lines protocol over a unix domain socket.
+//! Control socket: a JSON-lines protocol over the platform transport.
 //!
 //! This is the attach surface for external frontends (the cmux app, the
 //! bundled `cmux-mux attach` client, scripts). One JSON request per line;
@@ -22,8 +22,6 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -32,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
+use crate::platform::{self, transport};
 use crate::{
     assign_short_ids, AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId,
     SplitDir, SurfaceId, SurfaceKind, WorkspaceId,
@@ -39,11 +38,9 @@ use crate::{
 
 pub const PROTOCOL_VERSION: u32 = 6;
 
-/// Default socket path for a session: `$TMPDIR/cmux-mux-<uid>/<session>.sock`.
+/// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
-    let uid = unsafe { libc::getuid() };
-    let dir = std::env::temp_dir().join(format!("cmux-mux-{uid}"));
-    dir.join(format!("{session}.sock"))
+    platform::runtime_dir().join(format!("{session}.sock"))
 }
 
 #[derive(Deserialize)]
@@ -232,7 +229,7 @@ struct Response {
 /// Line-oriented shared writer: responses and event streams interleave
 /// whole lines.
 #[derive(Clone)]
-struct LineWriter(Arc<Mutex<UnixStream>>);
+struct LineWriter(Arc<Mutex<Box<dyn transport::Stream>>>);
 
 impl LineWriter {
     fn send(&self, value: &Value) -> std::io::Result<()> {
@@ -248,11 +245,11 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = path.unwrap_or_else(|| default_socket_path(&mux.session));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        platform::restrict_directory(dir)?;
     }
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
-        match UnixStream::connect(&path) {
+        match transport::connect(&path) {
             Ok(_) => anyhow::bail!(
                 "session socket {} is already in use (another instance running?)",
                 path.display()
@@ -260,23 +257,21 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
             Err(_) => std::fs::remove_file(&path)?,
         }
     }
-    let listener = UnixListener::bind(&path)?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    let listener = transport::listen(&path)?;
+    platform::restrict_file(&path)?;
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(stream) = stream else { continue };
-            let mux = mux.clone();
-            let _ = std::thread::Builder::new()
-                .name("mux-conn".into())
-                .spawn(move || handle_connection(mux, stream));
-        }
+    std::thread::Builder::new().name("mux-server".into()).spawn(move || loop {
+        let Ok(stream) = listener.accept() else { continue };
+        let mux = mux.clone();
+        let _ = std::thread::Builder::new()
+            .name("mux-conn".into())
+            .spawn(move || handle_connection(mux, stream));
     })?;
     Ok(path)
 }
 
-fn handle_connection(mux: Arc<Mux>, stream: UnixStream) {
-    let Ok(write_half) = stream.try_clone() else { return };
+fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
+    let Ok(write_half) = stream.try_clone_box() else { return };
     let writer = LineWriter(Arc::new(Mutex::new(write_half)));
     let reader = BufReader::new(stream);
     for line in reader.lines() {

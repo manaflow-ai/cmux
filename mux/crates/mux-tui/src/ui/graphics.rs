@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
+#[cfg(unix)]
 use std::io::Write;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use mux_core::{Rect, SurfaceId};
@@ -7,6 +9,7 @@ use mux_core::{Rect, SurfaceId};
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
 const PLACEMENT_ID: u32 = 1;
+const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 
 #[derive(Debug, Clone)]
 pub struct GraphicPlacement {
@@ -86,6 +89,7 @@ pub fn delete_image(surface: SurfaceId) -> Vec<u8> {
     format!("{ESC}_Ga=d,d=i,i={id},q=2;{ESC}\\").into_bytes()
 }
 
+#[cfg(unix)]
 pub fn probe_kitty_graphics() -> bool {
     let mut stdout = std::io::stdout();
     let _ = write!(stdout, "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c");
@@ -100,22 +104,36 @@ pub fn probe_kitty_graphics() -> bool {
     }
 }
 
-pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
-    if let Some(cell) = ioctl_cell_pixels() {
-        return cell;
-    }
-    if query_fallback {
-        if let Some(cell) = query_cell_pixels() {
-            return cell;
-        }
-    }
-    (8, 16)
+#[cfg(not(unix))]
+pub fn probe_kitty_graphics() -> bool {
+    false
 }
 
+pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
+    #[cfg(unix)]
+    {
+        ioctl_cell_pixels()
+            .or_else(|| if query_fallback { query_cell_pixels() } else { None })
+            .unwrap_or(DEFAULT_CELL_PIXELS)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = query_fallback;
+        DEFAULT_CELL_PIXELS
+    }
+}
+
+#[cfg(unix)]
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
-    if !ok || ws.ws_col == 0 || ws.ws_row == 0 || ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
+    ok.then_some(ws).and_then(cell_pixels_from_winsize)
+}
+
+#[cfg(unix)]
+fn cell_pixels_from_winsize(ws: libc::winsize) -> Option<(u16, u16)> {
+    if ws.ws_col == 0 || ws.ws_row == 0 || ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
         return None;
     }
     let w = (ws.ws_xpixel / ws.ws_col).max(1);
@@ -123,6 +141,7 @@ fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     Some((w, h))
 }
 
+#[cfg(unix)]
 fn query_cell_pixels() -> Option<(u16, u16)> {
     let (cols, rows) = crossterm::terminal::size().ok()?;
     if cols == 0 || rows == 0 {
@@ -142,6 +161,7 @@ fn query_cell_pixels() -> Option<(u16, u16)> {
     Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
 }
 
+#[cfg(unix)]
 fn read_stdin_for(timeout: Duration) -> Vec<u8> {
     let start = Instant::now();
     let mut out = Vec::new();
@@ -166,10 +186,12 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
     out
 }
 
+#[cfg(any(test, unix))]
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }
 
+#[cfg(unix)]
 fn find_da1(bytes: &[u8]) -> Option<usize> {
     bytes.iter().enumerate().find_map(|(idx, byte)| {
         if *byte == b'c' && bytes[..idx].iter().rev().take(16).any(|b| *b == b'[') {
@@ -208,5 +230,16 @@ mod tests {
     fn deletes_by_image_id_quietly() {
         let bytes = String::from_utf8(delete_image(41)).unwrap();
         assert_eq!(bytes, "\x1b_Ga=d,d=i,i=42,q=2;\x1b\\");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn zero_pixel_winsize_degrades_to_default_cell_pixels() {
+        let ws = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        assert_eq!(cell_pixels_from_winsize(ws), None);
+        assert_eq!(
+            cell_pixels_from_winsize(ws).unwrap_or(DEFAULT_CELL_PIXELS),
+            DEFAULT_CELL_PIXELS
+        );
     }
 }

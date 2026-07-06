@@ -16,5 +16,8 @@ anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+uds_windows.workspace = true
+
 [dev-dependencies]
 tungstenite.workspace = true

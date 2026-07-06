@@ -1,19 +1,29 @@
+#[cfg(unix)]
 use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::io;
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use mux_core::{DefaultColors, Rgb};
+use mux_core::DefaultColors;
+#[cfg(any(unix, test))]
+use mux_core::Rgb;
 
+#[cfg(unix)]
 const QUERY: &[u8] = b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\";
+#[cfg(unix)]
 const DEADLINE: Duration = Duration::from_millis(150);
 
+#[cfg(unix)]
 struct ProbeIo {
     read_fd: RawFd,
     write_fd: RawFd,
     _tty: Option<std::fs::File>,
 }
 
+#[cfg(unix)]
 impl ProbeIo {
     fn open() -> Option<Self> {
         if is_tty(libc::STDIN_FILENO) {
@@ -30,6 +40,7 @@ impl ProbeIo {
     }
 }
 
+#[cfg(unix)]
 pub fn probe_default_colors() -> DefaultColors {
     let Some(io) = ProbeIo::open() else {
         return DefaultColors::default();
@@ -44,10 +55,17 @@ pub fn probe_default_colors() -> DefaultColors {
     parse_replies(&read_available_until(io.read_fd, DEADLINE))
 }
 
+#[cfg(not(unix))]
+pub fn probe_default_colors() -> DefaultColors {
+    DefaultColors::default()
+}
+
+#[cfg(unix)]
 fn is_tty(fd: RawFd) -> bool {
     unsafe { libc::isatty(fd) == 1 }
 }
 
+#[cfg(unix)]
 fn write_all_fd(fd: RawFd, mut bytes: &[u8]) -> io::Result<()> {
     while !bytes.is_empty() {
         let written = unsafe { libc::write(fd, bytes.as_ptr().cast(), bytes.len()) };
@@ -66,6 +84,7 @@ fn write_all_fd(fd: RawFd, mut bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn read_available_until(fd: RawFd, timeout: Duration) -> Vec<u8> {
     let deadline = Instant::now() + timeout;
     let mut out = Vec::with_capacity(128);
@@ -118,6 +137,7 @@ fn read_available_until(fd: RawFd, timeout: Duration) -> Vec<u8> {
     out
 }
 
+#[cfg(any(unix, test))]
 fn parse_replies(bytes: &[u8]) -> DefaultColors {
     let mut colors = DefaultColors::default();
     let mut offset = 0;
@@ -138,6 +158,7 @@ fn parse_replies(bytes: &[u8]) -> DefaultColors {
     colors
 }
 
+#[cfg(any(unix, test))]
 fn find_terminator(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
     let mut i = start;
     while i < bytes.len() {
@@ -150,6 +171,7 @@ fn find_terminator(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
     None
 }
 
+#[cfg(any(unix, test))]
 fn parse_reply(reply: &[u8]) -> Option<(u8, Rgb)> {
     let (target, rest) = if let Some(rest) = reply.strip_prefix(b"10;rgb:") {
         (10, rest)
@@ -166,6 +188,7 @@ fn parse_reply(reply: &[u8]) -> Option<(u8, Rgb)> {
     parts.next().is_none().then_some((target, Rgb { r, g, b }))
 }
 
+#[cfg(any(unix, test))]
 fn parse_component(bytes: &[u8]) -> Option<u8> {
     if !(2..=4).contains(&bytes.len()) {
         return None;
@@ -178,6 +201,7 @@ fn parse_component(bytes: &[u8]) -> Option<u8> {
     Some((value >> shift) as u8)
 }
 
+#[cfg(any(unix, test))]
 fn hex_nibble(b: u8) -> Option<u8> {
     match b {
         b'0'..=b'9' => Some(b - b'0'),
@@ -187,6 +211,7 @@ fn hex_nibble(b: u8) -> Option<u8> {
     }
 }
 
+#[cfg(any(unix, test))]
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|window| window == needle)
 }

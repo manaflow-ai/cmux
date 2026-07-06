@@ -15,6 +15,7 @@ mod short_id;
 mod surface;
 
 pub mod layout;
+pub mod platform;
 pub mod server;
 
 pub use layout::{
