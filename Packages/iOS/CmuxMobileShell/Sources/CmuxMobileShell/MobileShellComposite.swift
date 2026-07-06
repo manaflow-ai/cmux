@@ -1155,7 +1155,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // reasserts a live subscription without tearing down a healthy stream.
         evaluatePresenceSubscription()
-        resyncTerminalOutput(reason: "foreground", restartEventStream: false)
+        resyncTerminalOutput(
+            reason: "foreground",
+            restartEventStream: false,
+            restartOnSubscriptionFailure: true
+        )
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -6275,7 +6279,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func refreshTerminalEventSubscription(reason: String) {
+    private func refreshTerminalEventSubscription(reason: String, restartOnFailure: Bool = false) {
         guard let client = remoteClient, connectionState == .connected else { return }
         guard runtime?.supportsServerPushEvents ?? true else { return }
         guard terminalSubscriptionRefreshTask == nil else { return }
@@ -6283,11 +6287,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             defer { self?.terminalSubscriptionRefreshTask = nil }
             guard let self else { return }
             let topics = self.terminalOutputTransport.eventTopics
-            _ = await self.requestTerminalEventSubscription(
-                client: client,
-                reason: reason,
-                topics: topics
-            )
+            let ack: TerminalEventSubscriptionAck
+            if restartOnFailure {
+                let timeoutNanoseconds = self.runtime?.livenessProbeTimeoutNanoseconds
+                    ?? 3_000_000_000
+                ack = await self.probeEventSubscriptionLiveness(
+                    client: client,
+                    topics: topics,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+            } else {
+                ack = await self.requestTerminalEventSubscription(
+                    client: client,
+                    reason: reason,
+                    topics: topics
+                )
+            }
+            guard self.remoteClient === client, self.connectionState == .connected else { return }
+            guard case .subscribed(let alreadySubscribed) = ack else {
+                MobileDebugLog.anchormux("sync.refresh_failed reason=\(reason) restart=\(restartOnFailure)")
+                if restartOnFailure {
+                    self.resyncTerminalOutput(
+                        reason: "\(reason).subscribe_failed",
+                        restartEventStream: true
+                    )
+                }
+                return
+            }
+            self.recordTerminalEventStreamLiveness()
+            self.markMacConnectionHealthy()
+            if alreadySubscribed == false {
+                MobileDebugLog.anchormux("sync.refresh_repaired reason=\(reason)")
+                for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
+                    self.requestTerminalReplay(surfaceID: surfaceID)
+                }
+                self.scheduleWorkspaceListRefreshFromEvent()
+            }
         }
     }
 
@@ -6680,6 +6715,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,
+        restartOnSubscriptionFailure: Bool = false,
         surfaceIDs requestedSurfaceIDs: [String]? = nil
     ) {
         guard remoteClient != nil, connectionState == .connected else { return }
@@ -6689,7 +6725,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else if terminalEventListenerTask == nil {
             startTerminalRefreshPolling()
         } else {
-            refreshTerminalEventSubscription(reason: reason)
+            refreshTerminalEventSubscription(
+                reason: reason,
+                restartOnFailure: restartOnSubscriptionFailure
+            )
         }
 
         let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)

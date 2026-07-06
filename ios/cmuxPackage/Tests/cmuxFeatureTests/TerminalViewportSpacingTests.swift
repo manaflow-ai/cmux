@@ -513,6 +513,12 @@ struct TerminalViewportSpacingTests {
         #expect(harness.view.simulateRenderRecoveryWithStuckPriorFreeForTesting())
         #expect(harness.view.isUsingSnapshotFallbackForTesting())
         #expect(
+            await harness.pump(timeout: 1, until: {
+                harness.view.visibleSnapshotTextForTesting().contains(preRecoveryText)
+            }),
+            "the recovery-only text snapshot must arrive while replay is pending"
+        )
+        #expect(
             harness.view.visibleSnapshotTextForTesting().contains(preRecoveryText),
             "the fallback snapshot must preserve the last rendered terminal text while replay is pending"
         )

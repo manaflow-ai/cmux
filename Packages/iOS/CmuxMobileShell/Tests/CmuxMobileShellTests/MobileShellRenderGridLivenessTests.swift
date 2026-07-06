@@ -495,6 +495,52 @@ import Testing
     collector.unmount()
 }
 
+/// If iOS resumes after the event listener was actually killed or half-closed,
+/// foreground refresh must not wait for the general liveness silence window.
+/// It first tries the cheap in-place reassertion used by the healthy path; if
+/// that bounded reassertion does not answer, it restarts the listener and
+/// replays mounted terminals immediately.
+@MainActor
+@Test func foregroundResumeRestartsWhenSubscriptionReassertionDoesNotAnswer() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing foreground dead-stream recovery"
+    )
+
+    store.setAppForegroundActive(false)
+    await router.holdSubscribeRequest(number: 2)
+    store.resumeForegroundRefresh()
+
+    let restarted = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") >= 2
+    }
+    #expect(
+        restarted,
+        "a foreground subscription reassertion that does not answer must restart the terminal listener immediately"
+    )
+    let replayed = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(replayed, "foreground restart recovery must replay mounted terminal surfaces")
+    collector.unmount()
+}
+
 /// A successful probe that REPAIRED a lost registration (the host reports
 /// `already_subscribed: false`) must replay mounted surfaces: render-grid
 /// deltas emitted while the registration was absent were never delivered, so
