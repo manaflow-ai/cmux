@@ -25,6 +25,7 @@ XCTEST_METHOD_RE = re.compile(
 LARGE_SUITE_METHOD_THRESHOLD = 40
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
+    "cmuxTests/ClosedMainWindowRoutingTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
 }
 
