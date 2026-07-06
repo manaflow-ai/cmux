@@ -63,6 +63,15 @@ enum CmuxConfigActionSaver {
             source = emptyConfigTemplate
         }
 
+        // A user-authored non-object "actions" value would be silently
+        // replaced by the JSONC upsert below — refuse instead of losing data.
+        if let sanitized = try? JSONCParser.preprocess(data: Data(source.utf8)),
+           let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+           let existingActions = root["actions"],
+           !(existingActions is [String: Any]) {
+            throw SaveError.malformedConfig(globalConfigPath)
+        }
+
         let actionID = uniqueActionID(
             forTitle: title,
             existingIDs: existingActionIDs(inConfigSource: source)

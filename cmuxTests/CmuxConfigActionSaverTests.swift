@@ -82,6 +82,28 @@ final class CmuxConfigActionSaverTests: XCTestCase {
         XCTAssertEqual(pane.surfaces.first?.command, "claude")
     }
 
+    func testSaveWorkspaceActionRejectsNonObjectActionsBlock() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-action-saver-nonobject-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        let original = "{\n  \"actions\": [\"not\", \"an\", \"object\"]\n}\n"
+        try original.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try CmuxConfigActionSaver.saveWorkspaceAction(
+            title: "Nope",
+            definition: CmuxWorkspaceDefinition(name: "Nope"),
+            globalConfigPath: configPath
+        ))
+        // The user's (malformed) content must survive untouched.
+        XCTAssertEqual(try String(contentsOfFile: configPath, encoding: .utf8), original)
+    }
+
     func testSaveWorkspaceActionPreservesSymlinkedConfig() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-action-saver-symlink-\(UUID().uuidString)",

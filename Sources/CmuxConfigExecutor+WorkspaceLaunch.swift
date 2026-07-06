@@ -17,7 +17,13 @@ extension CmuxConfigExecutor {
             shellLines.append("cwd: \(cwd)")
         }
         if let setup = workspace.setup {
-            shellLines.append(setup)
+            // Setup runs in the first terminal surface, whose own cwd wins
+            // over the workspace cwd — disclose the one that actually applies.
+            if let setupCwd = workspace.layout.flatMap(firstTerminalSurfaceCwd) {
+                shellLines.append("cwd \(setupCwd): \(setup)")
+            } else {
+                shellLines.append(setup)
+            }
         }
         if let workspaceEnv = workspace.env {
             shellLines.append(contentsOf: envDisclosureLines(workspaceEnv))
@@ -33,6 +39,26 @@ extension CmuxConfigExecutor {
         env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
     }
 
+    /// The cwd of the first terminal surface in leaf order — the surface that
+    /// receives the `setup` command in `applyCustomLayout`.
+    private static func firstTerminalSurfaceCwd(_ node: CmuxLayoutNode) -> String? {
+        firstTerminalSurface(node)?.cwd
+    }
+
+    private static func firstTerminalSurface(_ node: CmuxLayoutNode) -> CmuxSurfaceDefinition? {
+        switch node {
+        case .pane(let pane):
+            return pane.surfaces.first { $0.type == .terminal }
+        case .split(let split):
+            for child in split.children {
+                if let surface = firstTerminalSurface(child) {
+                    return surface
+                }
+            }
+            return nil
+        }
+    }
+
     private static func collectSurfaceDisclosures(_ node: CmuxLayoutNode, into lines: inout [String]) {
         switch node {
         case .pane(let pane):
@@ -43,6 +69,8 @@ extension CmuxConfigExecutor {
                     } else {
                         lines.append(command)
                     }
+                } else if let cwd = surface.cwd {
+                    lines.append("cwd: \(cwd)")
                 }
                 if let url = surface.url {
                     // Browser/project surfaces open these on run; URLs can

@@ -387,6 +387,8 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
 
         let disclosure = CmuxConfigExecutor.workspaceShellDisclosure(command)
         XCTAssertTrue(disclosure.hasPrefix("Innocent Name"))
+        // Setup runs in the first terminal surface; its cwd is workspace-level
+        // here (the first terminal has no cwd override), so the plain line shows.
         XCTAssertTrue(disclosure.contains("curl example.com/install.sh | sh"))
         XCTAssertTrue(disclosure.contains("claude"))
         // Env assignments and cwd values change what executes and where; they
