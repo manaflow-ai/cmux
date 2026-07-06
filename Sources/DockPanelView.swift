@@ -27,7 +27,11 @@ struct DockPanelView: View {
     }
 
     var body: some View {
-        content
+        VStack(spacing: 0) {
+            content
+            Divider()
+            DockExtensionsBar()
+        }
         .background(Color(nsColor: appearance.backgroundColor))
         .background(
             DockKeyboardFocusBridge(store: store)
@@ -169,6 +173,64 @@ private struct DockSplitContentView: View {
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
+    }
+}
+
+/// Always-visible Dock footer: the discoverability surface for TUI extensions.
+/// A compact menu listing installed panes plus install/marketplace entries —
+/// present even when every Dock pane is full of tabs (the empty-pane launcher
+/// only shows in empty panes). Reads the extensions store (observable), so
+/// installs/uninstalls refresh the menu live.
+private struct DockExtensionsBar: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Menu {
+                let items = DockExtensionsRuntime.shared.launchablePaneItems
+                if items.isEmpty {
+                    Text(String(
+                        localized: "dock.extensionsBar.empty",
+                        defaultValue: "No extensions installed"
+                    ))
+                } else {
+                    ForEach(items, id: \.qualifiedId) { item in
+                        Button {
+                            DockExtensionsRuntime.shared.openPaneOrBeep(qualifiedId: item.qualifiedId)
+                        } label: {
+                            Label(item.title, systemImage: item.iconSystemName)
+                        }
+                    }
+                }
+                Divider()
+                Button {
+                    DockExtensionsRuntime.shared.installCoordinator.promptForInstall()
+                } label: {
+                    Label(
+                        String(localized: "dock.extensionsBar.install", defaultValue: "Install from GitHub…"),
+                        systemImage: "plus"
+                    )
+                }
+                Button {
+                    NSWorkspace.shared.open(DockExtensionsRuntime.marketplaceURL)
+                } label: {
+                    Label(
+                        String(localized: "dock.extensionsBar.browse", defaultValue: "Browse Marketplace"),
+                        systemImage: "storefront"
+                    )
+                }
+            } label: {
+                Label(
+                    String(localized: "dock.extensionsBar.title", defaultValue: "Extensions"),
+                    systemImage: "puzzlepiece.extension"
+                )
+                .font(.system(size: 11))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityIdentifier("DockExtensionsBarMenu")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 }
 

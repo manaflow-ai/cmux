@@ -226,3 +226,55 @@ struct DockExtensionsStoreTests {
         }
     }
 }
+
+@MainActor
+@Suite("DockExtensionsStore hardening", .serialized)
+struct DockExtensionsStoreHardeningTests {
+    @Test func malformedLockfileIdNeverDeletesOutsideCheckouts() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ext-hardening-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let directories = DockExtensionDirectories(homeDirectory: home)
+        let repository = InstalledDockExtensionsRepository(fileURL: directories.lockFileURL)
+        // Victim directory that a traversal id would resolve to:
+        // checkouts/../victim == extensions/victim.
+        let victim = directories.stateRoot.appendingPathComponent("victim", isDirectory: true)
+        try FileManager.default.createDirectory(at: victim, withIntermediateDirectories: true)
+        try "keep".write(
+            to: victim.appendingPathComponent("data.txt"), atomically: true, encoding: .utf8
+        )
+        try await repository.upsert(DockExtensionInstallRecord(
+            id: "../victim",
+            source: .github(owner: "o", repository: "r", subdirectory: nil),
+            pinnedSha: String(repeating: "a", count: 40),
+            installedAt: Date(),
+            consentFingerprint: "fp"
+        ))
+        let store = DockExtensionsStore(directories: directories, repository: repository)
+        await store.reload()
+        // Projection refuses the traversal path (record shows unavailable, no
+        // panes) and uninstall removes the record but never the victim dir.
+        let installed = try #require(store.installedExtension(id: "../victim"))
+        #expect(installed.launchablePanes.isEmpty)
+        try await store.uninstall(id: "../victim")
+        #expect(FileManager.default.fileExists(atPath: victim.appendingPathComponent("data.txt").path))
+        #expect(store.installed.isEmpty)
+    }
+
+    @Test func oversizedManifestIsRejectedBeforeReading() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ext-oversize-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let devDirectory = home.appendingPathComponent("dev-ext", isDirectory: true)
+        try FileManager.default.createDirectory(at: devDirectory, withIntermediateDirectories: true)
+        let big = "{\"padding\": \"" + String(repeating: "x", count: DockExtensionManifest.maximumFileSize) + "\"}"
+        try big.write(
+            to: devDirectory.appendingPathComponent(DockExtensionManifest.manifestFileName),
+            atomically: true, encoding: .utf8
+        )
+        #expect(throws: DockExtensionError.manifestTooLarge(limitBytes: DockExtensionManifest.maximumFileSize)) {
+            try DockExtensionManifestLoader().load(fromDirectory: devDirectory)
+        }
+    }
+}

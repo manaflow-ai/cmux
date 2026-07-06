@@ -56,15 +56,20 @@ public enum DockExtensionError: Error, Equatable, LocalizedError {
                 localized: "dockExtensions.error.needsReconsent",
                 defaultValue: "Extension \"\(id)\" changed on disk since you approved it. Update or reinstall it to review the new commands."
             )
-        case .gitUnavailable(let detail):
+        case .gitUnavailable:
+            // The raw spawn detail stays in the associated value (for logs and
+            // socket error data); the presented copy is cmux-terms + action.
             return String(
                 localized: "dockExtensions.error.gitUnavailable",
-                defaultValue: "git is not available. Install the Xcode Command Line Tools (xcode-select --install) and try again. (\(detail))"
+                defaultValue: "git is not available. Install the Xcode Command Line Tools (xcode-select --install) and try again."
             )
-        case .gitFailed(let operation, let detail):
+        case .gitFailed(_, let detail):
+            // Internal git subcommand names stay out of the presented copy;
+            // the (tail-truncated) git detail is the actionable cause the
+            // user needs ("Repository not found", "no branch named x", …).
             return String(
                 localized: "dockExtensions.error.gitFailed",
-                defaultValue: "git \(operation) failed: \(detail)"
+                defaultValue: "Couldn't fetch the extension from its Git repository: \(detail)"
             )
         case .manifestNotFound(let path):
             return String(
