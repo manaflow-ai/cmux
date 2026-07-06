@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34438	CLI/cmux.swift
+34399	CLI/cmux.swift
 17963	Sources/AppDelegate.swift
 16457	Sources/ContentView.swift
-15152	Sources/TerminalController.swift
+15151	Sources/TerminalController.swift
 13185	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12296	Sources/GhosttyTerminalView.swift
@@ -41,7 +41,7 @@
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2404	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
-2242	Sources/TerminalNotificationStore.swift
+2240	Sources/TerminalNotificationStore.swift
 2229	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2085	cmuxTests/ShortcutAndCommandPaletteTests.swift
@@ -75,7 +75,7 @@
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1287	cmuxTests/RestorableAgentSessionIndexTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
-1258	Sources/Feed/FeedCoordinator.swift
+1250	Sources/Feed/FeedCoordinator.swift
 1240	cmuxTests/SidebarOrderingTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1205	Sources/RemoteTmuxController.swift
@@ -247,6 +247,7 @@
 513	Sources/TerminalController+ControlSidebarContext2.swift
 511	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Sidebar/ControlCommandCoordinator+SidebarReportsV1.swift
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
+509	Sources/TerminalNotificationQueue.swift
 508	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/GhosttySurfaceRepresentable.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift
@@ -254,7 +255,6 @@
 504	Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
-503	Sources/TerminalNotificationQueue.swift
 502	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/RemoteTmuxSessionMirror.swift
