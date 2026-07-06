@@ -1,7 +1,8 @@
 import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { buildAlternates } from "../../../../../i18n/seo";
+import { buildAlternates } from "@/i18n/seo";
+import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   comparePageForSlug,
   comparePages,
@@ -126,51 +127,56 @@ function ComparePageContent({
       />
       <JsonLd data={faqPage(qas)} />
 
-      <div className="not-prose mb-8">
-        <TrackedLink
-          href="/compare"
-          event="compare_back_clicked"
-          className="text-sm text-muted hover:text-foreground transition-colors"
-        >
-          &larr; {tc("title")}
-        </TrackedLink>
-      </div>
+      <SiteHeader section={tc("title")} />
+      <main className="w-full max-w-3xl mx-auto px-6 py-12">
+        <div className="docs-content text-[15px]">
+          <div className="not-prose mb-8">
+            <TrackedLink
+              href="/compare"
+              event="compare_back_clicked"
+              className="text-sm text-muted hover:text-foreground transition-colors"
+            >
+              &larr; {tc("title")}
+            </TrackedLink>
+          </div>
 
-      <h1>{t("title")}</h1>
-      <p>{t("intro")}</p>
+          <h1>{t("title")}</h1>
+          <p>{t("intro")}</p>
 
-      <h2>{t("summaryTitle")}</h2>
-      <p>{t("summaryBody")}</p>
+          <h2>{t("summaryTitle")}</h2>
+          <p>{t("summaryBody")}</p>
 
-      <CompareTable headers={table.headers} rows={table.rows} />
+          <CompareTable headers={table.headers} rows={table.rows} />
 
-      {sections.map((section) => (
-        <section key={section.title}>
-          <h2>{section.title}</h2>
-          <p>{section.body}</p>
-        </section>
-      ))}
+          {sections.map((section) => (
+            <section key={section.title}>
+              <h2>{section.title}</h2>
+              <p>{section.body}</p>
+            </section>
+          ))}
 
-      <h2>{t("faqTitle")}</h2>
-      {qas.map((qa) => (
-        <section key={qa.question}>
-          <h3>{qa.question}</h3>
-          <p>{qa.answer}</p>
-        </section>
-      ))}
+          <h2>{t("faqTitle")}</h2>
+          {qas.map((qa) => (
+            <section key={qa.question}>
+              <h3>{qa.question}</h3>
+              <p>{qa.answer}</p>
+            </section>
+          ))}
 
-      <LandingCTA
-        related={[
-          { href: "/compare", label: tc("title") },
-          ...relatedComparePages.map((relatedPage) => ({
-            href: comparePath(relatedPage.slug),
-            label: tc(`pages.${relatedPage.key}.title`),
-          })),
-          { href: "/agents", label: tl("agents") },
-          { href: "/docs/keyboard-shortcuts", label: tl("keyboardShortcuts") },
-          { href: "/docs/browser-automation", label: tl("browserAutomation") },
-        ]}
-      />
+          <LandingCTA
+            related={[
+              { href: "/compare", label: tc("title") },
+              ...relatedComparePages.map((relatedPage) => ({
+                href: comparePath(relatedPage.slug),
+                label: tc(`pages.${relatedPage.key}.title`),
+              })),
+              { href: "/agents", label: tl("agents") },
+              { href: "/docs/keyboard-shortcuts", label: tl("keyboardShortcuts") },
+              { href: "/docs/browser-automation", label: tl("browserAutomation") },
+            ]}
+          />
+        </div>
+      </main>
     </>
   );
 }
