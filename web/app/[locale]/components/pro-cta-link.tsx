@@ -8,7 +8,7 @@ import {
 import {
   isClientConfigFlagEnabled,
   useClientConfigFlag,
-} from "../../lib/client-config";
+} from "../../lib/client-config-flags";
 import { FEATURE_FLAGS } from "../../lib/feature-flags";
 
 // Single evaluation site for the pro-checkout flag (lint-enforced).

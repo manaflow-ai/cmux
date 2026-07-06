@@ -3,7 +3,7 @@
 import {
   isClientConfigFlagEnabled,
   useClientConfigFlag,
-} from "../../lib/client-config";
+} from "../../lib/client-config-flags";
 import { FEATURE_FLAGS } from "../../lib/feature-flags";
 
 const FORCE = process.env.NEXT_PUBLIC_CMUX_PRO_UPGRADE_UI_ENABLED;

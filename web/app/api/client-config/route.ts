@@ -1,6 +1,7 @@
 import { checkRateLimit } from "@vercel/firewall";
 import { NextResponse } from "next/server";
 
+import "../../env";
 import { readBoundedJsonObject } from "../../../services/apns/routePolicy";
 import {
   CLIENT_CONFIG_FLAGS_TIMEOUT_MS,
@@ -33,6 +34,7 @@ export async function POST(request: Request): Promise<Response> {
       return json({ error: "client_config_unavailable" }, 503);
     } else if (error) {
       console.error("client-config.route.rate_limit_error", error);
+      return json({ error: "client_config_unavailable" }, 503);
     }
   }
 

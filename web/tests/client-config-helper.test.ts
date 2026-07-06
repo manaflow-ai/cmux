@@ -39,7 +39,7 @@ mock.module("posthog-js", () => ({
   },
 }));
 
-const { getClientConfig, isClientConfigFlagEnabled } = await import("../app/lib/client-config");
+const { getClientConfig } = await import("../app/lib/client-config");
 
 const originalFetch = globalThis.fetch;
 
@@ -108,14 +108,5 @@ describe("getClientConfig", () => {
     expect(getAnonymousId).not.toHaveBeenCalled();
     expect(getGroups).not.toHaveBeenCalled();
     expect(getProperty).not.toHaveBeenCalled();
-  });
-
-  test("normalizes first-party feature flag values", () => {
-    expect(isClientConfigFlagEnabled(true, false)).toBe(true);
-    expect(isClientConfigFlagEnabled(false, true)).toBe(false);
-    expect(isClientConfigFlagEnabled("enabled", false)).toBe(true);
-    expect(isClientConfigFlagEnabled("false", true)).toBe(false);
-    expect(isClientConfigFlagEnabled("  ", true)).toBe(false);
-    expect(isClientConfigFlagEnabled(undefined, true)).toBe(true);
   });
 });

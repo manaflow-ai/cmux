@@ -67,6 +67,7 @@ export function normalizePostHogFlagsResponse(body: Record<string, unknown>): Cl
   const featureFlags: Record<string, ClientConfigFlagValue> = {};
   const legacyPayloads = normalizeFeatureFlagPayloads(body.featureFlagPayloads);
   const featureFlagPayloads = { ...legacyPayloads };
+  const suppressedPayloadKeys = new Set<string>();
 
   const legacyFeatureFlags = body.featureFlags;
   if (legacyFeatureFlags && typeof legacyFeatureFlags === "object" && !Array.isArray(legacyFeatureFlags)) {
@@ -78,21 +79,35 @@ export function normalizePostHogFlagsResponse(body: Record<string, unknown>): Cl
   }
 
   const detailedFlags = body.flags;
-  if (!isFlagsRecord(detailedFlags)) {
-    for (const key of Object.keys(legacyPayloads)) {
-      if (featureFlags[key] === undefined) featureFlags[key] = true;
-    }
-  }
-
   if (detailedFlags && typeof detailedFlags === "object" && !Array.isArray(detailedFlags)) {
     for (const [key, value] of Object.entries(detailedFlags)) {
-      if (isFailedDetailedFlag(value)) continue;
+      if (isFailedDetailedFlag(value)) {
+        delete featureFlags[key];
+        delete featureFlagPayloads[key];
+        suppressedPayloadKeys.add(key);
+        continue;
+      }
       const normalized = normalizeDetailedFlag(value);
-      if (normalized !== undefined) featureFlags[key] = normalized;
+      if (normalized !== undefined) {
+        featureFlags[key] = normalized;
+        if (normalized === false) {
+          delete featureFlagPayloads[key];
+          suppressedPayloadKeys.add(key);
+        }
+      }
       const payload = payloadFromDetailedFlag(value, normalized);
       if (payload !== undefined && featureFlagPayloads[key] === undefined) {
         featureFlagPayloads[key] = payload;
       }
+    }
+  }
+
+  for (const key of Object.keys(legacyPayloads)) {
+    if (featureFlags[key] === undefined && !suppressedPayloadKeys.has(key)) {
+      featureFlags[key] = true;
+    }
+    if (featureFlags[key] === false || suppressedPayloadKeys.has(key)) {
+      delete featureFlagPayloads[key];
     }
   }
 
@@ -130,6 +145,8 @@ function normalizeFeatureFlagPayloads(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const payloads: Record<string, unknown> = {};
   for (const [key, payload] of Object.entries(value)) {
+    // Match posthog-js: payload values are already JSON values, and string
+    // payloads remain strings instead of being parsed opportunistically.
     payloads[key] = payload;
   }
   return payloads;
@@ -172,5 +189,7 @@ function payloadFromDetailedFlag(value: unknown, flagValue: ClientConfigFlagValu
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const metadata = (value as Record<string, unknown>).metadata;
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  // posthog-js copies metadata.payload through without JSON.parse; preserve
+  // string payloads so free-text payloads do not change type.
   return (metadata as Record<string, unknown>).payload;
 }

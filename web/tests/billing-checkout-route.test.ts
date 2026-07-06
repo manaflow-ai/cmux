@@ -118,8 +118,12 @@ describe("billing checkout route", () => {
     mockImplementation(signedInUser.createCheckoutUrl, async () => {
       throw new Error("Product already granted to customer");
     });
-    signedInUser.listProducts.mockResolvedValueOnce(emptyProductsPage());
-    signedInUser.listProducts.mockResolvedValue(activeProProductsPage());
+    // First read (the route's top pre-check) sees no Pro so the route reaches
+    // createCheckoutUrl; the catch-path re-verify then sees an active Pro.
+    let listProductsCalls = 0;
+    mockImplementation(signedInUser.listProducts, async () =>
+      listProductsCalls++ === 0 ? emptyProductsPage() : activeProProductsPage(),
+    );
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/checkout"),

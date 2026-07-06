@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -206,6 +207,93 @@ export const billingEmailClaims = pgTable(
   },
   (table) => [
     index("billing_email_claims_email_idx").on(table.email),
+  ],
+);
+
+export const vaultSessions = pgTable(
+  "vault_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    agent: text("agent").notNull(),
+    agentSessionId: text("agent_session_id").notNull(),
+    relPath: text("rel_path").notNull(),
+    cwd: text("cwd"),
+    latestSha256: text("latest_sha256").notNull(),
+    latestObjectKey: text("latest_object_key").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }),
+    firstUploadedAt: timestamp("first_uploaded_at", { withTimezone: true }).notNull(),
+    lastUploadedAt: timestamp("last_uploaded_at", { withTimezone: true }).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    uniqueIndex("vault_sessions_user_agent_session_unique").on(
+      table.userId,
+      table.agent,
+      table.agentSessionId,
+    ),
+    index("vault_sessions_user_last_uploaded_idx").on(table.userId, table.lastUploadedAt),
+    index("vault_sessions_cwd_trgm_idx").using("gin", table.cwd.op("gin_trgm_ops")),
+    index("vault_sessions_rel_path_trgm_idx").using("gin", table.relPath.op("gin_trgm_ops")),
+  ],
+);
+
+export const vaultSnapshots = pgTable(
+  "vault_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => vaultSessions.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    objectKey: text("object_key").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_snapshots_session_sha_unique").on(table.sessionId, table.sha256),
+  ],
+);
+
+// Ledger of presigned PUT URLs that were minted but not yet committed.
+// Pending grants count against the per-user storage quota so a client cannot
+// bypass CMUX_VAULT_MAX_USER_BYTES by uploading objects and never committing;
+// expired uncommitted grants and their storage objects are opportunistically
+// GC'd by the uploads route.
+export const vaultUploadGrants = pgTable(
+  "vault_upload_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_upload_grants_object_key_unique").on(table.objectKey),
+    index("vault_upload_grants_user_idx").on(table.userId),
+    index("vault_upload_grants_expires_idx").on(table.expiresAt),
+  ],
+);
+
+export const vaultCliAuthRequests = pgTable(
+  "vault_cli_auth_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    deviceCodeHash: text("device_code_hash").notNull(),
+    userCode: text("user_code").notNull(),
+    status: text("status").notNull(),
+    userId: text("user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
+    index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
+    index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
   ],
 );
 
