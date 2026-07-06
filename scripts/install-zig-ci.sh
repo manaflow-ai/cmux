@@ -73,10 +73,16 @@ use_existing_zig_if_available() {
 use_existing_zig_if_available
 
 case "$(uname -s)" in
-  Darwin) ZIG_OS="macos" ;;
-  Linux) ZIG_OS="linux" ;;
+  Darwin)
+    ZIG_OS="macos"
+    ZIG_UNSUPPORTED_OS="macOS"
+    ;;
+  Linux)
+    ZIG_OS="linux"
+    ZIG_UNSUPPORTED_OS="Linux"
+    ;;
   *)
-    echo "Unsupported OS for Zig install: $(uname -s)" >&2
+    echo "Unsupported operating system: $(uname -s)" >&2
     exit 1
     ;;
 esac
@@ -85,7 +91,7 @@ case "$(uname -m)" in
   arm64 | aarch64) ZIG_ARCH="aarch64" ;;
   x86_64) ZIG_ARCH="x86_64" ;;
   *)
-    echo "Unsupported architecture for Zig install: $(uname -m)" >&2
+    echo "Unsupported ${ZIG_UNSUPPORTED_OS} architecture: $(uname -m)" >&2
     exit 1
     ;;
 esac
@@ -152,10 +158,10 @@ PY
 
 verify_zig_sha256() {
   local expected_sha256="$1"
-  if command -v shasum >/dev/null 2>&1; then
-    printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | shasum -a 256 -c -
-  else
+  if [ "$ZIG_OS" = "linux" ]; then
     printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | sha256sum -c -
+  else
+    printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | shasum -a 256 -c -
   fi
 }
 

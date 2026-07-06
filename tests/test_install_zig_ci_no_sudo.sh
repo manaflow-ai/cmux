@@ -49,7 +49,7 @@ case "$(uname -s)" in
   Darwin) ZIG_OS="macos" ;;
   Linux) ZIG_OS="linux" ;;
   *)
-    echo "Unsupported test OS: $(uname -s)" >&2
+    echo "Unsupported test operating system: $(uname -s)" >&2
     exit 1
     ;;
 esac
