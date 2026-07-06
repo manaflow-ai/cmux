@@ -118,7 +118,10 @@ echo "App notarized"
 echo "Creating DMG..."
 rm -f cmux-macos.dmg
 # No --codesign here: the ULMO conversion below invalidates the DMG signature,
-# so the DMG is signed once, after conversion.
+# so the DMG is signed once, after conversion. This is the Homebrew
+# (create-dmg/create-dmg) tool: signing is opt-in via --codesign and it has no
+# --no-code-sign flag. The npm create-dmg used by the CI workflows is a
+# different tool that signs by default and needs the explicit --no-code-sign.
 create-dmg cmux-macos.dmg "$APP_PATH"
 ./scripts/convert-dmg-ulmo.sh cmux-macos.dmg
 codesign --force --timestamp --sign "$SIGN_HASH" cmux-macos.dmg
