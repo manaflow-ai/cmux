@@ -684,6 +684,8 @@ struct WorkspaceDetailView: View {
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        isChatMode = false
+        pinnedChatSessionID = nil
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.

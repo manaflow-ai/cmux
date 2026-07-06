@@ -468,6 +468,21 @@ struct TerminalViewportSpacingTests {
         #expect(outputApplied, "recovered surface must still accept terminal output")
     }
 
+    /// Repeated recoveries cannot allocate unbounded replacement surfaces when
+    /// old `ghostty_surface_free` calls are stuck behind a wedged output queue.
+    @Test("render recovery caps stuck surface free backlog")
+    func recoveryStopsAtSurfaceFreeBacklogLimit() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+        harness.echo(initial)
+        #expect(await harness.waitForFill())
+
+        #expect(!harness.view.simulateRenderRecoveryAtSurfaceFreeLimitForTesting())
+        #expect(harness.delegate.renderPipelineResetCount == 0)
+    }
+
     /// Recovery must preserve the last visible terminal text until the Mac replay
     /// reaches the replacement surface. Otherwise reconnect or render recovery
     /// shows an empty terminal with only a cursor, even though the previous frame

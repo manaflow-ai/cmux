@@ -500,6 +500,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
     private static let copyableTextTimeout: CFTimeInterval = 2.0
     private static let surfaceFreeBacklogWarningThreshold = 1
+    private static let surfaceFreeBacklogRecoveryLimit = 2
     private var nextSurfaceOperationID: UInt64 = 0
     private var pendingOutputApply: PendingSurfaceOperation?
     private var pendingGeometryApply: PendingSurfaceOperation?
@@ -785,6 +786,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingSurfaceFreeCount = max(pendingSurfaceFreeCount, Self.surfaceFreeBacklogWarningThreshold)
         return recoverRenderPipeline(
             reason: "test_stuck_prior_free",
+            stalledMs: Int(Self.renderPipelineStallDeadline * 1000),
+            replay: .delegateWhenNoCaller
+        )
+    }
+
+    @discardableResult
+    func simulateRenderRecoveryAtSurfaceFreeLimitForTesting() -> Bool {
+        pendingSurfaceFreeCount = max(pendingSurfaceFreeCount, Self.surfaceFreeBacklogRecoveryLimit)
+        return recoverRenderPipeline(
+            reason: "test_surface_free_limit",
             stalledMs: Int(Self.renderPipelineStallDeadline * 1000),
             replay: .delegateWhenNoCaller
         )
@@ -2750,6 +2761,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) -> Bool {
         guard !isDismantled,
               surface != nil else {
+            return false
+        }
+        if pendingSurfaceFreeCount >= Self.surfaceFreeBacklogRecoveryLimit {
+            MobileDebugLog.anchormux(
+                "render.recover.free_backlog_limit reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
+            )
             return false
         }
         if pendingSurfaceFreeCount >= Self.surfaceFreeBacklogWarningThreshold {
