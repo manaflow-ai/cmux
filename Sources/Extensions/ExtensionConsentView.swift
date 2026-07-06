@@ -239,14 +239,28 @@ struct ExtensionConsentView: View {
                         ))
                     }
                     if !pane.env.isEmpty {
+                        // Full assignments, not just names: this dialog is the
+                        // trust boundary, and values like PATH/NODE_OPTIONS/
+                        // DYLD_* change what actually runs.
                         detailLine(String(
                             localized: "extensions.consent.paneEnv",
-                            defaultValue: "env: \(pane.env.keys.sorted().joined(separator: ", "))"
+                            defaultValue: "env: \(Self.envAssignments(pane.env))"
                         ))
                     }
                 }
             }
         }
+    }
+
+    /// Sorted `KEY=value` lines with long values truncated for display (the
+    /// full values still ship to the pane; truncation only limits the dialog).
+    static func envAssignments(_ env: [String: String]) -> String {
+        env.keys.sorted().map { key in
+            let value = env[key] ?? ""
+            let shown = value.count > 200 ? value.prefix(200) + "…" : Substring(value)
+            return "\(key)=\(shown)"
+        }
+        .joined(separator: "\n")
     }
 
     private func sectionTitle(_ text: String) -> some View {

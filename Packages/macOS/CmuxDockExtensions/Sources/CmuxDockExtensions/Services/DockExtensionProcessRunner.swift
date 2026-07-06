@@ -10,16 +10,25 @@ public struct DockExtensionProcessResult: Equatable, Sendable {
     public let standardError: String
     /// Whether the run hit its timeout and was terminated.
     public let timedOut: Bool
+    /// Whether the run was terminated for exceeding the on-disk output cap.
+    public let outputLimitExceeded: Bool
 
-    /// Whether the process exited 0 without timing out.
-    public var succeeded: Bool { exitStatus == 0 && !timedOut }
+    /// Whether the process exited 0 without being terminated by the runner.
+    public var succeeded: Bool { exitStatus == 0 && !timedOut && !outputLimitExceeded }
 
     /// Creates a result value.
-    public init(exitStatus: Int32, standardOutput: String, standardError: String, timedOut: Bool) {
+    public init(
+        exitStatus: Int32,
+        standardOutput: String,
+        standardError: String,
+        timedOut: Bool,
+        outputLimitExceeded: Bool = false
+    ) {
         self.exitStatus = exitStatus
         self.standardOutput = standardOutput
         self.standardError = standardError
         self.timedOut = timedOut
+        self.outputLimitExceeded = outputLimitExceeded
     }
 }
 
@@ -94,32 +103,45 @@ public struct DockExtensionProcessRunner: Sendable {
         }
 
         let waitTask = Task { for await _ in terminated {} }
-        // Watchdog: fires SIGTERM at the deadline and SIGKILL after a short
-        // grace, then reports whether it fired. Signals go by pid (Sendable)
-        // so no non-Sendable Process crosses into the task; a signal to an
-        // already-exited pid is a harmless ESRCH. Both sleeps are the
-        // concurrency policy's bounded-delay carve-out (a subprocess
-        // wall-clock timeout), not poll/settle races for app state, and both
-        // exit early via cancellation the moment the process ends.
+        // Watchdog: a subprocess resource guard, not an app-state poll. Each
+        // 500ms tick (the concurrency policy's bounded-delay carve-out,
+        // cancelled the moment the process exits) enforces two limits — the
+        // wall-clock deadline, and an on-disk cap on the temp output files so
+        // a runaway child cannot fill the disk during its allotted time. On
+        // breach: SIGTERM, 2s grace, SIGKILL, all by pid (Sendable); signaling
+        // an already-exited pid is a harmless ESRCH.
         let pid = process.processIdentifier
-        let watchdog = Task<Bool, Never> {
-            do {
-                try await Task.sleep(for: timeout)
-            } catch {
-                return false // Process exited before the deadline.
+        let watchdog = Task<(timedOut: Bool, outputLimitExceeded: Bool), Never> {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: timeout)
+            func terminate() async {
+                kill(pid, SIGTERM)
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return // SIGTERM was enough.
+                }
+                kill(pid, SIGKILL)
             }
-            kill(pid, SIGTERM)
-            do {
-                try await Task.sleep(for: .seconds(2))
-            } catch {
-                return true // SIGTERM was enough.
+            while true {
+                do {
+                    try await Task.sleep(for: .milliseconds(500))
+                } catch {
+                    return (false, false) // Process exited before any breach.
+                }
+                if Self.onDiskSize(stdoutURL) + Self.onDiskSize(stderrURL) > Self.onDiskOutputLimit {
+                    await terminate()
+                    return (false, true)
+                }
+                if clock.now >= deadline {
+                    await terminate()
+                    return (true, false)
+                }
             }
-            kill(pid, SIGKILL)
-            return true
         }
         await waitTask.value
         watchdog.cancel()
-        let timedOut = await watchdog.value
+        let verdict = await watchdog.value
 
         try? stdoutHandle.close()
         try? stderrHandle.close()
@@ -128,8 +150,17 @@ public struct DockExtensionProcessRunner: Sendable {
             exitStatus: process.terminationStatus,
             standardOutput: Self.readCapped(stdoutURL),
             standardError: Self.readCapped(stderrURL),
-            timedOut: timedOut
+            timedOut: verdict.timedOut,
+            outputLimitExceeded: verdict.outputLimitExceeded
         )
+    }
+
+    /// Combined on-disk cap for a run's stdout+stderr temp files. Generous for
+    /// real build logs, small enough that a runaway child cannot fill /tmp.
+    public static let onDiskOutputLimit = 64 * 1_048_576
+
+    private static func onDiskSize(_ url: URL) -> Int {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.intValue ?? 0
     }
 
     private static func readCapped(_ url: URL) -> String {
