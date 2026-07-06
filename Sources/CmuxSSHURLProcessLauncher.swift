@@ -70,7 +70,10 @@ final class CmuxSSHURLProcessLauncher {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
         environment.removeValue(forKey: "CMUX_SOCKET")
-        environment.removeValue(forKey: "CMUX_SOCKET_PASSWORD")
+        // CMUX_SOCKET_PASSWORD is intentionally inherited: the app's own
+        // socket treats that variable as its highest-priority password source
+        // (SocketControlPasswordStore.configuredPassword), so the bundled CLI
+        // needs the same value to authenticate back to this app's socket.
         process.environment = environment
 
         let outputPipe = Pipe()

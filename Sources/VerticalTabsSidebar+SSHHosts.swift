@@ -14,6 +14,19 @@ extension VerticalTabsSidebar {
 
     @ViewBuilder
     var sshHostsSidebarSection: some View {
+        // Zero-size anchor that owns the model's scan/observe lifecycle while
+        // the sidebar is mounted. It cannot hang off the section itself: the
+        // section is absent whenever no hosts are known yet or the setting is
+        // off, and the first scan is what discovers the hosts. `task(id:)`
+        // restarts (and structurally cancels) the model on setting toggles.
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task(id: showSSHHostsSidebarSection) {
+                guard showSSHHostsSidebarSection else { return }
+                await sshHostsSidebarModel.run()
+            }
         if showSSHHostsSidebarSection, !sshHostsSidebarModel.hostAliases.isEmpty {
             let model = sshHostsSidebarModel
             let tabManager = self.tabManager

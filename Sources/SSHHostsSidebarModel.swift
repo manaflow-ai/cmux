@@ -6,11 +6,13 @@ import Observation
 /// aliases scanned from `~/.ssh/config` (following `Include` directives) plus
 /// the section's collapse state.
 ///
-/// The alias list refreshes from real signals only — model creation (sidebar
-/// mount) and app activation (returning to cmux after editing the config
-/// elsewhere) — never from a timer. Scanning runs off the main actor; the
-/// published list updates only when the result actually changes, so idle
-/// activations don't invalidate the sidebar.
+/// Creating the model has no side effects — SwiftUI evaluates `@State`
+/// initial values for throwaway view inits, so all scanning/observation runs
+/// inside ``run()`` under the mount's `.task`. The alias list refreshes from
+/// real signals only — mount and app activation (returning to cmux after
+/// editing the config elsewhere) — never from a timer. Scanning runs off the
+/// main actor; the published list updates only when the result actually
+/// changes, so idle activations don't invalidate the sidebar.
 @MainActor
 @Observable
 final class SSHHostsSidebarModel {
@@ -22,33 +24,36 @@ final class SSHHostsSidebarModel {
     private(set) var remoteStateRevision: UInt64 = 0
 
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var appActivationTask: Task<Void, Never>?
-    @ObservationIgnored private var remoteStateTask: Task<Void, Never>?
-
-    init() {
-        refresh()
-        appActivationTask = Task { [weak self] in
-            let activations = NotificationCenter.default.notifications(
-                named: NSApplication.didBecomeActiveNotification
-            )
-            for await _ in activations {
-                self?.refresh()
-            }
-        }
-        remoteStateTask = Task { [weak self] in
-            let transitions = NotificationCenter.default.notifications(
-                named: .workspaceRemoteConnectionStateDidChange
-            )
-            for await _ in transitions {
-                self?.remoteStateRevision &+= 1
-            }
-        }
-    }
 
     deinit {
-        appActivationTask?.cancel()
-        remoteStateTask?.cancel()
         refreshTask?.cancel()
+    }
+
+    /// Drives the model while its sidebar anchor is mounted: scans once, then
+    /// refreshes on app activation and folds workspace remote-state
+    /// transitions into ``remoteStateRevision``. Structured under the caller's
+    /// `.task`, so unmounting (or toggling the setting off) cancels both
+    /// observation streams.
+    func run() async {
+        refresh()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [weak self] in
+                let activations = NotificationCenter.default.notifications(
+                    named: NSApplication.didBecomeActiveNotification
+                )
+                for await _ in activations {
+                    self?.refresh()
+                }
+            }
+            group.addTask { @MainActor [weak self] in
+                let transitions = NotificationCenter.default.notifications(
+                    named: .workspaceRemoteConnectionStateDidChange
+                )
+                for await _ in transitions {
+                    self?.remoteStateRevision &+= 1
+                }
+            }
+        }
     }
 
     /// Rescans the SSH config. Coalesces: a refresh requested while one is

@@ -38,7 +38,9 @@ struct SSHHostsSidebarSection: View, Equatable {
         VStack(alignment: .leading, spacing: 1) {
             header
             if !isCollapsed {
-                VStack(alignment: .leading, spacing: 1) {
+                // Lazy: a generated/corporate config can declare hundreds of
+                // aliases, and this sits in the sidebar's scroll hot path.
+                LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(items) { item in
                         SSHHostsSidebarHostRow(item: item, connect: actions.connect)
                     }
