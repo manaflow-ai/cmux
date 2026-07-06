@@ -95,6 +95,7 @@ jobs:
             let lastUploadedSha = null;
             let lastUploadedRunId = null;
             let lastAssignmentSucceeded = false;
+            let lastAssignmentRetrySupported = false;
             let lookupFailed = false;
             try {
               for (let page = 1; page <= 20 && !lastUploadedSha; page += 1) {
@@ -121,6 +122,14 @@ jobs:
                     const assignJob = jobs.data.jobs.find(
                       (job) => job.name === 'Assign build to external TestFlight group'
                     );
+                    // Older successful upload runs predate the external-assignment
+                    // job and metadata artifact entirely. Those runs uploaded the
+                    // current main SHA, but they are NOT safe to treat as
+                    // assign-only retry candidates because there is no artifact to
+                    // download and the build may not even be external-eligible.
+                    // Only the post-migration workflow shape can enter the
+                    // assignment-only path.
+                    lastAssignmentRetrySupported = !!assignJob;
                     lastAssignmentSucceeded = assignJob?.conclusion === 'success';
                     break;
                   }
@@ -157,6 +166,7 @@ jobs:
               !forceBuild &&
               context.eventName === 'schedule' &&
               lastUploadedSha === context.sha &&
+              lastAssignmentRetrySupported &&
               !lastAssignmentSucceeded;
 
             const shouldBuild =
