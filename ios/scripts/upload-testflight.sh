@@ -117,7 +117,8 @@ Options:
                             groups (e.g. "cmux beta") instantly but can never
                             be added to an external group. External-eligible
                             builds must pass Apple Beta App Review (~24h) before
-                            external testers can install. Also set via
+                            external testers can install the first build of a new
+                            MARKETING_VERSION. Also set via
                             CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
@@ -130,8 +131,8 @@ Options:
                             iOS-affecting commits in <base>..HEAD instead of the
                             ios/CHANGELOG.md top entry (used by the every-2h beta
                             lane so each build's notes reflect what changed since
-                            the previous beta). Skips the changelog preflight and
-                            version-match guard.
+                            the previous beta for the selected audience). Skips
+                            the changelog preflight and version-match guard.
   --auto-version            Stamp the build's MARKETING_VERSION at archive time
                             (no repo commit) to the next patch above the last
                             iOS release (newest ios-v<X.Y.Z> tag, else the
@@ -179,7 +180,8 @@ SIGNING="manual"
 # Default 0 keeps the historical internal-only behavior (fast dogfood, no Apple
 # review). Set to 1 by --external or CMUX_TESTFLIGHT_EXTERNAL=1 to drop the
 # testFlightInternalTestingOnly flag so the build can be added to an external
-# group; such builds then require a one-time Apple Beta App Review per version.
+# group; such builds then require a one-time Apple Beta App Review per
+# MARKETING_VERSION.
 EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
@@ -193,11 +195,11 @@ if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
 fi
 # --notes-from-range <base>: auto-generate the "What to Test" notes from the
 # iOS-affecting commits in <base>..HEAD (via generate-testflight-notes.sh) instead
-# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta lane
-# so each build's notes reflect what actually changed since the previous beta. When
-# set, the changelog preflight + version-match guard are skipped (the notes no
-# longer come from the changelog, and --auto-version stamps a version the changelog
-# would not match).
+# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta
+# lane so each build's notes reflect what actually changed since the previous
+# beta for whichever audience is being shipped. When set, the changelog
+# preflight + version-match guard are skipped (the notes no longer come from the
+# changelog, and --auto-version stamps a version the changelog would not match).
 NOTES_RANGE_BASE=""
 # --auto-version: stamp the build's MARKETING_VERSION at archive time (no repo
 # commit-back, mirroring the timestamp build number) to the next patch above the
@@ -862,9 +864,9 @@ fi
 # API needs the ASC API key (JWT); the Apple ID upload path has no key, so notes are
 # only attempted when the ASC API creds are present.
 #
-# Audience: --external uses the curated External block; the default internal cut uses
-# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that actually
-# shipped (post-guard, or the reused archive's embedded version).
+# Audience: --external uses the External audience; the default internal cut uses
+# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that
+# actually shipped (post-guard, or the reused archive's embedded version).
 if [[ "$SKIP_NOTES" -eq 1 ]]; then
   echo "note: --skip-notes set; not setting TestFlight What to Test notes" >&2
 elif [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then

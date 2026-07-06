@@ -97,15 +97,19 @@ Internal testers (the `cmux beta` group) get every uploaded build instantly with
 no review. An `--external` build is different: the FIRST external build of a new
 `MARKETING_VERSION` must pass a one-time Apple Beta App Review (~24h) before any
 external tester can install it. Subsequent external builds of the same version
-ship without re-review. Plan a version bump's first external cut around that
-~24h gate.
+ship without re-review. The scheduled `main` sync lane now uploads
+external-eligible builds too, so founders track `main` once the current version
+has cleared that review gate.
 
 ## TestFlight GitHub Actions signing
 
 `.github/workflows/ios-testflight.yml` uses manual export signing because Xcode's
 automatic App Store Connect export has produced IPAs whose signed app entitlements
 omit `aps-environment=production`. That upload is intentionally blocked because
-TestFlight push would silently fail.
+TestFlight push would silently fail. The workflow tracks `main` on a schedule and
+uploads beta builds as external-eligible, so internal testers get the build
+immediately and external testers get the same `main` build once Apple has
+approved that `MARKETING_VERSION` for Beta App Review.
 
 Required GitHub secrets:
 

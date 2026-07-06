@@ -30,9 +30,11 @@ on:
     # Every ~2h (at :17 to stay off the top-of-hour rush). The decide job skips a
     # run only when the current main HEAD was already uploaded by a prior
     # successful run (SHA compare, not a wall-clock window), so an iOS-affecting
-    # change reaches internal TestFlight within ~2h of landing on main, and a
-    # failed or missed run retries the not-yet-uploaded commit instead of
-    # permanently stranding it.
+    # change reaches the TestFlight beta lane within ~2h of landing on main, and
+    # a failed or missed run retries the not-yet-uploaded commit instead of
+    # permanently stranding it. These uploads are external-eligible too, so the
+    # first build of a new MARKETING_VERSION may wait on Apple Beta App Review
+    # before founders can install it.
     #
     # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
     # shared concurrency group (which cancels superseded pending runs into red
@@ -300,9 +302,12 @@ jobs:
         run: |
           set -euo pipefail
           # --auto-version: every beta stamps the next-release marketing version.
-          # --notes-from-range: auto-generate the Internal "What to Test" from the
-          # commits since the previous beta (skipped if we have no base SHA yet).
-          ARGS=(--lane beta --signing manual --auto-version)
+          # --external: publish the same main-tracking build to the external lane
+          # once Apple allows that MARKETING_VERSION.
+          # --notes-from-range: auto-generate audience-appropriate "What to
+          # Test" notes from the commits since the previous beta (skipped if we
+          # have no base SHA yet).
+          ARGS=(--lane beta --signing manual --auto-version --external)
           if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
             ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
           fi
@@ -326,9 +331,10 @@ jobs:
           {
             echo "### iOS TestFlight upload"
             echo
-            echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`)"
+            echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`, external-eligible)"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
+            echo "- audience: internal testers immediately, external testers after Apple Beta App Review for a new MARKETING_VERSION"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup keychain
