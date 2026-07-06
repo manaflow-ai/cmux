@@ -46,9 +46,7 @@ public struct ChatFileEditCardView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("ChatFileEditDetail-\(rowID)")
-        .accessibilityLabel(
-            String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
-        )
+        .accessibilityLabel(fileEditAccessibilityLabel)
         .accessibilityHint(
             String(
                 localized: "chat.detail.show.hint",
@@ -74,6 +72,42 @@ public struct ChatFileEditCardView: View {
         }
         .padding(.horizontal, 10)
         .frame(minHeight: 32)
+    }
+
+    private var fileEditAccessibilityLabel: String {
+        var parts = [
+            String(
+                localized: "chat.file_edit.accessibility",
+                defaultValue: "\(operationAccessibilityLabel) \(edit.filePath)",
+                bundle: .module
+            ),
+        ]
+        if let additions = edit.additions {
+            parts.append(String(
+                localized: "chat.file_edit.additions.accessibility",
+                defaultValue: "\(additions) additions",
+                bundle: .module
+            ))
+        }
+        if let deletions = edit.deletions {
+            parts.append(String(
+                localized: "chat.file_edit.deletions.accessibility",
+                defaultValue: "\(deletions) deletions",
+                bundle: .module
+            ))
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    private var operationAccessibilityLabel: String {
+        switch edit.operation {
+        case .edit:
+            return String(localized: "chat.detail.operation.edit", defaultValue: "Edit", bundle: .module)
+        case .write:
+            return String(localized: "chat.detail.operation.write", defaultValue: "Write", bundle: .module)
+        case .delete:
+            return String(localized: "chat.detail.operation.delete", defaultValue: "Delete", bundle: .module)
+        }
     }
 
     /// SF symbol for the edit operation.
