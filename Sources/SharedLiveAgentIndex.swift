@@ -20,7 +20,7 @@ final class SharedLiveAgentIndex {
     private var deferredReloadTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let forkAvailabilityProbeTTL: TimeInterval = 2.0
+    private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -63,7 +63,8 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        guard let index,
+        guard hasFreshForkAvailabilityProbe(for: panelKey),
+              let index,
               validatedForkPanels.contains(panelKey) else {
             return nil
         }
@@ -91,7 +92,7 @@ final class SharedLiveAgentIndex {
         }
         guard hasFreshForkAvailabilityProbe(for: panelKey) else {
             requestForkAvailabilityRefresh(validating: panelKey)
-            return true
+            return false
         }
         return true
     }
