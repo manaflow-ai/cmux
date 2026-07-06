@@ -10660,6 +10660,23 @@
         }
       }
     },
+    "mobile.voiceMode.sendText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
     "mobile.voiceMode.targetChanged": {
       "extractionState": "manual",
       "localizations": {
@@ -10673,6 +10690,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "フォーカス中のペインが変わりました。送信先を確認してもう一度話してください。"
+          }
+        }
+      }
+    },
+    "mobile.voiceMode.textPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type or dictate…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力または音声入力…"
           }
         }
       }

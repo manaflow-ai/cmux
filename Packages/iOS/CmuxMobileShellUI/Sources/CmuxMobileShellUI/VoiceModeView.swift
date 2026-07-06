@@ -31,15 +31,19 @@ struct VoiceModeView: View {
     @State private var utteranceHistory = VoiceUtteranceHistory()
     @State private var errorMessage: String?
     @State private var showingHostPicker = false
+    @State private var typedText = ""
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         @Bindable var voiceSettings = voiceSettings
         return NavigationStack {
-            VStack(spacing: 24) {
+            VStack(spacing: isTextFieldFocused ? 12 : 24) {
                 targetCard
                 transcriptArea
-                Spacer(minLength: 8)
+                Spacer(minLength: isTextFieldFocused ? 0 : 8)
                 micButton
+                    .scaleEffect(isTextFieldFocused ? 0.72 : 1)
+                    .frame(height: isTextFieldFocused ? 76 : 104)
                 Toggle(isOn: $voiceSettings.voiceModeAutoSubmit) {
                     Text(L10n.string("mobile.voiceMode.autoSubmit", defaultValue: "Auto-submit"))
                 }
@@ -52,7 +56,9 @@ struct VoiceModeView: View {
                         .accessibilityIdentifier("MobileVoiceModeError")
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, isTextFieldFocused ? 8 : 16)
             .navigationTitle(connectedHostName.isEmpty ? L10n.string("mobile.voiceMode.title", defaultValue: "Voice Mode") : connectedHostName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -79,6 +85,9 @@ struct VoiceModeView: View {
             }
             .sheet(isPresented: $showingHostPicker) {
                 MobileHostPickerView(store: store)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                textInputRow
             }
             .onDisappear {
                 // Leaving the screen is a hard cancel, not a graceful stop: a
@@ -154,7 +163,7 @@ struct VoiceModeView: View {
             .font(.body)
             .textSelection(.enabled)
         }
-        .frame(maxWidth: .infinity, minHeight: 180)
+        .frame(maxWidth: .infinity, minHeight: isTextFieldFocused ? 72 : 180)
         .accessibilityIdentifier("MobileVoiceModeTranscript")
     }
 
@@ -185,6 +194,42 @@ struct VoiceModeView: View {
         .accessibilityIdentifier("MobileVoiceModeMicButton")
     }
 
+    private var textInputRow: some View {
+        HStack(spacing: 10) {
+            TextField(
+                L10n.string("mobile.voiceMode.textPlaceholder", defaultValue: "Type or dictate…"),
+                text: $typedText
+            )
+            .focused($isTextFieldFocused)
+            .submitLabel(.send)
+            .onSubmit(sendTypedText)
+            .textInputAutocapitalization(.sentences)
+            .autocorrectionDisabled(false)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color(.secondarySystemBackground), in: Capsule())
+            .accessibilityIdentifier("MobileVoiceModeTextField")
+
+            Button {
+                sendTypedText()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 34, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSendTypedText)
+            .foregroundStyle(canSendTypedText ? Color.accentColor : Color.secondary)
+            .accessibilityLabel(L10n.string("mobile.voiceMode.sendText", defaultValue: "Send"))
+            .accessibilityIdentifier("MobileVoiceModeSendButton")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+    }
+
     /// Whether the Mac currently offers a valid Voice Mode target, independent
     /// of this view's own start-in-progress state.
     private var hasVoiceTarget: Bool {
@@ -193,6 +238,10 @@ struct VoiceModeView: View {
 
     private var canStartListening: Bool {
         hasVoiceTarget && !isStarting
+    }
+
+    private var canSendTypedText: Bool {
+        hasVoiceTarget && !typedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @MainActor
@@ -324,6 +373,14 @@ struct VoiceModeView: View {
             return
         }
         sendUtterance(id: id, text: utterance.text)
+    }
+
+    private func sendTypedText() {
+        let text = typedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hasVoiceTarget, !text.isEmpty else { return }
+        typedText = ""
+        let id = utteranceHistory.appendFinal(text: text)
+        sendUtterance(id: id, text: text)
     }
 
     private func sendUtterance(id: VoiceUtterance.ID, text: String) {
