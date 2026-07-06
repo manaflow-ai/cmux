@@ -48,7 +48,7 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -74,9 +74,7 @@ struct WorkspaceDetailView: View {
     }
 
     var body: some View {
-        let content = Group {
-            detailSurfaceContent
-        }
+        let content = Group { detailSurfaceContent }
 
         #if os(iOS)
         content
@@ -85,11 +83,10 @@ struct WorkspaceDetailView: View {
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .task(id: chatConversationWarmKey) {
-                await runWarmChatConversation()
-            }
+            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
                 refreshCachedChatToggleAnchor()
+                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -362,9 +359,8 @@ struct WorkspaceDetailView: View {
     // Native menu keeps press-drag-release selection and routes through
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
     var terminalPickerToolbarButton: some View {
-        let liveRows = terminalPickerLiveRows
-        let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
-        let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
+        let rows = terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
+        let selection = terminalPickerLiveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
 
         return Menu {
             terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
@@ -379,8 +375,9 @@ struct WorkspaceDetailView: View {
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(selection?.name ?? "")
-        .onAppear(perform: syncTerminalPickerRows)
-        .onChange(of: liveRows) { _, _ in syncTerminalPickerRows() }
+        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
+        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
+        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
@@ -455,12 +452,6 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
         #endif
-    }
-
-    private func syncTerminalPickerRows() {
-        let rows = terminalPickerLiveRows
-        guard terminalPickerRows != rows else { return }
-        terminalPickerRows = rows
     }
 
     #if canImport(UIKit)

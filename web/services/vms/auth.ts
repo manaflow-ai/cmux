@@ -15,6 +15,7 @@ export type AuthedUser = {
 
 export type AuthedTeam = {
   id: string;
+  displayName: string | null;
   billingPlanId: string | null;
 };
 
@@ -92,6 +93,7 @@ async function authedUserFromStackUser(
     selectedTeamId: selectedTeam?.id ?? null,
     teams: teams.map((team) => ({
       id: team.id,
+      displayName: team.displayName,
       billingPlanId: planIdFromMetadata(team.clientReadOnlyMetadata),
     })),
     teamIds,
@@ -111,6 +113,7 @@ type StackUserLike = {
 
 type TeamLike = {
   readonly id: string;
+  readonly displayName: string | null;
   readonly clientReadOnlyMetadata?: unknown;
 };
 
@@ -118,8 +121,13 @@ function teamLike(value: unknown): TeamLike | null {
   if (!value || typeof value !== "object") return null;
   const id = (value as { id?: unknown }).id;
   if (typeof id !== "string" || !id) return null;
+  const displayName = (value as { displayName?: unknown; name?: unknown }).displayName ??
+    (value as { name?: unknown }).name;
   return {
     id,
+    displayName: typeof displayName === "string" && displayName.trim()
+      ? displayName.trim()
+      : null,
     clientReadOnlyMetadata: (value as { clientReadOnlyMetadata?: unknown }).clientReadOnlyMetadata,
   };
 }

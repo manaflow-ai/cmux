@@ -24,9 +24,8 @@ extension TerminalController {
         hasResolvedWindowID: Bool,
         fallbackTabManager: TabManager
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID)? {
-        // Legacy explicit target: surface_id ?? tab_id ONLY (terminal_id is a
-        // general-routing alias but was never a resume target), and the window
-        // branch requires a RESOLVABLE window_id (legacy `v2UUID != nil`).
+        // Explicit target: surface_id, terminal_id, and tab_id all name the
+        // terminal surface; the window branch requires a resolvable window_id.
         if let explicitSurfaceId = explicitTargetID {
             if let explicitWorkspaceId = routing.workspaceID {
                 guard let workspace = fallbackTabManager.tabs.first(where: { $0.id == explicitWorkspaceId }),
@@ -271,11 +270,11 @@ extension TerminalController {
 
     // MARK: - token parsers
 
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String? {
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? {
         Self.parseReportedShellActivityState(rawState)?.rawValue
     }
 
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? {
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? {
         Self.parseRemotePortScanKickReason(rawReason)?.rawValue
     }
 

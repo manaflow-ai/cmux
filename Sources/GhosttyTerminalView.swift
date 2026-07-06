@@ -7270,6 +7270,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        appendReconnectRemotePaneMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())
             let identifiersItem = menu.addItem(
@@ -7336,7 +7337,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @objc private func resetTerminal(_ sender: Any?) {
         _ = performBindingAction("reset")
     }
-
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
