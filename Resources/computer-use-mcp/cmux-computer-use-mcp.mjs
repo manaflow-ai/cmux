@@ -286,6 +286,10 @@ function usesCoordinates(args) {
   );
 }
 
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 const SUPPORTED_KEY_NAMES = new Set([
   "a", "s", "d", "f", "h", "g", "z", "x", "c", "v", "b", "q", "w", "e", "r",
   "y", "t", "1", "2", "3", "4", "6", "5", "=", "9", "7", "-", "8", "0",
@@ -657,8 +661,9 @@ function snapshotPointFromSnapshot(snapshot, x, y) {
   const bounds = snapshot?.window?.bounds;
   const image = snapshot?.image;
   if (!bounds || !image?.width || !image?.height) return null;
-  const pixelX = Number(x);
-  const pixelY = Number(y);
+  if (typeof x !== "number" || typeof y !== "number") return null;
+  const pixelX = x;
+  const pixelY = y;
   const imageWidth = Number(image.width);
   const imageHeight = Number(image.height);
   const boundX = Number(bounds.x ?? 0);
@@ -787,19 +792,20 @@ async function callInputTool(tool, args) {
     return err(localizedMessage("appControlNotApproved", app));
   }
   const snapshot = s.snapshot(app);
-  if (args.element_index != null && !isValidElementIndex(args.element_index)) {
+  const hasElementIndex = hasOwn(args, "element_index");
+  if (hasElementIndex && !isValidElementIndex(args.element_index)) {
     return err(localizedMessage("elementRequiredInput"));
   }
   if ((tool === "scroll" || tool === "perform_secondary_action") && !isValidElementIndex(args.element_index)) {
     return err(localizedMessage("elementRequiredInput"));
   }
-  if (args.element_index != null && !s.snapshotApps.has(app)) {
+  if (hasElementIndex && !s.snapshotApps.has(app)) {
     return err(localizedMessage("stateSnapshotRequired", app));
   }
   if (usesCoordinates(args) && !s.coordinateApps.has(app)) {
     return err(localizedMessage("coordinateSnapshotRequired", app));
   }
-  if (args.element_index == null && !usesCoordinates(args) && !snapshot) {
+  if (!hasElementIndex && !usesCoordinates(args) && !snapshot) {
     return err(localizedMessage("visibleSnapshotRequired", app));
   }
   if (snapshot?.root === "window" && snapshot.windowId == null) {
@@ -813,7 +819,7 @@ async function callInputTool(tool, args) {
     targetPid: snapshot?.target?.pid ?? null,
     targetBundleIdentifier: snapshot?.target?.bundleIdentifier ?? null,
   };
-  if (args.element_index != null) {
+  if (hasElementIndex) {
     const element = elementFromSnapshot(snapshot, args.element_index);
     if (!element) return err(localizedMessage("stateSnapshotRequired", app));
     action.path = element.path ?? [];
@@ -821,7 +827,7 @@ async function callInputTool(tool, args) {
 
   switch (tool) {
     case "click": {
-      if (args.element_index != null) {
+      if (hasElementIndex) {
         action.op = "click_element";
       } else {
         const point = snapshotPointFromSnapshot(snapshot, args.x, args.y);
@@ -1106,10 +1112,12 @@ const TOOLS = [
       required: ["app"],
       additionalProperties: false,
     },
-    run: async ({ app, element, x, y }) => {
+    run: async (input) => {
+      const { app, element, x, y } = input;
       const args = { app, mouse_button: "left", click_count: 1 };
-      if (element != null) args.element_index = element;
-      else if (x != null && y != null) {
+      if (hasOwn(input, "element")) args.element_index = element;
+      else if (hasOwn(input, "x") || hasOwn(input, "y")) {
+        if (!hasOwn(input, "x") || !hasOwn(input, "y")) return err(localizedMessage("provideClickTarget"));
         args.x = x;
         args.y = y;
       } else return err(localizedMessage("provideClickTarget"));

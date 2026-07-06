@@ -429,22 +429,48 @@ const nullElement = await runCalls({
   withElicitation: true,
   calls: [
     { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_click", args: { app: "TestApp", element: null, x: 0, y: 0 } },
     { tool: "computer_scroll", args: { app: "TestApp", element: null, direction: "down" } },
     { tool: "computer_action", args: { app: "TestApp", element: null, action: "AXPress" } },
   ],
   expectMessage: "Allow cmux computer use to inspect and control",
 });
 console.log(
-  `null element -> state=${nullElement[0].isError} scroll=${nullElement[1].isError} action=${nullElement[2].isError}`
+  `null element -> state=${nullElement[0].isError} click=${nullElement[1].isError} scroll=${nullElement[2].isError} action=${nullElement[3].isError}`
 );
 if (
   nullElement[0].isError ||
   !nullElement[1].isError ||
   !nullElement[1].text.includes("element") ||
   !nullElement[2].isError ||
-  !nullElement[2].text.includes("element")
+  !nullElement[2].text.includes("element") ||
+  !nullElement[3].isError ||
+  !nullElement[3].text.includes("element")
 ) {
-  console.error("FAIL: scroll/action should reject null element indices after a snapshot exists");
+  console.error("FAIL: element-index actions should reject null indices after a snapshot exists");
+  process.exit(1);
+}
+
+const malformedCoordinates = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_click", args: { app: "TestApp", x: null, y: 0 } },
+    { tool: "computer_drag", args: { app: "TestApp", fromX: "0", fromY: 0, toX: 10, toY: 10 } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(
+  `malformed coordinates -> state=${malformedCoordinates[0].isError} click=${malformedCoordinates[1].isError} drag=${malformedCoordinates[2].isError}`
+);
+if (
+  malformedCoordinates[0].isError ||
+  !malformedCoordinates[1].isError ||
+  !malformedCoordinates[1].text.includes("coordinates") ||
+  !malformedCoordinates[2].isError ||
+  !malformedCoordinates[2].text.includes("coordinates")
+) {
+  console.error("FAIL: malformed coordinate inputs should be rejected");
   process.exit(1);
 }
 
