@@ -277,6 +277,45 @@ def main() -> int:
         print(f"expected={expected!r} commands={commands!r}")
         return 1
 
+    # 5. localSent=false with NO disabledReason (e.g. mobile-only delivery, or
+    #    a client whose local terminal channel is suppressed) -> bridge. The
+    #    cmux notification is the only Mac-visible surface in that state, so
+    #    the gate must not key on localSent; only explicit user-facing skip
+    #    reasons (user_present, config_off) suppress the bridge.
+    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+        cli_path,
+        push_payload(
+            "local channel unavailable",
+            {"message": "local channel unavailable", "localSent": False},
+        ),
+    )
+    if proc.returncode != 0:
+        print("FAIL: push-notification (localSent=false, no reason) hook exited nonzero")
+        print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
+        return 1
+    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||local channel unavailable"
+    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+        print("FAIL: localSent=false without a skip reason should still bridge")
+        print(f"expected={expected!r} commands={commands!r}")
+        return 1
+
+    # 6. config_off is a deliberate user setting -> no cmux notification.
+    proc, commands, _, _ = run_push_notification_hook(
+        cli_path,
+        push_payload(
+            "config off must not surface",
+            {"message": "config off must not surface", "localSent": False, "disabledReason": "config_off"},
+        ),
+    )
+    if proc.returncode != 0:
+        print("FAIL: push-notification (config_off) hook exited nonzero")
+        print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
+        return 1
+    if any(line.startswith("notify_target_async ") for line in commands):
+        print("FAIL: config_off PushNotification must not create a cmux notification")
+        print(f"commands={commands!r}")
+        return 1
+
     print("PASS: PushNotification tool calls bridge into cmux notifications")
     return 0
 
