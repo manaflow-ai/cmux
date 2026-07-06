@@ -1,0 +1,475 @@
+//! Remote session client: JSON-lines control socket plus locally
+//! mirrored surface terminals (VT replay + live stream).
+
+use std::collections::HashMap;
+use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use base64::Engine;
+use ghostty_vt::{Callbacks, RenderState, Terminal};
+use mux_core::{DefaultColors, MuxEvent, Rgb, SurfaceId, SurfaceKind};
+use serde_json::{json, Value};
+
+use super::tree::{parse_tree, TreeView};
+
+const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
+
+/// A surface mirrored from a remote session.
+pub struct RemoteSurface {
+    pub id: SurfaceId,
+    pub term: Mutex<Terminal>,
+    pub dirty: AtomicBool,
+    server_size: Mutex<(u16, u16)>,
+    asserted_size: Mutex<Option<(u16, u16)>>,
+}
+
+impl RemoteSurface {
+    pub(super) fn set_server_size(&self, cols: u16, rows: u16) {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        *self.server_size.lock().unwrap() = (cols, rows);
+    }
+
+    /// Apply an ordered attach-stream resize marker to the mirror terminal.
+    pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        self.set_server_size(cols, rows);
+        let mut term = self.term.lock().unwrap();
+        if let Some(replay) = replay {
+            if let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default()) {
+                fresh.vt_write(replay);
+                *term = fresh;
+                return;
+            }
+        }
+        let _ = term.resize(cols, rows, 8, 16);
+    }
+
+    pub(super) fn server_size(&self) -> (u16, u16) {
+        *self.server_size.lock().unwrap()
+    }
+
+    pub(super) fn asserted_size(&self) -> Option<(u16, u16)> {
+        *self.asserted_size.lock().unwrap()
+    }
+
+    pub(super) fn set_asserted_size(&self, size: (u16, u16)) {
+        *self.asserted_size.lock().unwrap() = Some(size);
+    }
+}
+
+pub struct RemoteSession {
+    writer: Mutex<UnixStream>,
+    pending: Mutex<HashMap<u64, Sender<Value>>>,
+    next_id: AtomicU64,
+    surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
+    tree: Mutex<TreeView>,
+    tree_stale: AtomicBool,
+    subscribers: Mutex<Vec<Sender<MuxEvent>>>,
+    frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
+}
+
+impl RemoteSession {
+    pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
+        let stream = UnixStream::connect(path).map_err(|e| {
+            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+        })?;
+        let read_half = stream.try_clone()?;
+        let session = Arc::new(RemoteSession {
+            writer: Mutex::new(stream),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            surfaces: Mutex::new(HashMap::new()),
+            tree: Mutex::new(TreeView::default()),
+            tree_stale: AtomicBool::new(true),
+            subscribers: Mutex::new(Vec::new()),
+            frame_logs: Mutex::new(HashMap::new()),
+        });
+
+        let reader_session = Arc::downgrade(&session);
+        std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
+            let reader = BufReader::new(read_half);
+            for line in reader.lines() {
+                let Ok(line) = line else { break };
+                let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
+                let Some(session) = reader_session.upgrade() else { break };
+                session.handle_line(value);
+            }
+            // Connection lost: tell the app to quit.
+            if let Some(session) = reader_session.upgrade() {
+                session.emit(MuxEvent::Empty);
+            }
+        })?;
+
+        // Identify (validates the endpoint) and subscribe to events.
+        let ident = session.request(json!({"cmd": "identify"}))?;
+        if ident.get("app").and_then(|v| v.as_str()) != Some("cmux-mux") {
+            anyhow::bail!("socket endpoint is not a cmux-mux session");
+        }
+        let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
+        if protocol != SUPPORTED_PROTOCOL_VERSION {
+            anyhow::bail!(
+                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6 because attach-stream resize markers are authoritative; restart the cmux-mux server"
+            );
+        }
+        session.request(json!({"cmd": "subscribe"}))?;
+        Ok(session)
+    }
+
+    fn emit(&self, event: MuxEvent) {
+        let mut subs = self.subscribers.lock().unwrap();
+        subs.retain(|tx| tx.send(event.clone()).is_ok());
+    }
+
+    pub fn subscribe(&self) -> Receiver<MuxEvent> {
+        let (tx, rx) = channel();
+        self.subscribers.lock().unwrap().push(tx);
+        rx
+    }
+
+    fn handle_line(self: &Arc<Self>, value: Value) {
+        let surface_id = || value.get("surface").and_then(|v| v.as_u64());
+        match value.get("event").and_then(|v| v.as_str()) {
+            None => {
+                // Response: route to the waiting request.
+                let Some(id) = value.get("id").and_then(|v| v.as_u64()) else { return };
+                if let Some(tx) = self.pending.lock().unwrap().remove(&id) {
+                    let _ = tx.send(value);
+                }
+            }
+            Some("vt-state") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let Some(data) = value.get("data").and_then(|v| v.as_str()) else { return };
+                let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data) else {
+                    return;
+                };
+                self.log_frame(
+                    id,
+                    format!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
+                );
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.apply_stream_resize(cols, rows, None);
+                    let mut term = surface.term.lock().unwrap();
+                    term.vt_write(&replay);
+                    drop(term);
+                    surface.dirty.store(true, Ordering::Release);
+                }
+                self.emit(MuxEvent::SurfaceOutput(id));
+            }
+            Some("surface-resized") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+            }
+            Some("resized") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let replay = value
+                    .get("data")
+                    .and_then(|v| v.as_str())
+                    .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
+                self.log_frame(
+                    id,
+                    format!(
+                        "resized cols={cols} rows={rows} bytes={}",
+                        replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
+                    ),
+                );
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.apply_stream_resize(cols, rows, replay.as_deref());
+                    surface.dirty.store(true, Ordering::Release);
+                    self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+                    self.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+            Some("output") => {
+                let Some(id) = surface_id() else { return };
+                let Some(data) = value.get("data").and_then(|v| v.as_str()) else { return };
+                let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
+                    return;
+                };
+                self.log_frame(id, format!("output bytes={}", bytes.len()));
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.term.lock().unwrap().vt_write(&bytes);
+                    if !surface.dirty.swap(true, Ordering::AcqRel) {
+                        self.emit(MuxEvent::SurfaceOutput(id));
+                    }
+                }
+            }
+            Some("tree-changed") => {
+                self.tree_stale.store(true, Ordering::Release);
+                self.emit(MuxEvent::TreeChanged);
+            }
+            Some("surface-exited") => {
+                if let Some(id) = surface_id() {
+                    self.tree_stale.store(true, Ordering::Release);
+                    self.emit(MuxEvent::SurfaceExited(id));
+                }
+            }
+            Some("title-changed") => {
+                if let Some(id) = surface_id() {
+                    self.tree_stale.store(true, Ordering::Release);
+                    self.emit(MuxEvent::TitleChanged(id));
+                }
+            }
+            Some("bell") => {
+                if let Some(id) = surface_id() {
+                    self.emit(MuxEvent::Bell(id));
+                }
+            }
+            Some("empty") => self.emit(MuxEvent::Empty),
+            Some(_) => {}
+        }
+    }
+
+    fn log_frame(&self, surface: SurfaceId, line: String) {
+        if std::env::var_os("CMUX_MUX_DEBUG_MIRROR_DUMP").is_none() {
+            return;
+        }
+        self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
+    }
+
+    pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        cmd["id"] = json!(id);
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(id, tx);
+
+        let mut line = serde_json::to_vec(&cmd)?;
+        line.push(b'\n');
+        {
+            let mut writer = self.writer.lock().unwrap();
+            writer.write_all(&line)?;
+        }
+
+        let response = rx
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|_| anyhow::anyhow!("session did not respond"))?;
+        if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+            Ok(response.get("data").cloned().unwrap_or(Value::Null))
+        } else {
+            let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+            anyhow::bail!("{error}")
+        }
+    }
+
+    pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let _ = self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded}));
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
+        if colors.fg.is_none() && colors.bg.is_none() {
+            return Ok(());
+        }
+        let mut cmd = json!({"cmd": "set-default-colors"});
+        if let Some(fg) = colors.fg {
+            cmd["fg"] = json!(hex_color(fg));
+        }
+        if let Some(bg) = colors.bg {
+            cmd["bg"] = json!(hex_color(bg));
+        }
+        self.request(cmd).map(|_| ())
+    }
+
+    /// Mirror for a surface, attaching on first use. When a size is
+    /// provided, the caller's immediately following `resize` sends the
+    /// server resize after the attach tap is installed, so the resize
+    /// marker and any shell WINCH redraw bytes stay ordered in-stream.
+    pub fn ensure_surface(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        size: Option<(u16, u16)>,
+    ) -> Option<Arc<RemoteSurface>> {
+        if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
+            return Some(surface.clone());
+        }
+        let (cols, rows) = size.unwrap_or((80, 24));
+        let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
+        let surface = Arc::new(RemoteSurface {
+            id,
+            term: Mutex::new(term),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((cols, rows)),
+            asserted_size: Mutex::new(None),
+        });
+        self.surfaces.lock().unwrap().insert(id, surface.clone());
+        // The vt-state event that follows fills the mirror.
+        if self.request(json!({"cmd": "attach-surface", "surface": id})).is_err() {
+            self.surfaces.lock().unwrap().remove(&id);
+            return None;
+        }
+        Some(surface)
+    }
+
+    pub fn drop_surface(&self, id: SurfaceId) {
+        self.surfaces.lock().unwrap().remove(&id);
+    }
+
+    pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
+        self.tree.lock().unwrap().surface_kind(id)
+    }
+
+    pub fn tree(&self) -> anyhow::Result<TreeView> {
+        if !self.tree_stale.swap(false, Ordering::AcqRel) {
+            return Ok(self.tree.lock().unwrap().clone());
+        }
+        let data = match self.request(json!({"cmd": "list-workspaces"})) {
+            Ok(data) => data,
+            Err(e) => {
+                // Retry next frame rather than caching a bad tree.
+                self.tree_stale.store(true, Ordering::Release);
+                return Err(e);
+            }
+        };
+        let tree = parse_tree(&data);
+        *self.tree.lock().unwrap() = tree.clone();
+        Ok(tree)
+    }
+}
+
+impl Drop for RemoteSession {
+    fn drop(&mut self) {
+        let Ok(dir) = std::env::var("CMUX_MUX_DEBUG_MIRROR_DUMP") else {
+            return;
+        };
+        let _ = fs::create_dir_all(&dir);
+        let logs = self.frame_logs.lock().unwrap();
+        for surface in self.surfaces.lock().unwrap().values() {
+            let path = Path::new(&dir).join(format!("mirror-{}.txt", surface.id));
+            let _ = fs::write(path, dump_mirror(surface));
+            let frames = Path::new(&dir).join(format!("frames-{}.log", surface.id));
+            let text = logs.get(&surface.id).map(|lines| lines.join("\n")).unwrap_or_default();
+            let _ = fs::write(frames, format!("{text}\n"));
+        }
+    }
+}
+
+fn dump_mirror(surface: &RemoteSurface) -> String {
+    let mut out = String::new();
+    let mut term = surface.term.lock().unwrap();
+    let cols = term.cols();
+    let rows = term.rows();
+    let scrollbar = term.scrollbar();
+    let offset = scrollbar.map(|sb| sb.offset).unwrap_or(0);
+    let total = scrollbar.map(|sb| sb.total).unwrap_or(rows as u64);
+    out.push_str(&format!(
+        "surface={} cols={} rows={} scrollback_offset={} scrollback_total={}\n",
+        surface.id, cols, rows, offset, total
+    ));
+
+    let Ok(mut rs) = RenderState::new() else {
+        return out;
+    };
+    if rs.update(&mut term).is_err() {
+        return out;
+    }
+    let _ = rs.walk_rows(|row, _, cells| {
+        let mut line = String::new();
+        let mut inverse = false;
+        for cell in cells {
+            if cell.inverse && !inverse {
+                line.push('\u{ab}');
+                inverse = true;
+            } else if !cell.inverse && inverse {
+                line.push('\u{bb}');
+                inverse = false;
+            }
+            if cell.text.is_empty() {
+                line.push(' ');
+            } else {
+                line.push_str(&cell.text);
+            }
+        }
+        if inverse {
+            line.push('\u{bb}');
+        }
+        out.push_str(&format!("{row:03}: {line}\n"));
+    });
+    out
+}
+
+fn hex_color(color: Rgb) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resize_replay_replaces_mirror_with_server_truth_without_duplication() {
+        let mut server = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        for i in 0..12 {
+            server.vt_write(format!("srv{i:02}\r\n").as_bytes());
+        }
+        server.resize(8, 4, 8, 16).unwrap();
+        let server_text = server.plain_text().unwrap();
+        let server_oldest = server.selection_text_absolute((0, 0), (4, 0)).unwrap();
+        assert_eq!(server_oldest, "srv00");
+        let replay = server.vt_replay().unwrap();
+
+        let surface = RemoteSurface {
+            id: 1,
+            term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((20, 6)),
+            asserted_size: Mutex::new(None),
+        };
+        {
+            let mut mirror = surface.term.lock().unwrap();
+            mirror.vt_write(b"mirror-only\r\nstate\r\n");
+        }
+
+        surface.apply_stream_resize(8, 4, Some(&replay));
+        let scrollback_rows = {
+            let mut mirror = surface.term.lock().unwrap();
+            assert_eq!(mirror.plain_text().unwrap(), server_text);
+            assert_eq!(mirror.selection_text_absolute((0, 0), (4, 0)).unwrap(), server_oldest);
+            mirror.scrollback_rows()
+        };
+
+        surface.apply_stream_resize(8, 4, Some(&replay));
+        let mut mirror = surface.term.lock().unwrap();
+        assert_eq!(mirror.plain_text().unwrap(), server_text);
+        assert_eq!(mirror.scrollback_rows(), scrollback_rows);
+    }
+
+    #[test]
+    fn ordered_resize_replay_recovers_from_stale_initial_replay() {
+        let mut server = Terminal::new(12, 3, 100, Callbacks::default()).unwrap();
+        server.vt_write(b"\x1b[7m%\x1b[0m");
+        let stale_replay = server.vt_replay().unwrap();
+
+        server.resize(10, 3, 8, 16).unwrap();
+        let resize_replay = server.vt_replay().unwrap();
+        let prompt = b"\r\x1b[Klawrence";
+        server.vt_write(prompt);
+        let server_text = server.plain_text().unwrap();
+        assert!(server_text.lines().next().unwrap_or_default().contains("lawrence"));
+
+        let surface = RemoteSurface {
+            id: 1,
+            term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((12, 3)),
+            asserted_size: Mutex::new(None),
+        };
+        surface.apply_stream_resize(12, 3, None);
+        surface.term.lock().unwrap().vt_write(&stale_replay);
+        surface.apply_stream_resize(10, 3, Some(&resize_replay));
+        let mut mirror = surface.term.lock().unwrap();
+        mirror.vt_write(prompt);
+
+        assert_eq!(mirror.plain_text().unwrap(), server_text);
+    }
+}
