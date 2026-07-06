@@ -67,7 +67,10 @@ async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv
           throw new Error(`unexpected elicitation message: ${request.params.message}`);
         }
       }
-      onElicitation?.(request.params.message);
+      const response = onElicitation?.(request.params.message);
+      if (response && typeof response === "object" && typeof response.action === "string") {
+        return response;
+      }
       return { action: "accept", content: {} };
     });
   }
@@ -356,19 +359,70 @@ if (!declined.isError || !declined.text.includes("not approved")) {
   process.exit(1);
 }
 
-const appControlPrompts = [];
+const sameAppControlPrompts = [];
 const repeatedAppControl = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: " TestApp " } },
+    { tool: "computer_state", args: { app: "TestApp" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+  onElicitation: (message) => sameAppControlPrompts.push(message),
+});
+console.log(`same-app app-control approval prompts -> count=${sameAppControlPrompts.length}`);
+if (repeatedAppControl.some((result) => result.isError) || sameAppControlPrompts.length !== 1) {
+  console.error("FAIL: app-control approval should be cached for the same normalized app in one MCP session");
+  process.exit(1);
+}
+
+const scopedAppControlPrompts = [];
+const scopedAppControl = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_state", args: { app: "QueueHoldApp" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+  onElicitation: (message) => scopedAppControlPrompts.push(message),
+});
+console.log(`per-app app-control approval prompts -> count=${scopedAppControlPrompts.length}`);
+if (
+  scopedAppControl.some((result) => result.isError) ||
+  scopedAppControlPrompts.length !== 2 ||
+  !scopedAppControlPrompts.some((message) => message.includes("TestApp")) ||
+  !scopedAppControlPrompts.some((message) => message.includes("QueueHoldApp"))
+) {
+  console.error("FAIL: app-control approval should be cached per app while prompting for a different app");
+  process.exit(1);
+}
+
+const declineRetryPrompts = [];
+const declineRetryAppControl = await runCalls({
   withElicitation: true,
   calls: [
     { tool: "computer_state", args: { app: "TestApp" } },
     { tool: "computer_state", args: { app: "TestApp" } },
   ],
   expectMessage: "Allow cmux computer use to inspect and control",
-  onElicitation: (message) => appControlPrompts.push(message),
+  onElicitation: (message) => {
+    declineRetryPrompts.push(message);
+    return declineRetryPrompts.length === 1
+      ? { action: "decline", content: {} }
+      : { action: "accept", content: {} };
+  },
 });
-console.log(`app-control approval prompts -> count=${appControlPrompts.length}`);
-if (repeatedAppControl.some((result) => result.isError) || appControlPrompts.length !== 2) {
-  console.error("FAIL: app-control approval should be one-shot, not cached by raw app selector");
+console.log(
+  `declined app-control retry -> prompts=${declineRetryPrompts.length} first=${declineRetryAppControl[0].isError} second=${declineRetryAppControl[1].isError}`
+);
+if (
+  declineRetryPrompts.length !== 2 ||
+  !declineRetryAppControl[0].isError ||
+  !declineRetryAppControl[0].text.includes("not approved") ||
+  declineRetryAppControl[1].isError ||
+  !declineRetryAppControl[1].text.includes("AXButton")
+) {
+  console.error("FAIL: declined app-control approval should not be cached and a retry should elicit again");
   process.exit(1);
 }
 
