@@ -18,6 +18,10 @@ on:
         description: CFBundleVersion to stamp (defaults to UTC yyyyMMddHHmmss)
         required: false
         default: ""
+      marketing_version_override:
+        description: Optional one-time MARKETING_VERSION override (for example 1.0.1)
+        required: false
+        default: ""
       force:
         # Manual (workflow_dispatch) runs always upload, so this only documents
         # intent. It exists so the no-new-commits skip can be bypassed if the
@@ -355,24 +359,43 @@ jobs:
           # of the per-build "What to Test" commit range. Empty on the very first
           # run / a missing history, where the generator falls back gracefully.
           LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_uploaded_sha }}
+          # Optional manual one-off override that reuses an older approved
+          # MARKETING_VERSION so external testers can install it immediately.
+          INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
         run: |
           set -euo pipefail
-          # --auto-version: every beta stamps the next-release marketing version.
-          # --external: publish the same main-tracking build to the external lane.
-          # The post-upload job assigns the build to the external group and, when
-          # Apple reports READY_FOR_BETA_SUBMISSION for a new MARKETING_VERSION,
-          # auto-submits it for Beta App Review.
-          # --notes-from-range: auto-generate audience-appropriate "What to
-          # Test" notes from the commits since the previous beta (skipped if we
-          # have no base SHA yet).
-          ARGS=(--lane beta --signing manual --auto-version --external)
-          if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
-            ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
+          if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+            # One-time operator escape hatch: upload latest main as another build
+            # of an already-approved MARKETING_VERSION, which avoids starting a
+            # fresh Beta App Review for that version. This path intentionally
+            # skips changelog-driven notes because ios/CHANGELOG.md tracks the
+            # current release line, not the reused older version.
+            if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
+              echo "build_number is not supported together with marketing_version_override in the cloud override path" >&2
+              exit 1
+            fi
+            ./ios/scripts/cloud-testflight.sh \
+              --external \
+              --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
+              --skip-notes
+          else
+            # --auto-version: every beta stamps the next-release marketing version.
+            # --external: publish the same main-tracking build to the external lane.
+            # The post-upload job assigns the build to the external group and, when
+            # Apple reports READY_FOR_BETA_SUBMISSION for a new MARKETING_VERSION,
+            # auto-submits it for Beta App Review.
+            # --notes-from-range: auto-generate audience-appropriate "What to
+            # Test" notes from the commits since the previous beta (skipped if we
+            # have no base SHA yet).
+            ARGS=(--lane beta --signing manual --auto-version --external)
+            if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
+              ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
+            fi
+            if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
+              ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
+            fi
+            ./ios/scripts/upload-testflight.sh "${ARGS[@]}"
           fi
-          if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
-            ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
-          fi
-          ./ios/scripts/upload-testflight.sh "${ARGS[@]}"
           if [ -f "$CMUX_BUILD_NUMBER_OUT_FILE" ]; then
             FINAL_BN="$(cat "$CMUX_BUILD_NUMBER_OUT_FILE")"
           else
@@ -385,12 +408,18 @@ jobs:
         if: always()
         env:
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number || github.event.inputs.build_number || 'unknown' }}
+          INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
         run: |
           {
             echo "### iOS TestFlight upload"
             echo
             echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`, external-eligible)"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
+            if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+              echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
+            else
+              echo "- marketing version: auto-versioned from the beta lane"
+            fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
             echo "- audience: internal testers immediately, external testers automatically after external-group assignment; new MARKETING_VERSIONs are auto-submitted for Apple Beta App Review"
           } >> "$GITHUB_STEP_SUMMARY"
