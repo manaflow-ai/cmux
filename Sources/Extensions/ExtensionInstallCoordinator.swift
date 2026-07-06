@@ -52,8 +52,14 @@ final class ExtensionInstallCoordinator {
     /// Opens the consent window on the input prompt (palette "Install from
     /// GitHub…"). If a flow is already showing, just brings it forward.
     func promptForInstall() {
-        if case .idle = phase {
+        switch phase {
+        case .idle, .installed, .failed:
+            // Terminal phases are stale once the window closed (e.g. an
+            // install that finished behind a closed window); reopening the
+            // flow starts at the prompt, not at old success/failure content.
             phase = .prompting
+        case .prompting, .loading, .consent, .installing:
+            break
         }
         ExtensionConsentWindowController.shared.show()
     }
