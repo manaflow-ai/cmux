@@ -91,6 +91,73 @@ body {
   opacity: 0;
   pointer-events: none;
 }
+.stage-commit-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 170;
+  background: color-mix(in lab, #000 18%, transparent);
+}
+.stage-commit-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, 100%);
+  max-width: calc(100vw - 36px);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
+  border-radius: 8px;
+  background: var(--cmux-diff-bg);
+  box-shadow: 0 18px 42px color-mix(in lab, #000 30%, transparent);
+  color: var(--cmux-diff-fg);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: var(--cmux-diff-ui-font-size);
+  line-height: var(--cmux-diff-ui-line-height);
+  z-index: 180;
+}
+.stage-commit-dialog::backdrop {
+  /* `.stage-commit-dialog-backdrop` supplies the dimming for both the modal
+     (showModal) and the non-modal fallback path, so keep the native modal
+     backdrop transparent to avoid stacking a second tint over it. */
+  background: transparent;
+}
+.stage-commit-dialog form {
+  display: contents;
+}
+.stage-commit-dialog h2 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 650;
+}
+.stage-commit-label {
+  color: var(--cmux-diff-text-muted);
+  font-weight: 500;
+}
+.stage-commit-input {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid var(--cmux-diff-border);
+  border-radius: 6px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 4%, transparent);
+  color: var(--cmux-diff-fg);
+  font: inherit;
+}
+.stage-commit-input:focus-visible {
+  outline: 2px solid color-mix(in lab, var(--cmux-diff-accent) 62%, transparent);
+  outline-offset: 1px;
+}
+.stage-commit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
 #toolbar {
   position: relative;
   flex: 0 0 auto;
