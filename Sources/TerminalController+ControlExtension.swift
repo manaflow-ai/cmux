@@ -70,7 +70,7 @@ extension TerminalController {
         guard let token = v2OptionalTrimmedRawString(params, "preview_token") else {
             return .err(code: "invalid_params", message: "preview_token is required", data: nil)
         }
-        let discarded = await DockExtensionsRuntime.shared.socketDiscard(token: token)
+        let discarded = DockExtensionsRuntime.shared.socketDiscard(token: token)
         return .ok(["discarded": discarded])
     }
 
@@ -93,7 +93,7 @@ extension TerminalController {
         do {
             try await DockExtensionsRuntime.shared.store.link(directoryPath: path)
             await DockExtensionsRuntime.shared.store.reload()
-            let linked = await DockExtensionsRuntime.shared.store.installed.first {
+            let linked = DockExtensionsRuntime.shared.store.installed.first {
                 $0.rootDirectory.path == URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
             }
             var payload: [String: Any] = ["path": path]
