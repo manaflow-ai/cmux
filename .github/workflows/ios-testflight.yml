@@ -202,8 +202,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-        with:
-          persist-credentials: false
           submodules: recursive
           # Full history + tags so generate-testflight-notes.sh can walk the
           # commit range since the last beta and --auto-version can read ios-v*.
