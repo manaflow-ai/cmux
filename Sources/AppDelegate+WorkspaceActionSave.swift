@@ -125,6 +125,12 @@ extension AppDelegate {
                 item.target = self
                 item.representedObject = WorkspaceDefaultLayoutBox(windowId: windowId, actionID: entry.id)
                 item.state = entry.isCurrent ? .on : .off
+                if let action = cmuxConfigStore.actionLookup[entry.id] {
+                    item.image = action.icon?.contextMenuImage(
+                        configSourcePath: action.iconSourcePath,
+                        globalConfigPath: cmuxConfigStore.globalConfigPath
+                    )
+                }
                 submenu.addItem(item)
             }
             defaultParent.submenu = submenu

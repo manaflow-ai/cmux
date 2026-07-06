@@ -593,4 +593,48 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(dangling.hasDefault)
         #expect(dangling.entries.allSatisfy { !$0.isCurrent })
     }
+
+    @Test func newWorkspaceDefaultLayoutMenuModelListsOnlyWorkspaceLayouts() throws {
+        let layout = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "layout",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(CmuxWorkspaceDefinition(name: "Layout"), restart: nil),
+                title: "Layout"
+            ),
+            sourcePath: nil
+        ))
+        let workspaceCommand = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "ws-dev",
+            definition: CmuxConfigActionDefinition(
+                action: .workspaceCommand("dev"),
+                title: "Dev"
+            ),
+            sourcePath: nil
+        ))
+        let commandAction = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "claudia",
+            definition: CmuxConfigActionDefinition(
+                action: .command("claudia"),
+                title: "claudia"
+            ),
+            sourcePath: nil
+        ))
+        let builtIn = CmuxResolvedConfigAction.builtIn(.splitRight)
+
+        let model = NewWorkspaceDefaultLayoutMenuModel.build(
+            loadedActions: [builtIn, commandAction, workspaceCommand, layout],
+            newWorkspaceActionID: nil
+        )
+        #expect(model.entries.map(\.id) == ["ws-dev", "layout"])
+
+        // A hand-edited default pointing at a non-layout action still
+        // surfaces, checked, so the submenu reflects the real state.
+        let handEdited = NewWorkspaceDefaultLayoutMenuModel.build(
+            loadedActions: [builtIn, commandAction, workspaceCommand, layout],
+            newWorkspaceActionID: "claudia"
+        )
+        #expect(handEdited.hasDefault)
+        #expect(handEdited.entries.map(\.id) == ["ws-dev", "layout", "claudia"])
+        #expect(handEdited.entries.map(\.isCurrent) == [false, false, true])
+    }
 }

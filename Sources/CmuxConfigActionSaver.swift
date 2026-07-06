@@ -287,7 +287,20 @@ struct NewWorkspaceDefaultLayoutMenuModel: Equatable {
         loadedActions: [CmuxResolvedConfigAction],
         newWorkspaceActionID: String?
     ) -> NewWorkspaceDefaultLayoutMenuModel {
-        let entries = loadedActions
+        // Only workspace layouts (an inline workspace definition or a
+        // workspace command reference) can replace the blank workspace;
+        // built-ins, agents, and terminal-command actions are excluded.
+        var eligible = loadedActions.filter {
+            $0.workspaceCommandName != nil || $0.action.inlineWorkspace != nil
+        }
+        // A hand-edited ui.newWorkspace.action can point at a non-layout
+        // action; surface it checked rather than showing no current state.
+        if let newWorkspaceActionID,
+           !eligible.contains(where: { $0.id == newWorkspaceActionID }),
+           let current = loadedActions.first(where: { $0.id == newWorkspaceActionID }) {
+            eligible.append(current)
+        }
+        let entries = eligible
             .sorted { ($0.title, $0.id) < ($1.title, $1.id) }
             .map { action in
                 Entry(
