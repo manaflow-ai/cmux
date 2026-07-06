@@ -40,7 +40,7 @@ Panes get a blue ring and tabs light up when coding agents need your attention
 <tr>
 <td width="40%" valign="middle">
 <h3>Notification panel</h3>
-See all pending notifications in one place, jump to the most recent unread
+See all pending notifications in one place, and jump to the most recent unread
 </td>
 <td width="60%">
 <img src="./docs/assets/sidebar-notification-badge.png" alt="Sidebar notification badge" width="100%" />
