@@ -31,6 +31,11 @@ final class ExtensionInstallCoordinator {
 
     private(set) var phase: Phase = .idle
     private let store: DockExtensionsStore
+    /// Bumped whenever the user abandons the flow (cancel, window close). An
+    /// in-flight preview task compares its captured generation before
+    /// publishing; a stale one discards its staged checkout instead of
+    /// resurrecting a consent sheet nobody is looking at.
+    private var flowGeneration = 0
 
     init(store: DockExtensionsStore) {
         self.store = store
@@ -64,11 +69,17 @@ final class ExtensionInstallCoordinator {
         }
         phase = .loading(input: input)
         ExtensionConsentWindowController.shared.show()
+        let generation = flowGeneration
         Task { @MainActor in
             do {
                 let preview = try await store.previewInstall(input: input, ref: ref)
+                guard generation == flowGeneration else {
+                    store.discard(preview) // Window closed while fetching.
+                    return
+                }
                 phase = .consent(preview)
             } catch {
+                guard generation == flowGeneration else { return }
                 phase = .failed(message: error.localizedDescription)
             }
         }
@@ -85,11 +96,17 @@ final class ExtensionInstallCoordinator {
         }
         phase = .loading(input: id)
         ExtensionConsentWindowController.shared.show()
+        let generation = flowGeneration
         Task { @MainActor in
             do {
                 let preview = try await store.previewUpdate(id: id)
+                guard generation == flowGeneration else {
+                    store.discard(preview) // Window closed while fetching.
+                    return
+                }
                 phase = .consent(preview)
             } catch {
+                guard generation == flowGeneration else { return }
                 phase = .failed(message: error.localizedDescription)
             }
         }
@@ -127,6 +144,7 @@ final class ExtensionInstallCoordinator {
 
     /// Cancels the flow, discarding any staged checkout, and closes the window.
     func cancel() {
+        flowGeneration += 1
         if case .consent(let preview) = phase {
             store.discard(preview)
         }
@@ -146,7 +164,13 @@ final class ExtensionInstallCoordinator {
         if case .consent(let preview) = phase {
             store.discard(preview)
         }
-        if isWorking { return } // Let an in-flight install finish; reload reconciles.
+        if case .installing = phase {
+            return // Let an in-flight install finish; reload reconciles.
+        }
+        // Closing during `.loading` abandons the fetch: bump the generation so
+        // the preview discards its staged checkout on arrival instead of
+        // parking a hidden consent state behind a closed window.
+        flowGeneration += 1
         phase = .idle
     }
 }
