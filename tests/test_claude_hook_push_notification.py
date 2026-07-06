@@ -316,6 +316,26 @@ def main() -> int:
         print(f"commands={commands!r}")
         return 1
 
+    # 7. Oversized message -> normalized and truncated like every other hook
+    #    notification body (240-char cap with a trailing ellipsis), so a model
+    #    cannot grow the notification store/UI with arbitrarily large pushes.
+    oversized = "x" * 5000
+    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+        cli_path,
+        push_payload(oversized, {"message": oversized, "localSent": True}),
+    )
+    if proc.returncode != 0:
+        print("FAIL: push-notification (oversized) hook exited nonzero")
+        print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
+        return 1
+    expected_body = "x" * 239 + "…"
+    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||{expected_body}"
+    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+        print("FAIL: oversized PushNotification body should be truncated to 240 chars")
+        actual = [line for line in commands if line.startswith("notify_target_async ")]
+        print(f"expected len={len(expected)} got={[len(a) for a in actual]}")
+        return 1
+
     print("PASS: PushNotification tool calls bridge into cmux notifications")
     return 0
 
