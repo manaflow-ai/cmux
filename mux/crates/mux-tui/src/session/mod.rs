@@ -105,8 +105,9 @@ impl Session {
     }
 
     /// Like [`Session::surface`], but passes the render size for remote
-    /// mirrors created on first use (the server surface is resized before
-    /// the attach replay, so the replay arrives at final geometry).
+    /// mirrors created on first use. Remote mirrors attach first; the
+    /// caller's following resize then travels through the ordered attach
+    /// stream so shell WINCH redraw bytes cannot land in a pre-tap gap.
     pub fn surface_sized(&self, id: SurfaceId, size: Option<(u16, u16)>) -> Option<SurfaceHandle> {
         match self {
             Session::Local(mux) => {
@@ -529,7 +530,14 @@ mod tests {
     use super::resize_action;
 
     #[test]
-    fn first_layout_after_attach_does_not_send_redundant_resize() {
+    fn first_layout_after_attach_sends_ordered_resize() {
+        let desired = (123, 65);
+        let server = (80, 24);
+        assert!(resize_action(desired, None, server, false));
+    }
+
+    #[test]
+    fn already_sized_first_layout_does_not_send_redundant_resize() {
         let desired = (123, 65);
         assert!(!resize_action(desired, Some(desired), desired, false));
     }
