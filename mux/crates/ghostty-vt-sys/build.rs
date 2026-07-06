@@ -23,6 +23,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
+    println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_VT_ZIG_CPU");
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("include").display());
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
     println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
@@ -32,18 +33,25 @@ fn main() {
     // is an order of magnitude slower.
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
     let prefix = out_dir.join("ghostty-vt");
-    let status = Command::new(&zig)
-        .current_dir(&ghostty_dir)
+    let mut cmd = Command::new(&zig);
+    cmd.current_dir(&ghostty_dir)
         .arg("build")
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast")
         .arg("--prefix")
-        .arg(&prefix)
-        .status()
-        .unwrap_or_else(|e| {
-            panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
-        });
+        .arg(&prefix);
+    // Valgrind's instruction emulation doesn't cover every CPU-native SIMD
+    // extension zig's default target detection can select (e.g. some AVX-512
+    // variants), which SIGILLs under valgrind. CI's valgrind job sets this to
+    // "baseline" to match the same workaround ghostty's own build.zig uses
+    // for its valgrind step (see `Config.baselineTarget()`).
+    if let Ok(cpu) = env::var("CMUX_GHOSTTY_VT_ZIG_CPU") {
+        cmd.arg(format!("-Dcpu={cpu}"));
+    }
+    let status = cmd.status().unwrap_or_else(|e| {
+        panic!("failed to run `{zig} build` in {}: {e}", ghostty_dir.display())
+    });
     if !status.success() {
         panic!("zig build of libghostty-vt failed with {status}");
     }
