@@ -9,10 +9,9 @@ import { Modal } from "../../components/modal";
 
 // JSON structure examples, not translatable copy: keeping them out of the
 // message catalog avoids ICU parsing of the literal braces.
-const CLAUDE_JSON_PLACEHOLDER = '{"accessToken":"...","refreshToken":"...","expiresAt":1770000000000}';
 const CODEX_JSON_PLACEHOLDER = '{"accessToken":"...","refreshToken":"...","idToken":"...","accountID":"..."}';
 
-type FormKind = "claude" | "anthropic" | "codex" | "openai";
+type FormKind = "anthropic" | "codex" | "openai";
 type FormStatus = {
   readonly state: "idle" | "submitting" | "success" | "error";
   readonly message?: string;
@@ -24,7 +23,6 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
   const t = useTranslations("dashboard.aiAccounts");
   const router = useRouter();
   const [statuses, setStatuses] = useState<Record<FormKind, FormStatus>>({
-    claude: idleStatus,
     anthropic: idleStatus,
     codex: idleStatus,
     openai: idleStatus,
@@ -59,23 +57,6 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
     } catch {
       setStatus(kind, { state: "error", message: t("addError") });
     }
-  };
-
-  const submitClaude = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const parsed = parseJsonObject(String(data.get("oauthJson") ?? ""));
-    if (!parsed) {
-      setStatus("claude", { state: "error", message: t("jsonError") });
-      return;
-    }
-    const claudeAiOauth = isRecord(parsed.claudeAiOauth) ? parsed.claudeAiOauth : parsed;
-    await submitAccount("claude", form, {
-      provider: "claude",
-      label: labelValue(data),
-      claudeAiOauth,
-    });
   };
 
   const submitAnthropic = async (event: FormEvent<HTMLFormElement>) => {
@@ -119,20 +100,6 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
 
   return (
     <div className="space-y-4">
-      <ProviderForm
-        title={t("providerClaude")}
-        labelText={t("labelField")}
-        labelPlaceholder={t("labelPlaceholder")}
-        submitLabel={t("addClaude")}
-        status={statuses.claude}
-        onSubmit={submitClaude}
-      >
-        <JsonField
-          label={t("oauthJsonField")}
-          placeholder={CLAUDE_JSON_PLACEHOLDER}
-        />
-      </ProviderForm>
-
       <ProviderForm
         title={t("providerAnthropicApiKey")}
         labelText={t("labelField")}
