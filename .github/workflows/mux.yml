@@ -21,6 +21,81 @@ permissions:
   contents: read
 
 jobs:
+  valgrind-leak-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Build test binaries
+        working-directory: mux
+        run: |
+          mkdir -p target
+          cargo test --workspace --locked --no-run --message-format=json > target/cargo-test-binaries.jsonl
+          python3 <<'PY'
+          import json
+          import sys
+
+          seen = set()
+          with open("target/cargo-test-binaries.jsonl", "r", encoding="utf-8") as messages:
+              with open("target/valgrind-test-binaries.txt", "w", encoding="utf-8") as output:
+                  for line in messages:
+                      try:
+                          message = json.loads(line)
+                      except json.JSONDecodeError:
+                          continue
+                      if not message.get("profile", {}).get("test"):
+                          continue
+                      executable = message.get("executable")
+                      if not executable or executable in seen:
+                          continue
+                      seen.add(executable)
+                      print(executable, file=output)
+
+          if not seen:
+              raise SystemExit("cargo did not report any test binaries")
+          print(f"Collected {len(seen)} test binaries", file=sys.stderr)
+          PY
+
+      - name: Run test binaries under valgrind
+        working-directory: mux
+        run: |
+          while IFS= read -r bin; do
+            [ -n "$bin" ] || continue
+            echo "Running valgrind for $bin"
+            if ! valgrind \
+              --error-exitcode=1 \
+              --leak-check=full \
+              --show-leak-kinds=definite \
+              --errors-for-leak-kinds=definite \
+              --track-origins=yes \
+              -- "$bin"; then
+              echo "Valgrind failed for $bin" >&2
+              exit 1
+            fi
+          done < target/valgrind-test-binaries.txt
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os == 'macos' && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || 'ubuntu-latest' }}
