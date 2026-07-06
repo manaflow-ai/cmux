@@ -456,21 +456,44 @@ const malformedCoordinates = await runCalls({
   calls: [
     { tool: "computer_state", args: { app: "TestApp" } },
     { tool: "computer_click", args: { app: "TestApp", x: null, y: 0 } },
+    { tool: "computer_click", args: { app: "TestApp", x: 1, y: 0 } },
     { tool: "computer_drag", args: { app: "TestApp", fromX: "0", fromY: 0, toX: 10, toY: 10 } },
   ],
   expectMessage: "Allow cmux computer use to inspect and control",
 });
 console.log(
-  `malformed coordinates -> state=${malformedCoordinates[0].isError} click=${malformedCoordinates[1].isError} drag=${malformedCoordinates[2].isError}`
+  `malformed coordinates -> state=${malformedCoordinates[0].isError} null-click=${malformedCoordinates[1].isError} edge-click=${malformedCoordinates[2].isError} drag=${malformedCoordinates[3].isError}`
 );
 if (
   malformedCoordinates[0].isError ||
   !malformedCoordinates[1].isError ||
   !malformedCoordinates[1].text.includes("coordinates") ||
   !malformedCoordinates[2].isError ||
-  !malformedCoordinates[2].text.includes("coordinates")
+  !malformedCoordinates[2].text.includes("coordinates") ||
+  !malformedCoordinates[3].isError ||
+  !malformedCoordinates[3].text.includes("coordinates")
 ) {
   console.error("FAIL: malformed coordinate inputs should be rejected");
+  process.exit(1);
+}
+
+const missingWindowIdentity = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "NoWindowIdentityApp" } },
+    { tool: "computer_click", args: { app: "NoWindowIdentityApp", element: 1 } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(
+  `missing window identity -> state=${missingWindowIdentity[0].isError} click=${missingWindowIdentity[1].isError}`
+);
+if (
+  missingWindowIdentity[0].isError ||
+  !missingWindowIdentity[1].isError ||
+  !missingWindowIdentity[1].text.includes("stable window identity")
+) {
+  console.error("FAIL: input should fail before provider input when the snapshot has no stable window identity");
   process.exit(1);
 }
 

@@ -372,18 +372,22 @@ class FakeComputerUseProvider {
       { name: "TestApp", bundleIdentifier: "com.cmux.testapp", pid: 1001 },
       { name: "QueueHoldApp", bundleIdentifier: "com.cmux.queuehold", pid: 1002 },
       { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
+      { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
     ];
   }
 
   async getState(app, { includeScreenshot = true } = {}) {
     if (app === "SlowStateApp" || app === "QueueHoldApp") await delay(140);
-    const pid = app === "QueueHoldApp" ? 1002 : app === "SlowStateApp" ? 1003 : 1001;
+    const pid = app === "QueueHoldApp" ? 1002 : app === "SlowStateApp" ? 1003 : app === "NoWindowIdentityApp" ? 1004 : 1001;
     const bundleIdentifier =
       app === "QueueHoldApp"
         ? "com.cmux.queuehold"
         : app === "SlowStateApp"
           ? "com.cmux.slowstate"
-          : "com.cmux.testapp";
+          : app === "NoWindowIdentityApp"
+            ? "com.cmux.nowindowidentity"
+            : "com.cmux.testapp";
+    const windowId = app === "NoWindowIdentityApp" ? null : 42;
     return {
       tree: [
         `[0] AXWindow title="${app}" frame={x:0,y:0,w:400,h:300}`,
@@ -397,10 +401,10 @@ class FakeComputerUseProvider {
       ],
       root: "window",
       windowIndex: 0,
-      windowId: 42,
+      windowId,
       target: { pid, bundleIdentifier, name: app },
       window: {
-        id: 42,
+        id: windowId,
         bounds: { x: 0, y: 0, width: 400, height: 300 },
       },
       image: includeScreenshot ? fakeImage() : null,
@@ -409,7 +413,9 @@ class FakeComputerUseProvider {
 
   async input(action) {
     if (action.app === "QueueHoldApp") await delay(40);
-    if (action.app === "TestApp" && action.windowId !== 42) throw new Error("missing window id");
+    if ((action.app === "TestApp" || action.app === "NoWindowIdentityApp") && action.windowId !== 42) {
+      throw new Error("missing window id");
+    }
     if (action.app === "TestApp" && action.targetPid !== 1001) throw new Error("missing target pid");
     return `${action.op || "action"} sent`;
   }
@@ -611,8 +617,8 @@ function revokeAppState(app) {
 }
 
 function finiteNumberOrNull(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+  if (typeof value !== "number") return null;
+  return Number.isFinite(value) ? value : null;
 }
 
 function retainableBounds(bounds) {
@@ -685,8 +691,8 @@ function snapshotPointFromSnapshot(snapshot, x, y) {
     boundHeight <= 0 ||
     pixelX < 0 ||
     pixelY < 0 ||
-    pixelX > imageWidth ||
-    pixelY > imageHeight
+    pixelX >= imageWidth ||
+    pixelY >= imageHeight
   ) {
     return null;
   }
