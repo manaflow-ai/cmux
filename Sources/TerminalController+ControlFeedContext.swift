@@ -20,7 +20,7 @@ extension TerminalController: ControlFeedContext {
 
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] {
         let permissionActionPolicy = FeedPermissionActionPolicy()
-        FeedCoordinator.shared.socketRouter.snapshot(pendingOnly: pendingOnly).map { item in
+        return FeedCoordinator.shared.socketRouter.snapshot(pendingOnly: pendingOnly).map { item in
             // `WorkstreamItem.socketEncodedDictionary` only ever produces valid
             // JSON (strings, bools, arrays, nested dicts), so the bridge never
             // fails; the empty-object fallback exists solely to keep the map total.
