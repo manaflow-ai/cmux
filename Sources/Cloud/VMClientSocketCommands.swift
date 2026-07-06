@@ -222,7 +222,7 @@ extension TerminalController {
                 "name": base.name,
                 "generation": base.generation,
                 "retainedProviderVmId": base.retainedProviderVmId ?? NSNull(),
-            ]
+            ] as [String: Any]
         }
         return payload
     }
