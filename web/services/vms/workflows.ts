@@ -490,11 +490,15 @@ function recordRunningTransition<E extends VmWorkflowError>(
   });
 }
 
-export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
+export function destroyVm(input: {
+  readonly userId: string;
+  readonly teamIds: readonly string[];
+  readonly providerVmId: string;
+}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.teamIds, input.providerVmId);
 
     yield* revokeActiveIdentities(vm);
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
@@ -518,6 +522,7 @@ export function destroyVm(input: { readonly userId: string; readonly providerVmI
 
 export function execVm(input: {
   readonly userId: string;
+  readonly teamIds: readonly string[];
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
@@ -525,7 +530,7 @@ export function execVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.teamIds, input.providerVmId);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -551,13 +556,14 @@ export function execVm(input: {
 
 export function openAttachEndpoint(input: {
   readonly userId: string;
+  readonly teamIds: readonly string[];
   readonly providerVmId: string;
   readonly options?: AttachOptions;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.teamIds, input.providerVmId);
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the
@@ -599,12 +605,13 @@ export function openAttachEndpoint(input: {
 
 export function openSshEndpoint(input: {
   readonly userId: string;
+  readonly teamIds: readonly string[];
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.teamIds, input.providerVmId);
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the
@@ -640,11 +647,22 @@ export function openSshEndpoint(input: {
   });
 }
 
-function requireUserVm(userId: string, providerVmId: string) {
+function requireUserVm(userId: string, teamIds: readonly string[], providerVmId: string) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const vm = yield* repo.findUserVm({ userId, providerVmId });
     if (!vm || !vm.providerVmId) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+    }
+    const billingTeamId = vm.billingTeamId;
+    // Personal VMs (no billing team, or billed to the owner's own user id) stay owner-gated;
+    // findUserVm already confirmed vm.userId === userId. Team-billed VMs additionally require
+    // the caller to still be a current member of that billing team.
+    if (
+      billingTeamId !== null &&
+      billingTeamId !== userId &&
+      !teamIds.includes(billingTeamId)
+    ) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
     return vm;

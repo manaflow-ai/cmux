@@ -22,12 +22,13 @@ export async function DELETE(
       const { id } = await params;
       setSpanAttributes(span, { "cmux.vm.id": id });
       try {
-        await runVmWorkflow(destroyVm({ userId: user.id, providerVmId: id }));
+        await runVmWorkflow(destroyVm({ userId: user.id, teamIds: user.teamIds, providerVmId: id }));
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
         throw err;
       }
       return jsonResponse({ ok: true });
     },
+    { requireAllTeams: true },
   );
 }

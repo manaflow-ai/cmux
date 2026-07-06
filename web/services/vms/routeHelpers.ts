@@ -35,6 +35,7 @@ export async function withAuthedVmApiRoute(
   attributes: MaybeAttributes,
   failureLog: string,
   handler: (context: AuthedVmRouteContext) => Promise<Response>,
+  options: { readonly requireAllTeams?: boolean } = {},
 ): Promise<Response> {
   return withApiRouteSpan(
     request,
@@ -60,7 +61,10 @@ export async function withAuthedVmApiRoute(
         const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
         const authStart = performance.now();
-        const user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        const user = await verifyRequest(request, {
+          requestedTeamId: requestedVmTeamIdFromRequest(request),
+          allTeams: options.requireAllTeams,
+        });
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
