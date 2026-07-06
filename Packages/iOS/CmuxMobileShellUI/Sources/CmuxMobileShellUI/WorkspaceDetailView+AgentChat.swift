@@ -359,11 +359,12 @@ extension WorkspaceDetailView {
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
         let openedFromBrowser = hasActiveBrowserForCurrentWorkspace()
-        let focusToken = openedFromBrowser && workspaceSceneID == nil
+        pendingTerminalFocusSurfaceID = nil
+        let focusToken = workspaceSceneID == nil
             ? nil
             : GhosttySurfaceView.resignActiveInput(surfaceID: selectedTerminalID, sceneID: workspaceSceneID)
         chatInputFocusToken = focusToken
-        chatShouldFocusTerminalOnExit = openedFromBrowser && focusToken == nil
+        chatShouldFocusTerminalOnExit = (openedFromBrowser || workspaceSceneID == nil) && focusToken == nil
         if openedFromBrowser {
             store.suppressSelectedTerminalAutoFocusOnNextAttach()
         }
@@ -388,13 +389,32 @@ extension WorkspaceDetailView {
         chatShouldFocusTerminalOnExit = false
         if let terminalID {
             let restored = GhosttySurfaceView.restoreInputFocus(token, surfaceID: terminalID)
+            if restored {
+                pendingTerminalFocusSurfaceID = nil
+                return
+            }
             if !restored, shouldFocusTerminal {
-                _ = GhosttySurfaceView.focusMountedInput(
+                let focused = GhosttySurfaceView.focusMountedInput(
                     surfaceID: terminalID,
                     sceneID: workspaceSceneID
                 )
+                pendingTerminalFocusSurfaceID = focused ? nil : terminalID
             }
         }
+    }
+
+    func restorePendingTerminalFocusIfPossible() {
+        guard let terminalID = pendingTerminalFocusSurfaceID else { return }
+        if GhosttySurfaceView.focusMountedInput(surfaceID: terminalID, sceneID: workspaceSceneID) {
+            pendingTerminalFocusSurfaceID = nil
+        }
+    }
+
+    func handleSelectedTerminalChangeForChat() {
+        refreshCachedChatToggleAnchor()
+        guard let pendingTerminalFocusSurfaceID,
+              pendingTerminalFocusSurfaceID != selectedTerminalID else { return }
+        self.pendingTerminalFocusSurfaceID = nil
     }
 
     /// Keeps the active transcript store warm without retaining stores for every

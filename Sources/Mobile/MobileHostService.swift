@@ -2230,12 +2230,8 @@ actor MobileHostConnection {
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
-            // Report whether this stream id was already registered BEFORE the
-            // idempotent replace. The phone's render-grid liveness probe
-            // re-asserts its subscription on prolonged silence; `false` tells
-            // it the registration had been lost (events emitted in the gap
-            // were never delivered), so it requests a catch-up replay instead
-            // of trusting delta continuity.
+            // Report whether this stream id existed before idempotent replace.
+            // `false` tells the phone to request catch-up replay.
             let alreadySubscribed = subscriptions[streamID] != nil
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG
@@ -2255,6 +2251,9 @@ actor MobileHostConnection {
                     code: "invalid_params",
                     message: "stream_id, topic, and nonce are required"
                 ))
+            }
+            guard topic == "mobile.events.pong" else {
+                return .failure(MobileHostRPCError(code: "invalid_params", message: "topic must be mobile.events.pong"))
             }
             guard subscriptions[streamID]?.contains(topic) == true else {
                 return .ok([

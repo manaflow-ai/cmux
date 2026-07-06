@@ -11,7 +11,6 @@ struct WorkspaceSceneIDProbe: UIViewRepresentable {
 
     func updateUIView(_ uiView: WorkspaceSceneProbeView, context: Context) {
         uiView.onSceneIDChange = { sceneID = $0 }
-        uiView.reportSceneID()
     }
 }
 #endif

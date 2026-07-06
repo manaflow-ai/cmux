@@ -59,6 +59,7 @@ struct WorkspaceDetailView: View {
     @State var pinnedChatSessionID: String?
     @State var chatInputFocusToken: GhosttySurfaceInputFocusToken?
     @State var chatShouldFocusTerminalOnExit = false
+    @State var pendingTerminalFocusSurfaceID: String?
     @State var workspaceSceneID: ObjectIdentifier?
     @State var chatSessions: [ChatSessionDescriptor] = []
     @State var chatSessionsWorkspaceID: String?
@@ -90,9 +91,8 @@ struct WorkspaceDetailView: View {
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
-            .onChange(of: selectedTerminalID) { _, _ in
-                refreshCachedChatToggleAnchor()
-            }
+            .onChange(of: selectedTerminalID) { _, _ in handleSelectedTerminalChangeForChat() }
+            .onChange(of: workspaceSceneID) { _, _ in restorePendingTerminalFocusIfPossible() }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
