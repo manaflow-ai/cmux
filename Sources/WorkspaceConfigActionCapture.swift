@@ -13,23 +13,54 @@ struct WorkspaceConfigActionSnapshot {
     /// dialog shows these verbatim so secret-bearing foreground commands are
     /// never written without the user seeing them first.
     var capturedCommands: [String] {
-        guard let layout = definition.layout else { return [] }
-        var commands: [String] = []
-        Self.collectCommands(layout, into: &commands)
-        return commands
+        collectSurfaceValues { $0.command }
     }
 
-    private static func collectCommands(_ node: CmuxLayoutNode, into commands: inout [String]) {
+    /// Every URL the saved action would persist (browser tabs, project panels).
+    /// Disclosed in the save dialog — URLs can carry OAuth codes, presigned
+    /// tokens, or private query parameters.
+    var capturedURLs: [String] {
+        collectSurfaceValues { $0.url }
+    }
+
+    /// Names of environment variables the saved action would persist
+    /// (workspace-level and per-surface). Values are written to the config, so
+    /// the dialog discloses which keys are involved before saving.
+    var capturedEnvironmentKeys: [String] {
+        var keys = Set<String>()
+        if let workspaceEnv = definition.env {
+            keys.formUnion(workspaceEnv.keys)
+        }
+        if let layout = definition.layout {
+            Self.walkSurfaces(layout) { surface in
+                if let surfaceEnv = surface.env {
+                    keys.formUnion(surfaceEnv.keys)
+                }
+            }
+        }
+        return keys.sorted()
+    }
+
+    private func collectSurfaceValues(_ value: (CmuxSurfaceDefinition) -> String?) -> [String] {
+        guard let layout = definition.layout else { return [] }
+        var values: [String] = []
+        Self.walkSurfaces(layout) { surface in
+            if let extracted = value(surface) {
+                values.append(extracted)
+            }
+        }
+        return values
+    }
+
+    private static func walkSurfaces(_ node: CmuxLayoutNode, visit: (CmuxSurfaceDefinition) -> Void) {
         switch node {
         case .pane(let pane):
             for surface in pane.surfaces {
-                if let command = surface.command {
-                    commands.append(command)
-                }
+                visit(surface)
             }
         case .split(let split):
             for child in split.children {
-                collectCommands(child, into: &commands)
+                walkSurfaces(child, visit: visit)
             }
         }
     }

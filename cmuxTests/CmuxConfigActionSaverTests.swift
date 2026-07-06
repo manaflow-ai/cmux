@@ -145,19 +145,20 @@ final class CmuxConfigActionSaverTests: XCTestCase {
         XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: []))
     }
 
-    func testSnapshotCapturedCommandsListsEveryPersistedCommand() {
+    func testSnapshotDisclosuresListEveryPersistedCommandURLAndEnvKey() {
         let snapshot = WorkspaceConfigActionSnapshot(
             definition: CmuxWorkspaceDefinition(
                 name: "W",
+                env: ["API_TOKEN": "secret"],
                 layout: .split(CmuxSplitDefinition(
                     direction: .horizontal,
                     split: 0.5,
                     children: [
                         .pane(CmuxPaneDefinition(surfaces: [
-                            CmuxSurfaceDefinition(type: .terminal, command: "claude")
+                            CmuxSurfaceDefinition(type: .terminal, command: "claude", env: ["RUST_LOG": "debug"])
                         ])),
                         .pane(CmuxPaneDefinition(surfaces: [
-                            CmuxSurfaceDefinition(type: .browser, url: "https://example.com"),
+                            CmuxSurfaceDefinition(type: .browser, url: "https://example.com/callback?code=abc"),
                             CmuxSurfaceDefinition(type: .terminal, command: "curl -H 'Authorization: Bearer x'"),
                         ])),
                     ]
@@ -166,12 +167,16 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             skippedPanelCount: 0
         )
         XCTAssertEqual(snapshot.capturedCommands, ["claude", "curl -H 'Authorization: Bearer x'"])
+        XCTAssertEqual(snapshot.capturedURLs, ["https://example.com/callback?code=abc"])
+        XCTAssertEqual(snapshot.capturedEnvironmentKeys, ["API_TOKEN", "RUST_LOG"])
 
         let plain = WorkspaceConfigActionSnapshot(
             definition: CmuxWorkspaceDefinition(name: "P"),
             skippedPanelCount: 0
         )
         XCTAssertEqual(plain.capturedCommands, [])
+        XCTAssertEqual(plain.capturedURLs, [])
+        XCTAssertEqual(plain.capturedEnvironmentKeys, [])
     }
 
     func testCommandLineFromArgvStripsAgentResumeArtifacts() {

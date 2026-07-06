@@ -328,7 +328,9 @@ struct CmuxConfigExecutor {
         configPath: String
     ) -> NSAlert {
         let alert = NSAlert()
-        let trimmedDisplayTitle = displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Titles come from project-local configs too — strip bidi/zero-width
+        // controls like the command body below, so the header can't be spoofed.
+        let trimmedDisplayTitle = displayTitle.map(sanitizeForDisplay)
         alert.messageText = (trimmedDisplayTitle?.isEmpty == false)
             ? trimmedDisplayTitle!
             : String(

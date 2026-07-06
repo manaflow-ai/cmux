@@ -124,6 +124,22 @@ extension AppDelegate {
             )
             message += "\n\n" + commandsHeader + "\n" + capturedCommands.joined(separator: "\n")
         }
+        let capturedURLs = snapshot.capturedURLs
+        if !capturedURLs.isEmpty {
+            let urlsHeader = String(
+                localized: "dialog.saveWorkspaceAction.urlsHeader",
+                defaultValue: "URLs that will be saved:"
+            )
+            message += "\n\n" + urlsHeader + "\n" + capturedURLs.joined(separator: "\n")
+        }
+        let capturedEnvironmentKeys = snapshot.capturedEnvironmentKeys
+        if !capturedEnvironmentKeys.isEmpty {
+            let envHeader = String(
+                localized: "dialog.saveWorkspaceAction.envHeader",
+                defaultValue: "Environment variables whose values will be saved:"
+            )
+            message += "\n\n" + envHeader + "\n" + capturedEnvironmentKeys.joined(separator: ", ")
+        }
         alert.informativeText = message
 
         let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
