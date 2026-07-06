@@ -14,6 +14,7 @@ import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/
 import {
   VmRepository,
   VmRepositoryLive,
+  type CloudVmSessionRow,
   type CloudVmRow,
   type VmRepositoryShape,
 } from "../services/vms/repository";
@@ -1541,6 +1542,11 @@ describe("VM Effect workflows", () => {
           };
         }),
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      getStatus: () =>
+        Effect.sync(() => {
+          callOrder.push("getStatus");
+          return "paused" as const;
+        }),
       openAttach: () => Effect.fail(new Error("unused") as never),
       openSSH: () =>
         Effect.sync(() => {
@@ -1572,7 +1578,7 @@ describe("VM Effect workflows", () => {
     expect(endpoint.transport).toBe("ssh");
     expect(resumeCalls).toBe(1);
     expect(sshCalls).toBe(1);
-    expect(callOrder).toEqual(["resume", "openSSH"]);
+    expect(callOrder).toEqual(["getStatus", "resume", "openSSH"]);
 
     const [vm] = await sql<{ status: string }[]>`
       select status from cloud_vms where provider_vm_id = 'provider-vm-resume-ssh'
@@ -1737,6 +1743,7 @@ describe("VM Effect workflows", () => {
         }),
       openSSH: () => Effect.fail(new Error("unused") as never),
       revokeSSHIdentity: () => Effect.void,
+      getStatus: () => Effect.succeed("paused" as const),
     };
 
     try {
@@ -3134,7 +3141,11 @@ function testWorkflowRepo(input: {
     markBaseCreateRunning: () => unusedDatabaseEffect("markBaseCreateRunning"),
     markBaseCreateFailed: () => Effect.void,
     activeLimitCandidates: () => Effect.succeed([]),
-    reservePausedResume: () => Effect.succeed(null),
+    reservePausedResume: () =>
+      Effect.succeed({
+        ...input.vm,
+        status: "running" as const,
+      }),
     markProviderObservedStatus: (update) =>
       input.markProviderObservedStatus
         ? input.markProviderObservedStatus(update)
@@ -3157,7 +3168,31 @@ function testWorkflowRepo(input: {
         input.leases?.push(lease);
       }),
     listVmSessions: () => Effect.succeed([]),
-    upsertVmSession: () => unusedDatabaseEffect("upsertVmSession"),
+    upsertVmSession: (session) =>
+      Effect.sync(() => {
+        const now = new Date();
+        return {
+          id: "00000000-0000-4000-8000-00000000feed",
+          vmId: session.vmId,
+          userId: session.userId,
+          providerSessionId: session.providerSessionId,
+          title: session.title ?? null,
+          kind: "terminal",
+          status: session.status ?? "running",
+          attachmentCount: session.attachmentCount ?? 1,
+          effectiveCols: session.effectiveCols ?? null,
+          effectiveRows: session.effectiveRows ?? null,
+          lastKnownCols: session.lastKnownCols ?? null,
+          lastKnownRows: session.lastKnownRows ?? null,
+          scrollbackBytes: session.scrollbackBytes ?? 0,
+          metadata: session.metadata ?? {},
+          createdAt: now,
+          updatedAt: now,
+          lastAttachedAt: now,
+          exitedAt: null,
+          closedAt: null,
+        } satisfies CloudVmSessionRow;
+      }),
     activeIdentityLeases: () => Effect.succeed([]),
     markLeasesRevoked: () => Effect.void,
     recordUsageEvent: (event) =>

@@ -29,6 +29,7 @@ import {
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
+import { maxActiveVmsForPlan } from "./entitlements";
 import { isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -514,7 +515,7 @@ export function forkVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const source = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
-    yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId);
+    yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId, "fork");
 
     if (source.provider === "freestyle" && providers.fork) {
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
@@ -773,6 +774,7 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
+type VmResumeSource = "exec" | "attach" | "ssh" | "fork";
 
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
 // post-start "starting" state to "creating"), so poll briefly until the VM is
@@ -841,16 +843,79 @@ function resumeUntilRunning(
   });
 }
 
-// Active-limit note: resuming a user's own existing VM is intentionally not
-// limit-gated here. Freestyle's SSH gateway resumes suspended VMs on any
-// client connect with no control-plane involvement, so this seam cannot
-// enforce the limit; enforcement happens where allocation is decided —
-// beginCreate's reconcile re-counts provider-running VMs on the next create.
+function reservePausedResumeIfTeam(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, VmWorkflowError> {
+  if (!vm.billingTeamId) return Effect.succeed(false);
+  return Effect.gen(function* () {
+    const reserved = yield* repo.reservePausedResume({
+      id: vm.id,
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      providerVmId,
+      maxActiveVms: maxActiveVmsForPlan(vm.billingPlanId),
+    });
+    if (!reserved) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+    }
+    if (reserved.status !== "running") {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: `reservePausedResume(${providerVmId})`,
+          cause: new Error(`VM resume reservation returned ${reserved.status}`),
+        }),
+      );
+    }
+    return vm.status === "paused";
+  });
+}
+
+function rollbackPausedResumeReservation(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  reserved: boolean,
+): Effect.Effect<void, never> {
+  if (!reserved) return Effect.void;
+  return repo.markProviderObservedStatus({
+    id: vm.id,
+    providerVmId,
+    status: "paused",
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+function recordResumeUsageEvent(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  resumeSource: VmResumeSource,
+): Effect.Effect<void, never> {
+  return repo.recordUsageEvent({
+    userId: vm.userId,
+    billingTeamId: vm.billingTeamId,
+    billingPlanId: vm.billingPlanId,
+    vmId: vm.id,
+    eventType: "vm.resumed",
+    provider: vm.provider,
+    imageId: vm.imageId,
+    metadata: { source: resumeSource },
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+// Active-limit note: the control-plane-owned paused-row resume path is
+// limit-gated for billing teams by reservePausedResume before the provider
+// resume starts. Freestyle can still resume a VM outside the control plane
+// (for example through its SSH gateway); those already-running observations
+// are reconciled durably here, and beginCreate re-counts provider-running VMs
+// before allocating another active slot.
 function preflightResumeIfSuspended(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
+  resumeSource: VmResumeSource,
 ): Effect.Effect<void, VmWorkflowError> {
   return Effect.gen(function* () {
     const getStatus = providers.getStatus;
@@ -922,24 +987,31 @@ function preflightResumeIfSuspended(
     }
     if (status !== "paused") return;
 
-    yield* resumeUntilRunning(providers, vm, providerVmId);
+    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
+    yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+    );
     yield* recordRunningTransition(
       repo,
       providers,
       vm,
       providerVmId,
       new VmNotFoundError({ vmId: providerVmId }),
+    ).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
+    if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
   });
 }
 
-function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
+function withResumeOnSuspendedAfterFailure<A>(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-  op: Effect.Effect<A, E>,
-): Effect.Effect<A, E | VmDatabaseError> {
+  resumeSource: VmResumeSource,
+  op: Effect.Effect<A, VmWorkflowError>,
+): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
       const getStatus = providers.getStatus;
@@ -965,10 +1037,15 @@ function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
           return yield* Effect.fail(originalError);
         }
 
+        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           Effect.catchAll(() => Effect.fail(originalError)),
         );
-        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError);
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+        );
+        if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
         return yield* op;
       });
     }),
@@ -1054,6 +1131,7 @@ export function execVm(input: {
       providers,
       vm,
       input.providerVmId,
+      "exec",
     );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
@@ -1082,45 +1160,8 @@ type OpenAttachEndpointInput = {
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
-    const repo = yield* VmRepository;
-    const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
-    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
-    // grants an identity), which would hand out an endpoint while Postgres
-    // still says paused. Preflight-resume first — and before revoking the
-    // user's existing identities, so a preflight failure never strands them
-    // with old credentials revoked and no replacement minted.
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
-    yield* revokeActiveIdentities(vm);
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      providers.openAttach(vm.provider, input.providerVmId, input.options),
-    );
-    yield* storeEndpointLeases(vm, endpoint).pipe(
-      Effect.catchAll((err) =>
-        revokeEndpointIdentity(vm.provider, endpoint).pipe(
-          Effect.andThen(Effect.fail(err)),
-        ),
-      ),
-    );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.attach",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: {
-        transport: endpoint.transport,
-        requireDaemon: input.options?.requireDaemon === true,
-        daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
-      },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
+    const result = yield* openAttachEndpointResult(input);
+    return result.endpoint;
   });
 }
 
@@ -1169,13 +1210,14 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     // still says paused. Preflight-resume first — and before revoking the
     // user's existing identities, so a preflight failure never strands them
     // with old credentials revoked and no replacement minted.
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     yield* revokeActiveIdentities(vm);
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
       input.providerVmId,
+      "attach",
       providers.openAttach(vm.provider, input.providerVmId, {
         ...(input.options ?? {}),
         providerMetadata: vm.providerMetadata,
@@ -1236,13 +1278,14 @@ export function openSshEndpoint(input: {
     // still says paused. Preflight-resume first — and before revoking the
     // user's existing identities, so a preflight failure never strands them
     // with old credentials revoked and no replacement minted.
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
     yield* revokeActiveIdentities(vm);
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
       input.providerVmId,
+      "ssh",
       providers.openSSH(vm.provider, input.providerVmId),
     );
     yield* storeEndpointLeases(vm, endpoint).pipe(

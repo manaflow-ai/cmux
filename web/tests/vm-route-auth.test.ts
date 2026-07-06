@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -33,6 +33,9 @@ const VM_ENV_KEYS = [
 const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
+
+const actualStack = await import("../app/lib/stack");
+const actualWorkflows = await import("../services/vms/workflows");
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -70,6 +73,11 @@ const restoreRoute = await import("../app/api/vm/restore/route");
 const { VmProviderOperationError } = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
+
+afterAll(() => {
+  mock.module("../services/vms/workflows", () => actualWorkflows);
+  mock.module("../app/lib/stack", () => actualStack);
+});
 
 beforeEach(() => {
   restoreVmEnv();
