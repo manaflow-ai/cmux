@@ -188,6 +188,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @State private var commandPaletteFocusRestoreHost = CommandPaletteFocusRestoreHost()
     @State private var commandPaletteFocusRestoreController =
         CommandPaletteFocusRestoreController<CommandPaletteFocusRestoreHost>()
+    @State private var sidebarInlineRenameWorkspaceId: UUID?
+    @State private var sidebarInlineRenameRequestToken = 0
     // `commandPaletteTerminalOpenTargetAvailability` stays here: its element type
     // `TerminalDirectoryOpenTarget` is an app-target type, so this set cannot move
     // into the package without a DAG violation.
@@ -711,6 +713,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             observedWindow: observedWindow,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient,
+            inlineRenameWorkspaceId: $sidebarInlineRenameWorkspaceId,
+            inlineRenameRequestToken: $sidebarInlineRenameRequestToken,
             workspaceDragRegistry: sidebarWorkspaceDragRegistry ?? SidebarWorkspaceDragRegistry()
         )
         .frame(width: sidebarWidth)
@@ -4683,10 +4687,25 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func openCommandPaletteRenameWorkspaceInput() {
-        commandPaletteEditFlowCoordinator.openRenameWorkspaceInput(
-            host: self,
-            presentation: commandPalettePresentation
-        )
+        requestSelectedWorkspaceInlineRename()
+    }
+
+    private func requestSelectedWorkspaceInlineRename() {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        if isCommandPalettePresented {
+            dismissCommandPalette(restoreFocus: false)
+        }
+
+        sidebarSelectionState.selection = .tabs
+        selectedTabIds = [workspace.id]
+        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
+        tabManager.selectWorkspace(workspace)
+        sidebarInlineRenameWorkspaceId = workspace.id
+        sidebarInlineRenameRequestToken += 1
     }
 
     private func openCommandPaletteWorkspaceDescriptionInput() {
@@ -5184,10 +5203,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func beginRenameWorkspaceFlow() {
-        commandPaletteEditFlowCoordinator.beginRenameWorkspace(
-            host: self,
-            presentation: commandPalettePresentation
-        )
+        requestSelectedWorkspaceInlineRename()
     }
 
     private func beginWorkspaceDescriptionFlow() {
@@ -5516,6 +5532,8 @@ struct VerticalTabsSidebar: View {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
+    @Binding var inlineRenameWorkspaceId: UUID?
+    @Binding var inlineRenameRequestToken: Int
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor(
@@ -5546,6 +5564,8 @@ struct VerticalTabsSidebar: View {
         selectedTabIds: Binding<Set<UUID>>,
         lastSidebarSelectionIndex: Binding<Int?>,
         sidebarRenderWorkerClient: Binding<RenderWorkerClient?>,
+        inlineRenameWorkspaceId: Binding<UUID?>,
+        inlineRenameRequestToken: Binding<Int>,
         workspaceDragRegistry: any SidebarWorkspaceDragRegistering
     ) {
         self.updateViewModel = updateViewModel
@@ -5559,6 +5579,8 @@ struct VerticalTabsSidebar: View {
         self._selectedTabIds = selectedTabIds
         self._lastSidebarSelectionIndex = lastSidebarSelectionIndex
         self._sidebarRenderWorkerClient = sidebarRenderWorkerClient
+        self._inlineRenameWorkspaceId = inlineRenameWorkspaceId
+        self._inlineRenameRequestToken = inlineRenameRequestToken
         self._dragState = State(
             initialValue: SidebarDragState(workspaceDragRegistry: workspaceDragRegistry)
         )
@@ -7266,6 +7288,14 @@ struct VerticalTabsSidebar: View {
                 dragAutoScrollController: dragAutoScrollController
             )
         }
+        let inlineRenameRequestTokenForRow = inlineRenameWorkspaceId == tab.id
+            ? inlineRenameRequestToken
+            : nil
+        let onInlineRenameRequestHandled: () -> Void = { [tabId = tab.id] in
+            if inlineRenameWorkspaceId == tabId {
+                inlineRenameWorkspaceId = nil
+            }
+        }
 
         let row = TabItemView(
             tabManager: tabManager,
@@ -7299,6 +7329,8 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
+            inlineRenameRequestToken: inlineRenameRequestTokenForRow,
+            onInlineRenameRequestHandled: onInlineRenameRequestHandled,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -7554,6 +7586,7 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+        lhs.inlineRenameRequestToken == rhs.inlineRenameRequestToken &&
         lhs.settings == rhs.settings
     }
 
@@ -7617,6 +7650,8 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
+    let inlineRenameRequestToken: Int?
+    let onInlineRenameRequestHandled: () -> Void
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -7628,6 +7663,10 @@ struct TabItemView: View, Equatable {
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State private var isEditing = false
+    @State private var renameDraft = ""
+    @State private var renameBaselineHadUserCustomTitle = false
+    @State private var handledInlineRenameRequestToken: Int?
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
@@ -7873,6 +7912,7 @@ struct TabItemView: View, Equatable {
             titleColor: palette.activePrimaryTextColor,
             titleFontWeight: palette.titleFontWeight,
             titleLineLimit: titleLineLimit,
+            isTitleEditing: isEditing,
             pinIconColor: palette.activeSecondaryColor(0.8),
             closeButtonColor: palette.activeSecondaryColor(0.7),
             showsCloseButton: canCloseWorkspace,
@@ -7917,7 +7957,31 @@ struct TabItemView: View, Equatable {
             onOpenPullRequest: { openPullRequestLink($0) },
             portLabel: { SidebarPortDisplayText.label(for: $0) },
             portTooltip: { SidebarPortDisplayText.openTooltip(for: $0) },
-            onOpenPort: { openPortLink($0) }
+            onOpenPort: { openPortLink($0) },
+            editingTitleContent: {
+                SidebarInlineRenameField(
+                    initialText: renameDraft,
+                    fontSize: GlobalFontMagnification.scaledSize(
+                        palette.scaledFontSize(12.5),
+                        percent: globalFontMagnificationPercent
+                    ),
+                    textColor: palette.selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                    accessibilityLabel: String(
+                        localized: "sidebar.workspace.rename.field.accessibilityLabel",
+                        defaultValue: "Rename workspace"
+                    ),
+                    placeholder: String(
+                        localized: "commandPalette.rename.workspacePlaceholder",
+                        defaultValue: "Workspace name"
+                    ),
+                    onCommit: { newName in
+                        commitInlineRename(newName)
+                    },
+                    onCancel: {
+                        cancelInlineRename()
+                    }
+                )
+            }
         )
         // No implicit .animation(value:) on agent-mutable fields: animating a
         // row-height change interpolates the LazyVStack's measured height over
@@ -7989,6 +8053,7 @@ struct TabItemView: View, Equatable {
         return interactiveRow
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
+            handleInlineRenameRequest(inlineRenameRequestToken)
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
@@ -8017,7 +8082,10 @@ struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag(onDragStart)
+        .onChange(of: inlineRenameRequestToken) { _, token in
+            handleInlineRenameRequest(token)
+        }
+        .sidebarRowDragGate(isEditing: isEditing, onDragStart)
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabTransferPasteboard.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
@@ -8027,18 +8095,26 @@ struct TabItemView: View, Equatable {
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         ))
         .onTapGesture {
-            updateSelection()
+            if !isEditing {
+                updateSelection()
+            }
         }
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                guard !isEditing else { return }
+                beginInlineRename()
+            }
+        )
         .safeHelp(workspaceSnapshot.title)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(accessibilityTitle))
-        .accessibilityHint(Text(accessibilityHintText))
-        .accessibilityAction(named: Text(moveUpActionText)) {
-            moveBy(-1)
-        }
-        .accessibilityAction(named: Text(moveDownActionText)) {
-            moveBy(1)
-        }
+        .modifier(SidebarRowAccessibilityModifier(
+            isEditing: isEditing,
+            label: accessibilityTitle,
+            hint: accessibilityHintText,
+            moveUpLabel: moveUpActionText,
+            moveDownLabel: moveDownActionText,
+            onMoveUp: { moveBy(-1) },
+            onMoveDown: { moveBy(1) }
+        ))
         .contextMenu {
             SidebarTabItemContextMenu(
                 data: workspaceContextMenuData,
@@ -8056,6 +8132,35 @@ struct TabItemView: View, Equatable {
                 }
             )
         }
+    }
+
+    private func handleInlineRenameRequest(_ token: Int?) {
+        guard let token, handledInlineRenameRequestToken != token else { return }
+        handledInlineRenameRequestToken = token
+        onInlineRenameRequestHandled()
+        beginInlineRename()
+    }
+
+    private func beginInlineRename() {
+        updateSelection()
+        renameDraft = workspaceSnapshot.title
+        renameBaselineHadUserCustomTitle = tab.effectiveCustomTitleSource == .user
+        isEditing = true
+    }
+
+    private func commitInlineRename(_ newName: String) {
+        if let title = SidebarInlineRenameCommit().titleToCommit(
+            draft: newName,
+            baseline: renameDraft,
+            baselineHadUserCustomTitle: renameBaselineHadUserCustomTitle
+        ) {
+            tabManager.setCustomTitle(tabId: tab.id, title: title)
+        }
+        isEditing = false
+    }
+
+    private func cancelInlineRename() {
+        isEditing = false
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
@@ -8240,7 +8345,7 @@ struct TabItemView: View, Equatable {
                     tabManager.removeWorkspaceFromGroup(workspaceId: id)
                 }
             },
-            onRename: { promptRename() },
+            onRename: { beginInlineRename() },
             onRemoveCustomName: { tabManager.clearCustomTitle(tabId: tab.id) },
             onEditDescription: { beginWorkspaceDescriptionEditFromContextMenu() },
             onClearDescription: { tabManager.clearCustomDescription(tabId: tab.id) },
@@ -8580,10 +8685,6 @@ struct TabItemView: View, Equatable {
 
     private func showInvalidColorAlert(_ value: String) {
         actions.showInvalidColorAlert(value)
-    }
-
-    private func promptRename() {
-        actions.promptRename()
     }
 
     private func beginWorkspaceDescriptionEditFromContextMenu() {

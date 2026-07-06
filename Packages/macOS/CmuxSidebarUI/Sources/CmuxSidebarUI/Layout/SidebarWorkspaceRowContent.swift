@@ -13,8 +13,10 @@ public import SwiftUI
 /// and visibility flags derived by the host) or an action/label closure, so the
 /// view holds no `@Observable` store reference and stays compliant with the
 /// LazyVStack snapshot-boundary rule. The row chrome (background, drop
-/// indicators, gestures, context menu) stays on the host.
-public struct SidebarWorkspaceRowContent: View {
+/// indicators, gestures, context menu) stays on the host. When the workspace
+/// title is being edited, the host injects the inline editor view so app-target
+/// rename policy and AppKit field coordination do not move into the package.
+public struct SidebarWorkspaceRowContent<EditingTitleContent: View>: View {
     let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     let detailVisibility: SidebarWorkspaceAuxiliaryDetailVisibility
     let isActive: Bool
@@ -32,6 +34,8 @@ public struct SidebarWorkspaceRowContent: View {
     let titleColor: Color
     let titleFontWeight: Font.Weight
     let titleLineLimit: Int
+    let isTitleEditing: Bool
+    let editingTitleContent: EditingTitleContent
     let pinIconColor: Color
     let closeButtonColor: Color
     let showsCloseButton: Bool
@@ -92,6 +96,7 @@ public struct SidebarWorkspaceRowContent: View {
         titleColor: Color,
         titleFontWeight: Font.Weight,
         titleLineLimit: Int,
+        isTitleEditing: Bool,
         pinIconColor: Color,
         closeButtonColor: Color,
         showsCloseButton: Bool,
@@ -127,7 +132,8 @@ public struct SidebarWorkspaceRowContent: View {
         onOpenPullRequest: @escaping (URL) -> Void,
         portLabel: @escaping (Int) -> String,
         portTooltip: @escaping (Int) -> String,
-        onOpenPort: @escaping (Int) -> Void
+        onOpenPort: @escaping (Int) -> Void,
+        @ViewBuilder editingTitleContent: () -> EditingTitleContent
     ) {
         self.snapshot = snapshot
         self.detailVisibility = detailVisibility
@@ -144,6 +150,8 @@ public struct SidebarWorkspaceRowContent: View {
         self.titleColor = titleColor
         self.titleFontWeight = titleFontWeight
         self.titleLineLimit = titleLineLimit
+        self.isTitleEditing = isTitleEditing
+        self.editingTitleContent = editingTitleContent()
         self.pinIconColor = pinIconColor
         self.closeButtonColor = closeButtonColor
         self.showsCloseButton = showsCloseButton
@@ -198,6 +206,7 @@ public struct SidebarWorkspaceRowContent: View {
                 titleColor: titleColor,
                 titleFontWeight: titleFontWeight,
                 titleLineLimit: titleLineLimit,
+                isTitleEditing: isTitleEditing,
                 pinIconColor: pinIconColor,
                 closeButtonColor: closeButtonColor,
                 fontScale: fontScale,
@@ -206,7 +215,8 @@ public struct SidebarWorkspaceRowContent: View {
                 closeButtonWidth: closeButtonWidth,
                 closeButtonHitSize: closeButtonHitSize,
                 closeButtonTooltip: closeButtonTooltip,
-                onClose: onClose
+                onClose: onClose,
+                editingTitleContent: { editingTitleContent }
             )
 
             if let description = snapshot.customDescription {

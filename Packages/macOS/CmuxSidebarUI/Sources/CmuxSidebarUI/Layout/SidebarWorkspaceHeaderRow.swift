@@ -10,8 +10,9 @@ public import SwiftUI
 /// it). All colors, sizes, tooltips, and the close action are resolved by the
 /// caller and passed in as values/closures, so this package view holds no
 /// app-target dependency and stays compatible with the snapshot-boundary rule
-/// for rows under a `LazyVStack`.
-public struct SidebarWorkspaceHeaderRow: View {
+/// for rows under a `LazyVStack`. The title slot can be replaced with a
+/// host-supplied inline editor without moving rename policy into this package.
+public struct SidebarWorkspaceHeaderRow<EditingTitleContent: View>: View {
     let unreadCount: Int
     let unreadBadgeFillColor: Color
     let unreadBadgeTextColor: Color
@@ -25,6 +26,8 @@ public struct SidebarWorkspaceHeaderRow: View {
     let titleColor: Color
     let titleFontWeight: Font.Weight
     let titleLineLimit: Int
+    let isTitleEditing: Bool
+    let editingTitleContent: EditingTitleContent
     let pinIconColor: Color
     let closeButtonColor: Color
     let fontScale: CGFloat
@@ -50,6 +53,9 @@ public struct SidebarWorkspaceHeaderRow: View {
     ///   - titleColor: Foreground color for the title.
     ///   - titleFontWeight: Font weight for the title.
     ///   - titleLineLimit: Maximum number of title lines.
+    ///   - isTitleEditing: Whether to render `editingTitleContent` in place of
+    ///     the normal title text.
+    ///   - editingTitleContent: Inline title editor supplied by the app target.
     ///   - pinIconColor: Foreground color for the pinned glyph.
     ///   - closeButtonColor: Foreground color for the close button glyph.
     ///   - fontScale: Multiplier applied to base font sizes.
@@ -76,6 +82,7 @@ public struct SidebarWorkspaceHeaderRow: View {
         titleColor: Color,
         titleFontWeight: Font.Weight,
         titleLineLimit: Int,
+        isTitleEditing: Bool,
         pinIconColor: Color,
         closeButtonColor: Color,
         fontScale: CGFloat,
@@ -84,7 +91,8 @@ public struct SidebarWorkspaceHeaderRow: View {
         closeButtonWidth: CGFloat,
         closeButtonHitSize: CGFloat,
         closeButtonTooltip: String,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        @ViewBuilder editingTitleContent: () -> EditingTitleContent
     ) {
         self.unreadCount = unreadCount
         self.unreadBadgeFillColor = unreadBadgeFillColor
@@ -99,6 +107,8 @@ public struct SidebarWorkspaceHeaderRow: View {
         self.titleColor = titleColor
         self.titleFontWeight = titleFontWeight
         self.titleLineLimit = titleLineLimit
+        self.isTitleEditing = isTitleEditing
+        self.editingTitleContent = editingTitleContent()
         self.pinIconColor = pinIconColor
         self.closeButtonColor = closeButtonColor
         self.fontScale = fontScale
@@ -141,14 +151,20 @@ public struct SidebarWorkspaceHeaderRow: View {
                     .safeHelp(pinnedTooltip)
             }
 
-            Text(title)
-                .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
-                .foregroundColor(titleColor)
-                .lineLimit(titleLineLimit)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
+            if isTitleEditing {
+                editingTitleContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+            } else {
+                Text(title)
+                    .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
+                    .foregroundColor(titleColor)
+                    .lineLimit(titleLineLimit)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+            }
 
             // The close button is a sibling that always reserves its width
             // when the workspace is closable, so the title wraps/truncates
