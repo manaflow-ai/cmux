@@ -58,20 +58,20 @@ enum TerminalForegroundCommandCapture {
         "zsh", "bash", "fish", "sh", "dash", "tcsh", "csh", "ksh", "nu", "pwsh", "login",
     ]
 
-    /// Turns a captured argv into a re-runnable one-liner: argv[0] becomes its
-    /// basename, known agent resume artifacts are stripped so the saved action
-    /// launches a fresh session, and arguments are shell-quoted.
+    /// Turns a captured argv into a re-runnable one-liner. argv[0] is preserved
+    /// verbatim (it is the form the user invoked — bare name, `./gradlew`,
+    /// or an absolute path — and panes replay from their saved cwd), known
+    /// agent resume artifacts are stripped so the saved action launches a
+    /// fresh session, and every token including the executable is
+    /// shell-quoted so nothing replays as shell syntax.
     static func commandLine(fromArgv argv: [String]) -> String? {
-        guard let rawExecutable = argv.first, !rawExecutable.isEmpty else { return nil }
-        let executable = (rawExecutable as NSString).lastPathComponent
-        guard !executable.isEmpty, !isShellProcessName(executable) else { return nil }
+        guard let executable = argv.first, !executable.isEmpty else { return nil }
+        let executableName = (executable as NSString).lastPathComponent
+        guard !executableName.isEmpty, !isShellProcessName(executableName) else { return nil }
         var arguments = Array(argv.dropFirst())
-        if knownAgentExecutables.contains(executable) {
-            arguments = strippingAgentResumeArguments(arguments, executable: executable)
+        if knownAgentExecutables.contains(executableName) {
+            arguments = strippingAgentResumeArguments(arguments, executable: executableName)
         }
-        // The executable is replayed through the user's shell too — quote it
-        // like every argument so a hostile or spaced basename can't become
-        // shell syntax.
         return ([executable] + arguments).map(shellQuoted).joined(separator: " ")
     }
 

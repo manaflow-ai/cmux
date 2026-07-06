@@ -127,21 +127,28 @@ final class CmuxConfigActionSaverTests: XCTestCase {
 
     // MARK: - Foreground command capture
 
-    func testCommandLineFromArgvQuotesAndBasenamesExecutable() {
+    func testCommandLineFromArgvPreservesInvocationFormAndQuotes() {
+        // argv[0] is what the user typed — bare, relative, or absolute — and
+        // must survive verbatim so replay from the saved cwd works.
         XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/usr/local/bin/htop"]),
+            TerminalForegroundCommandCapture.commandLine(fromArgv: ["htop"]),
             "htop"
         )
         XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/usr/bin/npm", "run", "dev server"]),
-            "npm run 'dev server'"
+            TerminalForegroundCommandCapture.commandLine(fromArgv: ["./gradlew", "test"]),
+            "./gradlew test"
         )
-        // The executable itself is quoted when it could read as shell syntax.
+        XCTAssertEqual(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/usr/bin/npm", "run", "dev server"]),
+            "/usr/bin/npm run 'dev server'"
+        )
+        // Spaced executables are quoted so they can't read as shell syntax.
         XCTAssertEqual(
             TerminalForegroundCommandCapture.commandLine(fromArgv: ["/Apps/My Tool.app/Contents/MacOS/my tool", "--flag"]),
-            "'my tool' --flag"
+            "'/Apps/My Tool.app/Contents/MacOS/my tool' --flag"
         )
         XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: ["-zsh"]))
+        XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: ["/bin/zsh"]))
         XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: []))
     }
 
@@ -180,11 +187,12 @@ final class CmuxConfigActionSaverTests: XCTestCase {
     }
 
     func testCommandLineFromArgvStripsAgentResumeArtifacts() {
+        // Agent detection works on the basename; the invocation form is kept.
         XCTAssertEqual(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "/opt/homebrew/bin/claude", "--resume", "abc-123", "--dangerously-skip-permissions",
             ]),
-            "claude --dangerously-skip-permissions"
+            "/opt/homebrew/bin/claude --dangerously-skip-permissions"
         )
         XCTAssertEqual(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
