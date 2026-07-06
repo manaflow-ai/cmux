@@ -108,12 +108,14 @@ extension CMUXCLI {
     /// cmux suppresses for agent surfaces), and `disabledReason`
     /// (`config_off` | `user_present` | `no_transport`) explains a skip. A
     /// missing or unstructured response (older clients) fails open so the
-    /// message is never silently dropped.
+    /// message is never silently dropped. JSON null becomes NSNull under
+    /// JSONSerialization (not Swift nil), so only a real string counts as a
+    /// present disable reason.
     private func claudePushNotificationWasDelivered(_ object: [String: Any]?) -> Bool {
         guard let response = object?["tool_response"] as? [String: Any] else { return true }
         if let localSent = response["localSent"] as? Bool {
             return localSent
         }
-        return response["disabledReason"] == nil
+        return response["disabledReason"] as? String == nil
     }
 }
