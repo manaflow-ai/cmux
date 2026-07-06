@@ -48,7 +48,6 @@ extension JSONCObjectEditor {
             }
         }
 
-        var precedingCommaSplice: Range<String.Index>?
         if !hadTrailingComma {
             // Last property: the separating comma sits before it, possibly
             // behind whitespace or a previous entry's line comment.
@@ -61,18 +60,18 @@ extension JSONCObjectEditor {
                 }
                 return nil
             }
-            if comma >= removeStart {
+            guard comma < removeStart else {
                 return nil
             }
-            precedingCommaSplice = comma..<source.index(after: comma)
+            // Both removals in one reconstruction: every index here belongs
+            // to `source` (String.Index values must not cross string
+            // instances).
+            return String(source[source.startIndex..<comma])
+                + String(source[source.index(after: comma)..<removeStart])
+                + String(source[removeEnd...])
         }
 
-        // Later edit first so earlier indices stay valid.
-        var result = replacing(source, from: removeStart, to: removeEnd, with: "")
-        if let splice = precedingCommaSplice {
-            result = replacing(result, from: splice.lowerBound, to: splice.upperBound, with: "")
-        }
-        return result
+        return replacing(source, from: removeStart, to: removeEnd, with: "")
     }
 
     private static func startOfLine(containing index: String.Index, in source: String) -> String.Index {
