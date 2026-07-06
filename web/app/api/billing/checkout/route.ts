@@ -183,7 +183,7 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
 }
 
 function checkoutInterval(raw: string | null): ProBillingInterval {
-  return raw === "month" ? "month" : "year";
+  return raw === "year" ? "year" : "month";
 }
 
 function isAlreadyGrantedError(error: unknown): boolean {

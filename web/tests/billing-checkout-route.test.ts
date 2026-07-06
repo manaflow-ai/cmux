@@ -34,11 +34,27 @@ const createStripeSession = mock(async (params: unknown) => {
 const resolveProPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_month" : "price_year",
 );
+const stripeLimit = mock(async () => []);
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
+}));
+
+// Keep the real Pro resolver on the no-Stripe-subscription path regardless of
+// process-global db mocks installed by other route suites.
+mock.module("../db/client", () => ({
+  cloudDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: stripeLimit,
+        }),
+      }),
+    }),
+  }),
+  closeCloudDbForTests: async () => {},
 }));
 
 mock.module("../services/billing/stripe", () => ({
@@ -78,6 +94,8 @@ describe("billing checkout route", () => {
     createdStripeSessions.length = 0;
     createStripeSession.mockClear();
     resolveProPrice.mockClear();
+    stripeLimit.mockClear();
+    stripeLimit.mockResolvedValue([]);
   });
 
   test("sends signed-out visitors straight to anonymous Stack checkout", async () => {
@@ -189,11 +207,11 @@ describe("billing checkout route", () => {
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
     expect(getUser).toHaveBeenNthCalledWith(1, { or: "return-null" });
     expect(getUser).toHaveBeenNthCalledWith(2, { or: "anonymous" });
-    expect(resolveProPrice).toHaveBeenCalledWith("year");
+    expect(resolveProPrice).toHaveBeenCalledWith("month");
     expect(createdStripeSessions).toHaveLength(1);
     expect(createdStripeSessions[0]).toMatchObject({
       mode: "subscription",
-      line_items: [{ price: "price_year", quantity: 1 }],
+      line_items: [{ price: "price_month", quantity: 1 }],
       client_reference_id: "user-anonymous",
       metadata: { stackUserId: "user-anonymous", plan: "pro", app: "cmux" },
       subscription_data: {
@@ -207,18 +225,18 @@ describe("billing checkout route", () => {
     });
   });
 
-  test("uses monthly Stripe price when interval is month", async () => {
+  test("uses yearly Stripe price when interval is year", async () => {
     stripeConfigured = true;
     userResponses = [signedInUser];
 
     await GET(
-      new NextRequest("https://cmux.test/api/billing/checkout?interval=month"),
+      new NextRequest("https://cmux.test/api/billing/checkout?interval=year"),
     );
 
-    expect(resolveProPrice).toHaveBeenCalledWith("month");
+    expect(resolveProPrice).toHaveBeenCalledWith("year");
     expect(createdStripeSessions[0]).toMatchObject({
       customer_email: "signed@example.com",
-      line_items: [{ price: "price_month", quantity: 1 }],
+      line_items: [{ price: "price_year", quantity: 1 }],
     });
   });
 

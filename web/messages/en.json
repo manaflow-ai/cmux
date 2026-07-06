@@ -206,7 +206,7 @@
     },
     "pro": {
       "name": "Pro",
-      "price": "$20",
+      "price": "$30",
       "cta": "Get Pro",
       "featuresLead": "Everything in Free, plus:",
       "features": [
@@ -445,7 +445,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $20 per month billed annually ($240 per year, or $30 per month if billed monthly) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $30 per month, or $240 per year (about $20 per month billed annually) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
