@@ -33,5 +33,14 @@ import Foundation
         }
         #expect(entry.key == "claude_code")
         #expect(entry.value == "Running")
+        #expect(entry.icon == "bolt.fill")
+    }
+    @Test func needsInputUpsertsNeedsInputRow() {
+        guard case let .upsert(entry) = ClaudeSidebarStatusMapper().decision(for: .needsInput(since: Date()), kind: .claude) else {
+            Issue.record("expected upsert"); return
+        }
+        #expect(entry.key == "claude_code")
+        #expect(entry.value == "Needs input")
+        #expect(entry.icon == "bell.fill")
     }
 }

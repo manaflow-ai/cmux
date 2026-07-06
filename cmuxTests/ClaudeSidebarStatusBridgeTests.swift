@@ -41,6 +41,50 @@ import Foundation
         #expect(clears.contains { $0.0 == .workspace(ws) && $0.1 == "claude_code" })
     }
 
+    @Test func olderEndedSessionDoesNotClearNewerActiveSession() {
+        let registry = AgentChatSessionRegistry()
+        let ws = UUID()
+        var upserts: [(ControlSidebarTabTarget, SidebarStatusEntry)] = []
+        var clears: [(ControlSidebarTabTarget, String)] = []
+        let bridge = makeBridge(
+            registry,
+            upsert: { upserts.append(($0, $1)) },
+            clear: { clears.append(($0, $1)) }
+        )
+        _ = bridge
+        registry.emitForTest(sessionID: "S1", kind: .claude, workspaceID: ws.uuidString, state: .working(since: Date()), pid: 1)
+        registry.emitForTest(sessionID: "S2", kind: .claude, workspaceID: ws.uuidString, state: .needsInput(since: Date()), pid: 2)
+        registry.emitForTest(sessionID: "S1", kind: .claude, workspaceID: ws.uuidString, state: .idle, pid: 1)
+        #expect(upserts.last?.1.value == "Needs input")
+        registry.emitForTest(sessionID: "S1", kind: .claude, workspaceID: ws.uuidString, state: .ended, pid: 1)
+        #expect(clears.isEmpty)
+        #expect(upserts.last?.0 == .workspace(ws))
+        #expect(upserts.last?.1.value == "Needs input")
+    }
+
+    @Test func losingWorkspaceClearsPreviousWorkspaceStatus() {
+        let registry = AgentChatSessionRegistry()
+        let ws = UUID()
+        var clears: [(ControlSidebarTabTarget, String)] = []
+        let bridge = makeBridge(registry, clear: { clears.append(($0, $1)) })
+        _ = bridge
+        registry.emitForTest(sessionID: "S1", kind: .claude, workspaceID: ws.uuidString, state: .working(since: Date()), pid: 1)
+        registry.emitForTest(sessionID: "S1", kind: .claude, workspaceID: nil, state: .working(since: Date()), pid: 1)
+        #expect(clears.contains { $0.0 == .workspace(ws) && $0.1 == "claude_code" })
+    }
+
+    @Test func bridgeReplaysExistingRegistryStateOnConstruction() {
+        let registry = AgentChatSessionRegistry()
+        let ws = UUID()
+        registry.emitForTest(sessionID: "S1", kind: .claude, workspaceID: ws.uuidString, state: .working(since: Date()), pid: 1)
+        var upserts: [(ControlSidebarTabTarget, SidebarStatusEntry)] = []
+        let bridge = makeBridge(registry, upsert: { upserts.append(($0, $1)) })
+        _ = bridge
+        #expect(upserts.count == 1)
+        #expect(upserts.first?.0 == .workspace(ws))
+        #expect(upserts.first?.1.value == "Running")
+    }
+
     @Test func codexIsIgnored() {
         let registry = AgentChatSessionRegistry()
         var upserts = 0
