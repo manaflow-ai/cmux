@@ -9,7 +9,7 @@ struct StreamingPreviewSeedConversation {
     func make() -> ([ChatMessage], ChatSessionDescriptor) {
         if let repeatCount = uiTestFixtureRepeatCount(), repeatCount > 1 {
             let (messages, descriptor) = ChatFixtureConversation().make()
-            return (repeatedMessages(messages, repeatCount: repeatCount), descriptor)
+            return (repeatedMessages(limitedMessages(messages), repeatCount: repeatCount), descriptor)
         }
 
         let descriptor = ChatSessionDescriptor(
@@ -25,6 +25,18 @@ struct StreamingPreviewSeedConversation {
             kind: .prose(ChatProse(text: "Reply with three short sentences about the color blue."))
         )
         return ([prompt], descriptor)
+    }
+
+    private func limitedMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
+        guard let rawValue = environment["CMUX_UITEST_AGENT_CHAT_FIXTURE_MESSAGE_COUNT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let messageCount = Int(rawValue),
+              messageCount > 0,
+              messageCount < messages.count
+        else {
+            return messages
+        }
+        return Array(messages.prefix(messageCount))
     }
 
     private func uiTestFixtureRepeatCount() -> Int? {

@@ -1391,6 +1391,117 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatScrollToBottomButtonVisibleGlideAcrossHistoryLengths() throws {
+        do {
+            let app = launchAgentChatInlinePreviewApp(environment: [
+                "CMUX_UITEST_AGENT_CHAT_FIXTURE_MESSAGE_COUNT": "1",
+            ])
+            defer { app.terminate() }
+            let table = app.tables["ChatTranscriptTableView"]
+            let metrics = try waitForTranscriptMetrics(table, timeout: 8) {
+                $0.contentHeight < $0.boundsHeight
+                    && $0.distanceFromBottom <= 40
+                    && self.isTranscriptScrollIdle($0)
+            }
+            XCTAssertFalse(
+                app.buttons["ChatScrollToBottomButton"].exists,
+                "A transcript shorter than the viewport must not show a useless scroll-to-bottom button. metrics=\(metrics)"
+            )
+        }
+
+        for fixtureCase in [
+            ChatScrollToBottomFixtureCase(
+                name: "little-longer",
+                environment: ["CMUX_UITEST_AGENT_CHAT_FIXTURE_MESSAGE_COUNT": "8"],
+                loaded: {
+                    $0.contentHeight > $0.boundsHeight + 80
+                        && $0.contentHeight < $0.boundsHeight * 3
+                        && !$0.scrollTracking
+                        && !$0.scrollDragging
+                        && !$0.scrollDecelerating
+                },
+                awayFromBottom: { $0.distanceFromBottom > 60 }
+            ),
+            ChatScrollToBottomFixtureCase(
+                name: "much-longer",
+                environment: [
+                    "CMUX_UITEST_AGENT_CHAT_FIXTURE_REPEAT_COUNT": "6",
+                    "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
+                ],
+                loaded: {
+                    $0.contentHeight > $0.boundsHeight * 4
+                        && $0.distanceFromBottom > max(1_000, $0.contentHeight * 0.25)
+                        && !$0.scrollTracking
+                        && !$0.scrollDragging
+                        && !$0.scrollDecelerating
+                },
+                awayFromBottom: { $0.distanceFromBottom > 1_000 }
+            ),
+            ChatScrollToBottomFixtureCase(
+                name: "huge",
+                environment: [
+                    "CMUX_UITEST_AGENT_CHAT_FIXTURE_REPEAT_COUNT": "24",
+                    "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
+                ],
+                loaded: {
+                    $0.contentHeight > $0.boundsHeight * 12
+                        && $0.distanceFromBottom > 3_000
+                        && !$0.scrollTracking
+                        && !$0.scrollDragging
+                        && !$0.scrollDecelerating
+                },
+                awayFromBottom: { $0.distanceFromBottom > 3_000 }
+            ),
+        ] {
+            let app = launchAgentChatInlinePreviewApp(environment: fixtureCase.environment)
+            defer { app.terminate() }
+            let table = app.tables["ChatTranscriptTableView"]
+            let loaded = try waitForTranscriptMetrics(table, timeout: 10, matching: fixtureCase.loaded)
+            let beforeTap: ChatTranscriptMetrics
+            if fixtureCase.awayFromBottom(loaded) {
+                beforeTap = loaded
+            } else {
+                beforeTap = try scrollTranscript(table, direction: .down, timeout: 6, until: fixtureCase.awayFromBottom)
+                    ?? loaded
+            }
+
+            let button = app.buttons["ChatScrollToBottomButton"]
+            XCTAssertTrue(
+                button.waitForExistence(timeout: 4),
+                "The scroll-to-bottom button must show when \(fixtureCase.name) is away from bottom. metrics=\(beforeTap)"
+            )
+            XCTAssertTrue(button.isHittable)
+            let visibleDistance = max(600, min(1_200, beforeTap.boundsHeight * 1.25))
+            button.tap()
+            let afterTap = try waitForTranscriptMetrics(table, timeout: 5) {
+                $0.distanceFromBottom <= 40 && self.isTranscriptScrollIdle($0)
+            }
+            XCTAssertGreaterThan(
+                afterTap.bottomUserVisibleAnimationCount,
+                beforeTap.bottomUserVisibleAnimationCount,
+                "\(fixtureCase.name) scroll-to-bottom tap must enter user-visible animated follow, not only nonanimated bottom pinning. before=\(beforeTap), after=\(afterTap)"
+            )
+            if beforeTap.distanceFromBottom > visibleDistance {
+                XCTAssertGreaterThan(
+                    afterTap.bottomUserVisibleStagingCount,
+                    beforeTap.bottomUserVisibleStagingCount,
+                    "\(fixtureCase.name) should privately stage once before the visible final glide. visibleDistance=\(visibleDistance), before=\(beforeTap), after=\(afterTap)"
+                )
+            } else {
+                XCTAssertEqual(
+                    afterTap.bottomUserVisibleStagingCount,
+                    beforeTap.bottomUserVisibleStagingCount,
+                    "\(fixtureCase.name) should not use hidden staging for a short visible-distance scroll. visibleDistance=\(visibleDistance), before=\(beforeTap), after=\(afterTap)"
+                )
+            }
+            XCTAssertFalse(
+                button.exists,
+                "The scroll-to-bottom button must disappear only after \(fixtureCase.name) reaches bottom. before=\(beforeTap), after=\(afterTap)"
+            )
+        }
+    }
+
+    @MainActor
     func testAgentChatScrollToBottomButtonReturnsDuringStreamingLayoutChurn() throws {
         let app = launchStreamingChatPreviewApp(environment: [
             "CMUX_UITEST_AGENT_CHAT_FIXTURE_REPEAT_COUNT": "6",
@@ -2773,9 +2884,14 @@ final class cmuxUITests: XCTestCase {
         let scrollTracking: Bool
         let scrollDragging: Bool
         let scrollDecelerating: Bool
+        let bottomUserVisibleAnimationCount: Int
+        let bottomUserVisibleStagingCount: Int
+        let bottomInternalNonanimatedFollowCount: Int
+        let bottomUserVisibleFollowActive: Bool
+        let bottomUserVisibleAnimationRunning: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), bottomEdgeElementContainerRegistered=\(bottomEdgeElementContainerRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), bottomEdgeElementContainerRegistered=\(bottomEdgeElementContainerRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating), bottomUserVisibleAnimationCount=\(bottomUserVisibleAnimationCount), bottomUserVisibleStagingCount=\(bottomUserVisibleStagingCount), bottomInternalNonanimatedFollowCount=\(bottomInternalNonanimatedFollowCount), bottomUserVisibleFollowActive=\(bottomUserVisibleFollowActive), bottomUserVisibleAnimationRunning=\(bottomUserVisibleAnimationRunning)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -2837,6 +2953,11 @@ final class cmuxUITests: XCTestCase {
             self.scrollTracking = (values["scrollTracking"] ?? 0) >= 0.5
             self.scrollDragging = (values["scrollDragging"] ?? 0) >= 0.5
             self.scrollDecelerating = (values["scrollDecelerating"] ?? 0) >= 0.5
+            self.bottomUserVisibleAnimationCount = Int(values["bottomUserVisibleAnimationCount"] ?? 0)
+            self.bottomUserVisibleStagingCount = Int(values["bottomUserVisibleStagingCount"] ?? 0)
+            self.bottomInternalNonanimatedFollowCount = Int(values["bottomInternalNonanimatedFollowCount"] ?? 0)
+            self.bottomUserVisibleFollowActive = (values["bottomUserVisibleFollowActive"] ?? 0) >= 0.5
+            self.bottomUserVisibleAnimationRunning = (values["bottomUserVisibleAnimationRunning"] ?? 0) >= 0.5
         }
     }
 
@@ -2852,6 +2973,13 @@ final class cmuxUITests: XCTestCase {
         var description: String {
             "elapsed=\(elapsed), metrics={\(metrics)}, composerFrame=\(String(describing: composerFrame)), visiblePresentationGap=\(String(describing: visiblePresentationGap))"
         }
+    }
+
+    private struct ChatScrollToBottomFixtureCase {
+        let name: String
+        let environment: [String: String]
+        let loaded: (ChatTranscriptMetrics) -> Bool
+        let awayFromBottom: (ChatTranscriptMetrics) -> Bool
     }
 
     private struct TimedKeyboardAction {

@@ -29,7 +29,7 @@ struct AgentChatDemoScreen: View {
                     ProgressView()
                         .task {
                             var (messages, descriptor) = ChatFixtureConversation().make()
-                            messages = repeatedUITestMessagesIfNeeded(messages)
+                            messages = uiTestMessagesIfNeeded(messages)
                             let source = FixtureChatEventSource(backlog: messages, replyToSends: true)
                             stack = DemoStack(
                                 store: ChatConversationStore(descriptor: descriptor, source: source)
@@ -186,6 +186,24 @@ struct AgentChatDemoScreen: View {
         default:
             break
         }
+    }
+
+    private func uiTestMessagesIfNeeded(_ messages: [ChatMessage]) -> [ChatMessage] {
+        let limitedMessages = limitedUITestMessagesIfNeeded(messages)
+        return repeatedUITestMessagesIfNeeded(limitedMessages)
+    }
+
+    private func limitedUITestMessagesIfNeeded(_ messages: [ChatMessage]) -> [ChatMessage] {
+        let env = ProcessInfo.processInfo.environment
+        guard let rawMessageCount = env["CMUX_UITEST_AGENT_CHAT_FIXTURE_MESSAGE_COUNT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let messageCount = Int(rawMessageCount),
+              messageCount > 0,
+              messageCount < messages.count
+        else {
+            return messages
+        }
+        return Array(messages.prefix(messageCount))
     }
 
     private func repeatedUITestMessagesIfNeeded(_ messages: [ChatMessage]) -> [ChatMessage] {

@@ -84,6 +84,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var isApplyingDataUpdate = false
         private var pendingContentUpdateAnchor: ChatTranscriptTableAnchor?
         private var isExplicitBottomFollowActive = false
+        private var isUserVisibleBottomFollowActive = false
+        private var needsInitialUserVisibleBottomStaging = false
+        private var isUserVisibleBottomAnimationRunning = false
         private var lastObservedScrollContentHeight: CGFloat?
         private var lastObservedScrollOffsetY: CGFloat?
         private weak var tableView: ChatTranscriptUITableView?
@@ -129,6 +132,10 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             lastScrollToBottomRequest = scrollToBottomRequest
             if shouldScrollToBottom {
                 isExplicitBottomFollowActive = true
+                isUserVisibleBottomFollowActive = true
+                needsInitialUserVisibleBottomStaging = true
+                isUserVisibleBottomAnimationRunning = false
+                syncDebugBottomFollowState(in: tableView)
                 recordObservedScrollPosition(in: tableView)
             }
             let wasAtBottom = distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
@@ -137,7 +144,11 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             guard shouldReload else {
                 if isExplicitBottomFollowActive && (shouldScrollToBottom || !wasAtBottom) {
                     pendingContentUpdateAnchor = nil
-                    scrollToBottom(in: tableView, animated: shouldScrollToBottom)
+                    if shouldScrollToBottom {
+                        scrollToBottomForUserVisibleFollow(in: tableView)
+                    } else {
+                        scrollToBottomForFollow(in: tableView)
+                    }
                 }
                 updateBottomState(from: tableView)
                 return
@@ -154,7 +165,11 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             tableView.layoutIfNeeded()
             if isExplicitBottomFollowActive || (wasAtBottom && !tableView.isUserScrollMomentumActive) {
                 pendingContentUpdateAnchor = nil
-                scrollToBottom(in: tableView, animated: shouldScrollToBottom)
+                if shouldScrollToBottom {
+                    scrollToBottomForUserVisibleFollow(in: tableView)
+                } else {
+                    scrollToBottomForFollow(in: tableView)
+                }
             } else if let anchor, !tableView.isUserScrollMomentumActive {
                 restore(anchor, in: tableView)
                 pendingContentUpdateAnchor = anchor
@@ -199,6 +214,24 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             pendingContentUpdateAnchor = nil
             isExplicitBottomFollowActive = false
+            isUserVisibleBottomFollowActive = false
+            needsInitialUserVisibleBottomStaging = false
+            isUserVisibleBottomAnimationRunning = false
+            syncDebugBottomFollowState(in: scrollView as? UITableView)
+        }
+
+        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+            guard let tableView = scrollView as? UITableView else { return }
+            isUserVisibleBottomAnimationRunning = false
+            if isExplicitBottomFollowActive,
+               distanceFromBottom(in: tableView) > chatTranscriptAtBottomThreshold {
+                scrollToBottomForFollow(in: tableView)
+            } else {
+                isUserVisibleBottomFollowActive = false
+                needsInitialUserVisibleBottomStaging = false
+                updateBottomState(from: tableView)
+            }
+            syncDebugBottomFollowState(in: tableView)
         }
 
         private func cancelBottomFollowForStableContentUpwardScroll(in tableView: UITableView) {
@@ -214,6 +247,10 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 return
             }
             isExplicitBottomFollowActive = false
+            isUserVisibleBottomFollowActive = false
+            needsInitialUserVisibleBottomStaging = false
+            isUserVisibleBottomAnimationRunning = false
+            syncDebugBottomFollowState(in: tableView)
         }
 
         private func recordObservedScrollPosition(in tableView: UITableView) {
@@ -245,7 +282,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
             if tableView.isUserScrollMomentumActive {
                 if isExplicitBottomFollowActive {
-                    scrollToBottom(in: tableView, animated: false)
+                    scrollToBottomForFollow(in: tableView)
                 }
                 pendingContentUpdateAnchor = nil
                 updateBottomState(from: tableView)
@@ -253,7 +290,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             }
             if tableView.isViewportInsetsExternallyDriven || isApplyingDataUpdate {
                 if isExplicitBottomFollowActive {
-                    scrollToBottom(in: tableView, animated: false)
+                    scrollToBottomForFollow(in: tableView)
                     return
                 }
                 updateBottomState(from: tableView)
@@ -261,7 +298,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             }
 
             if isExplicitBottomFollowActive {
-                scrollToBottom(in: tableView, animated: false)
+                scrollToBottomForFollow(in: tableView)
             } else if boundsChanged, let oldViewport {
                 restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
             } else if contentChanged, let pendingContentUpdateAnchor {
@@ -299,18 +336,82 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
         }
 
-        private func scrollToBottom(in tableView: UITableView, animated: Bool) {
+        private func scrollToBottomForUserVisibleFollow(in tableView: UITableView) {
             tableView.layoutIfNeeded()
             cancelUserScrollMomentumIfNeeded(in: tableView)
             let targetY = maxOffsetY(in: tableView)
+            let distance = max(0, targetY - tableView.contentOffset.y)
+            guard distance > chatTranscriptAtBottomThreshold else {
+                guard !isUserVisibleBottomAnimationRunning else {
+                    (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
+                    updateBottomState(from: tableView)
+                    return
+                }
+                isUserVisibleBottomFollowActive = false
+                needsInitialUserVisibleBottomStaging = false
+                scrollToBottom(in: tableView, animated: false)
+                return
+            }
+
+            let visibleDistance = userVisibleFinalGlideDistance(in: tableView)
+            if needsInitialUserVisibleBottomStaging, distance > visibleDistance {
+                let stagedOffsetY = clampedOffsetY(targetY - visibleDistance, in: tableView)
+                tableView.setContentOffset(
+                    CGPoint(x: tableView.contentOffset.x, y: stagedOffsetY),
+                    animated: false
+                )
+                #if DEBUG
+                (tableView as? ChatTranscriptUITableView)?.recordBottomUserVisibleStaging()
+                #endif
+                (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
+                updateBottomState(from: tableView)
+            }
+            needsInitialUserVisibleBottomStaging = false
+
+            isUserVisibleBottomAnimationRunning = true
+            syncDebugBottomFollowState(in: tableView)
+            if scrollToBottom(in: tableView, animated: true) {
+                #if DEBUG
+                (tableView as? ChatTranscriptUITableView)?.recordBottomScrollRequest(
+                    animated: true,
+                    userVisible: true
+                )
+                #endif
+            } else {
+                isUserVisibleBottomAnimationRunning = false
+                updateBottomState(from: tableView)
+            }
+        }
+
+        private func scrollToBottomForFollow(in tableView: UITableView) {
+            if isUserVisibleBottomFollowActive {
+                scrollToBottomForUserVisibleFollow(in: tableView)
+                return
+            }
+            if scrollToBottom(in: tableView, animated: false) {
+                #if DEBUG
+                (tableView as? ChatTranscriptUITableView)?.recordBottomScrollRequest(
+                    animated: false,
+                    userVisible: false
+                )
+                #endif
+            }
+        }
+
+        @discardableResult
+        private func scrollToBottom(in tableView: UITableView, animated: Bool) -> Bool {
+            tableView.layoutIfNeeded()
+            cancelUserScrollMomentumIfNeeded(in: tableView)
+            let targetY = maxOffsetY(in: tableView)
+            guard abs(tableView.contentOffset.y - targetY) > 0.5 else {
+                (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
+                updateBottomState(from: tableView)
+                return false
+            }
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: animated)
             (tableView as? ChatTranscriptUITableView)?.recordCurrentViewport()
             updateBottomState(from: tableView)
-        }
-
-        private func cancelUserScrollMomentumIfNeeded(in tableView: UITableView) {
-            guard tableView.isTracking || tableView.isDragging || tableView.isDecelerating else { return }
-            tableView.setContentOffset(tableView.contentOffset, animated: false)
+            return true
         }
 
         private func requestOlderHistoryIfNeeded(in tableView: UITableView) {
@@ -327,38 +428,28 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         private func updateBottomState(from tableView: UITableView) {
-            setAtBottom(distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold)
+            let isBottom = distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
+            setAtBottom(isBottom)
+            if isBottom, !isUserVisibleBottomAnimationRunning {
+                isUserVisibleBottomFollowActive = false
+                needsInitialUserVisibleBottomStaging = false
+            }
+            syncDebugBottomFollowState(in: tableView)
+        }
+
+        private func syncDebugBottomFollowState(in tableView: UITableView?) {
+            #if DEBUG
+            (tableView as? ChatTranscriptUITableView)?.recordBottomUserVisibleFollow(
+                active: isUserVisibleBottomFollowActive,
+                animationRunning: isUserVisibleBottomAnimationRunning
+            )
+            #endif
         }
 
         private func setAtBottom(_ value: Bool) {
             if isAtBottom.wrappedValue != value {
                 isAtBottom.wrappedValue = value
             }
-        }
-
-        private func distanceFromBottom(in tableView: UITableView) -> CGFloat {
-            guard tableView.bounds.height > 0 else { return 0 }
-            let visibleBottom = visibleBottomY(in: tableView)
-            return max(0, tableView.contentSize.height - visibleBottom)
-        }
-
-        private func visibleBottomY(in tableView: UITableView) -> CGFloat {
-            tableView.contentOffset.y
-                + tableView.bounds.height
-                - tableView.adjustedContentInset.bottom
-        }
-
-        private func maxOffsetY(in tableView: UITableView) -> CGFloat {
-            max(
-                -tableView.adjustedContentInset.top,
-                tableView.contentSize.height
-                    - tableView.bounds.height
-                    + tableView.adjustedContentInset.bottom
-            )
-        }
-
-        private func clampedOffsetY(_ offsetY: CGFloat, in tableView: UITableView) -> CGFloat {
-            min(max(offsetY, -tableView.adjustedContentInset.top), maxOffsetY(in: tableView))
         }
 
         #if DEBUG
