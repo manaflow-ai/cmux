@@ -383,10 +383,19 @@ def _ensure_external_review_submission(
 ) -> None:
     last_submit_error = ""
     while True:
-        detail = _build_beta_detail(token, build_id)
-        external_state = detail["external_build_state"]
-        submission = _beta_review_submission(token, build_id)
-        sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
+        try:
+            detail = _build_beta_detail(token, build_id)
+            external_state = detail["external_build_state"]
+            submission = _beta_review_submission(token, build_id)
+            sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
+        except RuntimeError as exc:
+            if time.time() >= deadline:
+                raise RuntimeError(
+                    f"build {build_number} review metadata did not become readable within the timeout window: {exc}"
+                )
+            time.sleep(max(1, poll_seconds))
+            token = _token()
+            continue
 
         if external_state in ACTIVE_EXTERNAL_BUILD_STATES:
             print(

@@ -147,6 +147,26 @@ def main():
     )
 
     submissions.clear()
+    lookup_attempts = {"count": 0}
+
+    def flaky_beta_detail_lookup(token, build_id):
+        lookup_attempts["count"] += 1
+        if lookup_attempts["count"] == 1:
+            raise RuntimeError("build beta detail lookup HTTP 404")
+        return {
+            "external_build_state": "READY_FOR_BETA_SUBMISSION",
+            "internal_build_state": "READY_FOR_BETA_TESTING",
+        }
+
+    module._build_beta_detail = flaky_beta_detail_lookup
+    module._beta_review_submission = lambda token, build_id: None
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        submissions == [("jwt", "build-1")],
+        "transient review metadata lookup failures are retried",
+    )
+
+    submissions.clear()
     module._build_beta_detail = lambda token, build_id: {
         "external_build_state": "READY_FOR_BETA_SUBMISSION",
         "internal_build_state": "READY_FOR_BETA_TESTING",
