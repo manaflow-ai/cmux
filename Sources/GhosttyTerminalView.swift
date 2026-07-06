@@ -568,57 +568,87 @@ class GhosttyApp {
                     target: target
                 )
 
-                TerminalImageTransferPlanner.execute(
+                // A configured custom upload command (host-matched) replaces the
+                // built-in scp transport and types its own output. Falls through
+                // to the built-in path below when no rule matches the host.
+                let handledByCustomUpload = TerminalCustomUploadRunner().handleIfMatched(
                     plan: plan,
                     operation: operation,
-                    uploadWorkspaceRemote: { fileURLs, operation, finish in
-                        guard let workspace = MainActor.assumeIsolated({
-                            callbackContext.terminalSurface?.owningWorkspace()
-                        }) else {
-                            finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
-                            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            return
-                        }
-                        workspace.uploadDroppedFilesForRemoteTerminal(
-                            fileURLs,
-                            operation: operation,
-                            completion: { result in
-                                finish(result)
-                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            }
-                        )
+                    cleanup: { urls in
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(urls)
                     },
-                    uploadDetectedSSH: { session, fileURLs, operation, finish in
-                        session.uploadDroppedFiles(
-                            fileURLs,
-                            operation: operation,
-                            completion: { result in
-                                finish(result)
-                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            }
-                        )
-                    },
-                    insertText: { text in
+                    completion: { result in
                         MainActor.assumeIsolated {
                             callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
                                 for: operation
                             )
                         }
-                        completeClipboardRequest(with: text)
-                    },
-                    onFailure: { _ in
-                        MainActor.assumeIsolated {
-                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                for: operation
-                            )
-                        }
-                        NSSound.beep()
+                        switch result {
+                        case .success(let text):
+                            completeClipboardRequest(with: text)
+                        case .failure:
+                            NSSound.beep()
 #if DEBUG
-                        cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
+                            cmuxDebugLog("terminal.remotePasteUpload.customFailed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
 #endif
-                        completeClipboardRequest(with: "")
+                            completeClipboardRequest(with: "")
+                        }
                     }
                 )
+
+                if !handledByCustomUpload {
+                    TerminalImageTransferPlanner.execute(
+                        plan: plan,
+                        operation: operation,
+                        uploadWorkspaceRemote: { fileURLs, operation, finish in
+                            guard let workspace = MainActor.assumeIsolated({
+                                callbackContext.terminalSurface?.owningWorkspace()
+                            }) else {
+                                finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
+                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                return
+                            }
+                            workspace.uploadDroppedFilesForRemoteTerminal(
+                                fileURLs,
+                                operation: operation,
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
+                            )
+                        },
+                        uploadDetectedSSH: { session, fileURLs, operation, finish in
+                            session.uploadDroppedFiles(
+                                fileURLs,
+                                operation: operation,
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
+                            )
+                        },
+                        insertText: { text in
+                            MainActor.assumeIsolated {
+                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                    for: operation
+                                )
+                            }
+                            completeClipboardRequest(with: text)
+                        },
+                        onFailure: { _ in
+                            MainActor.assumeIsolated {
+                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                    for: operation
+                                )
+                            }
+                            NSSound.beep()
+#if DEBUG
+                            cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
+#endif
+                            completeClipboardRequest(with: "")
+                        }
+                    )
+                }
             }
         }
 
@@ -7638,6 +7668,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    /// Inserts upload result text into the terminal: a mirrored remote pane needs
+    /// the tmux paste buffer (so the text arrives as a real bracketed paste),
+    /// otherwise the local surface's text/paste path is used (bracketed paste,
+    /// instant insertion — matching upstream Ghostty). Shared by the custom-upload
+    /// completion and the built-in `insertText` path.
+    private func deliverUploadResultText(_ text: String) {
+        guard let surface = terminalSurface else { return }
+        let handledByMirror = MainActor.assumeIsolated {
+            AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
+                surfaceId: surface.id,
+                text: text
+            ) ?? false
+        }
+        if handledByMirror { return }
+        surface.sendText(text)
+    }
+
     private func executeImageTransferPlan(
         _ plan: TerminalImageTransferPlan,
         operation: TerminalImageTransferOperation? = nil,
@@ -7657,6 +7704,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 for: operation,
                 onCancel: onCancel
             )
+        }
+
+        // A configured custom upload command (host-matched) replaces the built-in
+        // scp transport and types its own output (mirror-aware). Falls through to
+        // the built-in path below when no rule matches the host.
+        if let operation {
+            let handledByCustomUpload = TerminalCustomUploadRunner().handleIfMatched(
+                plan: plan,
+                operation: operation,
+                cleanup: { urls in
+                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(urls)
+                },
+                completion: { [weak self] result in
+                    self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                    switch result {
+                    case .success(let text):
+                        self?.deliverUploadResultText(text)
+                    case .failure:
+                        NSSound.beep()
+#if DEBUG
+                        cmuxDebugLog("terminal.remoteDropUpload.customFailed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
+                    }
+                }
+            )
+            if handledByCustomUpload { return true }
         }
 
         TerminalImageTransferPlanner.execute(
@@ -7694,20 +7767,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let operation {
                         self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                     }
-                    guard let surface = self?.terminalSurface else { return }
-                    // Mirror panes need tmux paste-buffer so dropped image paths
-                    // arrive as a real bracketed paste in the remote pane.
-                    let handledByMirror = MainActor.assumeIsolated {
-                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
-                            surfaceId: surface.id,
-                            text: text
-                        ) ?? false
-                    }
-                    if handledByMirror { return }
-                    // Use the text/paste path (ghostty_surface_text) instead of the key event
-                    // path (ghostty_surface_key) so bracketed paste mode is triggered and the
-                    // insertion is instant, matching upstream Ghostty behaviour.
-                    surface.sendText(text)
+                    self?.deliverUploadResultText(text)
                 }
                 if Thread.isMainThread {
                     send()
