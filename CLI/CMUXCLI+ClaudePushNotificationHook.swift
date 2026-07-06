@@ -29,7 +29,7 @@ extension CMUXCLI {
             print("OK")
             return
         }
-        guard claudePushNotificationWasDelivered(parsedInput.rawObject) else {
+        guard claudePushNotificationShouldBridge(parsedInput.rawObject) else {
             telemetry.breadcrumb("claude-hook.push-notification.skipped")
             print("OK")
             return
@@ -102,20 +102,27 @@ extension CMUXCLI {
         return nil
     }
 
-    /// Whether the PushNotification tool actually delivered its terminal
+    /// Whether the PushNotification tool call should surface as a cmux
     /// notification. tool_response is `{message, localSent?, disabledReason?,
-    /// sentAt?}`: `localSent` is the terminal-channel outcome (the OSC path
-    /// cmux suppresses for agent surfaces), and `disabledReason`
-    /// (`config_off` | `user_present` | `no_transport`) explains a skip. A
-    /// missing or unstructured response (older clients) fails open so the
-    /// message is never silently dropped. JSON null becomes NSNull under
-    /// JSONSerialization (not Swift nil), so only a real string counts as a
-    /// present disable reason.
-    private func claudePushNotificationWasDelivered(_ object: [String: Any]?) -> Bool {
+    /// sentAt?}`. Skip ONLY on an explicit user-facing skip reason:
+    /// `user_present` (Claude judged the user active) or `config_off` (the
+    /// user disabled proactive pushes). Everything else bridges — including
+    /// `localSent: false` with no reason (mobile-only delivery, or a client
+    /// whose local terminal channel is suppressed) and `no_transport`, where
+    /// the cmux store is the only Mac-visible surface left. Deliberately not
+    /// keyed on `localSent`: cmux swallows the tool's raw OSC delivery either
+    /// way, so the local-channel outcome must never decide bridge inertness.
+    /// Missing or unstructured responses (older clients) and unknown future
+    /// reasons fail open so the message is never silently dropped. JSON null
+    /// becomes NSNull under JSONSerialization (not Swift nil), so only a real
+    /// string counts as a present skip reason.
+    private func claudePushNotificationShouldBridge(_ object: [String: Any]?) -> Bool {
         guard let response = object?["tool_response"] as? [String: Any] else { return true }
-        if let localSent = response["localSent"] as? Bool {
-            return localSent
+        switch response["disabledReason"] as? String {
+        case "user_present", "config_off":
+            return false
+        default:
+            return true
         }
-        return response["disabledReason"] as? String == nil
     }
 }
