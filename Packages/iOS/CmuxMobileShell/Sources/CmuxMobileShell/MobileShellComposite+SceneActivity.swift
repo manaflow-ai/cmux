@@ -1,12 +1,16 @@
 public import Foundation
 
 extension MobileShellComposite {
-    public func setSceneForegroundActive(_ isActive: Bool, sceneID: UUID) {
+    @discardableResult
+    public func setSceneForegroundActive(_ isActive: Bool, sceneID: UUID) -> Bool {
+        let wasForegroundActive = !foregroundActiveSceneIDs.isEmpty
         if isActive {
             foregroundActiveSceneIDs.insert(sceneID)
         } else {
             foregroundActiveSceneIDs.remove(sceneID)
         }
-        setAppForegroundActive(!foregroundActiveSceneIDs.isEmpty)
+        let isForegroundActive = !foregroundActiveSceneIDs.isEmpty
+        setAppForegroundActive(isForegroundActive)
+        return !wasForegroundActive && isForegroundActive
     }
 }

@@ -113,8 +113,9 @@ struct CMUXMobileRootView: View {
         .onAppear {
             syncShellAuthentication(isAuthenticated)
             if scenePhase == .active {
-                store.setSceneForegroundActive(true, sceneID: sceneActivityID)
-                store.resumeForegroundRefresh()
+                if store.setSceneForegroundActive(true, sceneID: sceneActivityID) {
+                    store.resumeForegroundRefresh()
+                }
             } else {
                 store.setSceneForegroundActive(false, sceneID: sceneActivityID)
             }
@@ -151,8 +152,9 @@ struct CMUXMobileRootView: View {
                 store.setSceneForegroundActive(false, sceneID: sceneActivityID)
                 return
             }
-            store.setSceneForegroundActive(true, sceneID: sceneActivityID)
-            store.resumeForegroundRefresh()
+            if store.setSceneForegroundActive(true, sceneID: sceneActivityID) {
+                store.resumeForegroundRefresh()
+            }
             // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()
             // Re-check the Stack session on resume so one that died while

@@ -174,8 +174,8 @@ import Testing
 
     let firstScene = UUID()
     let secondScene = UUID()
-    store.setSceneForegroundActive(true, sceneID: firstScene)
-    store.setSceneForegroundActive(true, sceneID: secondScene)
+    #expect(store.setSceneForegroundActive(true, sceneID: firstScene))
+    #expect(store.setSceneForegroundActive(true, sceneID: secondScene) == false)
     store.setSceneForegroundActive(false, sceneID: firstScene)
     #expect(store.isAppForegroundActive, "one inactive scene must not background the shared shell store")
     store.setSceneForegroundActive(false, sceneID: secondScene)
