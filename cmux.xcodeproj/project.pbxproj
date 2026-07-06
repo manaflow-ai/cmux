@@ -210,6 +210,7 @@
 		C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */; };
 		C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540040000000000000002 /* BrowserPopupPanel.swift */; };
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
+		B7380004B7380004B7380004 /* BrowserPortalOmnibarSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380003B7380003B7380003 /* BrowserPortalOmnibarSuggestions.swift */; };
 		B424PWRS000000000000PW01 /* BrowserPortalWebViewRenderingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */; };
 		B4245003000000000000PW01 /* BrowserPrewarmedWebViewPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */; };
 		B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */; };
@@ -1754,6 +1755,7 @@
 		C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPendingSSLTrustBypass.swift; sourceTree = "<group>"; };
 		C67540040000000000000002 /* BrowserPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupPanel.swift; sourceTree = "<group>"; };
 		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
+		B7380003B7380003B7380003 /* BrowserPortalOmnibarSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestions.swift; sourceTree = "<group>"; };
 		B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalWebViewRenderingState.swift; sourceTree = "<group>"; };
 		B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPrewarmedWebViewPool.swift; sourceTree = "<group>"; };
 		B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPrewarmedWebViewPoolTests.swift; sourceTree = "<group>"; };
@@ -3847,6 +3849,7 @@
 
 				B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
+				B7380003B7380003B7380003 /* BrowserPortalOmnibarSuggestions.swift */,
 				C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */,
 				C67540040000000000000002 /* BrowserPopupPanel.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
@@ -5119,6 +5122,7 @@
 				C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */,
 				C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
+				B7380004B7380004B7380004 /* BrowserPortalOmnibarSuggestions.swift in Sources */,
 				B424PWRS000000000000PW01 /* BrowserPortalWebViewRenderingState.swift in Sources */,
 				B4245003000000000000PW01 /* BrowserPrewarmedWebViewPool.swift in Sources */,
 				BFBAC1A77CEE7A2DF91DA02C /* BrowserRemoteWorkspaceStatus.swift in Sources */,
