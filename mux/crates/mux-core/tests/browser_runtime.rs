@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use tungstenite::{accept, Message};
 
 static TEST_LOCK: Mutex<()> = Mutex::new(());
+static SOCKET_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
     loop {
@@ -50,14 +51,23 @@ fn recv_method_where(
     predicate: impl Fn(&Value) -> bool,
 ) -> Value {
     let deadline = Instant::now() + Duration::from_secs(30);
+    // On timeout, the panic lists what DID arrive during this wait so a
+    // CI-only failure identifies the stalled step without a rerun.
+    let mut drained = Vec::new();
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let value = rx
-            .recv_timeout(remaining)
-            .unwrap_or_else(|err| panic!("timed out waiting for CDP method {method}: {err}"));
+        let value = rx.recv_timeout(remaining).unwrap_or_else(|err| {
+            panic!(
+                "timed out waiting for CDP method {method}: {err}; \
+                 methods drained during this wait: {drained:?}"
+            )
+        });
         if value.get("method").and_then(|v| v.as_str()) == Some(method) && predicate(&value) {
             return value;
         }
+        drained.push(
+            value.get("method").and_then(|v| v.as_str()).unwrap_or("<no-method>").to_string(),
+        );
     }
 }
 
@@ -92,7 +102,7 @@ fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T>
 
 #[test]
 fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let (seen_tx, seen_rx) = mpsc::channel();
@@ -255,7 +265,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         .join(format!(
             "cmux-browser-socket-test-{}-{}",
             std::process::id(),
-            Instant::now().elapsed().as_nanos()
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
@@ -265,6 +275,14 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
+
+    // A second tab in the same pane, sized differently, becomes the active
+    // tab. The popup adopted from `surface` below must be sized from
+    // `surface` (the opener), not from this now-active tab.
+    let other_tab =
+        rpc(&socket_path, json!({"id": 100, "cmd": "new-tab", "cwd": "/", "cols": 40, "rows": 20}));
+    assert_eq!(other_tab["ok"], true, "new-tab failed: {other_tab}");
+    let other_tab_surface = other_tab["data"]["surface"].as_u64().unwrap();
 
     let mut attach = UnixStream::connect(&socket_path).unwrap();
     attach
@@ -295,13 +313,20 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         || {
             mux.with_state(|state| {
                 let popup =
-                    state.surfaces.keys().copied().find(|candidate| *candidate != surface)?;
-                (state.surfaces.len() == 2).then_some(popup)
+                    state.surfaces.keys().copied().find(|candidate| {
+                        *candidate != surface && *candidate != other_tab_surface
+                    })?;
+                (state.surfaces.len() == 3).then_some(popup)
             })
         },
         Duration::from_secs(10),
     )
     .expect("popup tab adopted");
+    assert_eq!(
+        mux.surface(popup_surface).unwrap().size(),
+        (10, 5),
+        "popup must inherit the opener's size, not the pane's active (non-opener) tab"
+    );
     let popup_start = recv_method_where(&seen_rx, "Page.startScreencast", |value| {
         value["sessionId"] == "session-popup"
     });
@@ -336,7 +361,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             "unrelated popup target was attached"
         );
     }
-    mux.with_state(|state| assert_eq!(state.surfaces.len(), 2));
+    mux.with_state(|state| assert_eq!(state.surfaces.len(), 3));
 
     let mouse = rpc(
         &socket_path,
@@ -423,7 +448,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
 
 #[test]
 fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let closed_port = {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.local_addr().unwrap().port()

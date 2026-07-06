@@ -539,7 +539,13 @@ impl BrowserSurface {
 
     fn store_frame(&self, frame: BrowserFrame) {
         let mut state = self.state.lock().unwrap();
-        state.status = BrowserStatus::Live;
+        // Screencast frames keep streaming the previous page after a
+        // failed navigation; they must not clear the Failed status. A
+        // successful navigate/reload clears it (set_url_title,
+        // clear_error), same as mark_live.
+        if !matches!(state.status, BrowserStatus::Failed(_)) {
+            state.status = BrowserStatus::Live;
+        }
         state.latest_frame = Some(frame.clone());
         state.taps.retain(|tap| match tap.try_send(frame.clone()) {
             Ok(()) => true,

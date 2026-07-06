@@ -98,7 +98,7 @@ assert os.path.exists(SOCK), "headless server socket missing"
 try:
     # First attach: type a marker into the shell.
     c1 = Client()
-    assert c1.wait_output("[" + SESSION.split("-")[0], 15) or True  # status bar paints
+    assert c1.wait_output("[" + SESSION.split("-")[0], 15), "status bar never painted session id"
     c1.drain(1.5)
     c1.send(f"printf '{MARKER}\\n'\r".encode())
     assert c1.wait_output(MARKER, 15), "marker never rendered on first attach"

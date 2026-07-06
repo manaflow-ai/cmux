@@ -443,12 +443,7 @@ impl Mux {
             let Some(pane_id) = state.pane_of(opener_surface) else {
                 return false;
             };
-            let size = state
-                .panes
-                .get(&pane_id)
-                .and_then(|pane| pane.active_surface())
-                .and_then(|surface| state.surfaces.get(&surface))
-                .map(|surface| surface.size());
+            let size = state.surfaces.get(&opener_surface).map(|surface| surface.size());
             (pane_id, size)
         };
         let id = self.next_id();
