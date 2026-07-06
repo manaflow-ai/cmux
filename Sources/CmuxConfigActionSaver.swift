@@ -103,14 +103,40 @@ enum CmuxConfigActionSaver {
             throw SaveError.unreadableConfig(globalConfigPath)
         }
         try validateEditableConfig(source, globalConfigPath: globalConfigPath)
-        guard let updated = JSONCObjectEditor.removeNestedObjectProperty(
+        guard var updated = JSONCObjectEditor.removeNestedObjectProperty(
             parentKey: "actions",
             childKey: actionID,
             in: source
         ) else {
             throw SaveError.malformedConfig(globalConfigPath)
         }
+        // Deleting the layout that is the current new-workspace default would
+        // leave `ui.newWorkspace.action` pointing at a missing id, which
+        // surfaces as a config issue until the user hand-edits it. Clear the
+        // default in the same atomic write.
+        if newWorkspaceDefaultActionID(inConfigSource: source) == actionID {
+            guard let cleared = JSONCObjectEditor.removeNestedObjectProperty(
+                objectPath: ["ui", "newWorkspace"],
+                key: "action",
+                in: updated
+            ) else {
+                throw SaveError.malformedConfig(globalConfigPath)
+            }
+            updated = cleared
+        }
         try writeOwnerOnlyConfig(updated, globalConfigPath: globalConfigPath, fileManager: fileManager)
+    }
+
+    /// The `ui.newWorkspace.action` value in the given config source, if set.
+    static func newWorkspaceDefaultActionID(inConfigSource source: String) -> String? {
+        guard let sanitized = try? JSONCParser.preprocess(data: Data(source.utf8)),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+              let ui = root["ui"] as? [String: Any],
+              let newWorkspace = ui["newWorkspace"] as? [String: Any],
+              let action = newWorkspace["action"] as? String else {
+            return nil
+        }
+        return action
     }
 
     static func setNewWorkspaceDefaultAction(
