@@ -1,8 +1,8 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "../../../../i18n/seo";
-import { CodeBlock } from "../../components/code-block";
-import { DocsHeading } from "../../components/docs-heading";
+import { buildAlternates } from "@/i18n/seo";
+import { CodeBlock } from "@/app/[locale]/components/code-block";
+import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { DocsSchema } from "../docs-schema";
 
 export async function generateMetadata({
