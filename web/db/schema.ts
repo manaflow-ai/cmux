@@ -158,6 +158,9 @@ export const subrouterTenants = pgTable(
   },
   (table) => [
     uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
+  ],
+);
+
 export const vaultSessions = pgTable(
   "vault_sessions",
   {
