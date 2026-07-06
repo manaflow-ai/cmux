@@ -304,8 +304,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    /// A polluted `activeSessionsByWorkspace` entry (a session registered as active
-    /// for a workspace that is not its own) must be self-healed on the next hook.
+    /// Polluted `activeSessionsByWorkspace` / `activeSessionsBySurface` entries (a
+    /// session registered as active for a workspace or pane that is not its own)
+    /// must be self-healed on the next hook. The surface slot matters most:
+    /// `isCurrent` trusts it first, so a polluted pane slot keeps suppressing that
+    /// pane's own session even after the workspace slot is repaired.
     func testClaudeHookSelfHealsCrossWorkspaceActivePointer() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("claude-selfheal")
@@ -316,6 +319,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ownWorkspaceId = "11111111-1111-1111-1111-111111111111"
         let ownSurfaceId = "22222222-2222-2222-2222-222222222222"
         let pollutedWorkspaceId = "33333333-3333-3333-3333-333333333333"
+        let pollutedSurfaceId = "55555555-5555-5555-5555-555555555555"
         let sessionId = "own-session"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -343,6 +347,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 // Pollution: our session is registered as active for a workspace it
                 // does not belong to (from the pre-fix focused/TTY misroute).
                 pollutedWorkspaceId: ["sessionId": sessionId, "updatedAt": now],
+            ],
+            "activeSessionsBySurface": [
+                ownSurfaceId: ["sessionId": sessionId, "updatedAt": now],
+                // Same pollution shape for a pane the session does not own.
+                pollutedSurfaceId: ["sessionId": sessionId, "updatedAt": now],
             ],
         ]
         let stateURL = root.appendingPathComponent("claude-hook-sessions.json")
@@ -393,6 +402,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(
             activeSessions[pollutedWorkspaceId],
             "Expected the cross-workspace active pointer to be self-healed, saw \(activeSessions.keys)"
+        )
+        let activeSurfaceSessions = try XCTUnwrap(savedState["activeSessionsBySurface"] as? [String: Any])
+        XCTAssertNotNil(activeSurfaceSessions[ownSurfaceId], "Expected the session's own pane pointer to remain")
+        XCTAssertNil(
+            activeSurfaceSessions[pollutedSurfaceId],
+            "Expected the cross-pane active pointer to be self-healed, saw \(activeSurfaceSessions.keys)"
         )
     }
 }
