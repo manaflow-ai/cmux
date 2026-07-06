@@ -45,6 +45,8 @@ struct WorkspaceDetailView: View {
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
+    @State var isTerminalPickerPresented = false
+    @State var pendingTerminalPickerAction: TerminalPickerPopoverAction?
     @State var renameText = ""
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
@@ -72,7 +74,7 @@ struct WorkspaceDetailView: View {
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
-    private var activeBrowser: BrowserSurfaceState? {
+    var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
 
@@ -348,107 +350,9 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
-    // Native menu keeps press-drag-release selection and routes through
-    // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
-        let rows = terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
-        let selection = terminalPickerLiveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
-
-        return Menu {
-            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
-        } label: {
-            Label(
-                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
-                systemImage: "rectangle.stack"
-            )
-            .labelStyle(.iconOnly)
-        }
-        .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
-        .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(selection?.name ?? "")
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
-    }
-
-    @ViewBuilder
-    private func terminalPickerMenuContent(
-        rows: [TerminalPickerMenuRow],
-        selectedID: MobileTerminalPreview.ID?
-    ) -> some View {
-        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(rows) { terminal in
-                Button {
-                    selectTerminalFromPicker(terminal.id)
-                } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedID && activeBrowser == nil
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
-                }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
-            }
-        }
-
-        Section {
-            Button(action: createWorkspaceFromToolbar) {
-                Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
-            }
-            .disabled(!canCreateWorkspace)
-            .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
-
-            Button(action: createTerminalFromToolbar) {
-                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
-            }
-            .accessibilityIdentifier("MobileNewTerminalMenuItem")
-
-            Button(action: openBrowserFromToolbar) {
-                Label(
-                    L10n.string("mobile.browser.new", defaultValue: "New Browser"),
-                    systemImage: activeBrowser == nil ? "globe" : "checkmark.circle.fill"
-                )
-            }
-            .accessibilityIdentifier("MobileNewBrowserMenuItem")
-        }
-
-        #if canImport(UIKit)
-        Section {
-            // Only while the terminal pane is showing: browser and chat modes
-            // do not mount a terminal surface for text capture.
-            if activeBrowser == nil && !isChatMode {
-                Button(action: openTextSheetFromMenu) {
-                    Label(
-                        L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
-                        systemImage: "doc.plaintext"
-                    )
-                }
-                .accessibilityIdentifier("MobileViewAsTextMenuItem")
-            }
-
-            #if DEBUG
-            Button(action: copyDebugLogsFromMenu) {
-                Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
-            }
-            .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
-            #endif
-
-            Button(action: openFeedbackComposerFromMenu) {
-                Label(
-                    L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
-                    systemImage: "paperplane"
-                )
-            }
-            .accessibilityIdentifier("MobileSendFeedbackMenuItem")
-        }
-        #endif
-    }
-
     #if canImport(UIKit)
     #if DEBUG
-    private func copyDebugLogsFromMenu() {
+    func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
         Task { @MainActor in
@@ -462,12 +366,12 @@ struct WorkspaceDetailView: View {
 
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
-    private func openTextSheetFromMenu() {
+    func openTextSheetFromMenu() {
         textSheetSurfaceID = selectedTerminal?.id.rawValue
         isTextSheetPresented = true
     }
 
-    private func openFeedbackComposerFromMenu() {
+    func openFeedbackComposerFromMenu() {
         feedbackText = ""
         feedbackErrorMessage = nil
         // A prior submission may still be in flight if the user dismissed the
@@ -605,7 +509,7 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createWorkspaceFromToolbar() {
+    func createWorkspaceFromToolbar() {
         guard canCreateWorkspace else { return }
         dismissTerminalKeyboardForChrome()
         createWorkspace()
@@ -652,7 +556,7 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createTerminalFromToolbar() {
+    func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
@@ -661,7 +565,7 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
-    private func openBrowserFromToolbar() {
+    func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
@@ -669,7 +573,7 @@ struct WorkspaceDetailView: View {
         browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
-    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+    func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
@@ -682,7 +586,7 @@ struct WorkspaceDetailView: View {
         store.selectTerminalFromChrome(terminalID)
     }
 
-    private func dismissTerminalKeyboardForChrome() {
+    func dismissTerminalKeyboardForChrome() {
         // Resign the terminal's hidden text input first so the surface clears
         // its keyboard geometry and recomputes full-height before chrome covers
         // it; then sweep any other responder across the scene.
