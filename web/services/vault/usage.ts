@@ -5,6 +5,15 @@ import { logVaultQuotaError } from "./logging";
 
 type VaultDb = ReturnType<typeof cloudDb>;
 
+export async function withVaultUserQuotaLock<T>(
+  db: VaultDb,
+  userId: string,
+  run: (db: VaultDb) => Promise<T>,
+): Promise<T> {
+  void userId;
+  return await run(db);
+}
+
 /**
  * Total compressed bytes a user currently has stored across all snapshots.
  * Used by the uploads (presign) and commit routes to enforce the per-user

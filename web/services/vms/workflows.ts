@@ -490,7 +490,11 @@ function recordRunningTransition<E extends VmWorkflowError>(
   });
 }
 
-export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
+export function destroyVm(input: {
+  readonly userId: string;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -516,8 +520,16 @@ export function destroyVm(input: { readonly userId: string; readonly providerVmI
   });
 }
 
+export function revokeExpiredIdentityLeases(_input: {
+  readonly now?: Date;
+  readonly limit?: number;
+} = {}) {
+  return Effect.void;
+}
+
 export function execVm(input: {
   readonly userId: string;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
@@ -551,6 +563,7 @@ export function execVm(input: {
 
 export function openAttachEndpoint(input: {
   readonly userId: string;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly options?: AttachOptions;
 }) {
@@ -599,6 +612,7 @@ export function openAttachEndpoint(input: {
 
 export function openSshEndpoint(input: {
   readonly userId: string;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {

@@ -9,6 +9,9 @@ import { VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from ".
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
+export type CloudVmIdentityLeaseRow = CloudVmLeaseRow & {
+  readonly provider: ProviderId;
+};
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
 
@@ -78,6 +81,10 @@ export type VmRepositoryShape = {
     readonly transport?: string;
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  readonly expiredIdentityLeases?: (input: {
+    readonly now: Date;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmIdentityLeaseRow[], VmDatabaseError>;
   readonly activeIdentityLeases: (vmId: string) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {

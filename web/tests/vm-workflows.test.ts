@@ -31,6 +31,7 @@ import {
   execVm,
   openAttachEndpoint,
   openSshEndpoint,
+  revokeExpiredIdentityLeases,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -84,6 +85,100 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("team-billed VM operations deny callers who are no longer team members", async () => {
+    const userId = "user-workflow-left-team";
+    const providerVmId = "provider-vm-left-team";
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000121",
+      userId,
+      billingTeamId: "team-workflow-left",
+      providerVmId,
+      status: "running",
+    });
+
+    for (const operation of ["destroy", "exec", "attach", "ssh"] as const) {
+      let providerCalls = 0;
+      const repo = testWorkflowRepo({ vm });
+      const provider: VmProviderGatewayShape = {
+        ...unusedProviderGateway(),
+        destroy: () => Effect.sync(() => {
+          providerCalls += 1;
+        }),
+        exec: () => Effect.sync(() => {
+          providerCalls += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }),
+        openAttach: () => Effect.sync(() => {
+          providerCalls += 1;
+          return testAttachEndpoint();
+        }),
+        openSSH: () => Effect.sync(() => {
+          providerCalls += 1;
+          return testSshEndpoint();
+        }),
+      };
+      const program =
+        operation === "destroy"
+          ? destroyVm({ userId, teamIds: ["team-workflow-other"], providerVmId })
+          : operation === "exec"
+            ? execVm({ userId, teamIds: ["team-workflow-other"], providerVmId, command: "true", timeoutMs: 1000 })
+            : operation === "attach"
+              ? openAttachEndpoint({ userId, teamIds: ["team-workflow-other"], providerVmId })
+              : openSshEndpoint({ userId, teamIds: ["team-workflow-other"], providerVmId });
+
+      try {
+        await Effect.runPromise(program.pipe(Effect.provide(workflowLayer(repo, provider))));
+        throw new Error(`${operation} should have failed`);
+      } catch (error) {
+        expect(error).toBeInstanceOf(VmNotFoundError);
+      }
+      expect(providerCalls).toBe(0);
+    }
+  });
+
+  test("expired provider identity leases are revoked and marked revoked", async () => {
+    const now = new Date("2026-07-06T00:00:00.000Z");
+    const revoked: string[] = [];
+    const marked: string[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: testCloudVmRow() }),
+      expiredIdentityLeases: () => Effect.succeed([{
+        id: "00000000-0000-4000-8000-000000000301",
+        vmId: "00000000-0000-4000-8000-000000000302",
+        userId: "user-expired-lease",
+        kind: "ssh",
+        tokenHash: "hash",
+        providerIdentityHandle: "identity-expired",
+        sessionId: null,
+        transport: "ssh",
+        metadata: {},
+        expiresAt: new Date(now.getTime() - 1000),
+        consumedAt: null,
+        revokedAt: null,
+        createdAt: new Date(now.getTime() - 60_000),
+        provider: "freestyle",
+      }]),
+      markLeasesRevoked: (ids) => Effect.sync(() => {
+        marked.push(...ids);
+      }),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (_provider, identityHandle) => Effect.sync(() => {
+        revoked.push(identityHandle);
+      }),
+    };
+
+    await Effect.runPromise(
+      revokeExpiredIdentityLeases({ now, limit: 10 }).pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revoked).toEqual(["identity-expired"]);
+    expect(marked).toEqual(["00000000-0000-4000-8000-000000000301"]);
+  });
+
   test("exec resumes a paused VM, retries once, and records one usage event", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000101",
