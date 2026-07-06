@@ -242,7 +242,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 [Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
-cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
+cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. It is built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
 Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) or in [#nightly-bugs on Discord](https://discord.gg/xsgFEVrWCZ).
 
