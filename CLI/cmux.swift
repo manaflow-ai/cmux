@@ -15814,7 +15814,7 @@ struct CMUXCLI {
               open <id | id.pane>           Open an extension pane in the Dock
               config-dir <id>               Print the extension's config directory
               paths <id>                    Print root, config, state, and logs directories
-            Extensions are not reviewed by cmux; they run as you. Manifest docs: https://cmux.io/docs/extensions
+            Extensions are not reviewed by cmux; they run as you. Manifest docs: https://ncmux.com/docs/extensions
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
