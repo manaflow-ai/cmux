@@ -24,6 +24,7 @@ import struct CmuxSettings.FileRouteSettingsStore
 import struct CmuxWindowing.TerminalDefaultFileOpenRequest
 import struct CmuxWindowing.MinimalModeTitlebarBand
 import struct CmuxWindowing.MinimalModeTitlebarClickRecord
+import struct CmuxCore.TmuxWorkspacePaneOverlayRenderState
 // CmuxWorkspaces owns the lifted tmux pane-overlay exact-rect geometry; import only
 // the moved type to avoid shadowing app-target names with a blanket import.
 import struct CmuxWorkspaces.TmuxPaneOverlayGeometry
@@ -1821,7 +1822,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: FileExplorerState(),
             sessionIndexStore: SessionIndexStore(),
-            titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
+            titlebarHeight: 36,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },

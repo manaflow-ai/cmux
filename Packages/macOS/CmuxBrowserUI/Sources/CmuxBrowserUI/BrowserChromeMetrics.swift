@@ -27,16 +27,16 @@ public struct BrowserChromeMetrics: Equatable {
     /// The tab bar font size at which the chrome matches its legacy hardcoded
     /// sizes (scale `1`). Anchored to the shipped default so "default size looks
     /// unchanged" holds even if the default is later retuned.
-    static let referenceFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
+    public static let referenceFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
 
     /// Lower bound on the derived scale; guards against a near-zero config value.
-    static let minimumScale: CGFloat = 0.5
+    public static let minimumScale: CGFloat = 0.5
 
     /// Upper bound on the derived scale; guards against an absurd config value.
-    static let maximumScale: CGFloat = 2.0
+    public static let maximumScale: CGFloat = 2.0
 
     /// Multiplier applied to every legacy base size. `1` at ``referenceFontSize``.
-    var scale: CGFloat {
+    public var scale: CGFloat {
         guard tabBarFontSize.isFinite, tabBarFontSize > 0 else { return 1 }
         let raw = tabBarFontSize / Self.referenceFontSize
         return min(max(raw, Self.minimumScale), Self.maximumScale)

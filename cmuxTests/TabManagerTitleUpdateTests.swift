@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxSettings
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -14,7 +15,7 @@ struct TabManagerTitleUpdateTests {
     @Test
     func coalescerReschedulesWhenDelayChangesMidBurst() async {
         let scheduler = ManualCoalescerScheduler()
-        let coalescer = NotificationBurstCoalescer(
+        let coalescer = PanelTitleUpdateCoalescer(
             delay: 0.02,
             schedule: scheduler.schedule(delay:action:)
         )
@@ -48,10 +49,8 @@ struct TabManagerTitleUpdateTests {
         let catalog = SettingCatalog()
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let workspace = try #require(manager.selectedWorkspace)
         let focusedPanelId = try #require(workspace.focusedPanelId)
@@ -106,10 +105,8 @@ struct TabManagerTitleUpdateTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let workspace = try #require(manager.selectedWorkspace)
         let focusedPanelId = try #require(workspace.focusedPanelId)
@@ -150,10 +147,8 @@ struct TabManagerTitleUpdateTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let workspace = try #require(manager.selectedWorkspace)
         let focusedPanelId = try #require(workspace.focusedPanelId)
@@ -195,10 +190,8 @@ struct TabManagerTitleUpdateTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let workspace = try #require(manager.selectedWorkspace)
         let removedPanelId = try #require(workspace.focusedPanelId)
@@ -254,10 +247,8 @@ struct TabManagerTitleUpdateTests {
 
         let scheduler = ManualCoalescerScheduler()
         let source = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let destination = TabManager(settings: settings)
         let workspace = try #require(source.selectedWorkspace)
@@ -306,10 +297,8 @@ struct TabManagerTitleUpdateTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let workspace = try #require(manager.selectedWorkspace)
         let focusedPanelId = try #require(workspace.focusedPanelId)
@@ -357,10 +346,8 @@ struct TabManagerTitleUpdateTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         _ = try #require(manager.selectedWorkspace)
         let workspace = manager.addWorkspace(select: true)
@@ -457,7 +444,7 @@ struct TabManagerTitleUpdateTests {
         workspace.terminalPanel(for: panelId)?.surface
     }
 
-    private final class ManualCoalescerScheduler {
+    private final class ManualCoalescerScheduler: TitleFlushDelayScheduling {
         private struct PendingFlush {
             var isCancelled = false
             let action: @MainActor () -> Void
@@ -467,10 +454,20 @@ struct TabManagerTitleUpdateTests {
         private(set) var delays: [TimeInterval] = []
 
         @MainActor
+        func signal(_ action: @escaping () -> Void) {
+            signal(delay: PanelTitleUpdateCoalescingSettings.defaultDelay, action)
+        }
+
+        @MainActor
+        func signal(delay: TimeInterval, _ action: @escaping () -> Void) {
+            _ = schedule(delay: delay, action: action)
+        }
+
+        @MainActor
         func schedule(
             delay: TimeInterval,
             action: @escaping @MainActor () -> Void
-        ) -> NotificationBurstCoalescer.Cancellation {
+        ) -> PanelTitleUpdateCoalescer.Cancellation {
             let index = pendingFlushes.count
             delays.append(delay)
             pendingFlushes.append(PendingFlush(action: action))

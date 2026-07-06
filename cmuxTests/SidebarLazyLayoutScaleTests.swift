@@ -1,5 +1,7 @@
 import Testing
 import AppKit
+import CmuxNotifications
+import CmuxSidebar
 import CmuxUpdater
 import SwiftUI
 
@@ -131,15 +133,18 @@ final class SidebarLazyLayoutScaleTests {
             selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
-            sidebarRenderWorkerClient: .constant(nil)
+            sidebarRenderWorkerClient: .constant(nil),
+            inlineRenameWorkspaceId: .constant(nil),
+            inlineRenameRequestToken: .constant(0),
+            workspaceDragRegistry: SidebarWorkspaceDragRegistry()
         )
         .frame(width: 280)
-        .environmentObject(tabManager)
+        .environment(tabManager)
         .environmentObject(unread)
         .environmentObject(CmuxConfigStore())
         .environmentObject(TerminalNotificationStore.shared)
-        .environmentObject(SidebarState())
-        .environmentObject(SidebarSelectionState())
+        .environment(SidebarState())
+        .environment(SidebarSelectionState())
         .environment(
             \.sidebarLazyContractProbe,
             SidebarLazyContractProbe(

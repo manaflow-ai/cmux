@@ -56,19 +56,24 @@ public struct BrowserWebAuthnClientDataContext {
         )
     }
 
-    /// Resolves and authorizes the relying-party identifier for this caller,
-    /// defaulting to the caller's host and rejecting identifiers it cannot act for.
-    public func resolveRelyingPartyIdentifier(_ explicitIdentifier: String?) throws -> String {
+    /// Resolves and authorizes the relying-party identifier for this caller.
+    ///
+    /// Returns `nil` when the RP ID is in WebAuthn scope but should fall back to
+    /// WebKit instead of native AuthenticationServices handling.
+    public func resolveRelyingPartyIdentifier(_ explicitIdentifier: String?) throws -> String? {
         let requestedIdentifier =
             explicitIdentifier?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased() ?? callerOrigin.host
 
         #if DEBUG
-        CMUXDebugLog.logDebugEvent("webauthn.resolveRP explicit=\(explicitIdentifier ?? "(nil)") resolved=\(requestedIdentifier) callerHost=\(callerOrigin.host) permitted=\(callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier))")
+        CMUXDebugLog.logDebugEvent("webauthn.resolveRP explicit=\(explicitIdentifier ?? "(nil)") resolved=\(requestedIdentifier) callerHost=\(callerOrigin.host) scopeOK=\(callerOrigin.isWithinRelyingPartyScope(requestedIdentifier)) nativeOK=\(callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier))")
         #endif
-        guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
+        guard callerOrigin.isWithinRelyingPartyScope(requestedIdentifier) else {
             throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
+        }
+        guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
+            return nil
         }
 
         return requestedIdentifier

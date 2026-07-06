@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxSidebar
 
 /// The file-explorer search field: an `NSSearchField` subclass that surfaces
 /// focus, cancel, vertical-move, and commit intents through closures so the app
@@ -7,6 +8,8 @@ public import AppKit
 /// the closures; the field translates key events (Escape, arrow/Control-N/P, and
 /// Return/Enter) into those callbacks and forwards everything else to `super`.
 public final class FileExplorerSearchField: NSSearchField {
+    /// Where this search field is hosted; used by app-side shortcut routing.
+    public var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
     /// Invoked when the user presses Escape while the field is first responder.
     public var onCancel: (() -> Void)?
     /// Invoked with `+1` (down) or `-1` (up) when the user requests a selection move.

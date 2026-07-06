@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Schedules a coalesced panel-title flush on the window's main run loop.
 ///
 /// ``SurfaceMetadataCoordinator`` owns the coalescing bookkeeping (the pending
@@ -12,4 +14,11 @@ public protocol TitleFlushScheduling: AnyObject {
     /// after the scheduler's delay. A later `signal` in the same burst replaces
     /// the pending action and does not schedule a second flush.
     func signal(_ action: @escaping () -> Void)
+}
+
+/// A title-flush scheduler whose delay is supplied per signal by the app layer.
+@MainActor
+public protocol TitleFlushDelayScheduling: TitleFlushScheduling {
+    /// Records `action` as the pending flush using the caller-resolved delay.
+    func signal(delay: TimeInterval, _ action: @escaping () -> Void)
 }

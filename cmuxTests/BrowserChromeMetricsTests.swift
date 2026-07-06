@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxBrowserUI
 import Testing
 
 #if canImport(cmux_DEV)

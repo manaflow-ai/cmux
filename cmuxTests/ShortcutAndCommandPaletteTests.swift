@@ -18,6 +18,7 @@ import struct CmuxSettings.QuitConfirmationStore
 import struct CmuxSettings.CommandPaletteSettingsStore
 import enum CmuxSettings.ConfirmQuitMode
 import struct CmuxSettings.SettingCatalog
+import struct CmuxSettings.ShortcutDisplayFormatter
 import struct CmuxSettings.UserDefaultsSettingsClient
 import protocol CmuxSidebar.FeedKeyboardFocusResponder
 

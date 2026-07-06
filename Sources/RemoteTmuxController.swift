@@ -175,9 +175,19 @@ final class RemoteTmuxController {
     // `AppDelegate.shared?.remoteTmuxController` and the workspace host
     // environment.
 
-    /// Forwards to ``RemoteTmuxMirrorCommandRouter/handleMirrorNewTabRequested(workspaceId:)``.
-    func handleMirrorNewTabRequested(workspaceId: UUID) -> Bool {
-        mirrorCommandRouter.handleMirrorNewTabRequested(workspaceId: workspaceId)
+    /// Forwards to ``RemoteTmuxMirrorCommandRouter/handleMirrorNewTabRequested(workspaceId:placement:workingDirectory:workingDirectorySourcePanelId:)``.
+    func handleMirrorNewTabRequested(
+        workspaceId: UUID,
+        placement: RemoteTmuxMirrorNewTabPlacement,
+        workingDirectory: String?,
+        workingDirectorySourcePanelId: UUID?
+    ) -> Bool {
+        mirrorCommandRouter.handleMirrorNewTabRequested(
+            workspaceId: workspaceId,
+            placement: placement,
+            workingDirectory: workingDirectory,
+            workingDirectorySourcePanelId: workingDirectorySourcePanelId
+        )
     }
 
     /// Forwards to ``RemoteTmuxMirrorCommandRouter/handleMirrorWorkspaceRenamed(workspaceId:title:)``.
@@ -394,6 +404,28 @@ final class RemoteTmuxController {
         }
     }
 
+    /// Detaches the remote-tmux mirror bookkeeping after a mirror workspace is kept
+    /// open locally instead of being removed with the remote session/window.
+    func detachMirrorWorkspaceKeptOpenLocally(workspaceId: UUID) {
+        guard let entry = mirrorRegistry.allEntries().first(where: { $0.mirror.mirroredWorkspaceId == workspaceId }) else {
+            return
+        }
+        let host = entry.mirror.host
+        mirrorRegistry.removeMirror(forKey: entry.key)
+        entry.mirror.detachObserver()
+        connectionRegistry.removeConnection(forKey: entry.key)?.stop()
+
+        let hostHasOtherMirrors = mirrorRegistry.hasMirror(forHostHash: host.connectionHash)
+        if !hostHasOtherMirrors {
+            windowRegistry.unbind(hostHash: host.connectionHash)
+        }
+        if !hostHasOtherMirrors,
+           !connectionRegistry.hasConnection(forHostHash: host.connectionHash) {
+            transportRegistry.remove(connectionHash: host.connectionHash)
+            RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+        }
+    }
+
     /// Marks a window's impending close as a tab/session close (kill on commit, not detach).
     func markKillSessionsOnWindowClose(windowId: UUID) { windowRegistry.markKillSessionsOnClose(windowId: windowId) }
 
@@ -507,6 +539,17 @@ final class RemoteTmuxController {
     /// Forwards to ``RemoteTmuxConnectionCoordinator/connection(host:sessionName:)``.
     func connection(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxControlConnection? {
         connectionCoordinator.connection(host: host, sessionName: sessionName)
+    }
+
+    /// Caches an already-constructed control connection under its host/session key.
+    ///
+    /// Used by tests that drive ``RemoteTmuxControlConnection`` rename notifications
+    /// directly without launching an SSH process.
+    func cacheConnection(_ connection: RemoteTmuxControlConnection, key: String? = nil) {
+        connectionRegistry.setConnection(
+            connection,
+            forKey: key ?? connection.host.connectionKey(sessionName: connection.sessionName)
+        )
     }
 
     /// Detaches and forgets a control connection (leaves the remote session alive).

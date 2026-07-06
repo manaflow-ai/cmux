@@ -89,7 +89,8 @@ extension SidebarWorkspaceSnapshotBuilder {
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
             listeningPorts: flags.listeningPorts,
-            finderDirectoryPath: finderDirectoryPath
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: flags.mediaActivity
         )
     }
 

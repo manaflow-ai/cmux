@@ -2,9 +2,11 @@ import XCTest
 import Foundation
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import CmuxWindowing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -72,7 +74,12 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
-        let prepared = browserPreparedNavigationRequest(request)
+        let webView = CapturingBrowserLoadWebView(
+            frame: .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        _ = webView.browserLoadRequest(request)
+        let prepared = try XCTUnwrap(webView.capturedRequest)
 
         XCTAssertEqual(prepared.url, url)
         XCTAssertEqual(prepared.httpMethod, "POST")
@@ -134,6 +141,15 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
             response: .alertSecondButtonReturn,
             suppressionEnabled: false
         ))
+    }
+}
+
+private final class CapturingBrowserLoadWebView: WKWebView {
+    private(set) var capturedRequest: URLRequest?
+
+    override func load(_ request: URLRequest) -> WKNavigation? {
+        capturedRequest = request
+        return nil
     }
 }
 

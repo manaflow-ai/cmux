@@ -19,10 +19,7 @@ extension Workspace {
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 agentPIDsForPanel[key] = pid
-                // delta-merge: HEAD dropped the Workspace `agentPIDProcessIdentitiesByKey`
-                // store, so capture the live process identity from the pid for the
-                // detached-transfer PID-reuse guard.
-                agentPIDIdentitiesForPanel[key] = Workspace.agentPIDProcessIdentity(pid: pid)
+                agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             if let statusEntry = statusEntries[statusKey] {
@@ -108,6 +105,7 @@ extension Workspace {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
         agentPIDs[key] = pid
+        agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
@@ -119,13 +117,20 @@ extension Workspace {
         return didClearOtherStructuredAgentRuntime
     }
 
-    // TODO(delta-merge): origin/main added identity-based clearStaleAgentPIDs()/
-    // clearStaleAgentPIDs(panelId:)/clearAllAgentPIDs()/isRecordedAgentPIDLive that
-    // read `agentPIDProcessIdentitiesByKey` on Workspace. HEAD moved that storage to
-    // WorkspaceSidebarAgentRuntimeObservationModel (workspace can't read it), and
-    // already has kill(pid,0)-based clearStaleAgentPIDs(panelId:) + isAgentProcessAlive
-    // below, so only the reused `agentPIDProcessIdentity(pid:)` probe is kept here
-    // (DockSplitStore+SurfaceTransfer.swift calls Workspace.agentPIDProcessIdentity).
+    @discardableResult
+    func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
+        var didChange = false
+        for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
+            if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
     static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
         guard pid > 0 else { return nil }
         var info = proc_bsdinfo()
@@ -235,10 +240,6 @@ extension Workspace {
     /// has exited), so a stale PID no longer influences the panel's agent
     /// context. Backs the submit-action re-check after an agent prune.
     ///
-    /// Our refactor keeps per-panel PID keys on the workspace but moved the
-    /// recorded process *identities* (start-time PID-reuse guard) to the sidebar
-    /// observation model, which the workspace does not read, so liveness here is a
-    /// direct `kill(pid, 0)` existence probe rather than main's identity compare.
     @discardableResult
     func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
         let keys = agentPIDKeysByPanelId[panelId] ?? []
@@ -250,7 +251,7 @@ extension Workspace {
                 }
                 continue
             }
-            if !Self.isAgentProcessAlive(pid),
+            if !isRecordedAgentPIDLive(key: key, pid: pid),
                clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
@@ -261,13 +262,13 @@ extension Workspace {
         return didChange
     }
 
-    /// Whether a recorded agent PID still names a live process. `kill(pid, 0)`
-    /// returns success while the process exists and `ESRCH` once it is gone; a
-    /// permission error (`EPERM`) still means the process exists.
-    static func isAgentProcessAlive(_ pid: pid_t) -> Bool {
-        guard pid > 0 else { return false }
-        if kill(pid, 0) == 0 { return true }
-        return errno != ESRCH
+    private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
+        guard pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
+            return false
+        }
+        return currentIdentity == recordedIdentity
     }
 
     @discardableResult
@@ -285,6 +286,9 @@ extension Workspace {
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
+            didChange = true
+        }
+        if agentPIDProcessIdentitiesByKey.removeValue(forKey: key) != nil {
             didChange = true
         }
         if ownedPanelId != nil {
@@ -338,9 +342,9 @@ extension Workspace {
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
-            // delta-merge: HEAD no longer persists agent PID identities on Workspace
-            // (moved to the sidebar observation model; liveness uses a kill(pid,0)
-            // probe), so the adopted identity is intentionally not restored here.
+            if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
+                agentPIDProcessIdentitiesByKey[key] = recordedIdentity
+            }
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {

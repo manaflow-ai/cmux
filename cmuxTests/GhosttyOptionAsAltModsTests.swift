@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxTerminal
 import Testing
 
 #if canImport(cmux_DEV)
@@ -25,7 +26,7 @@ import Testing
 
     @Test func rightOptionCarriesAltAndAltRightSideBit() {
         let raw = NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
-        let mods = cmuxGhosttyModsFromFlags(modifierFlagsRawValue: raw)
+        let mods = NSEvent.ModifierFlags(rawValue: raw).terminalGhosttyKeyMods
         #expect(mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
         #expect(
             mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue != 0,
@@ -35,28 +36,28 @@ import Testing
 
     @Test func leftOptionCarriesAltWithoutAltRightSideBit() {
         let raw = NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICELALTKEYMASK)
-        let mods = cmuxGhosttyModsFromFlags(modifierFlagsRawValue: raw)
+        let mods = NSEvent.ModifierFlags(rawValue: raw).terminalGhosttyKeyMods
         #expect(mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue == 0)
     }
 
     @Test func rightShiftCarriesShiftRightSideBit() {
         let raw = NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
-        let mods = cmuxGhosttyModsFromFlags(modifierFlagsRawValue: raw)
+        let mods = NSEvent.ModifierFlags(rawValue: raw).terminalGhosttyKeyMods
         #expect(mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_SHIFT_RIGHT.rawValue != 0)
     }
 
     @Test func rightControlCarriesCtrlRightSideBit() {
         let raw = NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
-        let mods = cmuxGhosttyModsFromFlags(modifierFlagsRawValue: raw)
+        let mods = NSEvent.ModifierFlags(rawValue: raw).terminalGhosttyKeyMods
         #expect(mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_CTRL_RIGHT.rawValue != 0)
     }
 
     @Test func rightCommandCarriesSuperRightSideBit() {
         let raw = NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
-        let mods = cmuxGhosttyModsFromFlags(modifierFlagsRawValue: raw)
+        let mods = NSEvent.ModifierFlags(rawValue: raw).terminalGhosttyKeyMods
         #expect(mods.rawValue & GHOSTTY_MODS_SUPER.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_SUPER_RIGHT.rawValue != 0)
     }
@@ -66,7 +67,7 @@ import Testing
             | NSEvent.ModifierFlags.control.rawValue
             | NSEvent.ModifierFlags.option.rawValue
             | NSEvent.ModifierFlags.command.rawValue
-        let mods = cmuxGhosttyModsFromFlags(modifierFlagsRawValue: raw)
+        let mods = NSEvent.ModifierFlags(rawValue: raw).terminalGhosttyKeyMods
         #expect(mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
@@ -86,7 +87,7 @@ import Testing
             | NSEvent.ModifierFlags.shift.rawValue
             | UInt(NX_DEVICERALTKEYMASK)
             | UInt(NX_DEVICERSHIFTKEYMASK)
-        let mods = cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue: raw)
+        let mods = NSEvent.ModifierFlags(rawValue: raw).terminalGhosttyMouseMods
         #expect(mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
         #expect(mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue == 0)
@@ -98,8 +99,7 @@ import Testing
     @Test func translationFlagsDropOptionWhenGhosttyStripsAlt() {
         // macos-option-as-alt stripped Alt for this side: the AppKit
         // character translation must not apply Option (Alt/Meta encoding).
-        let translated = cmuxTranslationModifierFlags(
-            original: [.option],
+        let translated = NSEvent.ModifierFlags.option.terminalGhosttyTranslationFlags(
             ghosttyTranslationMods: GHOSTTY_MODS_NONE
         )
         #expect(!translated.contains(.option))
@@ -108,8 +108,8 @@ import Testing
     @Test func translationFlagsKeepOptionWhenGhosttyKeepsAlt() {
         // Option on the composing side must stay available to AppKit so
         // Option-composed characters keep working.
-        let translated = cmuxTranslationModifierFlags(
-            original: [.option, .shift],
+        let original = NSEvent.ModifierFlags.option.union(.shift)
+        let translated = original.terminalGhosttyTranslationFlags(
             ghosttyTranslationMods: ghostty_input_mods_e(
                 rawValue: GHOSTTY_MODS_ALT.rawValue | GHOSTTY_MODS_SHIFT.rawValue
             )
@@ -119,8 +119,8 @@ import Testing
     }
 
     @Test func translationFlagsPreserveFlagsGhosttyDoesNotModel() {
-        let translated = cmuxTranslationModifierFlags(
-            original: [.option, .function, .numericPad],
+        let original = NSEvent.ModifierFlags.option.union(.function).union(.numericPad)
+        let translated = original.terminalGhosttyTranslationFlags(
             ghosttyTranslationMods: GHOSTTY_MODS_NONE
         )
         #expect(translated.contains(.function))

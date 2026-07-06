@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxSettings
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -25,10 +26,8 @@ struct TabManagerTitleUpdateStalenessTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
@@ -78,10 +77,8 @@ struct TabManagerTitleUpdateStalenessTests {
 
         let scheduler = ManualCoalescerScheduler()
         let manager = TabManager(
-            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
-                schedule: scheduler.schedule(delay:action:)
-            ),
-            settings: settings
+            settings: settings,
+            panelTitleUpdateScheduler: scheduler
         )
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
@@ -120,7 +117,7 @@ struct TabManagerTitleUpdateStalenessTests {
         }
     }
 
-    private final class ManualCoalescerScheduler {
+    private final class ManualCoalescerScheduler: TitleFlushDelayScheduling {
         private struct PendingFlush {
             var isCancelled = false
             let action: @MainActor () -> Void
@@ -130,10 +127,20 @@ struct TabManagerTitleUpdateStalenessTests {
         private(set) var delays: [TimeInterval] = []
 
         @MainActor
+        func signal(_ action: @escaping () -> Void) {
+            signal(delay: PanelTitleUpdateCoalescingSettings.defaultDelay, action)
+        }
+
+        @MainActor
+        func signal(delay: TimeInterval, _ action: @escaping () -> Void) {
+            _ = schedule(delay: delay, action: action)
+        }
+
+        @MainActor
         func schedule(
             delay: TimeInterval,
             action: @escaping @MainActor () -> Void
-        ) -> NotificationBurstCoalescer.Cancellation {
+        ) -> PanelTitleUpdateCoalescer.Cancellation {
             let index = pendingFlushes.count
             delays.append(delay)
             pendingFlushes.append(PendingFlush(action: action))

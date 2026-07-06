@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSidebar
 import Testing
 
 #if canImport(cmux_DEV)

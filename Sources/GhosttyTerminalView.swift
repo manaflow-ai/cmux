@@ -695,6 +695,27 @@ class GhosttyApp {
     }
 
     #if DEBUG
+    func debugConfigKeyIsBindingForTesting(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt32
+    ) -> Bool? {
+        guard let config else { return nil }
+
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = keyCode
+        keyEvent.mods = modifiers.terminalGhosttyKeyMods
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = key.unicodeScalars.first.map { UInt32($0.value) } ?? 0
+        keyEvent.composing = false
+
+        return key.withCString { ptr in
+            keyEvent.text = ptr
+            return ghostty_config_key_is_binding(config, keyEvent)
+        }
+    }
+
     private static let initLogPath = "/tmp/cmux-ghostty-init.log"
 
     private static func initLog(_ message: String) {

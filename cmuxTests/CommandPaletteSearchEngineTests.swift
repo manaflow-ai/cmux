@@ -553,10 +553,10 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let results = CommandPaletteSearchEngine(entries: corpus).search(
             query: "fork"
         ) { commandId, _ in
-            ContentView.commandPaletteForkPriorityBoost(commandId: commandId, query: "fork")
+            CommandPaletteQueryScopePolicy().forkPriorityBoost(commandId: commandId, query: "fork")
         }
 
-        XCTAssertEqual(results.map(\.payload).first, "palette.forkAgentConversationRight")
+        XCTAssertEqual(results.map { $0.payload }.first, "palette.forkAgentConversationRight")
     }
 
     func testForkableAgentCacheKeepsPanelVisibleWithoutFallbackSnapshot() {

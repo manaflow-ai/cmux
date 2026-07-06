@@ -8620,7 +8620,12 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : []
+            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
+            mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity(
+                isPlayingAudio: tab.browserMediaActivity.isPlayingAudio,
+                isUsingMicrophone: tab.browserMediaActivity.isUsingMicrophone,
+                isUsingCamera: tab.browserMediaActivity.isUsingCamera
+            )
         )
 
         return SidebarWorkspaceSnapshotBuilder.snapshot(

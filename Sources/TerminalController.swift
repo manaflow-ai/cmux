@@ -506,6 +506,18 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// The cookie source of truth, vended by ``browserAutomation``.
     nonisolated var v2BrowserCookieRepository: BrowserCookieRepository { browserAutomation.cookies }
 
+    func v2RecordBrowserDownloadEvent(surfaceId: UUID, event: [String: Any]) {
+        v2BrowserSurfaceState.recordDownloadEvent(event, surfaceId: surfaceId)
+    }
+
+    func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
+        v2BrowserSurfaceState.popDownloadEvent(surfaceId: surfaceId)
+    }
+
+    func v2MarkBrowserDownloadEventConsumed(_ event: [String: Any], surfaceId: UUID) {
+        v2BrowserSurfaceState.markDownloadEventConsumed(event, surfaceId: surfaceId)
+    }
+
     func cleanupSurfaceState(surfaceIds: [UUID]) {
         browserAutomation.cleanupSurfaces(surfaceIds)
         for surfaceId in Set(surfaceIds) {

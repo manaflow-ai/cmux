@@ -364,18 +364,37 @@ extension AppDelegate {
 
     @discardableResult
     func handleFocusedFileExplorerOpenSelectionShortcut(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
-        // TODO(delta-merge): origin/main's file-explorer open-selection shortcut
-        // (FileExplorerKeyboardShortcuts.swift) drove `handleOpenSelectionShortcut`
-        // on the FileExplorer views via `fileExplorerPanelPlacement` +
-        // `fileExplorerCoordinator` stored properties that HEAD's package view
-        // classes (CmuxAppKitSupportUI) do not yet carry, plus the view-lifecycle
-        // wiring that populates them. Re-add the whole feature (view-class state +
-        // wiring + FileExplorerKeyboardShortcuts.swift) as a follow-up; the
-        // fileExplorerOpenSelection actions route to `.rightSidebarFocus` but have
-        // no handler until then.
-        _ = event
-        _ = preferredWindow
+        let shortcutWindow = preferredWindow ?? shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let responder = shortcutWindow?.firstResponder,
+              let root = shortcutFileExplorerFocusView(for: responder) else {
+            return false
+        }
+
+        if let outlineView = root as? FileExplorerNSOutlineView {
+            return outlineView.handleOpenSelectionShortcut(event)
+        }
+        if let resultsView = root as? FileExplorerSearchResultsTableView {
+            return resultsView.handleOpenSelectionShortcut(event)
+        }
+        if let searchField = root as? FileExplorerSearchField {
+            return searchField.handleOpenSelectionShortcut(event)
+        }
         return false
+    }
+
+    func fileExplorerOpenSelectionShortcutContext(
+        for event: NSEvent,
+        placement: FileExplorerPanelPlacement
+    ) -> ShortcutContext {
+        var context = shortcutEventFocusContext(event).shortcutContext
+        switch placement {
+        case .rightSidebar, .pane:
+            context.setBool(ShortcutFocusAtom.sidebarFocus.rawValue, true)
+            context.setBool(ShortcutFocusAtom.browserFocus.rawValue, false)
+            context.setBool(ShortcutFocusAtom.markdownFocus.rawValue, false)
+            context.setBool(ShortcutFocusAtom.terminalFocus.rawValue, false)
+        }
+        return context
     }
 
     private func shortcutFileExplorerFocusView(for responder: NSResponder) -> NSView? {
@@ -660,5 +679,73 @@ extension AppDelegate {
             stack.append(contentsOf: current.subviews)
         }
         return found
+    }
+}
+
+@MainActor
+extension FileExplorerNSOutlineView {
+    func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
+        onOpenSelection?()
+        return true
+    }
+}
+
+@MainActor
+extension FileExplorerSearchResultsTableView {
+    func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
+        onCommit?()
+        return true
+    }
+}
+
+@MainActor
+extension FileExplorerSearchField {
+    func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        if (currentEditor() as? NSTextView)?.hasMarkedText() == true { return false }
+        guard !RightSidebarKeyboardNavigation.isPlainPrintableText(event) else { return false }
+        guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
+        onCommit?()
+        return true
+    }
+}
+
+@MainActor
+extension NSEvent {
+    func isFileExplorerOpenSelectionShortcut(in placement: FileExplorerPanelPlacement) -> Bool {
+        let context = AppDelegate.shared?.fileExplorerOpenSelectionShortcutContext(
+            for: self,
+            placement: placement
+        ) ?? placement.openSelectionShortcutContextFallback
+        return isFileExplorerOpenSelectionShortcut(in: context)
+    }
+
+    func isFileExplorerOpenSelectionShortcut(in context: ShortcutContext) -> Bool {
+        KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
+            KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)
+        }
+    }
+}
+
+@MainActor
+private extension FileExplorerPanelPlacement {
+    var openSelectionShortcutContextFallback: ShortcutContext {
+        var context = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        switch self {
+        case .rightSidebar, .pane:
+            context.setBool(ShortcutFocusAtom.sidebarFocus.rawValue, true)
+            context.setBool(ShortcutFocusAtom.browserFocus.rawValue, false)
+            context.setBool(ShortcutFocusAtom.markdownFocus.rawValue, false)
+            context.setBool(ShortcutFocusAtom.terminalFocus.rawValue, false)
+        }
+        return context
+    }
+}
+
+private extension KeyboardShortcutSettings.Action {
+    static var fileExplorerOpenSelectionActions: [Self] {
+        [.fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias]
     }
 }

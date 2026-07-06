@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXAgentLaunch
 import Darwin
 import Testing
 

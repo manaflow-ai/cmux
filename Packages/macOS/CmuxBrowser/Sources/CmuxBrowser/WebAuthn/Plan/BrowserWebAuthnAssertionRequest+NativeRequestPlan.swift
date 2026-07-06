@@ -10,9 +10,11 @@ extension BrowserWebAuthnAssertionRequest {
     public func nativeRequestPlan(
         clientDataContext: BrowserWebAuthnClientDataContext
     ) throws -> BrowserWebAuthnNativeRequestPlan? {
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
+        guard let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
             publicKey.rpId
-        )
+        ) else {
+            return nil
+        }
         let clientData = try clientDataContext.clientData(challenge: publicKey.challenge.data)
         let allowCredentials = (publicKey.allowCredentials ?? []).filter(\.isPublicKeyCredential)
         let transportSummary = BrowserWebAuthnTransportSummary(descriptors: allowCredentials)

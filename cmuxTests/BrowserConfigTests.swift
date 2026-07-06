@@ -20,6 +20,7 @@ import Bonsplit
 import UserNotifications
 import Network
 import CmuxBrowser
+import CmuxWorkspaces
 import CmuxSettings
 import CmuxSidebar
 
@@ -2786,7 +2787,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             currentURLString: pageB.absoluteString
         )
 
-        _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
+        _ = panel.webView.browserLoadRequest(URLRequest(url: pageC))
         waitForBrowserPanel(panel, url: pageC)
 
         let snapshot = panel.sessionNavigationHistorySnapshot()
@@ -3970,6 +3971,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -4014,6 +4016,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -4127,6 +4130,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -4219,6 +4223,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            appEnvironment: nil,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -5366,7 +5371,7 @@ final class BrowserReadAccessURLTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
 
-        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        let readAccessURL = try XCTUnwrap(file.browserReadAccessURL())
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
@@ -5376,19 +5381,19 @@ final class BrowserReadAccessURLTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
+        let readAccessURL = try XCTUnwrap(dir.browserReadAccessURL())
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
     func testUsesParentDirectoryWhenFileDoesNotExist() throws {
         let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
-        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
+        let readAccessURL = try XCTUnwrap(missing.browserReadAccessURL())
         XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
     }
 
     func testReturnsNilForHostOnlyFileURL() throws {
         let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
-        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
+        XCTAssertNil(hostOnly.browserReadAccessURL())
     }
 }
 

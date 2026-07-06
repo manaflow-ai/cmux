@@ -179,7 +179,7 @@ struct PaneMemoryGuardrailTests {
             foregroundPID: 100
         )
 
-        let sample = PaneMemoryGuardrail.computeSamples(
+        let sample = PaneMemorySampleProvider.computeSamples(
             descriptors: [descriptor],
             thresholdBytes: threshold,
             snapshot: snapshot
@@ -197,14 +197,14 @@ struct PaneMemoryGuardrailTests {
         let scopedSample = sample(workspace: ws, pane: pane, memoryGB: 9, pgids: [200])
         let cheapSample = sample(workspace: ws, pane: pane, memoryGB: 0.1, pgids: [])
 
-        let scoped = PaneMemoryGuardrail.reconcileScopedSamples(
+        let scoped = PaneMemorySampleProvider.reconcileScopedSamples(
             samples: [scopedSample],
             currentScopedOnlySamplesByKey: [scopedSample.key: scopedSample],
             previousScopedOnlySamplesByKey: [:],
             includesCMUXScope: true,
             clearBytes: clearBytes
         )
-        let unscoped = PaneMemoryGuardrail.reconcileScopedSamples(
+        let unscoped = PaneMemorySampleProvider.reconcileScopedSamples(
             samples: [cheapSample],
             currentScopedOnlySamplesByKey: [:],
             previousScopedOnlySamplesByKey: scoped.scopedOnlySamplesByKey,
@@ -215,7 +215,7 @@ struct PaneMemoryGuardrailTests {
         #expect(unscoped.samples.first?.memoryBytes == cheapSample.memoryBytes + scopedSample.memoryBytes)
         #expect(unscoped.samples.first?.memoryPressureProcessGroupIDs == [200])
 
-        let cleared = PaneMemoryGuardrail.reconcileScopedSamples(
+        let cleared = PaneMemorySampleProvider.reconcileScopedSamples(
             samples: [cheapSample],
             currentScopedOnlySamplesByKey: [:],
             previousScopedOnlySamplesByKey: unscoped.scopedOnlySamplesByKey,
@@ -233,7 +233,7 @@ struct PaneMemoryGuardrailTests {
         let scopedOnlySample = sample(workspace: ws, pane: pane, memoryGB: 7, pgids: [200])
         let cheapSample = sample(workspace: ws, pane: pane, memoryGB: 7, pgids: [300])
 
-        let reconciled = PaneMemoryGuardrail.reconcileScopedSamples(
+        let reconciled = PaneMemorySampleProvider.reconcileScopedSamples(
             samples: [cheapSample],
             currentScopedOnlySamplesByKey: [:],
             previousScopedOnlySamplesByKey: [scopedOnlySample.key: scopedOnlySample],

@@ -138,32 +138,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     private func ghosttyConfigKeyIsBinding(
-        _ config: ghostty_config_t,
         key: String,
         modifiers: NSEvent.ModifierFlags,
         keyCode: UInt32
     ) -> Bool {
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = keyCode
-        keyEvent.mods = ghosttyMods(from: modifiers)
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = key.unicodeScalars.first.map { UInt32($0.value) } ?? 0
-        keyEvent.composing = false
-
-        return key.withCString { ptr in
-            keyEvent.text = ptr
-            return ghostty_config_key_is_binding(config, keyEvent)
+        guard let result = GhosttyApp.shared.debugConfigKeyIsBindingForTesting(
+            key: key,
+            modifiers: modifiers,
+            keyCode: keyCode
+        ) else {
+            XCTFail("Expected loaded Ghostty config")
+            return true
         }
-    }
-
-    private func ghosttyMods(from modifiers: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
-        var rawValue = GHOSTTY_MODS_NONE.rawValue
-        if modifiers.contains(.shift) { rawValue |= GHOSTTY_MODS_SHIFT.rawValue }
-        if modifiers.contains(.control) { rawValue |= GHOSTTY_MODS_CTRL.rawValue }
-        if modifiers.contains(.option) { rawValue |= GHOSTTY_MODS_ALT.rawValue }
-        if modifiers.contains(.command) { rawValue |= GHOSTTY_MODS_SUPER.rawValue }
-        return ghostty_input_mods_e(rawValue: rawValue)
+        return result
     }
 
     override func setUpWithError() throws {
@@ -2457,7 +2444,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         probeWindow.displayIfNeeded()
         XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
 
-        guard let ghosttyConfig = GhosttyApp.shared.config else {
+        guard GhosttyApp.shared.config != nil else {
             XCTFail("Expected loaded Ghostty config")
             return
         }
@@ -2485,7 +2472,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.shortcut(for: .closeTab).matches(event: staleCmdW),
                 "After Close Tab is remapped, Cmd+W must not match the cmux Close Tab action"
             )
-            if ghosttyConfigKeyIsBinding(ghosttyConfig, key: "w", modifiers: [.command], keyCode: 13) {
+            if ghosttyConfigKeyIsBinding(key: "w", modifiers: [.command], keyCode: 13) {
                 XCTFail("After Close Tab is remapped, Ghostty must not retain its super+w close_surface fallback")
                 return
             }
@@ -2539,7 +2526,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // shortcut is driven solely by the configured value. Otherwise a remapped-away ⌘1–9
         // still reaches the focused terminal and switches "tabs", making the rebind look
         // hardcoded.
-        guard let ghosttyConfig = GhosttyApp.shared.config else {
+        guard GhosttyApp.shared.config != nil else {
             XCTFail("Expected loaded Ghostty config")
             return
         }
@@ -2559,7 +2546,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         for (digit, keyCode) in digitKeyCodes {
             XCTAssertFalse(
                 ghosttyConfigKeyIsBinding(
-                    ghosttyConfig,
                     key: digit,
                     modifiers: [.command],
                     keyCode: keyCode

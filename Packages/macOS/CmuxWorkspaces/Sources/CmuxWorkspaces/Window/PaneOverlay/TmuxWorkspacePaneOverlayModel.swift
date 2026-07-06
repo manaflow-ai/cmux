@@ -28,6 +28,12 @@ public final class TmuxWorkspacePaneOverlayModel {
     /// The optional flash rect from the most recent render state.
     public private(set) var flashRect: CGRect?
 
+    /// The active pane border rect from the most recent render state.
+    public private(set) var activePaneBorderRect: CGRect?
+
+    /// The active pane border color from the most recent render state.
+    public private(set) var activePaneBorderColorHex: String?
+
     /// When the currently-tracked flash began animating, if any.
     public private(set) var flashStartedAt: Date?
 
@@ -51,6 +57,8 @@ public final class TmuxWorkspacePaneOverlayModel {
     ) {
         unreadRects = state.unreadRects
         flashRect = state.flashRect
+        activePaneBorderRect = state.activePaneBorderRect
+        activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
 
         let didChangeWorkspace = currentWorkspaceId != state.workspaceId
@@ -74,6 +82,8 @@ public final class TmuxWorkspacePaneOverlayModel {
     public func clear() {
         unreadRects = []
         flashRect = nil
+        activePaneBorderRect = nil
+        activePaneBorderColorHex = nil
         flashStartedAt = nil
         flashReason = nil
         currentWorkspaceId = nil

@@ -56,6 +56,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onFocus = onFocus
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
+        container.updatePlacement(placement)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -427,6 +428,7 @@ final class FileExplorerContainerView: NSView, FileExplorerFocusHosting {
         self.coordinator = coordinator
 
         super.init(frame: .zero)
+        updatePlacement(coordinator.placement)
         configureSearchDebounce()
 
         // Header
@@ -522,6 +524,10 @@ final class FileExplorerContainerView: NSView, FileExplorerFocusHosting {
         outlineView.onQuickSearchMatch = { [weak self] query in
             guard let self else { return }
             self.coordinator.navigator.selectBestQuickSearchMatch(in: self.outlineView, query: query)
+        }
+        outlineView.onOpenSelection = { [weak self] in
+            guard let self else { return }
+            self.coordinator.handleDoubleClick(self.outlineView)
         }
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
@@ -646,6 +652,12 @@ final class FileExplorerContainerView: NSView, FileExplorerFocusHosting {
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    func updatePlacement(_ placement: FileExplorerPanelPlacement) {
+        outlineView.fileExplorerPanelPlacement = placement
+        searchField.fileExplorerPanelPlacement = placement
+        searchResultsView.fileExplorerPanelPlacement = placement
     }
 
     required init?(coder: NSCoder) {

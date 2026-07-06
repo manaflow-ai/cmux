@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxAppKitSupportUI
 import PDFKit
 
 #if canImport(cmux_DEV)

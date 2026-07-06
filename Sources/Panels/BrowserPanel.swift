@@ -1374,10 +1374,15 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
                 self?.endDownloadActivity()
             }
         }
+        webView.onSessionDownloadEvent = { [weak self] event in
+            guard let self else { return }
+            self.postBrowserDownloadEvent(event)
+        }
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
+        webView.cmuxDownloadDelegate = downloadDelegate
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
@@ -1638,55 +1643,60 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
         }
         // Set up download delegate for navigation-based downloads.
-        // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
-        // callbacks), then show NSSavePanel after the download completes.
+        // Downloads save to a temp file synchronously (no UI during WebKit
+        // callbacks), then auto-save to Downloads unless the prompt setting is enabled.
         let dlDelegate = BrowserDownloadDelegate()
-        dlDelegate.onDownloadStarted = { [weak self] filename in
+        dlDelegate.savePanelParentWindow = { [weak self] in
+            self.flatMap { browserInteractiveModalHostWindow(for: $0.webView) }
+        }
+        dlDelegate.onDownloadStarted = { [weak self] filename, downloadID in
             guard let self else { return }
             self.beginDownloadActivity()
-            NotificationCenter.default.post(
-                name: .browserDownloadEventDidArrive,
-                object: self,
-                userInfo: [
-                    "surfaceId": self.id,
-                    "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "started",
-                        "filename": filename
-                    ]
-                ]
-            )
+            self.postBrowserDownloadEvent([
+                "type": "started",
+                "download_id": downloadID,
+                "filename": filename
+            ])
         }
-        dlDelegate.onDownloadReadyToSave = { [weak self] in
+        dlDelegate.onDownloadReadyToSave = { [weak self] filename, downloadID in
             guard let self else { return }
             self.endDownloadActivity()
-            NotificationCenter.default.post(
-                name: .browserDownloadEventDidArrive,
-                object: self,
-                userInfo: [
-                    "surfaceId": self.id,
-                    "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "ready_to_save"
-                    ]
-                ]
-            )
+            self.postBrowserDownloadEvent([
+                "type": "ready_to_save",
+                "download_id": downloadID,
+                "filename": filename
+            ])
         }
-        dlDelegate.onDownloadFailed = { [weak self] error in
+        dlDelegate.onDownloadSaved = { [weak self] filename, destinationURL, shouldEndActivity, downloadID in
             guard let self else { return }
-            self.endDownloadActivity()
-            NotificationCenter.default.post(
-                name: .browserDownloadEventDidArrive,
-                object: self,
-                userInfo: [
-                    "surfaceId": self.id,
-                    "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "failed",
-                        "error": error.localizedDescription
-                    ]
-                ]
-            )
+            if shouldEndActivity { self.endDownloadActivity() }
+            self.postBrowserDownloadEvent([
+                "type": "saved",
+                "download_id": downloadID,
+                "filename": filename,
+                "path": destinationURL.path
+            ])
+        }
+        dlDelegate.onDownloadCancelled = { [weak self] filename, shouldEndActivity, downloadID in
+            guard let self else { return }
+            if shouldEndActivity { self.endDownloadActivity() }
+            self.postBrowserDownloadEvent([
+                "type": "cancelled",
+                "download_id": downloadID,
+                "filename": filename
+            ])
+        }
+        dlDelegate.onDownloadFailed = { [weak self] _, shouldEndActivity, downloadID in
+            guard let self else { return }
+            if shouldEndActivity { self.endDownloadActivity() }
+            var event: [String: Any] = [
+                "type": "failed",
+                "error": String(localized: "browser.download.error.generic", defaultValue: "Download failed")
+            ]
+            if let downloadID {
+                event["download_id"] = downloadID
+            }
+            self.postBrowserDownloadEvent(event)
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
@@ -1961,6 +1971,18 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         } else {
             DispatchQueue.main.async(execute: apply)
         }
+    }
+
+    private func postBrowserDownloadEvent(_ event: [String: Any]) {
+        NotificationCenter.default.post(
+            name: .browserDownloadEventDidArrive,
+            object: self,
+            userInfo: [
+                "surfaceId": id,
+                "workspaceId": workspaceId,
+                "event": event
+            ]
+        )
     }
 
     /// Publishes the download-active flag for ``BrowserDownloadActivityCoordinator``
@@ -5192,6 +5214,10 @@ private extension BrowserPanel {
 
 #if DEBUG
 extension BrowserPanel {
+    var downloadDelegateForTesting: BrowserDownloadDelegate? {
+        downloadDelegate
+    }
+
     func configureInsecureHTTPAlertHooksForTesting(
         alertFactory: @escaping () -> NSAlert,
         windowProvider: @escaping () -> NSWindow?

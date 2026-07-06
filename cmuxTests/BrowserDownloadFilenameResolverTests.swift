@@ -258,7 +258,7 @@ import WebKit
     @MainActor
     @Test func promptedDownloadCompletionCallbacksPostFinalEvents() throws {
         let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false); defer { panel.close() }
-        let delegate = try #require(panel.downloadDelegate)
+        let delegate = try #require(panel.downloadDelegateForTesting)
         let capture = BrowserDownloadEventCapture()
         let observer = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -329,7 +329,7 @@ import WebKit
 
         #expect(panel.hasBackgroundPreloadHost)
         #expect(browserInteractiveModalHostWindow(for: panel.webView) == nil)
-        let delegate = try #require(panel.downloadDelegate)
+        let delegate = try #require(panel.downloadDelegateForTesting)
 
         #expect(delegate.savePanelParentWindow?() == nil)
     }

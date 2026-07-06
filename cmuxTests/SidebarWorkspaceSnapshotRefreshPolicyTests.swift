@@ -84,13 +84,13 @@ import Testing
             remoteConnectionStatusText: "Connected",
             latestConversationMessage: "old message",
             listeningPorts: [3000],
-            mediaActivity: BrowserMediaActivity(isPlayingAudio: true)
+            mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity(isPlayingAudio: true)
         )
         let next = Self.snapshot(
             remoteConnectionStatusText: "Disconnected",
             latestConversationMessage: "new message",
             listeningPorts: [3000, 4000],
-            mediaActivity: BrowserMediaActivity(isPlayingAudio: false)
+            mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity(isPlayingAudio: false)
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
@@ -134,7 +134,7 @@ import Testing
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
-        mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
+        mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity = SidebarWorkspaceSnapshotBuilder.MediaActivity()
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -356,7 +356,7 @@ import Testing
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
-        state.contextMenuTrackingObserverDidInstall()
+        state.contextMenuTrackingDidBegin()
         state.setPointerHovering(true)
         state.setPointerHovering(false)
         state.contextMenuDidDisappear()
@@ -420,7 +420,7 @@ import Testing
 
         state.setPointerHovering(true)
         state.contextMenuDidAppear()
-        state.contextMenuTrackingObserverDidInstall()
+        state.contextMenuTrackingDidBegin()
         state.setPointerHovering(false)
         state.contextMenuDidDisappear()
 

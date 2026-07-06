@@ -124,6 +124,7 @@ public protocol WorkspaceCreationHosting<Tab>: AnyObject {
         initialTerminalInput: String?,
         initialTerminalEnvironment: [String: String],
         workspaceEnvironment: [String: String],
+        allowTextBoxFocusDefault: Bool,
         chromeInheritanceSource: Tab?
     ) -> Tab
 

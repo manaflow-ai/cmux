@@ -1,8 +1,10 @@
 @preconcurrency import XCTest
 import CmuxAppKitSupportUI
+import CmuxSidebar
 import CmuxSettings
 import CmuxBrowser
 import CmuxCore
+import CmuxWindowing
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
@@ -15,6 +17,7 @@ import Darwin
 import SwiftUI
 import Testing
 import CmuxTerminal
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -66,6 +69,18 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    private func resolvedGhosttyResourcesDirectory(
+        currentValue: String?,
+        bundleResourceURL: URL?,
+        ghosttyAppResources: String,
+        fileManager: FileManager
+    ) -> String? {
+        GhosttyResourcesDirectoryResolver(
+            ghosttyAppResources: ghosttyAppResources,
+            fileExists: { fileManager.fileExists(atPath: $0) }
+        ).resolve(currentValue: currentValue, bundleResourceURL: bundleResourceURL)
+    }
+
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -85,7 +100,7 @@ final class GhosttyConfigTests: XCTestCase {
             withIntermediateDirectories: true
         )
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: bundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
@@ -107,7 +122,7 @@ final class GhosttyConfigTests: XCTestCase {
         try fileManager.createDirectory(at: inheritedResources, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: emptyBundleResources, withIntermediateDirectories: true)
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: emptyBundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
@@ -133,7 +148,7 @@ final class GhosttyConfigTests: XCTestCase {
         )
         try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: bundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
@@ -154,7 +169,7 @@ final class GhosttyConfigTests: XCTestCase {
         let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
         try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: root.appendingPathComponent("missing-inherited", isDirectory: true).path,
             bundleResourceURL: bundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing-app", isDirectory: true).path,
@@ -998,10 +1013,7 @@ final class GhosttyConfigTests: XCTestCase {
         ]
         for (currentScope, incomingScope, expected) in cases {
             XCTAssertEqual(
-                GhosttyApp.shouldApplyDefaultBackgroundUpdate(
-                    currentScope: currentScope,
-                    incomingScope: incomingScope
-                ),
+                incomingScope.shouldApply(over: currentScope),
                 expected
             )
         }
@@ -1400,7 +1412,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
@@ -1414,7 +1426,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
@@ -1428,7 +1440,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
             from: backgroundColor,
             sharesWindowBackdrop: true
         )
@@ -1445,7 +1457,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
             from: backgroundColor,
             renderingMode: .ghosttyRendererOwnedBackgroundImage
         )
@@ -1462,7 +1474,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
             from: backgroundColor,
             paneBorderColorHex: "#33AAFF"
         )
@@ -1526,7 +1538,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        let hex = BonsplitChromeColorResolver().bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
         XCTAssertEqual(hex, "#1122337F")
     }
 
@@ -1538,7 +1550,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = BonsplitChromeColorResolver().bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
@@ -1550,7 +1562,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(
+        let hex = BonsplitChromeColorResolver().bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
@@ -1566,7 +1578,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = Workspace.bonsplitChromeColors(
+        let colors = BonsplitChromeColorResolver().bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
@@ -1586,7 +1598,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = Workspace.bonsplitChromeColors(
+        let colors = BonsplitChromeColorResolver().bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
@@ -1607,7 +1619,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = Workspace.bonsplitChromeColors(
+        let colors = BonsplitChromeColorResolver().bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop,
@@ -2265,17 +2277,17 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         // Out-of-range / invalid raw values that must be canonicalized.
         defaults.set("not-a-real-mode", forKey: BrowserThemeSettings.modeKey)
         defaults.set("not-a-real-variant", forKey: BrowserImportHintSettings.variantKey)
-        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
-        defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.set(999, forKey: BrowserToolbarAccessorySpacingStore.key)
+        defaults.set(999.0, forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey)
+        defaults.set(-5.0, forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeSettings.defaultMode.rawValue)
         XCTAssertEqual(defaults.string(forKey: BrowserImportHintSettings.variantKey), BrowserImportHintSettings.defaultVariant.rawValue)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingStore.key), BrowserToolbarAccessorySpacingStore.defaultSpacing)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey), BrowserProfilePopoverPaddingStore.defaultHorizontalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey), BrowserProfilePopoverPaddingStore.defaultVerticalPadding, accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
         XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchSettingsStore.defaultSearchEngine.rawValue)
@@ -2288,18 +2300,18 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        let validSpacing = BrowserToolbarAccessorySpacingStore.supportedValues.last ?? BrowserToolbarAccessorySpacingStore.defaultSpacing
         // Resolve the app-target theme mode via the app-only settings type; the bare
         // `BrowserThemeMode` is ambiguous here because this file also imports
         // `CmuxSettings`, which declares a same-named enum.
         let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
         defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
-        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingStore.key)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingStore.key), validSpacing)
     }
 }
 
@@ -2314,7 +2326,7 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
         request.setValue("keep-me", forHTTPHeaderField: "X-Cmux-Test")
 
         let seed = try XCTUnwrap(
-            browserNewTabNavigationSeed(
+            BrowserNewTabNavigationSeed.make(
                 from: request,
                 bypassInsecureHTTPHostOnce: "www.linkedin.com"
             )
@@ -2852,7 +2864,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
 final class TitlebarDoubleClickPreferenceTests: XCTestCase {
     func testResolvesZoomForFillPreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleActionOnDoubleClick": "Fill",
             ]),
             .zoom
@@ -2861,7 +2873,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testResolvesMiniaturizeForExplicitMinimizePreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleActionOnDoubleClick": "Minimize",
             ]),
             .miniaturize
@@ -2870,7 +2882,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testResolvesNoneForNoActionPreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleActionOnDoubleClick": "No Action",
             ]),
             .none
@@ -2879,7 +2891,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testFallsBackToLegacyMiniaturizePreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleMiniaturizeOnDoubleClick": true,
             ]),
             .miniaturize
@@ -2888,7 +2900,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testDefaultsToZoomWhenPreferenceIsMissing() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [:]),
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [:]),
             .zoom
         )
     }
@@ -2956,7 +2968,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let activeSelectedTabId = UUID()
 
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: tabId,
@@ -2969,7 +2981,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertFalse(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: UUID(),
@@ -2982,7 +2994,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: nil,
@@ -2995,7 +3007,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -3003,7 +3015,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -3014,7 +3026,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
 
     func testShouldApplyWindowBackgroundAllowsWhenNoSelectionContext() {
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: UUID(),
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -3022,7 +3034,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: nil,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -3030,7 +3042,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalWindowBackgroundPolicy().shouldApplyWindowBackground(
                 surfaceTabId: nil,
                 owningManagerExists: true,
                 owningSelectedTabId: UUID(),
@@ -3758,8 +3770,7 @@ final class UITestLaunchManifestTests: XCTestCase {
 final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldRequestFirstResponderForMouseFocusWhenEnabledAndWindowIsActive() {
         XCTAssertTrue(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
-                focusFollowsMouseEnabled: true,
+            TerminalMouseFocusPolicy(focusFollowsMouseEnabled: true).shouldRequestFirstResponder(
                 pressedMouseButtons: 0,
                 appIsActive: true,
                 windowIsKey: true,
@@ -3773,8 +3784,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderWhenFocusFollowsMouseDisabled() {
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
-                focusFollowsMouseEnabled: false,
+            TerminalMouseFocusPolicy(focusFollowsMouseEnabled: false).shouldRequestFirstResponder(
                 pressedMouseButtons: 0,
                 appIsActive: true,
                 windowIsKey: true,
@@ -3788,8 +3798,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderDuringMouseDrag() {
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
-                focusFollowsMouseEnabled: true,
+            TerminalMouseFocusPolicy(focusFollowsMouseEnabled: true).shouldRequestFirstResponder(
                 pressedMouseButtons: 1,
                 appIsActive: true,
                 windowIsKey: true,
@@ -3803,8 +3812,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderWhenViewCannotSafelyReceiveFocus() {
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
-                focusFollowsMouseEnabled: true,
+            TerminalMouseFocusPolicy(focusFollowsMouseEnabled: true).shouldRequestFirstResponder(
                 pressedMouseButtons: 0,
                 appIsActive: true,
                 windowIsKey: true,
@@ -3815,8 +3823,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
-                focusFollowsMouseEnabled: true,
+            TerminalMouseFocusPolicy(focusFollowsMouseEnabled: true).shouldRequestFirstResponder(
                 pressedMouseButtons: 0,
                 appIsActive: true,
                 windowIsKey: true,

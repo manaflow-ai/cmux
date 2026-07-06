@@ -9,6 +9,7 @@ import UserNotifications
 import Darwin
 import Testing
 import CmuxBrowser
+import CmuxBrowserUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1463,19 +1464,19 @@ final class WindowBrowserHostViewTests: XCTestCase {
         host.addSubview(inspectorSplit)
 
         XCTAssertTrue(
-            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
-                appSplit,
+            BrowserPortalSplitResizeDecision(
+                splitView: appSplit,
                 window: window,
                 hostView: host
-            ),
+            ).treatsSplitResizeAsExternalGeometry,
             "App layout splits should still trigger browser portal geometry sync"
         )
         XCTAssertFalse(
-            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
-                inspectorSplit,
+            BrowserPortalSplitResizeDecision(
+                splitView: inspectorSplit,
                 window: window,
                 hostView: host
-            ),
+            ).treatsSplitResizeAsExternalGeometry,
             "Hosted DevTools/internal splits should not trigger browser portal geometry sync"
         )
     }

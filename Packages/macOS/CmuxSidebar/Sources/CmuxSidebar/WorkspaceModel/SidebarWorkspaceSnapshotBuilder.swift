@@ -107,6 +107,8 @@ public enum SidebarWorkspaceSnapshotBuilder {
         public let progress: SidebarProgressState?
         /// The forwarded listening ports (already gated).
         public let listeningPorts: [Int]
+        /// Browser media activity summarized for row affordances.
+        public let mediaActivity: MediaActivity
 
         /// Creates the per-render tab content bundle.
         public init(
@@ -124,7 +126,8 @@ public enum SidebarWorkspaceSnapshotBuilder {
             metadataBlocks: [SidebarMetadataBlock],
             latestLog: SidebarLogEntry?,
             progress: SidebarProgressState?,
-            listeningPorts: [Int]
+            listeningPorts: [Int],
+            mediaActivity: MediaActivity = MediaActivity()
         ) {
             self.title = title
             self.customDescription = customDescription
@@ -141,6 +144,7 @@ public enum SidebarWorkspaceSnapshotBuilder {
             self.latestLog = latestLog
             self.progress = progress
             self.listeningPorts = listeningPorts
+            self.mediaActivity = mediaActivity
         }
     }
 
@@ -174,6 +178,27 @@ public enum SidebarWorkspaceSnapshotBuilder {
             self.url = url
             self.status = status
             self.isStale = isStale
+        }
+    }
+
+    /// Browser media activity summarized for the sidebar row.
+    public struct MediaActivity: Equatable, Sendable {
+        /// Whether any browser panel in the workspace is playing audio.
+        public let isPlayingAudio: Bool
+        /// Whether any browser panel in the workspace is using the microphone.
+        public let isUsingMicrophone: Bool
+        /// Whether any browser panel in the workspace is using the camera.
+        public let isUsingCamera: Bool
+
+        /// Creates a sidebar media-activity summary.
+        public init(
+            isPlayingAudio: Bool = false,
+            isUsingMicrophone: Bool = false,
+            isUsingCamera: Bool = false
+        ) {
+            self.isPlayingAudio = isPlayingAudio
+            self.isUsingMicrophone = isUsingMicrophone
+            self.isUsingCamera = isUsingCamera
         }
     }
 
@@ -225,6 +250,8 @@ public enum SidebarWorkspaceSnapshotBuilder {
         public let listeningPorts: [Int]
         /// The Finder directory path, or `nil`.
         public let finderDirectoryPath: String?
+        /// Browser media activity summarized for row affordances.
+        public let mediaActivity: MediaActivity
 
         /// Creates a fully-resolved sidebar row snapshot.
         public init(
@@ -250,7 +277,8 @@ public enum SidebarWorkspaceSnapshotBuilder {
             branchLinesContainBranch: Bool,
             pullRequestRows: [PullRequestDisplay],
             listeningPorts: [Int],
-            finderDirectoryPath: String?
+            finderDirectoryPath: String?,
+            mediaActivity: MediaActivity = MediaActivity()
         ) {
             self.presentationKey = presentationKey
             self.title = title
@@ -275,6 +303,7 @@ public enum SidebarWorkspaceSnapshotBuilder {
             self.pullRequestRows = pullRequestRows
             self.listeningPorts = listeningPorts
             self.finderDirectoryPath = finderDirectoryPath
+            self.mediaActivity = mediaActivity
         }
     }
 }

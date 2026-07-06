@@ -76,7 +76,12 @@ public final class SurfaceMetadataCoordinator<Tab: WorkspaceTabRepresenting> {
     /// any earlier pending entry for the same panel; the coordinator's own
     /// coalescer schedules the flush, which applies the whole batch on the next
     /// coalescer tick.
-    public func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
+    public func enqueuePanelTitleUpdate(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        delay: TimeInterval? = nil
+    ) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         titleHost?.surfaceMetadataLogPanelTitleEnqueue(
@@ -86,8 +91,13 @@ public final class SurfaceMetadataCoordinator<Tab: WorkspaceTabRepresenting> {
         )
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
-        titleFlushScheduler.signal { [weak self] in
+        let flush: () -> Void = { [weak self] in
             self?.flushPendingPanelTitleUpdates()
+        }
+        if let delay, let delayScheduler = titleFlushScheduler as? any TitleFlushDelayScheduling {
+            delayScheduler.signal(delay: delay, flush)
+        } else {
+            titleFlushScheduler.signal(flush)
         }
     }
 

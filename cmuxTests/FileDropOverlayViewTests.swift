@@ -19,7 +19,7 @@ final class FileDropOverlayViewTests: XCTestCase {
         let root = ContentView(updateViewModel: UpdateStateModel(), windowId: windowId)
             .environment(TabManager())
             .environmentObject(TerminalNotificationStore.shared)
-            .environmentObject(SidebarState())
+            .environment(SidebarState())
             .environment(SidebarSelectionState())
             .environmentObject(FileExplorerState())
             .environmentObject(CmuxConfigStore())

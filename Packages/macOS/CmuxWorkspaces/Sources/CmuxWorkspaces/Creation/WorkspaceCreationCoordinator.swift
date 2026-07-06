@@ -324,7 +324,8 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
         placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
-        normalizeWorkspaceGroupsAfterInsert: Bool = true
+        normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        allowTextBoxFocusDefault: Bool = true
     ) -> Tab {
         guard let host else {
             preconditionFailure(
@@ -386,6 +387,7 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault,
                 chromeInheritanceSource: sourceWorkspace ?? capturedTabs.first
             )
             if eagerLoadTerminal && !select {

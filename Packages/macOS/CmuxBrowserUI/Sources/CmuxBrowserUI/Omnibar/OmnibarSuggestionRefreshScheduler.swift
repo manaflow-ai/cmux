@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+public import Observation
 
 /// Debounces omnibar suggestion refreshes into a single coalesced stream.
 ///
@@ -11,8 +11,8 @@ import Observation
 /// any in-flight or queued refresh is discarded.
 @MainActor
 @Observable
-final class OmnibarSuggestionRefreshScheduler {
-    let refreshStream: AsyncStream<UInt64>
+public final class OmnibarSuggestionRefreshScheduler {
+    public let refreshStream: AsyncStream<UInt64>
 
     @ObservationIgnored private var refreshContinuation: AsyncStream<UInt64>.Continuation
     @ObservationIgnored private var debounceDelay: Duration
@@ -20,7 +20,7 @@ final class OmnibarSuggestionRefreshScheduler {
     @ObservationIgnored private var refreshGeneration: UInt64 = 0
     @ObservationIgnored private var pendingRefreshTask: Task<Void, Never>?
 
-    init(
+    public init(
         debounceDelay: Duration = .milliseconds(80),
         clock: any OmnibarSuggestionRefreshClock = ContinuousOmnibarSuggestionRefreshClock()
     ) {
@@ -31,7 +31,7 @@ final class OmnibarSuggestionRefreshScheduler {
         refreshContinuation = refreshPipe.continuation
     }
 
-    func scheduleRefresh() {
+    public func scheduleRefresh() {
         pendingRefreshTask?.cancel()
         refreshGeneration &+= 1
         let generation = refreshGeneration
@@ -51,26 +51,28 @@ final class OmnibarSuggestionRefreshScheduler {
         }
     }
 
-    func cancelPendingRefresh() {
+    public func cancelPendingRefresh() {
         refreshGeneration &+= 1
         pendingRefreshTask?.cancel()
         pendingRefreshTask = nil
     }
 
-    func shouldProcessRefresh(_ generation: UInt64) -> Bool {
+    public func shouldProcessRefresh(_ generation: UInt64) -> Bool {
         refreshGeneration == generation
     }
 }
 
 /// Awaitable delay abstraction the refresh scheduler debounces against,
 /// injectable so tests can drive the debounce window deterministically.
-protocol OmnibarSuggestionRefreshClock: Sendable {
+public protocol OmnibarSuggestionRefreshClock: Sendable {
     func sleep(for duration: Duration) async throws
 }
 
 /// Production ``OmnibarSuggestionRefreshClock`` backed by ``ContinuousClock``.
-struct ContinuousOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
-    func sleep(for duration: Duration) async throws {
+public struct ContinuousOmnibarSuggestionRefreshClock: OmnibarSuggestionRefreshClock {
+    public init() {}
+
+    public func sleep(for duration: Duration) async throws {
         try await ContinuousClock().sleep(for: duration)
     }
 }

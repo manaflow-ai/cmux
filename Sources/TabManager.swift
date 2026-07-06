@@ -73,7 +73,11 @@ class TabManager {
     /// `updateSurfaceShellActivity` stays in this composition root because it
     /// routes through `pullRequestProbing`, which CmuxWorkspaces does not import.
     @ObservationIgnored
-    private(set) lazy var surfaceMetadata = SurfaceMetadataCoordinator(model: workspaces)
+    private(set) lazy var surfaceMetadata = SurfaceMetadataCoordinator(
+        model: workspaces,
+        titleFlushScheduler: panelTitleUpdateScheduler
+    )
+    private let panelTitleUpdateScheduler: (any TitleFlushScheduling)?
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -319,6 +323,7 @@ class TabManager {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let closeTabWarningDefaults: UserDefaults
 
     /// Monotonic focus-history revision counter. Its only observation channel is
     /// the `.tabManagerFocusHistoryRevisionDidChange` notification posted from
@@ -504,11 +509,15 @@ class TabManager {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         portOrdinalAllocator: WorkspacePortOrdinalAllocator? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
-        closedItemHistory: ClosedItemHistoryStore? = nil
+        closedItemHistory: ClosedItemHistoryStore? = nil,
+        panelTitleUpdateScheduler: (any TitleFlushScheduling)? = nil,
+        closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.closeTabWarningDefaults = closeTabWarningDefaults
         self.closedItemHistory = closedItemHistory ?? .shared
         self.portOrdinalAllocator = portOrdinalAllocator ?? Self.sharedPortOrdinalAllocator
+        self.panelTitleUpdateScheduler = panelTitleUpdateScheduler ?? PanelTitleUpdateCoalescer()
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
@@ -588,9 +597,9 @@ class TabManager {
         workspaceClosing.attach(confirming: closeConfirmationPresenter)
         workspaceClosing.attach(host: self)
         // The confirmation decision routes through the live close-tab warning
-        // settings, matching the legacy `CloseTabWarningStore(defaults: .standard)`
-        // the in-class `shouldConfirmClose` constructed per call.
-        workspaceClosing.attach(closeTabWarning: CloseTabWarningStore(defaults: .standard))
+        // settings, matching the legacy defaults seam the in-class
+        // `shouldConfirmClose` constructed per call.
+        workspaceClosing.attach(closeTabWarning: CloseTabWarningStore(defaults: closeTabWarningDefaults))
         // Wire the creation host before the first addWorkspace so the initial
         // workspace's creation effects (chrome inheritance, lifecycle publish,
         // git-metadata schedule, welcome send) reach the host with the legacy
@@ -853,7 +862,8 @@ class TabManager {
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String],
-        workspaceEnvironment: [String: String] = [:]
+        workspaceEnvironment: [String: String] = [:],
+        allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         Workspace(
             title: title,
@@ -864,7 +874,8 @@ class TabManager {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment,
-            workspaceEnvironment: workspaceEnvironment
+            workspaceEnvironment: workspaceEnvironment,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
         )
     }
 
@@ -966,7 +977,8 @@ class TabManager {
         placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
-        normalizeWorkspaceGroupsAfterInsert: Bool = true
+        normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         workspaceCreating.addWorkspace(
             title: title,
@@ -982,7 +994,8 @@ class TabManager {
             placementOverride: placementOverride,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded,
             autoRefreshMetadata: autoRefreshMetadata,
-            normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert
+            normalizeWorkspaceGroupsAfterInsert: normalizeWorkspaceGroupsAfterInsert,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
         )
     }
 
@@ -1749,6 +1762,15 @@ class TabManager {
         workspaceClosing.closeWorkspace(workspace, recordHistory: recordHistory)
     }
 
+    var confirmCloseHandler: ((String, String, Bool) -> Bool)? {
+        get { workspaceClosing.confirmCloseHandler }
+        set { workspaceClosing.confirmCloseHandler = newValue }
+    }
+
+    func closeWorkspaceOnLastSurfaceShortcutEnabled() -> Bool {
+        settings.value(for: settingsCatalog.app.keepWorkspaceOpenWhenClosingLastSurface)
+    }
+
 
     /// Detach a workspace from this window without closing its panels.
     /// Used by the socket API for cross-window moves.
@@ -1793,7 +1815,10 @@ class TabManager {
         guard let workspace = selectedWorkspace else { return }
         guard let plan = FocusedPaneCloseTargetPlanner(host: workspace).closeOtherTabsPlan() else { return }
 
-        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
+        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+            requiresConfirmation: true,
+            source: .shortcut
+        ) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard workspaceClosing.confirmClose(
                 title: prompt.title,
@@ -2118,6 +2143,7 @@ class TabManager {
         initialTerminalInput: String?,
         initialTerminalEnvironment: [String: String],
         workspaceEnvironment: [String: String],
+        allowTextBoxFocusDefault: Bool,
         chromeInheritanceSource: Workspace?
     ) -> Workspace {
         let inheritedConfig = workspaceCreationConfigTemplate(
@@ -2132,7 +2158,8 @@ class TabManager {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment,
-            workspaceEnvironment: workspaceEnvironment
+            workspaceEnvironment: workspaceEnvironment,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
         )
         applyCreationChromeInheritance(
             to: newWorkspace,
@@ -2293,7 +2320,7 @@ class TabManager {
             requiresConfirmation = false
         }
 
-        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
         ) {
@@ -2591,7 +2618,12 @@ class TabManager {
 
 
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
-        surfaceMetadata.enqueuePanelTitleUpdate(tabId: tabId, panelId: panelId, title: title)
+        surfaceMetadata.enqueuePanelTitleUpdate(
+            tabId: tabId,
+            panelId: panelId,
+            title: title,
+            delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)
+        )
     }
 
     func focusedSurfaceTitleDidChange(tabId: UUID) {

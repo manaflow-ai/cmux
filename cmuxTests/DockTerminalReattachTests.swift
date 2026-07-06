@@ -1,5 +1,7 @@
 import AppKit
+import CMUXAgentLaunch
 import Combine
+import CmuxWorkspaces
 import Darwin
 import Foundation
 import Testing

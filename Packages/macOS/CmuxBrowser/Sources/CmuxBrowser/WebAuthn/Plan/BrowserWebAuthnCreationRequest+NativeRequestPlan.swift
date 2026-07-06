@@ -14,9 +14,11 @@ extension BrowserWebAuthnCreationRequest {
             throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
         }
 
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
+        guard let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
             publicKey.rp?.id
-        )
+        ) else {
+            return nil
+        }
         let clientData = try clientDataContext.clientData(challenge: publicKey.challenge.data)
         let selection = publicKey.authenticatorSelection
         let attachment = selection?.attachment

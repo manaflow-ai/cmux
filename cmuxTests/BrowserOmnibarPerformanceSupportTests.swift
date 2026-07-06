@@ -1,5 +1,6 @@
 import XCTest
 import CmuxBrowser
+import CmuxBrowserUI
 import Foundation
 
 #if canImport(cmux_DEV)

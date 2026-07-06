@@ -17,6 +17,10 @@ public import CmuxSidebar
 public final class FileExplorerNSOutlineView: NSOutlineView {
     /// Leading margin applied to disclosure triangles and content.
     static let leadingMargin: CGFloat = 8
+    /// Where this outline view is hosted; used by app-side shortcut routing.
+    public var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
+    /// Called when the app-side open-selection shortcut should activate the current row.
+    public var onOpenSelection: (() -> Void)?
     /// Called with the active quick-search query string, or `nil` when
     /// quick-search ends.
     public var onQuickSearchChanged: ((String?) -> Void)?

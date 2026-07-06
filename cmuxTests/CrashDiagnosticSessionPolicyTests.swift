@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import CmuxWindowing
+import CmuxWorkspaces
 import Testing
 import UniformTypeIdentifiers
 
@@ -122,7 +124,7 @@ struct CrashDiagnosticSessionPolicyTests {
             .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
             .path
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 10,
             windows: [
                 SessionWindowSnapshot(
@@ -143,7 +145,7 @@ struct CrashDiagnosticSessionPolicyTests {
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
 
         #expect(pruned.removedAny)
-        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [projectDirectory])
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map { $0.currentDirectory } == [projectDirectory])
         #expect(pruned.snapshot?.windows.first?.tabManager.selectedWorkspaceIndex == 0)
     }
 
@@ -154,7 +156,7 @@ struct CrashDiagnosticSessionPolicyTests {
             .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
             .path
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 10,
             windows: [
                 SessionWindowSnapshot(
@@ -181,7 +183,7 @@ struct CrashDiagnosticSessionPolicyTests {
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
 
         #expect(!pruned.removedAny)
-        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map { $0.currentDirectory } == [
             crashDirectory,
             projectDirectory,
         ])
@@ -198,7 +200,7 @@ struct CrashDiagnosticSessionPolicyTests {
             parts: [.text("inspect crash report")]
         )
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 10,
             windows: [
                 SessionWindowSnapshot(
@@ -225,7 +227,7 @@ struct CrashDiagnosticSessionPolicyTests {
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
 
         #expect(!pruned.removedAny)
-        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map { $0.currentDirectory } == [
             crashDirectory,
             projectDirectory,
         ])
@@ -268,7 +270,7 @@ struct CrashDiagnosticSessionPolicyTests {
         ))
 
         let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
+            version: AppSessionSnapshot.currentSchemaVersion,
             createdAt: 10,
             windows: [window]
         )

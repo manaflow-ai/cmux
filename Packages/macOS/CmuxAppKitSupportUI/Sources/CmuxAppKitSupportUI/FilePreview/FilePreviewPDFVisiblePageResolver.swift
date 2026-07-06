@@ -66,7 +66,7 @@ public struct FilePreviewPDFVisiblePageResolver {
         return topVisiblePage(in: pdfView, scrollView: scrollView)
     }
 
-    func verticalDocumentEdgePageIndex(
+    public func verticalDocumentEdgePageIndex(
         pageCount: Int,
         clipBounds: CGRect,
         documentBounds: CGRect,

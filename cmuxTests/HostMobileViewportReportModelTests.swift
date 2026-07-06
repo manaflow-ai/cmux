@@ -26,7 +26,7 @@ struct HostMobileViewportReportModelTests {
             var rows: Int
             var reason: String
         }
-        struct Clear: Equatable {
+        struct Clear: Equatable, Hashable {
             var surfaceID: UUID
             var reason: String
         }

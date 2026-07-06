@@ -15,7 +15,7 @@ import Testing
 /// remote mirror routes a new tab to a tmux `new-window`, which — without an
 /// explicit `-c <path>` — starts in tmux's default-path (`~`) instead of the
 /// focused tab's directory. cmux appends that directory onto the placement
-/// command built by ``RemoteTmuxController/newWindowCommand(afterWindowId:workingDirectory:)``.
+/// command built by ``RemoteTmuxMirrorCommandRouter/newWindowCommand(afterWindowId:workingDirectory:)``.
 ///
 /// These assert the produced control-mode command: a known directory adds a
 /// single-quoted `-c` after the placement target, and absent/blank/unsafe
@@ -24,21 +24,21 @@ import Testing
 @Suite struct RemoteTmuxNewWindowCwdTests {
     @Test func seedsStartingDirectoryAfterSelectedWindow() {
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/proj")
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/proj")
                 == "new-window -a -t @7 -c '/Users/me/proj'"
         )
     }
 
     @Test func seedsStartingDirectoryForEndPlacement() {
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: nil, workingDirectory: "/Users/me/proj")
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: nil, workingDirectory: "/Users/me/proj")
                 == "new-window -a -t '{end}' -c '/Users/me/proj'"
         )
     }
 
     @Test func singleQuotesPathsWithSpaces() {
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/My Project")
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/My Project")
                 == "new-window -a -t @7 -c '/Users/me/My Project'"
         )
     }
@@ -46,7 +46,7 @@ import Testing
     @Test func escapesEmbeddedSingleQuote() {
         // shell single-quote escaping: ' -> '\'' so the path survives tmux's parser.
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/o'brien")
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/o'brien")
                 == "new-window -a -t @7 -c '/Users/me/o'\\''brien'"
         )
     }
@@ -59,7 +59,7 @@ import Testing
     ])
     func omitsDirectoryWhenUnusable(_ directory: String?) {
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
                 == "new-window -a -t @7"
         )
     }
@@ -73,7 +73,7 @@ import Testing
         // CR/LF/control bytes could terminate the command line before tmux parses
         // the quoted argument, so an unsafe path leaves the placement-only command.
         #expect(
-            RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
+            RemoteTmuxMirrorCommandRouter.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
                 == "new-window -a -t @7"
         )
     }
@@ -82,7 +82,7 @@ import Testing
         let sourcePanelId = UUID()
 
         #expect(
-            RemoteTmuxController.liveMirrorWindowWorkingDirectory(
+            RemoteTmuxMirrorCommandRouter.liveMirrorWindowWorkingDirectory(
                 "/srv/remote/project",
                 sourcePanelId: sourcePanelId,
                 windowIdForPanel: { panelId in panelId == sourcePanelId ? 7 : nil }
@@ -94,7 +94,7 @@ import Testing
         let sourcePanelId = UUID()
 
         #expect(
-            RemoteTmuxController.liveMirrorWindowWorkingDirectory(
+            RemoteTmuxMirrorCommandRouter.liveMirrorWindowWorkingDirectory(
                 "/Users/local/project",
                 sourcePanelId: sourcePanelId,
                 windowIdForPanel: { _ in nil }
@@ -104,7 +104,7 @@ import Testing
 
     @Test func dropsDirectoryWhenSourcePanelIsUnknown() {
         #expect(
-            RemoteTmuxController.liveMirrorWindowWorkingDirectory(
+            RemoteTmuxMirrorCommandRouter.liveMirrorWindowWorkingDirectory(
                 "/Users/local/project",
                 sourcePanelId: nil,
                 windowIdForPanel: { _ in 7 }

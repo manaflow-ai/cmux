@@ -197,33 +197,8 @@ struct GhosttyDECCKMArrowKeyTests {
     }
 
     private func readTerminalText(from terminal: HostedTerminalWindow) throws -> String {
-        let runtimeSurface = try #require(terminal.surface.surface)
-        let topLeft = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: GHOSTTY_POINT_SURFACE,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(runtimeSurface, selection, &text) else {
-            return ""
-        }
-        defer { ghostty_surface_free_text(runtimeSurface, &text) }
-        guard let ptr = text.text, text.text_len > 0 else { return "" }
-        let data = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: data, as: UTF8.self)
+        _ = try #require(terminal.surface.surface)
+        return terminal.surface.readTextRawSnapshot(includeScrollback: true)?.history ?? ""
     }
 
     private func waitForTerminalText(

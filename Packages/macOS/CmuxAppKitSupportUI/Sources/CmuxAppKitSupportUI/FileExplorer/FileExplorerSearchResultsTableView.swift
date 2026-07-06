@@ -13,6 +13,8 @@ public import CmuxSidebar
 /// keep the AppKit event-to-mode mapping (formerly read from the AppDelegate
 /// singleton) out of the package.
 public final class FileExplorerSearchResultsTableView: NSTableView {
+    /// Where this search-results view is hosted; used by app-side shortcut routing.
+    public var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
     /// Called when the Escape key is pressed.
     public var onCancel: (() -> Void)?
     /// Called with a signed row delta for the right-sidebar move keys.

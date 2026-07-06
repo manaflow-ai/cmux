@@ -5,6 +5,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let isPinned: Bool
         let customColorHex: String?
         let finderDirectoryPath: String?
+        let mediaActivity: SidebarWorkspaceSnapshotBuilder.MediaActivity
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -13,7 +14,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
-            finderDirectoryPath: finderDirectoryPath
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity
         )
     }
 
@@ -42,7 +44,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
             listeningPorts: listeningPorts,
-            finderDirectoryPath: snapshot.finderDirectoryPath
+            finderDirectoryPath: snapshot.finderDirectoryPath,
+            mediaActivity: snapshot.mediaActivity
         )
     }
 }
@@ -120,6 +123,14 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     mutating func contextMenuTrackingDidEnd() {
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
+    }
+
+    @discardableResult
+    mutating func contextMenuTrackingDidEnd(pointerInsideRow: Bool) -> Bool {
+        contextMenuTrackingSuppressesCloseButton = false
+        deferredPointerHoveringWhileContextMenuTracking = pointerInsideRow
+        applyDeferredPointerHovering()
+        return true
     }
 
     func shouldShowCloseButton(

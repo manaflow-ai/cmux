@@ -9,7 +9,7 @@ import Foundation
 /// (`CmuxTopProcessSnapshot`) is app-target and shared with other consumers, so
 /// it stays here and the panes package reaches it only through this seam. The
 /// summation/process-group selection logic is byte-identical to the former
-/// `PaneMemoryGuardrail.compute*` statics; it is exercised by
+/// `PaneMemoryGuardrail` statics; it is exercised by
 /// `PaneMemoryGuardrailTests` against fixture snapshots.
 struct PaneMemorySampleProvider: PaneMemorySampleProviding {
     func cachedSampleBatch(
@@ -173,6 +173,58 @@ struct PaneMemorySampleProvider: PaneMemorySampleProviding {
             if totalBytes - selectedBytes < clearBytes { break }
         }
         return selectedProcessGroups.sorted()
+    }
+
+    static func reconcileScopedSamples(
+        samples: [PaneMemorySample],
+        currentScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample],
+        previousScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample],
+        includesCMUXScope: Bool,
+        clearBytes: Int64
+    ) -> (
+        samples: [PaneMemorySample],
+        scopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample]
+    ) {
+        let liveKeys = Set(samples.map(\.key))
+        let previousScopedOnlySamplesByKey = previousScopedOnlySamplesByKey.filter { liveKeys.contains($0.key) }
+
+        if includesCMUXScope {
+            let scopedOnlySamplesByKey = currentScopedOnlySamplesByKey.filter {
+                liveKeys.contains($0.key) && $0.value.memoryBytes > 0
+            }
+            return (samples, scopedOnlySamplesByKey)
+        }
+
+        let mergedSamples = samples.map { sample in
+            guard let scopedOnlySample = previousScopedOnlySamplesByKey[sample.key] else {
+                return sample
+            }
+            return addingScopedOnlySample(scopedOnlySample, to: sample)
+        }
+        return (mergedSamples, previousScopedOnlySamplesByKey)
+    }
+
+    private static func addingScopedOnlySample(
+        _ scopedOnlySample: PaneMemorySample,
+        to sample: PaneMemorySample
+    ) -> PaneMemorySample {
+        let memoryBytes = saturatingAdd(sample.memoryBytes, scopedOnlySample.memoryBytes)
+        let residentBytes = saturatingAdd(sample.residentBytes, scopedOnlySample.residentBytes)
+        let pgids = Array(Set(sample.memoryPressureProcessGroupIDs)
+            .union(scopedOnlySample.memoryPressureProcessGroupIDs))
+            .sorted()
+        return PaneMemorySample(
+            descriptor: sample.descriptor,
+            memoryBytes: memoryBytes,
+            residentBytes: residentBytes,
+            memoryPressureProcessGroupIDs: pgids,
+            foregroundCommand: sample.foregroundCommand
+        )
+    }
+
+    private static func saturatingAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+        let result = lhs.addingReportingOverflow(rhs)
+        return result.overflow ? Int64.max : result.partialValue
     }
 }
 

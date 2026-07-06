@@ -31,6 +31,8 @@ public final class BrowserAutomationSurfaceState {
     /// The bounded depth of a surface's not-supported network-request log
     /// (legacy: 256).
     public static var unsupportedNetworkRequestCapacity: Int { 256 }
+    /// The bounded depth of a surface's download-event queue and consumed-id log.
+    public static var downloadEventCapacity: Int { 128 }
 
     /// An allocated element reference: the surface it belongs to and the CSS
     /// selector it resolves to.
@@ -55,6 +57,7 @@ public final class BrowserAutomationSurfaceState {
     private var initStylesBySurface: [UUID: [String]] = [:]
     private var dialogQueueBySurface: [UUID: [PendingDialog]] = [:]
     private var downloadEventsBySurface: [UUID: [[String: Any]]] = [:]
+    private var consumedDownloadKeysBySurface: [UUID: [String]] = [:]
     private var unsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
 
     /// Creates an empty automation state store.
@@ -158,21 +161,89 @@ public final class BrowserAutomationSurfaceState {
 
     /// Appends a captured download event to `surfaceId`'s backlog.
     public func appendDownloadEvent(_ event: [String: Any], surfaceId: UUID) {
+        recordDownloadEvent(event, surfaceId: surfaceId)
+    }
+
+    /// Records a captured download event using the legacy bounded/deduped queue semantics.
+    public func recordDownloadEvent(_ event: [String: Any], surfaceId: UUID) {
+        guard shouldStoreDownloadEvent(event, surfaceId: surfaceId),
+              (event["type"] as? String) != "started" else {
+            return
+        }
         var queue = downloadEventsBySurface[surfaceId] ?? []
+        if isTerminalDownloadEvent(event), let recordedDownloadID = downloadID(from: event) {
+            queue.removeAll { downloadID(from: $0) == recordedDownloadID }
+        }
         queue.append(event)
+        if queue.count > Self.downloadEventCapacity {
+            queue.removeFirst(queue.count - Self.downloadEventCapacity)
+        }
         downloadEventsBySurface[surfaceId] = queue
     }
 
     /// Removes and returns the oldest queued download event for `surfaceId`, or
     /// `nil` when the backlog is empty.
     public func popDownloadEvent(surfaceId: UUID) -> [String: Any]? {
-        guard let first = downloadEventsBySurface[surfaceId]?.first else {
+        var remaining = downloadEventsBySurface[surfaceId] ?? []
+        while !remaining.isEmpty {
+            let first = remaining.removeFirst()
+            downloadEventsBySurface[surfaceId] = remaining
+            guard shouldStoreDownloadEvent(first, surfaceId: surfaceId),
+                  (first["type"] as? String) != "started" else {
+                continue
+            }
+            markDownloadEventConsumed(first, surfaceId: surfaceId)
+            return first
+        }
+        return nil
+    }
+
+    /// Marks a download event as consumed, dropping duplicate queued events.
+    public func markDownloadEventConsumed(_ event: [String: Any], surfaceId: UUID) {
+        guard let consumedDownloadID = downloadID(from: event),
+              let type = trimmedNonEmptyString(event["type"] as? String) else {
+            return
+        }
+        let isTerminal = isTerminalDownloadEvent(event)
+        let eventKey = "\(type)\u{0}\(consumedDownloadID)"
+        let consumedKey = isTerminal ? consumedDownloadID : eventKey
+        var consumed = consumedDownloadKeysBySurface[surfaceId] ?? []
+        consumed.removeAll { $0 == consumedKey }
+        consumed.append(consumedKey)
+        if consumed.count > Self.downloadEventCapacity {
+            consumed.removeFirst(consumed.count - Self.downloadEventCapacity)
+        }
+        consumedDownloadKeysBySurface[surfaceId] = consumed
+        downloadEventsBySurface[surfaceId]?.removeAll {
+            if isTerminal { return downloadID(from: $0) == consumedDownloadID }
+            return downloadID(from: $0) == consumedDownloadID
+                && trimmedNonEmptyString($0["type"] as? String) == type
+        }
+    }
+
+    private func downloadID(from event: [String: Any]) -> String? {
+        trimmedNonEmptyString(event["download_id"] as? String)
+    }
+
+    private func isTerminalDownloadEvent(_ event: [String: Any]) -> Bool {
+        let type = event["type"] as? String
+        return type == "saved" || type == "cancelled" || type == "failed"
+    }
+
+    private func shouldStoreDownloadEvent(_ event: [String: Any], surfaceId: UUID) -> Bool {
+        guard let downloadID = downloadID(from: event) else { return true }
+        let consumed = consumedDownloadKeysBySurface[surfaceId] ?? []
+        if consumed.contains(downloadID) { return false }
+        guard let type = trimmedNonEmptyString(event["type"] as? String) else { return true }
+        return !consumed.contains("\(type)\u{0}\(downloadID)")
+    }
+
+    private func trimmedNonEmptyString(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
             return nil
         }
-        var remaining = downloadEventsBySurface[surfaceId] ?? []
-        remaining.removeFirst()
-        downloadEventsBySurface[surfaceId] = remaining
-        return first
+        return trimmed
     }
 
     // MARK: - Not-supported network requests
@@ -205,6 +276,7 @@ public final class BrowserAutomationSurfaceState {
         initStylesBySurface.removeValue(forKey: surfaceId)
         dialogQueueBySurface.removeValue(forKey: surfaceId)
         downloadEventsBySurface.removeValue(forKey: surfaceId)
+        consumedDownloadKeysBySurface.removeValue(forKey: surfaceId)
         unsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
         elementRefs = elementRefs.filter { $0.value.surfaceId != surfaceId }
     }
