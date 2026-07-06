@@ -386,7 +386,6 @@ def _ensure_external_review_submission(
             detail = _build_beta_detail(token, build_id)
             external_state = detail["external_build_state"]
             submission = _beta_review_submission(token, build_id)
-            sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
         except RuntimeError as exc:
             if time.time() >= deadline:
                 raise RuntimeError(
@@ -418,11 +417,20 @@ def _ensure_external_review_submission(
                 f"submission {submission['id']} in unexpected betaReviewState={review_state or '<empty>'}"
             )
 
-        if sibling_submission is not None:
-            _report_pending_sibling_review(build_number, sibling_submission)
-            return
-
         if external_state == "READY_FOR_BETA_SUBMISSION":
+            try:
+                sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
+            except RuntimeError as exc:
+                if time.time() >= deadline:
+                    raise RuntimeError(
+                        f"build {build_number} sibling review metadata did not become readable within the timeout window: {exc}"
+                    )
+                time.sleep(max(1, poll_seconds))
+                token = _token()
+                continue
+            if sibling_submission is not None:
+                _report_pending_sibling_review(build_number, sibling_submission)
+                return
             try:
                 _submit_beta_review(token, build_id)
                 last_submit_error = ""

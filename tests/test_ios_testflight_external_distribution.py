@@ -183,16 +183,6 @@ def main():
         "same-version sibling builds already in beta review are left pending without failing",
     )
 
-    module._build_beta_detail = lambda token, build_id: {
-        "external_build_state": "",
-        "internal_build_state": "READY_FOR_BETA_TESTING",
-    }
-    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
-    _check(
-        not submissions,
-        "same-version sibling reviews short-circuit even before external state settles",
-    )
-
     module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
     try:
         module._beta_review_submission = lambda token, build_id: {
