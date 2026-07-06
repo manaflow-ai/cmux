@@ -372,13 +372,18 @@ function preflightResumeIfSuspended(
         );
       }
       // Persist the observed running state ourselves in case the resuming
-      // caller dies before its own durable write; a false return here means
-      // the row was already updated (or concurrently destroyed) and is fine.
-      yield* repo.markProviderObservedStatus({
+      // caller dies before its own durable write. An already-running row
+      // still matches the update (returns true); false means the row was
+      // destroyed or replaced concurrently, so fail closed. No pause
+      // rollback here: the caller that started the VM owns compensation.
+      const recorded = yield* repo.markProviderObservedStatus({
         id: vm.id,
         providerVmId,
         status: "running",
       });
+      if (!recorded) {
+        return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+      }
       return;
     }
     if (status !== "paused") return;
@@ -414,11 +419,12 @@ function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
         if (status === "creating") {
           const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
           if (!settled) return yield* Effect.fail(originalError);
-          yield* repo.markProviderObservedStatus({
+          const recorded = yield* repo.markProviderObservedStatus({
             id: vm.id,
             providerVmId,
             status: "running",
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          if (!recorded) return yield* Effect.fail(originalError);
           return yield* op;
         }
         if (status !== "paused") {
