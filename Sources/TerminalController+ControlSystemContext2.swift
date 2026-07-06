@@ -231,6 +231,23 @@ extension TerminalController {
             _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
             return finish(.created(newPanel.id))
 
+        case "open_in_browser":
+            let fileURL = workspace.browserFileURLForPanel(panelId: surfaceId)
+            guard fileURL != nil else {
+                return .openInBrowserNotFile
+            }
+            guard BrowserAvailabilitySettings.isEnabled() else {
+                return .browserDisabled(tabActionBrowserDisabledOutcome(
+                    rawURL: nil,
+                    url: fileURL,
+                    tabManager: tabManager
+                ))
+            }
+            guard let newPanel = workspace.openLocalFilePanelInBrowserToRight(panelId: surfaceId, focus: focus) else {
+                return .openInBrowserNotFile
+            }
+            return finish(.created(newPanel.id))
+
         case "close_left", "close_to_left":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
                   let paneId = workspace.paneId(forPanelId: surfaceId) else {

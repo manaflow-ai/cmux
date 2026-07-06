@@ -658,6 +658,8 @@
 		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
+		D84F10020000000000000002 /* LocalFileSurfaceKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = D84F10020000000000000001 /* LocalFileSurfaceKind.swift */; };
+		D84F10010000000000000002 /* LocalFileSurfaceRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D84F10010000000000000001 /* LocalFileSurfaceRouting.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
 		D1F0A00600000000000000C1 /* MacPairedMacBackupBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */; };
@@ -1973,6 +1975,8 @@
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
+		D84F10020000000000000001 /* LocalFileSurfaceKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileSurfaceKind.swift; sourceTree = "<group>"; };
+		D84F10010000000000000001 /* LocalFileSurfaceRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileSurfaceRouting.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
 		D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupBody.swift; sourceTree = "<group>"; };
@@ -3167,6 +3171,8 @@
 				E7E000000000000000000002 /* CmuxEventStream.swift */,
 				E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
 				A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
+				D84F10020000000000000001 /* LocalFileSurfaceKind.swift */,
+				D84F10010000000000000001 /* LocalFileSurfaceRouting.swift */,
 				D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */,
 				C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */,
 				C0DE00000000000000000C31 /* TerminalControllerControlCommandContext.swift */,
@@ -4809,6 +4815,8 @@
 				D5671301D5671301D5671301 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
+				D84F10020000000000000002 /* LocalFileSurfaceKind.swift in Sources */,
+				D84F10010000000000000002 /* LocalFileSurfaceRouting.swift in Sources */,
 				53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */,
 				D1F0A00600000000000000C1 /* MacPairedMacBackupBody.swift in Sources */,
 				D1F0A00700000000000000C1 /* MacPairedMacBackupOpWire.swift in Sources */,

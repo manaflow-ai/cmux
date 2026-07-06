@@ -2,6 +2,23 @@ import Bonsplit
 import Foundation
 
 extension TerminalController {
+    private func v2IsProjectBundlePath(_ path: String) -> Bool {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return ext == "xcodeproj" || ext == "xcworkspace"
+    }
+
+    private func v2ProjectBundleManifestPath(_ path: String) -> String? {
+        let url = URL(fileURLWithPath: path)
+        switch url.pathExtension.lowercased() {
+        case "xcodeproj":
+            return url.appendingPathComponent("project.pbxproj").path
+        case "xcworkspace":
+            return url.appendingPathComponent("contents.xcworkspacedata").path
+        default:
+            return nil
+        }
+    }
+
     func v2ResolveReadableFilePath(_ rawPath: String) -> (path: String?, error: V2CallResult?) {
         let expandedPath = NSString(string: rawPath).expandingTildeInPath
         let filePath = NSString(string: expandedPath).standardizingPath
@@ -24,7 +41,7 @@ extension TerminalController {
                 .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
             )
         }
-        guard !isDir.boolValue else {
+        guard !isDir.boolValue || v2IsProjectBundlePath(filePath) else {
             return (
                 nil,
                 .err(
@@ -33,6 +50,24 @@ extension TerminalController {
                     data: ["path": filePath]
                 )
             )
+        }
+        if isDir.boolValue, let manifestPath = v2ProjectBundleManifestPath(filePath) {
+            guard FileManager.default.fileExists(atPath: manifestPath) else {
+                return (
+                    nil,
+                    .err(code: "not_found", message: "Project manifest not found: \(manifestPath)", data: ["path": filePath])
+                )
+            }
+            guard FileManager.default.isReadableFile(atPath: manifestPath) else {
+                return (
+                    nil,
+                    .err(
+                        code: "permission_denied",
+                        message: "Project manifest not readable: \(manifestPath)",
+                        data: ["path": filePath]
+                    )
+                )
+            }
         }
         guard FileManager.default.isReadableFile(atPath: filePath) else {
             return (
@@ -66,6 +101,13 @@ extension TerminalController {
         } else if let markdownPanel = panel as? MarkdownPanel {
             payload["path"] = markdownPanel.filePath
             payload["display_mode"] = markdownPanel.displayMode.rawValue
+        } else if let projectPanel = panel as? ProjectPanel {
+            payload["path"] = projectPanel.projectURL.path
+        } else if let browserPanel = panel as? BrowserPanel,
+                  let fileURL = browserPanel.currentURLForTabDuplication,
+                  fileURL.isFileURL {
+            payload["path"] = fileURL.path
+            payload["url"] = fileURL.absoluteString
         }
         return payload
     }
@@ -169,6 +211,9 @@ extension TerminalController {
             }
             if let displayMode = primary["display_mode"] {
                 response["display_mode"] = displayMode
+            }
+            if let url = primary["url"] {
+                response["url"] = url
             }
             result = .ok(response)
         }

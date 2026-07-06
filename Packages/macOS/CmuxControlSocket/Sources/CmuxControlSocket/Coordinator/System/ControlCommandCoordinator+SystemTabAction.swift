@@ -9,7 +9,8 @@ extension ControlCommandCoordinator {
         "rename", "clear_name",
         "close_left", "close_right", "close_others",
         "new_terminal_right", "new_browser_right",
-        "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
+        "reload", "duplicate", "open_in_browser",
+        "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
         "pin", "unpin", "mark_read", "mark_unread",
     ]
 
@@ -67,6 +68,12 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_state", message: "Reload is only available for browser tabs", data: nil)
         case .duplicateNotBrowser:
             return .err(code: "invalid_state", message: "Duplicate is only available for browser tabs", data: nil)
+        case .openInBrowserNotFile:
+            return .err(
+                code: "invalid_state",
+                message: "Open in browser is only available for local HTML-like file tabs",
+                data: nil
+            )
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
         case .tabPaneNotFound:
