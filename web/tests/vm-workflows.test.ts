@@ -861,6 +861,56 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
+  test("exec waits out a concurrent resume (creating) without resuming or recording", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000115",
+      userId: "user-workflow-exec-concurrent",
+      billingTeamId: "team-workflow-exec-concurrent",
+      providerVmId: "provider-vm-exec-concurrent",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    let execCalls = 0;
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.suspend(() => {
+          execCalls += 1;
+          return Effect.succeed({ exitCode: 0, stdout: "ok", stderr: "" });
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          // Another caller's resume is in flight; it settles on the next poll.
+          return statusCalls === 1 ? ("creating" as const) : ("running" as const);
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-exec-concurrent" });
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-concurrent",
+        providerVmId: "provider-vm-exec-concurrent",
+        command: "echo ok",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(execCalls).toBe(1);
+    expect(resumeCalls).toBe(0);
+    expect(statusCalls).toBe(2);
+    expect(observedStatuses).toEqual([]);
+  });
+
   dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",

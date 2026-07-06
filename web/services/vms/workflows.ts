@@ -260,24 +260,50 @@ const RESUME_SETTLE_INTERVAL = "1 second";
 // post-start "starting" state to "creating"), so poll briefly until the VM is
 // observably running; never record a running transition for a VM that has not
 // settled, and fail without a durable write if it does not.
+function waitForRunningStatus(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    if (!getStatus) return true;
+    for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
+      const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+      );
+      if (status === "running") return true;
+      yield* Effect.sleep(RESUME_SETTLE_INTERVAL);
+    }
+    return false;
+  });
+}
+
+function bestEffortPause(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  const pause = providers.pause;
+  if (!pause) return Effect.void;
+  return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+}
+
 function resumeUntilRunning(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
 ): Effect.Effect<void, VmWorkflowError> {
   return Effect.gen(function* () {
-    const getStatus = providers.getStatus;
     const resume = providers.resume;
     if (!resume) return;
     const handle = yield* resume(vm.provider, providerVmId);
-    if (handle.status === "running" || !getStatus) return;
-    for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
-      const status = yield* getStatus(vm.provider, providerVmId).pipe(
-        Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
-      );
-      if (status === "running") return;
-      yield* Effect.sleep(RESUME_SETTLE_INTERVAL);
-    }
+    if (handle.status === "running") return;
+    const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+    if (settled) return;
+    // The provider start already happened; roll back so a started-but-
+    // unrecorded VM is never left running outside Postgres accounting.
+    yield* bestEffortPause(providers, vm, providerVmId);
     return yield* Effect.fail(
       new VmProviderOperationError({
         provider: vm.provider,
@@ -323,6 +349,21 @@ function preflightResumeIfSuspended(
           : Effect.succeed(null as VMStatus | null),
       ),
     );
+    if (status === "creating") {
+      // Another caller's resume is in flight; wait for it rather than
+      // minting endpoints or running commands against a not-yet-ready VM.
+      const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+      if (!settled) {
+        return yield* Effect.fail(
+          new VmProviderOperationError({
+            provider: vm.provider,
+            operation: `getStatus(${providerVmId})`,
+            cause: new Error("VM stayed in a resuming state"),
+          }),
+        );
+      }
+      return;
+    }
     if (status !== "paused") return;
 
     yield* resumeUntilRunning(providers, vm, providerVmId);
@@ -353,6 +394,11 @@ function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
         const status = yield* getStatus(vm.provider, providerVmId).pipe(
           Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
         );
+        if (status === "creating") {
+          const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+          if (!settled) return yield* Effect.fail(originalError);
+          return yield* op;
+        }
         if (status !== "paused") {
           return yield* Effect.fail(originalError);
         }
