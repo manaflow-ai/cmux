@@ -47,7 +47,10 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             finderDirectoryPath: snapshot.finderDirectoryPath,
             // Media activity drives a leading row glyph, so stale values are
             // visually worse than ordinary telemetry text while the menu is open.
-            mediaActivity: snapshot.mediaActivity
+            mediaActivity: snapshot.mediaActivity,
+            // Agent brand icons are frozen with the rest of the telemetry while the
+            // context menu is open; the full `next` snapshot refreshes them on close.
+            agentIcons: agentIcons
         )
     }
 }

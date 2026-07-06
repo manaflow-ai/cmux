@@ -13165,6 +13165,16 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isStale: Bool
     }
 
+    /// A distinct agent kind present in the workspace, resolved to its brand asset.
+    /// `assetName == nil` means the kind has no bundled asset and renders the
+    /// `sparkles.rectangle.stack` fallback.
+    struct AgentIcon: Equatable, Identifiable {
+        let kindRawValue: String
+        let assetName: String?
+
+        var id: String { kindRawValue }
+    }
+
     struct Snapshot: Equatable {
         let presentationKey: PresentationKey
         let title: String
@@ -13190,6 +13200,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let listeningPorts: [Int]
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
+        let agentIcons: [AgentIcon]
     }
 }
 
@@ -13716,6 +13727,30 @@ struct TabItemView: View, Equatable {
                         .accessibilityLabel(cameraInUseTooltip)
                 }
 
+                if !workspaceSnapshot.agentIcons.isEmpty {
+                    let agentIconSize = 14 * fontScale
+                    HStack(spacing: 3) {
+                        ForEach(workspaceSnapshot.agentIcons) { agentIcon in
+                            if let assetName = agentIcon.assetName {
+                                Image(assetName)
+                                    .resizable()
+                                    .interpolation(.high)
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: agentIconSize, height: agentIconSize)
+                            } else {
+                                CmuxSystemSymbolImage(
+                                    magnified: RestorableAgentKind.fallbackSymbolName,
+                                    pointSize: scaledFontSize(10),
+                                    weight: .semibold
+                                )
+                                .foregroundColor(activeSecondaryColor(0.8))
+                                .frame(width: agentIconSize, height: agentIconSize)
+                            }
+                        }
+                    }
+                    .accessibilityHidden(true)
+                }
+
                 Text(displayedTitle)
                     .font(magnifiedFont(scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
@@ -14078,6 +14113,14 @@ struct TabItemView: View, Equatable {
             workspaceFinderDirectoryOpenRequest = nil
         }
         .sidebarAgentRuntimeObservation(id: tab.id, model: tab.sidebarAgentRuntimeObservation) { refreshWorkspaceSnapshot() }
+        .onReceive(
+            // Session PRESENCE changes (start/stop) land in the shared agent-session
+            // index; re-snapshot so the sidebar brand-icon row tracks live sessions.
+            SharedLiveAgentIndex.shared.objectWillChange
+                .receive(on: RunLoop.main)
+        ) { _ in
+            refreshWorkspaceSnapshot()
+        }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
@@ -14735,6 +14778,45 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    /// Distinct agent kinds present in this workspace, resolved to their brand assets.
+    /// Enumerates panels in stable sidebar order and, for each, consults BOTH the
+    /// (non-blocking) shared agent-session index (hook/registry sessions, incl. opencode)
+    /// AND the display-only process-detected built-in map (bare CLIs like `codex`/`cursor`
+    /// that fire no hook). De-duplicates by rendered identity while preserving order.
+    private func agentIconsForWorkspace() -> [SidebarWorkspaceSnapshotBuilder.AgentIcon] {
+        let workspaceId = tab.id
+        // De-dupe by the rendered identity (asset name, or the kind's raw value when
+        // assetless) so the same brand mark never repeats across panes, per spec.
+        var seenIdentities: Set<String> = []
+        var icons: [SidebarWorkspaceSnapshotBuilder.AgentIcon] = []
+        func appendIcon(kindRawValue: String, assetName: String?) {
+            let identity = assetName ?? "kind:\(kindRawValue)"
+            guard seenIdentities.insert(identity).inserted else { return }
+            icons.append(
+                SidebarWorkspaceSnapshotBuilder.AgentIcon(
+                    kindRawValue: kindRawValue,
+                    assetName: assetName
+                )
+            )
+        }
+        for panelId in tab.sidebarOrderedPanelIds() {
+            // Prefer the hook/registry session snapshot; fall back to the process-detected
+            // built-in when no session exists for this pane.
+            if let snapshot = SharedLiveAgentIndex.shared.snapshot(
+                workspaceId: workspaceId,
+                panelId: panelId
+            ) {
+                appendIcon(kindRawValue: snapshot.kind.rawValue, assetName: snapshot.agentIconAssetName)
+            } else if let builtIn = SharedLiveAgentIndex.shared.builtInAgentIcon(
+                workspaceId: workspaceId,
+                panelId: panelId
+            ) {
+                appendIcon(kindRawValue: builtIn.agentId, assetName: builtIn.agentIconAssetName)
+            }
+        }
+        return icons
+    }
+
     private func makeWorkspaceSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = visibleAuxiliaryDetails
         let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
@@ -14800,7 +14882,8 @@ struct TabItemView: View, Equatable {
             pullRequestRows: pullRequestRows,
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
-            mediaActivity: tab.browserMediaActivity
+            mediaActivity: tab.browserMediaActivity,
+            agentIcons: agentIconsForWorkspace()
         )
     }
 

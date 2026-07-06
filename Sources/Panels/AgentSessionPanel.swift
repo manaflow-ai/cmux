@@ -13,7 +13,23 @@ final class AgentSessionPanel: Panel {
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var displayTitle: String
-    var displayIcon: String? { "sparkles.rectangle.stack" }
+    var displayIcon: String? { RestorableAgentKind.fallbackSymbolName }
+
+    /// The restorable agent kind hosted by this panel, derived from the active provider.
+    /// Used by the surface tab to resolve the agent's brand icon.
+    var restorableAgentKind: RestorableAgentKind {
+        switch currentProviderID {
+        case .codex: return .codex
+        case .claude: return .claude
+        case .opencode: return .opencode
+        }
+    }
+
+    /// Asset-catalog name for this panel's agent brand mark, or `nil` when the kind has no
+    /// bundled asset (in which case the SF-Symbol `displayIcon` fallback applies).
+    var iconAssetName: String? {
+        restorableAgentKind.agentIconAssetName
+    }
     private(set) var isDirty: Bool = false
     var onDisplayStateChanged: ((String, Bool) -> Void)? {
         didSet {

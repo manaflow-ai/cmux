@@ -2078,6 +2078,13 @@ final class SharedLiveAgentIndex: ObservableObject {
     static let shared = SharedLiveAgentIndex()
 
     @Published private(set) var index: RestorableAgentSessionIndex?
+    /// Display-only map of terminal panes hosting a process-detected BUILT-IN agent CLI
+    /// (`codex`, `cursor`, `gemini`, …) to that agent, keyed by workspace/panel. Kept
+    /// PARALLEL to `index` and deliberately OUT of `RestorableAgentSessionIndex` so a bare
+    /// CLI that fires no cmux hook (and exposes no resumable session id) still surfaces its
+    /// brand icon on the sidebar row + surface tab WITHOUT creating a synthetic restorable
+    /// session that could trigger a spurious resume. Refreshed in the same off-main loader.
+    @Published private(set) var detectedBuiltInAgentIconsByPanelKey: [RestorableAgentSessionIndex.PanelKey: DetectedBuiltInAgent] = [:]
     private var loadedAt: Date?
     private var refreshTask: Task<Void, Never>?
     // A hook-store change arrived while a reload was in flight; reload again after.
@@ -2100,6 +2107,14 @@ final class SharedLiveAgentIndex: ObservableObject {
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    /// Read the display-only process-detected built-in agent for a terminal pane, if any.
+    /// Never blocks. Parallel to `snapshot(...)`; carries no session identity.
+    func builtInAgentIcon(workspaceId: UUID, panelId: UUID) -> DetectedBuiltInAgent? {
+        scheduleRefreshIfStale()
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        return detectedBuiltInAgentIconsByPanelKey[key]
     }
 
     /// Current cached index. Never blocks. Used by the close-history undo snapshot so
@@ -2127,15 +2142,33 @@ final class SharedLiveAgentIndex: ObservableObject {
         deferredReloadTask?.cancel()
         deferredReloadTask = nil
         refreshTask = Task { @MainActor [weak self] in
-            let newIndex = await Task.detached(priority: .utility) {
+            let loaded = await Task.detached(priority: .utility) {
                 // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
                 // for load(); everything else should read SharedLiveAgentIndex.shared).
-                RestorableAgentSessionIndex.load()
+                //
+                // The restorable index stays hook/registry-scoped so it never gains a
+                // synthetic session for a bare CLI (which would risk a spurious resume).
+                // ALONGSIDE it we compute a display-only map of terminal panes hosting a
+                // process-detected BUILT-IN agent CLI (`codex`, `cursor`, `gemini`, …):
+                // a bare CLI fires no SessionStart hook, so it never enters the hook
+                // store; without process detection its brand icon never surfaces in the
+                // sidebar row or surface tab. Detection captures one `CmuxTopProcessSnapshot`
+                // and attributes agents to their workspace/panel via the cached
+                // CMUX_WORKSPACE_ID / CMUX_SURFACE_ID scope (same attribution the vault
+                // scanner uses). Runs off-main here; the directory watcher + fallback TTL
+                // drive its refresh cadence.
+                let index = RestorableAgentSessionIndex.load()
+                let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+                let builtIns = RestorableAgentSessionIndex.detectedBuiltInAgentIconsByPanel(
+                    processSnapshot: processSnapshot
+                )
+                return (index, builtIns)
             }.value
             guard let self else { return }
             // Assigning to `@Published` fires objectWillChange, which subscribed
             // workspaces forward as their own objectWillChange so SwiftUI re-renders.
-            self.index = newIndex
+            self.index = loaded.0
+            self.detectedBuiltInAgentIconsByPanelKey = loaded.1
             self.loadedAt = Date()
             self.refreshTask = nil
             if self.changePending {
@@ -2299,6 +2332,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+
+    /// Observes app effective-appearance changes so agent brand tab icons with an
+    /// appearance variant (e.g. Codex-dark) re-render for the active light/dark mode.
+    private var agentTabIconAppearanceObservation: NSKeyValueObservation?
 
     /// Backing store for `dockSplit`, created on first access. Kept optional so
     /// workspace teardown can tear down the Dock only when it was actually used
@@ -3329,11 +3366,87 @@ final class Workspace: Identifiable, ObservableObject {
         // tab-bar re-evaluates the Fork Conversation availability the moment a background
         // refresh lands.
         sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            guard let self else { return }
+            self.objectWillChange.send()
+            // A shared-index refresh may have gained/lost a process-detected agent for
+            // a terminal pane; re-resolve those tabs' brand icons. Deferred to the next
+            // runloop turn so the just-published `index` is readable.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { self?.refreshTerminalAgentTabIcons() }
+            }
         }
+
+        installAgentTabIconAppearanceObservation()
     }
 
     private var sharedLiveAgentIndexCancellable: AnyCancellable?
+
+    /// Panel ids whose terminal tab currently shows a process-detected agent brand PNG.
+    /// Tracked so the icon can be cleared (revealing the terminal's default glyph) when
+    /// the agent process exits, without clobbering non-agent terminals that never had one.
+    private var terminalAgentBrandIconPanelIds: Set<UUID> = []
+
+    /// Observes the app's effective appearance and re-pushes agent brand tab icons so
+    /// appearance-variant assets (e.g. Codex-dark) swap on a light/dark switch.
+    private func installAgentTabIconAppearanceObservation() {
+        guard let app = NSApp else { return }
+        agentTabIconAppearanceObservation = app.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.refreshAgentSessionTabIcons()
+                    self?.refreshTerminalAgentTabIcons()
+                }
+            }
+        }
+    }
+
+    /// Re-resolves and re-pushes the brand icon for every agent-session tab in this
+    /// workspace. Cheap no-op for tabs whose PNG is unchanged.
+    private func refreshAgentSessionTabIcons() {
+        for panelId in agentSessionPanelCallbackIds {
+            guard let agentPanel = panels[panelId] as? AgentSessionPanel,
+                  let tabId = surfaceIdFromPanelId(panelId),
+                  let existing = bonsplitController.tab(tabId) else { continue }
+            let nextIconImageData = agentPanel.restorableAgentKind.agentIconPNGData()
+            guard existing.iconImageData != nextIconImageData else { continue }
+            bonsplitController.updateTab(tabId, iconImageData: .some(nextIconImageData))
+        }
+    }
+
+    /// Re-resolves the brand icon for every terminal pane in this workspace from the
+    /// process-detected shared agent index and pushes it via the tab's PNG
+    /// `iconImageData:` channel. A terminal running a detected agent CLI (`claude`,
+    /// `codex`, …) shows that brand mark; when the agent process exits, the previously
+    /// set PNG is cleared so the terminal's default glyph returns. Terminals that never
+    /// hosted a detected agent are left untouched. Reads the non-blocking cached index.
+    private func refreshTerminalAgentTabIcons() {
+        let workspaceId = id
+        for (panelId, panel) in panels {
+            guard panel is TerminalPanel,
+                  let tabId = surfaceIdFromPanelId(panelId),
+                  let existing = bonsplitController.tab(tabId) else { continue }
+            // Prefer the hook/registry session snapshot (covers opencode + agents that
+            // fire a cmux hook); fall back to the display-only process-detected built-in
+            // map (covers bare CLIs like `codex`/`cursor` that fire no hook).
+            let nextIconImageData = SharedLiveAgentIndex.shared
+                .snapshot(workspaceId: workspaceId, panelId: panelId)?
+                .agentIconPNGData()
+                ?? SharedLiveAgentIndex.shared
+                    .builtInAgentIcon(workspaceId: workspaceId, panelId: panelId)?
+                    .agentIconPNGData()
+            if let nextIconImageData {
+                guard existing.iconImageData != nextIconImageData else { continue }
+                bonsplitController.updateTab(tabId, iconImageData: .some(nextIconImageData))
+                terminalAgentBrandIconPanelIds.insert(panelId)
+            } else if terminalAgentBrandIconPanelIds.remove(panelId) != nil {
+                // We previously set a brand PNG here and the agent is gone: clear it so
+                // the terminal's default icon returns. Never clobber a terminal that
+                // never carried a detected-agent PNG.
+                guard existing.iconImageData != nil else { continue }
+                bonsplitController.updateTab(tabId, iconImageData: .some(nil))
+            }
+        }
+    }
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
@@ -3961,10 +4074,16 @@ final class Workspace: Identifiable, ObservableObject {
             let resolvedTitle = self.resolvedPanelTitle(panelId: agentPanel.id, fallback: newTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            // Refresh the brand icon when the hosted agent kind changes so the tab
+            // swaps between agent marks (and to the sparkles fallback for kinds
+            // without a bundled asset). Flows through the PNG `iconImageData:` channel.
+            let nextIconImageData = agentPanel.restorableAgentKind.agentIconPNGData()
+            let iconImageUpdate: Data?? = existing.iconImageData == nextIconImageData ? nil : .some(nextIconImageData)
+            guard titleUpdate != nil || dirtyUpdate != nil || iconImageUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
+                iconImageData: iconImageUpdate,
                 hasCustomTitle: self.panelCustomTitles[agentPanel.id] != nil,
                 isDirty: dirtyUpdate
             )
@@ -8802,6 +8921,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: agentPanel.displayTitle,
             icon: agentPanel.displayIcon,
+            iconImageData: agentPanel.restorableAgentKind.agentIconPNGData(),
             kind: SurfaceKind.agentSession.rawValue,
             isDirty: agentPanel.isDirty,
             isLoading: false,

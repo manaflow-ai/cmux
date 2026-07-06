@@ -1204,6 +1204,7 @@
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
 		C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */; };
 		B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000005 /* VaultAgentProcessScanner.swift */; };
+		B357500000000000000000F1 /* DetectedBuiltInAgentScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B357500000000000000000F0 /* DetectedBuiltInAgentScanner.swift */; };
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
 		C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */; };
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
@@ -2508,6 +2509,7 @@
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
 		C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/URLRequest+BrowserFailedNavigation.swift"; sourceTree = "<group>"; };
 		B35750000000000000000005 /* VaultAgentProcessScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScanner.swift; sourceTree = "<group>"; };
+		B357500000000000000000F0 /* DetectedBuiltInAgentScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectedBuiltInAgentScanner.swift; sourceTree = "<group>"; };
 		B35750000000000000000001 /* VaultAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentRegistry.swift; sourceTree = "<group>"; };
 		C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
@@ -3559,6 +3561,7 @@
 				FE003001 /* SessionIndexStore.swift */,
 				B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */,
 				B35750000000000000000005 /* VaultAgentProcessScanner.swift */,
+				B357500000000000000000F0 /* DetectedBuiltInAgentScanner.swift */,
 				FE003004 /* SessionIndexStore+CodexSQL.swift */,
 				FE003005 /* RovoDevIndex.swift */,
 				F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */,
@@ -5181,6 +5184,7 @@
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */,
 				B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */,
+				B357500000000000000000F1 /* DetectedBuiltInAgentScanner.swift in Sources */,
 				B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
