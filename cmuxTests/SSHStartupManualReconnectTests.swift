@@ -49,11 +49,11 @@ struct SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try writeShellFile(at: fakeCLI, lines: [
+        try Self.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
             "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
         ])
-        try writeShellFile(at: fakeSSH, lines: [
+        try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
             "count=$((count + 1))",
@@ -75,7 +75,7 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
-        let result = runProcess(
+        let result = Self.runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
             environment: environment,
