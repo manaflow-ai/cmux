@@ -127,6 +127,14 @@ enum AuthEnvironment {
         )
     }
 
+    static var billingPortalURL: URL {
+        resolvedBillingPortalURL(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedBillingPortalURL(environment: [String: String]) -> URL {
+        billingWebsiteOrigin(environment: environment).appendingPathComponent("api/billing/portal")
+    }
+
     static var signInWebsiteOrigin: URL {
         canonicalizedLoopbackURL(
             resolvedURL(

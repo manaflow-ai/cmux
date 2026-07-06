@@ -240,6 +240,8 @@
     "title": "料金",
     "perMonth": "/月",
     "perUserMonth": "/ユーザー/月",
+    "currentPlan": "現在のプラン",
+    "manageBilling": "請求を管理",
     "free": {
       "name": "Free",
       "price": "$0",
@@ -2493,6 +2495,7 @@
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
     "emailLabel": "購入メールアドレス",
     "openCmux": "cmux を開く",
+    "manageBilling": "請求を管理",
     "manageSignInMethods": "サインイン方法を管理"
   },
   "landing": {
