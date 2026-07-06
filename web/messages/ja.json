@@ -4389,5 +4389,53 @@
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition ポータル",
+    "metaDescription": "Stripe 請求ポータルで cmux Founder's Edition のサブスクリプションを管理するにはサインインしてください。",
+    "title": "Founder's Edition",
+    "signedInAs": "{email} としてサインイン中",
+    "signIn": {
+      "lead": "Founder's Edition の購入時に使った同じメールアドレスでサインインしてください。",
+      "note": "サインイン後、確認済みメールアドレスを Stripe の顧客情報と照合し、安全な請求ポータルへ移動します。",
+      "cta": "サインインして管理"
+    },
+    "verify": {
+      "lead": "請求情報を表示する前にメールアドレスを確認してください。",
+      "note": "正しい Stripe 顧客を見つけるため、確認済みのメインメールアドレスだけを使用します。",
+      "cta": "アカウント設定を開く",
+      "switchAccount": "別のアカウントを使う"
+    },
+    "manage": {
+      "lead": "Founder's Edition のサブスクリプションを確認し、Stripe ポータルで支払い方法の更新や請求書のダウンロードができます。",
+      "fallbackProductName": "Founder's Edition サブスクリプション",
+      "renewsOn": "{date} に更新",
+      "endsOn": "{date} に終了",
+      "cta": "サブスクリプションを管理",
+      "help": "お困りですか？<email>founders@manaflow.ai</email> までご連絡ください。",
+      "switchAccount": "アカウントを切り替える"
+    },
+    "missing": {
+      "title": "Founder's Edition サブスクリプションが見つかりませんでした",
+      "body": "{email} に紐づく Founder's Edition サブスクリプションが見つかりませんでした。",
+      "tip": "別のメールアドレスで購入した場合は、そのアカウントに切り替えてもう一度お試しください。",
+      "contact": "心当たりがない場合は <email>founders@manaflow.ai</email> までご連絡ください。購入情報の紐づけをお手伝いします。",
+      "switchAccount": "別のアカウントを使う"
+    },
+    "errorBanner": "現在、請求ポータルを開けません。しばらくしてから再試行するか、問題が続く場合はご連絡ください。",
+    "unavailable": {
+      "title": "Founder's Edition ポータルは利用できません",
+      "body": "現在、請求またはサインインが設定されていません。<email>founders@manaflow.ai</email> までご連絡ください。"
+    },
+    "statuses": {
+      "active": "有効",
+      "trialing": "トライアル中",
+      "past_due": "支払い期限超過",
+      "canceled": "キャンセル済み",
+      "unpaid": "未払い",
+      "incomplete": "未完了",
+      "incomplete_expired": "未完了のまま期限切れ",
+      "paused": "一時停止中"
+    }
   }
 }

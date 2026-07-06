@@ -4432,5 +4432,53 @@
       "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition portal",
+    "metaDescription": "Sign in to manage your cmux Founder's Edition subscription through the Stripe Billing Portal.",
+    "title": "Founder's Edition",
+    "signedInAs": "Signed in as {email}",
+    "signIn": {
+      "lead": "Sign in with the same email you used to purchase Founder's Edition.",
+      "note": "After you sign in, we'll match your verified email to your Stripe customer and send you to the secure billing portal.",
+      "cta": "Sign in to manage"
+    },
+    "verify": {
+      "lead": "Verify your email before we show billing details.",
+      "note": "We only use a verified primary email to find the right Stripe customer.",
+      "cta": "Open account settings",
+      "switchAccount": "Use a different account"
+    },
+    "manage": {
+      "lead": "Review your Founder's Edition subscription and open the Stripe portal to update payment or download invoices.",
+      "fallbackProductName": "Founder's Edition subscription",
+      "renewsOn": "Renews on {date}",
+      "endsOn": "Ends on {date}",
+      "cta": "Manage subscription",
+      "help": "Need help? Email <email>founders@manaflow.ai</email>.",
+      "switchAccount": "Switch account"
+    },
+    "missing": {
+      "title": "We couldn't find a Founder's Edition subscription",
+      "body": "We couldn't find a Founder's Edition subscription tied to {email}.",
+      "tip": "If you purchased with a different email, switch to that account and try again.",
+      "contact": "If this looks wrong, email <email>founders@manaflow.ai</email> and we'll help link the purchase.",
+      "switchAccount": "Use a different account"
+    },
+    "errorBanner": "We couldn't open the billing portal right now. Try again shortly, or email us if the problem continues.",
+    "unavailable": {
+      "title": "Founder's Edition portal unavailable",
+      "body": "Billing or sign-in is not configured right now. Email <email>founders@manaflow.ai</email> and we will help."
+    },
+    "statuses": {
+      "active": "Active",
+      "trialing": "Trialing",
+      "past_due": "Past due",
+      "canceled": "Canceled",
+      "unpaid": "Unpaid",
+      "incomplete": "Incomplete",
+      "incomplete_expired": "Incomplete expired",
+      "paused": "Paused"
+    }
   }
 }

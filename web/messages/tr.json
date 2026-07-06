@@ -3488,5 +3488,53 @@
     "successBody": "{platform} sürümü hazır olduğunda sana e-posta göndereceğiz.",
     "successBodyAny": "cmux senin platformun için hazır olduğunda sana e-posta göndereceğiz.",
     "done": "Tamam"
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition portalı",
+    "metaDescription": "Stripe Billing Portal üzerinden cmux Founder's Edition aboneliğinizi yönetmek için oturum açın.",
+    "title": "Founder's Edition",
+    "signedInAs": "{email} olarak oturum açıldı",
+    "signIn": {
+      "lead": "Founder's Edition satın alırken kullandığınız aynı e-posta ile oturum açın.",
+      "note": "Oturum açtıktan sonra doğrulanmış e-postanızı Stripe müşterinizle eşleştirip sizi güvenli faturalandırma portalına yönlendireceğiz.",
+      "cta": "Yönetmek için oturum aç"
+    },
+    "verify": {
+      "lead": "Faturalandırma ayrıntılarını göstermeden önce e-postanızı doğrulayın.",
+      "note": "Doğru Stripe müşterisini bulmak için yalnızca doğrulanmış birincil e-postayı kullanırız.",
+      "cta": "Hesap ayarlarını aç",
+      "switchAccount": "Başka hesap kullan"
+    },
+    "manage": {
+      "lead": "Founder's Edition aboneliğinizi inceleyin ve ödemeyi güncellemek veya faturaları indirmek için Stripe portalını açın.",
+      "fallbackProductName": "Founder's Edition aboneliği",
+      "renewsOn": "{date} tarihinde yenilenir",
+      "endsOn": "{date} tarihinde sona erer",
+      "cta": "Aboneliği yönet",
+      "help": "Yardıma mı ihtiyacınız var? <email>founders@manaflow.ai</email> adresine e-posta gönderin.",
+      "switchAccount": "Hesabı değiştir"
+    },
+    "missing": {
+      "title": "Founder's Edition aboneliği bulunamadı",
+      "body": "{email} ile bağlantılı bir Founder's Edition aboneliği bulamadık.",
+      "tip": "Farklı bir e-posta ile satın aldıysanız o hesaba geçip tekrar deneyin.",
+      "contact": "Bu yanlış görünüyorsa <email>founders@manaflow.ai</email> adresine e-posta gönderin; satın alımı bağlamanıza yardımcı oluruz.",
+      "switchAccount": "Başka hesap kullan"
+    },
+    "errorBanner": "Faturalandırma portalını şu anda açamıyoruz. Kısa süre sonra tekrar deneyin veya sorun devam ederse bize e-posta gönderin.",
+    "unavailable": {
+      "title": "Founder's Edition portalı kullanılamıyor",
+      "body": "Faturalandırma veya oturum açma şu anda yapılandırılmamış. <email>founders@manaflow.ai</email> adresine e-posta gönderin, yardımcı olalım."
+    },
+    "statuses": {
+      "active": "Aktif",
+      "trialing": "Deneme sürecinde",
+      "past_due": "Vadesi geçmiş",
+      "canceled": "İptal edildi",
+      "unpaid": "Ödenmemiş",
+      "incomplete": "Eksik",
+      "incomplete_expired": "Eksik ve süresi dolmuş",
+      "paused": "Duraklatılmış"
+    }
   }
 }

@@ -36,6 +36,30 @@ function validatedNativeSignInTarget(request: NextRequest): string | null {
   return `${target.pathname}${target.search}${target.hash}`;
 }
 
+function validatedWebSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (target.searchParams.has("native_app_return_to")) return null;
+
+  const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  if (!afterAuth || afterAuth.pathname !== "/handler/after-sign-in") return null;
+  if (afterAuth.searchParams.has("native_app_return_to")) return null;
+
+  const afterAuthReturnTo = afterAuth.searchParams.get("after_auth_return_to");
+  if (!isSameOriginAbsolutePath(afterAuthReturnTo, request)) return null;
+
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+function validatedSignInTarget(request: NextRequest): string | null {
+  return validatedNativeSignInTarget(request) ?? validatedWebSignInTarget(request);
+}
+
+function isSameOriginAbsolutePath(value: string | null, request: NextRequest): boolean {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return false;
+  return sameOriginURL(value, request) !== null;
+}
+
 function canStartSignOut(request: NextRequest): boolean {
   const fetchSite = request.headers.get("sec-fetch-site");
   return fetchSite === "none" || fetchSite === "same-origin";
@@ -113,7 +137,7 @@ function isNextRedirectError(error: unknown): boolean {
 
 export function makeSignOutAndSignInHandler(dependencies: SignOutAndSignInDependencies) {
   return async function GET(request: NextRequest) {
-    const target = validatedNativeSignInTarget(request);
+    const target = validatedSignInTarget(request);
     if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", request.url));
 
     const response = NextResponse.redirect(new URL(target, request.url));

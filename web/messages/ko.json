@@ -3488,5 +3488,53 @@
     "successBody": "{platform} 버전이 준비되면 이메일로 알려드릴게요.",
     "successBodyAny": "cmux가 회원님의 플랫폼에서 준비되면 이메일로 알려드릴게요.",
     "done": "완료"
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition 포털",
+    "metaDescription": "Stripe Billing Portal에서 cmux Founder's Edition 구독을 관리하려면 로그인하세요.",
+    "title": "Founder's Edition",
+    "signedInAs": "{email}(으)로 로그인됨",
+    "signIn": {
+      "lead": "Founder's Edition 구매에 사용한 것과 같은 이메일로 로그인하세요.",
+      "note": "로그인 후 확인된 이메일을 Stripe 고객과 대조하고 안전한 청구 포털로 이동합니다.",
+      "cta": "로그인하여 관리"
+    },
+    "verify": {
+      "lead": "청구 정보를 표시하기 전에 이메일을 확인하세요.",
+      "note": "올바른 Stripe 고객을 찾기 위해 확인된 기본 이메일만 사용합니다.",
+      "cta": "계정 설정 열기",
+      "switchAccount": "다른 계정 사용"
+    },
+    "manage": {
+      "lead": "Founder's Edition 구독을 확인하고 Stripe 포털에서 결제 정보를 업데이트하거나 청구서를 다운로드하세요.",
+      "fallbackProductName": "Founder's Edition 구독",
+      "renewsOn": "{date}에 갱신",
+      "endsOn": "{date}에 종료",
+      "cta": "구독 관리",
+      "help": "도움이 필요하신가요? <email>founders@manaflow.ai</email>로 이메일을 보내세요.",
+      "switchAccount": "계정 전환"
+    },
+    "missing": {
+      "title": "Founder's Edition 구독을 찾을 수 없습니다",
+      "body": "{email}에 연결된 Founder's Edition 구독을 찾을 수 없습니다.",
+      "tip": "다른 이메일로 구매했다면 해당 계정으로 전환한 뒤 다시 시도하세요.",
+      "contact": "잘못된 것 같다면 <email>founders@manaflow.ai</email>로 이메일을 보내 주세요. 구매 연결을 도와드리겠습니다.",
+      "switchAccount": "다른 계정 사용"
+    },
+    "errorBanner": "지금은 청구 포털을 열 수 없습니다. 잠시 후 다시 시도하거나 문제가 계속되면 이메일로 문의하세요.",
+    "unavailable": {
+      "title": "Founder's Edition 포털을 사용할 수 없습니다",
+      "body": "현재 청구 또는 로그인이 구성되어 있지 않습니다. <email>founders@manaflow.ai</email>로 이메일을 보내 주시면 도와드리겠습니다."
+    },
+    "statuses": {
+      "active": "활성",
+      "trialing": "체험 중",
+      "past_due": "결제 기한 지남",
+      "canceled": "취소됨",
+      "unpaid": "미결제",
+      "incomplete": "미완료",
+      "incomplete_expired": "미완료 만료",
+      "paused": "일시 중지됨"
+    }
   }
 }

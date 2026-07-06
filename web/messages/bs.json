@@ -3488,5 +3488,53 @@
     "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
     "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
     "done": "Gotovo"
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition portal",
+    "metaDescription": "Prijavite se da upravljate svojom cmux Founder's Edition pretplatom kroz Stripe Billing Portal.",
+    "title": "Founder's Edition",
+    "signedInAs": "Prijavljeni ste kao {email}",
+    "signIn": {
+      "lead": "Prijavite se istom email adresom koju ste koristili za kupovinu Founder's Edition.",
+      "note": "Nakon prijave povezujemo vašu potvrđenu email adresu sa Stripe kupcem i šaljemo vas u sigurni portal za naplatu.",
+      "cta": "Prijavite se za upravljanje"
+    },
+    "verify": {
+      "lead": "Potvrdite svoju email adresu prije prikaza podataka o naplati.",
+      "note": "Koristimo samo potvrđenu primarnu email adresu da pronađemo pravi Stripe račun kupca.",
+      "cta": "Otvori postavke računa",
+      "switchAccount": "Koristi drugi račun"
+    },
+    "manage": {
+      "lead": "Pregledajte svoju Founder's Edition pretplatu i otvorite Stripe portal za ažuriranje plaćanja ili preuzimanje računa.",
+      "fallbackProductName": "Founder's Edition pretplata",
+      "renewsOn": "Obnavlja se {date}",
+      "endsOn": "Završava {date}",
+      "cta": "Upravljaj pretplatom",
+      "help": "Trebate pomoć? Pišite na <email>founders@manaflow.ai</email>.",
+      "switchAccount": "Promijeni račun"
+    },
+    "missing": {
+      "title": "Nismo pronašli Founder's Edition pretplatu",
+      "body": "Nismo pronašli Founder's Edition pretplatu povezanu s adresom {email}.",
+      "tip": "Ako ste kupili drugim emailom, prebacite se na taj račun i pokušajte ponovo.",
+      "contact": "Ako ovo niste očekivali, pišite na <email>founders@manaflow.ai</email> i pomoći ćemo povezati kupovinu.",
+      "switchAccount": "Koristi drugi račun"
+    },
+    "errorBanner": "Trenutno ne možemo otvoriti portal za naplatu. Pokušajte ponovo uskoro ili nam pišite ako se problem nastavi.",
+    "unavailable": {
+      "title": "Founder's Edition portal nije dostupan",
+      "body": "Naplata ili prijava trenutno nisu podešeni. Pišite na <email>founders@manaflow.ai</email> i pomoći ćemo vam."
+    },
+    "statuses": {
+      "active": "Aktivno",
+      "trialing": "Probni period",
+      "past_due": "Plaćanje kasni",
+      "canceled": "Otkazano",
+      "unpaid": "Neplaćeno",
+      "incomplete": "Nedovršeno",
+      "incomplete_expired": "Nedovršeno je isteklo",
+      "paused": "Pauzirano"
+    }
   }
 }

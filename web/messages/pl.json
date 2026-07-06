@@ -3488,5 +3488,53 @@
     "successBody": "Wyślemy Ci e-mail, gdy wersja na {platform} będzie gotowa.",
     "successBodyAny": "Wyślemy Ci e-mail, gdy cmux będzie gotowy na Twoją platformę.",
     "done": "Gotowe"
+  },
+  "founders": {
+    "metaTitle": "Portal cmux Founder's Edition",
+    "metaDescription": "Zaloguj się, aby zarządzać subskrypcją cmux Founder's Edition w portalu rozliczeniowym Stripe.",
+    "title": "Founder's Edition",
+    "signedInAs": "Zalogowano jako {email}",
+    "signIn": {
+      "lead": "Zaloguj się tym samym adresem e-mail, którego użyto do zakupu Founder's Edition.",
+      "note": "Po zalogowaniu dopasujemy zweryfikowany e-mail do klienta Stripe i przeniesiemy Cię do bezpiecznego portalu rozliczeń.",
+      "cta": "Zaloguj się, aby zarządzać"
+    },
+    "verify": {
+      "lead": "Zweryfikuj adres e-mail, zanim pokażemy dane rozliczeniowe.",
+      "note": "Używamy tylko zweryfikowanego głównego adresu e-mail, aby znaleźć właściwego klienta Stripe.",
+      "cta": "Otwórz ustawienia konta",
+      "switchAccount": "Użyj innego konta"
+    },
+    "manage": {
+      "lead": "Sprawdź subskrypcję Founder's Edition i otwórz portal Stripe, aby zaktualizować płatność lub pobrać faktury.",
+      "fallbackProductName": "Subskrypcja Founder's Edition",
+      "renewsOn": "Odnawia się {date}",
+      "endsOn": "Kończy się {date}",
+      "cta": "Zarządzaj subskrypcją",
+      "help": "Potrzebujesz pomocy? Napisz na <email>founders@manaflow.ai</email>.",
+      "switchAccount": "Zmień konto"
+    },
+    "missing": {
+      "title": "Nie znaleźliśmy subskrypcji Founder's Edition",
+      "body": "Nie znaleźliśmy subskrypcji Founder's Edition powiązanej z {email}.",
+      "tip": "Jeśli zakup wykonano innym adresem e-mail, przełącz się na to konto i spróbuj ponownie.",
+      "contact": "Jeśli to wygląda na błąd, napisz na <email>founders@manaflow.ai</email>, a pomożemy powiązać zakup.",
+      "switchAccount": "Użyj innego konta"
+    },
+    "errorBanner": "Nie możemy teraz otworzyć portalu rozliczeń. Spróbuj ponownie za chwilę albo napisz do nas, jeśli problem będzie się powtarzał.",
+    "unavailable": {
+      "title": "Portal Founder's Edition jest niedostępny",
+      "body": "Rozliczenia lub logowanie nie są teraz skonfigurowane. Napisz na <email>founders@manaflow.ai</email>, a pomożemy."
+    },
+    "statuses": {
+      "active": "Aktywna",
+      "trialing": "Okres próbny",
+      "past_due": "Po terminie",
+      "canceled": "Anulowana",
+      "unpaid": "Nieopłacona",
+      "incomplete": "Niekompletna",
+      "incomplete_expired": "Niekompletna wygasła",
+      "paused": "Wstrzymana"
+    }
   }
 }

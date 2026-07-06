@@ -3488,5 +3488,53 @@
     "successBody": "Wir benachrichtigen dich per E-Mail, sobald die {platform}-Version bereit ist.",
     "successBodyAny": "Wir benachrichtigen dich per E-Mail, sobald cmux für deine Plattform bereit ist.",
     "done": "Fertig"
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition-Portal",
+    "metaDescription": "Melde dich an, um dein cmux Founder's Edition-Abonnement im Stripe Billing Portal zu verwalten.",
+    "title": "Founder's Edition",
+    "signedInAs": "Angemeldet als {email}",
+    "signIn": {
+      "lead": "Melde dich mit derselben E-Mail-Adresse an, die du beim Kauf der Founder's Edition verwendet hast.",
+      "note": "Nach der Anmeldung gleichen wir deine verifizierte E-Mail-Adresse mit deinem Stripe-Kundenkonto ab und leiten dich zum sicheren Abrechnungsportal weiter.",
+      "cta": "Anmelden und verwalten"
+    },
+    "verify": {
+      "lead": "Bestätige deine E-Mail-Adresse, bevor wir Abrechnungsdaten anzeigen.",
+      "note": "Wir verwenden nur eine verifizierte primäre E-Mail-Adresse, um das richtige Stripe-Kundenkonto zu finden.",
+      "cta": "Kontoeinstellungen öffnen",
+      "switchAccount": "Anderes Konto verwenden"
+    },
+    "manage": {
+      "lead": "Prüfe dein Founder's Edition-Abonnement und öffne das Stripe-Portal, um Zahlungsdaten zu ändern oder Rechnungen herunterzuladen.",
+      "fallbackProductName": "Founder's Edition-Abonnement",
+      "renewsOn": "Verlängert sich am {date}",
+      "endsOn": "Endet am {date}",
+      "cta": "Abonnement verwalten",
+      "help": "Brauchst du Hilfe? Schreib an <email>founders@manaflow.ai</email>.",
+      "switchAccount": "Konto wechseln"
+    },
+    "missing": {
+      "title": "Kein Founder's Edition-Abonnement gefunden",
+      "body": "Wir haben kein Founder's Edition-Abonnement für {email} gefunden.",
+      "tip": "Wenn du mit einer anderen E-Mail-Adresse gekauft hast, wechsle zu diesem Konto und versuche es erneut.",
+      "contact": "Wenn das nicht stimmt, schreib an <email>founders@manaflow.ai</email>; wir helfen beim Verknüpfen des Kaufs.",
+      "switchAccount": "Anderes Konto verwenden"
+    },
+    "errorBanner": "Das Abrechnungsportal konnte gerade nicht geöffnet werden. Versuche es gleich erneut oder schreib uns, wenn das Problem bestehen bleibt.",
+    "unavailable": {
+      "title": "Founder's Edition-Portal nicht verfügbar",
+      "body": "Abrechnung oder Anmeldung ist derzeit nicht eingerichtet. Schreib an <email>founders@manaflow.ai</email>, und wir helfen dir."
+    },
+    "statuses": {
+      "active": "Aktiv",
+      "trialing": "Testphase",
+      "past_due": "Überfällig",
+      "canceled": "Gekündigt",
+      "unpaid": "Unbezahlt",
+      "incomplete": "Unvollständig",
+      "incomplete_expired": "Unvollständig abgelaufen",
+      "paused": "Pausiert"
+    }
   }
 }

@@ -3488,5 +3488,53 @@
     "successBody": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេលកំណែ {platform} រួចរាល់។",
     "successBodyAny": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេល cmux រួចរាល់សម្រាប់វេទិការបស់អ្នក។",
     "done": "រួចរាល់"
+  },
+  "founders": {
+    "metaTitle": "ផតថល cmux Founder's Edition",
+    "metaDescription": "ចូល ដើម្បីគ្រប់គ្រងការជាវ cmux Founder's Edition របស់អ្នកតាម Stripe Billing Portal។",
+    "title": "Founder's Edition",
+    "signedInAs": "បានចូលជា {email}",
+    "signIn": {
+      "lead": "ចូលដោយប្រើអ៊ីមែលដូចគ្នាដែលអ្នកបានប្រើពេលទិញ Founder's Edition។",
+      "note": "បន្ទាប់ពីចូល យើងនឹងផ្គូផ្គងអ៊ីមែលដែលបានផ្ទៀងផ្ទាត់របស់អ្នកជាមួយអតិថិជន Stripe ហើយបញ្ជូនអ្នកទៅផតថលវិក្កយបត្រដែលមានសុវត្ថិភាព។",
+      "cta": "ចូលដើម្បីគ្រប់គ្រង"
+    },
+    "verify": {
+      "lead": "ផ្ទៀងផ្ទាត់អ៊ីមែលរបស់អ្នក មុនពេលយើងបង្ហាញព័ត៌មានវិក្កយបត្រ។",
+      "note": "យើងប្រើតែអ៊ីមែលចម្បងដែលបានផ្ទៀងផ្ទាត់ ដើម្បីរកអតិថិជន Stripe ត្រឹមត្រូវ។",
+      "cta": "បើកការកំណត់គណនី",
+      "switchAccount": "ប្រើគណនីផ្សេង"
+    },
+    "manage": {
+      "lead": "ពិនិត្យការជាវ Founder's Edition របស់អ្នក ហើយបើកផតថល Stripe ដើម្បីធ្វើបច្ចុប្បន្នភាពការទូទាត់ ឬទាញយកវិក្កយបត្រ។",
+      "fallbackProductName": "ការជាវ Founder's Edition",
+      "renewsOn": "បន្តនៅ {date}",
+      "endsOn": "បញ្ចប់នៅ {date}",
+      "cta": "គ្រប់គ្រងការជាវ",
+      "help": "ត្រូវការជំនួយ? អ៊ីមែលទៅ <email>founders@manaflow.ai</email>។",
+      "switchAccount": "ប្តូរគណនី"
+    },
+    "missing": {
+      "title": "យើងរកមិនឃើញការជាវ Founder's Edition ទេ",
+      "body": "យើងរកមិនឃើញការជាវ Founder's Edition ដែលភ្ជាប់នឹង {email} ទេ។",
+      "tip": "បើអ្នកបានទិញដោយអ៊ីមែលផ្សេង សូមប្តូរទៅគណនីនោះ ហើយព្យាយាមម្តងទៀត។",
+      "contact": "បើវាមិនត្រឹមត្រូវ សូមអ៊ីមែលទៅ <email>founders@manaflow.ai</email> ហើយយើងនឹងជួយភ្ជាប់ការទិញ។",
+      "switchAccount": "ប្រើគណនីផ្សេង"
+    },
+    "errorBanner": "យើងមិនអាចបើកផតថលវិក្កយបត្រឥឡូវនេះបានទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត ឬអ៊ីមែលមកយើងបើបញ្ហានៅតែមាន។",
+    "unavailable": {
+      "title": "ផតថល Founder's Edition មិនអាចប្រើបាន",
+      "body": "វិក្កយបត្រ ឬការចូល មិនទាន់បានកំណត់នៅពេលនេះទេ។ អ៊ីមែលទៅ <email>founders@manaflow.ai</email> ហើយយើងនឹងជួយ។"
+    },
+    "statuses": {
+      "active": "សកម្ម",
+      "trialing": "កំពុងសាកល្បង",
+      "past_due": "ហួសកំណត់បង់ប្រាក់",
+      "canceled": "បានបោះបង់",
+      "unpaid": "មិនទាន់បង់",
+      "incomplete": "មិនពេញលេញ",
+      "incomplete_expired": "មិនពេញលេញ ហើយផុតកំណត់",
+      "paused": "បានផ្អាក"
+    }
   }
 }

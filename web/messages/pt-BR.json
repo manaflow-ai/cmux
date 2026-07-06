@@ -3488,5 +3488,53 @@
     "successBody": "Enviaremos um e-mail quando a versão para {platform} estiver pronta.",
     "successBodyAny": "Enviaremos um e-mail quando o cmux estiver pronto para sua plataforma.",
     "done": "Concluído"
+  },
+  "founders": {
+    "metaTitle": "Portal cmux Founder's Edition",
+    "metaDescription": "Entre para gerenciar sua assinatura cmux Founder's Edition pelo Portal de Faturamento da Stripe.",
+    "title": "Founder's Edition",
+    "signedInAs": "Conectado como {email}",
+    "signIn": {
+      "lead": "Entre com o mesmo e-mail usado para comprar o Founder's Edition.",
+      "note": "Depois do login, vamos associar seu e-mail verificado ao cliente da Stripe e levar você ao portal seguro de faturamento.",
+      "cta": "Entrar para gerenciar"
+    },
+    "verify": {
+      "lead": "Verifique seu e-mail antes de mostrarmos os detalhes de faturamento.",
+      "note": "Usamos apenas um e-mail principal verificado para encontrar o cliente correto da Stripe.",
+      "cta": "Abrir configurações da conta",
+      "switchAccount": "Usar outra conta"
+    },
+    "manage": {
+      "lead": "Revise sua assinatura Founder's Edition e abra o portal da Stripe para atualizar o pagamento ou baixar notas fiscais.",
+      "fallbackProductName": "Assinatura Founder's Edition",
+      "renewsOn": "Renova em {date}",
+      "endsOn": "Termina em {date}",
+      "cta": "Gerenciar assinatura",
+      "help": "Precisa de ajuda? Envie e-mail para <email>founders@manaflow.ai</email>.",
+      "switchAccount": "Trocar conta"
+    },
+    "missing": {
+      "title": "Não encontramos uma assinatura Founder's Edition",
+      "body": "Não encontramos uma assinatura Founder's Edition vinculada a {email}.",
+      "tip": "Se você comprou com outro e-mail, troque para essa conta e tente novamente.",
+      "contact": "Se isso parece errado, envie e-mail para <email>founders@manaflow.ai</email> e ajudaremos a vincular a compra.",
+      "switchAccount": "Usar outra conta"
+    },
+    "errorBanner": "Não conseguimos abrir o portal de faturamento agora. Tente novamente em instantes ou envie um e-mail se o problema continuar.",
+    "unavailable": {
+      "title": "Portal Founder's Edition indisponível",
+      "body": "O faturamento ou o login não estão configurados agora. Envie e-mail para <email>founders@manaflow.ai</email> e ajudaremos."
+    },
+    "statuses": {
+      "active": "Ativa",
+      "trialing": "Em teste",
+      "past_due": "Em atraso",
+      "canceled": "Cancelada",
+      "unpaid": "Não paga",
+      "incomplete": "Incompleta",
+      "incomplete_expired": "Incompleta expirada",
+      "paused": "Pausada"
+    }
   }
 }
