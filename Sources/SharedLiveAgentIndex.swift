@@ -194,6 +194,10 @@ final class SharedLiveAgentIndex {
             self.loadedAt = loadedAt
             self.processScopeFingerprint = result.processScopeFingerprint
             self.validatedForkPanels = result.forkValidatedPanels
+            self.validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(
+                for: result.forkValidatedPanels,
+                completedAt: loadedAt
+            )
         }
         applyPendingForkValidations()
     }
@@ -207,8 +211,11 @@ final class SharedLiveAgentIndex {
     ) {
         index = newIndex
         self.loadedAt = loadedAt
-        validatedForkPanelProbeCompletedAt.removeAll()
         validatedForkPanels = forkValidatedPanels
+        validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(
+            for: forkValidatedPanels,
+            completedAt: loadedAt
+        )
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
@@ -228,6 +235,13 @@ final class SharedLiveAgentIndex {
             }
         }
         pendingForkValidationPanels.removeAll()
+    }
+
+    private func forkPanelProbeTimestamps(
+        for panelKeys: Set<RestorableAgentSessionIndex.PanelKey>,
+        completedAt: Date
+    ) -> [RestorableAgentSessionIndex.PanelKey: Date] {
+        Dictionary(uniqueKeysWithValues: panelKeys.map { ($0, completedAt) })
     }
 
     private func hasFreshForkAvailabilityProbe(for panelKey: RestorableAgentSessionIndex.PanelKey) -> Bool {
