@@ -511,6 +511,19 @@ struct RestorableAgentSessionIndex: Sendable {
         return launchCommand
     }
 
+    // Restored from origin/main: the refactor dropped this private static helper
+    // that hookRecordIsRestorable (from the #6712 restore-authority path) calls.
+    private static func regularNonEmptyFileExists(atPath path: String, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let attrs = try? fileManager.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
+    }
+
     private static func hookRecordIsRestorable(
         _ record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
