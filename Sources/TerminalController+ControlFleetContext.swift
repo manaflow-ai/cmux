@@ -87,7 +87,7 @@ extension TerminalController: ControlFleetContext {
         state: ControlFleetTaskStateName?
     ) -> ControlFleetTaskListResolution {
         let engine = FleetAppHost.shared.engine
-        let fleetIDValue = fleetID.map(FleetID.init)
+        let fleetIDValue = fleetID.map { FleetID(rawValue: $0) }
         switch engine.tasks(
             fleetID: fleetIDValue,
             state: state.map(FleetControlSocketMapping.state)
