@@ -122,15 +122,12 @@ describe("VM Effect workflows", () => {
     };
 
     const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-resume",
-          providerVmId: "provider-vm-exec-resume",
-          command: "echo preflight",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-resume",
+        providerVmId: "provider-vm-exec-resume",
+        command: "echo preflight",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(result).toEqual({ exitCode: 7, stdout: "preflight", stderr: "" });
@@ -182,17 +179,12 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-running",
-            providerVmId: "provider-vm-exec-running",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-running",
+        providerVmId: "provider-vm-exec-running",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBe(originalError);
@@ -234,17 +226,12 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-resume-fails",
-            providerVmId: "provider-vm-exec-resume-fails",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-resume-fails",
+        providerVmId: "provider-vm-exec-resume-fails",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBe(resumeError);
@@ -287,17 +274,12 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-mark-false",
-            providerVmId: "provider-vm-exec-mark-false",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-mark-false",
+        providerVmId: "provider-vm-exec-mark-false",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBeInstanceOf(VmNotFoundError);
@@ -332,17 +314,12 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-no-status",
-            providerVmId: "provider-vm-exec-no-status",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-no-status",
+        providerVmId: "provider-vm-exec-no-status",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBe(originalError);
@@ -377,17 +354,12 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-no-resume",
-            providerVmId: "provider-vm-exec-no-resume",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-no-resume",
+        providerVmId: "provider-vm-exec-no-resume",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBe(originalError);
@@ -430,17 +402,12 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-no-replay",
-            providerVmId: "provider-vm-exec-no-replay",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-no-replay",
+        providerVmId: "provider-vm-exec-no-replay",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBe(originalError);
@@ -482,15 +449,12 @@ describe("VM Effect workflows", () => {
     };
 
     const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-status-fails",
-          providerVmId: "provider-vm-exec-status-fails",
-          command: "true",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-status-fails",
+        providerVmId: "provider-vm-exec-status-fails",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
@@ -537,14 +501,11 @@ describe("VM Effect workflows", () => {
     };
 
     const result = await Effect.runPromise(
-      Effect.provide(
-        openAttachEndpoint({
-          userId: "user-workflow-attach-resume",
-          providerVmId: "provider-vm-attach-resume",
-          options: { requireDaemon: true },
-        }),
-        workflowLayer(repo, provider),
-      ),
+      openAttachEndpoint({
+        userId: "user-workflow-attach-resume",
+        providerVmId: "provider-vm-attach-resume",
+        options: { requireDaemon: true },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(result).toEqual(endpoint);
@@ -613,15 +574,10 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openAttachEndpoint({
-            userId: "user-workflow-attach-mark-fails",
-            providerVmId: "provider-vm-attach-mark-fails",
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      openAttachEndpoint({
+        userId: "user-workflow-attach-mark-fails",
+        providerVmId: "provider-vm-attach-mark-fails",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBe(markError);
@@ -679,15 +635,10 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openAttachEndpoint({
-            userId: "user-workflow-attach-mark-false",
-            providerVmId: "provider-vm-attach-mark-false",
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      openAttachEndpoint({
+        userId: "user-workflow-attach-mark-false",
+        providerVmId: "provider-vm-attach-mark-false",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBeInstanceOf(VmNotFoundError);
@@ -736,13 +687,10 @@ describe("VM Effect workflows", () => {
     };
 
     const result = await Effect.runPromise(
-      Effect.provide(
-        openSshEndpoint({
-          userId: "user-workflow-ssh-resume",
-          providerVmId: "provider-vm-ssh-resume",
-        }),
-        workflowLayer(repo, provider),
-      ),
+      openSshEndpoint({
+        userId: "user-workflow-ssh-resume",
+        providerVmId: "provider-vm-ssh-resume",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(result).toEqual(endpoint);
@@ -800,13 +748,10 @@ describe("VM Effect workflows", () => {
     };
 
     const result = await Effect.runPromise(
-      Effect.provide(
-        openAttachEndpoint({
-          userId: "user-workflow-attach-race",
-          providerVmId: "provider-vm-attach-race",
-        }),
-        workflowLayer(repo, provider),
-      ),
+      openAttachEndpoint({
+        userId: "user-workflow-attach-race",
+        providerVmId: "provider-vm-attach-race",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(result).toEqual(endpoint);
@@ -850,15 +795,10 @@ describe("VM Effect workflows", () => {
     };
 
     const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openAttachEndpoint({
-            userId: "user-workflow-attach-probe-fail",
-            providerVmId: "provider-vm-attach-probe-fail",
-          }),
-        ),
-        workflowLayer(repo, provider),
-      ),
+      openAttachEndpoint({
+        userId: "user-workflow-attach-probe-fail",
+        providerVmId: "provider-vm-attach-probe-fail",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(error).toBe(probeError);
@@ -905,15 +845,12 @@ describe("VM Effect workflows", () => {
     };
 
     const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-settle",
-          providerVmId: "provider-vm-exec-settle",
-          command: "echo ok",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-settle",
+        providerVmId: "provider-vm-exec-settle",
+        command: "echo ok",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(result.exitCode).toBe(0);
@@ -959,15 +896,12 @@ describe("VM Effect workflows", () => {
     };
 
     const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-concurrent",
-          providerVmId: "provider-vm-exec-concurrent",
-          command: "echo ok",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+      execVm({
+        userId: "user-workflow-exec-concurrent",
+        providerVmId: "provider-vm-exec-concurrent",
+        command: "echo ok",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
     expect(result.exitCode).toBe(0);

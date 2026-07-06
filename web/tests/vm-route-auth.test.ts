@@ -53,6 +53,11 @@ const { VmProviderOperationError } = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 
+// Bun 1.3.14 keeps module mocks visible to later test files in the same run.
+// The route modules above have already captured the mocked exports; release the
+// registry so workflow integration tests import the real module.
+(mock as unknown as { restore: () => void }).restore();
+
 beforeEach(() => {
   restoreVmEnv();
   getUser.mockClear();
