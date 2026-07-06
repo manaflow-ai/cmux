@@ -70,7 +70,7 @@ impl Default for SurfaceOptions {
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
-            browser_discover: true,
+            browser_discover: false,
             browser_discover_ports: vec![9222],
             browser_user_data_dir: None,
             browser_ephemeral: false,

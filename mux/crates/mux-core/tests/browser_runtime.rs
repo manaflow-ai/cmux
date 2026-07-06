@@ -382,8 +382,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let mouse_request = recv_method(&seen_rx, "Input.dispatchMouseEvent");
     assert_eq!(mouse_request["sessionId"], "session-1");
     assert_eq!(mouse_request["params"]["type"], "mousePressed");
-    assert_eq!(mouse_request["params"]["x"], 12.5);
-    assert_eq!(mouse_request["params"]["y"], 9.0);
+    assert_eq!(mouse_request["params"]["x"], 15.625);
+    assert_eq!(mouse_request["params"]["y"], 5.625);
 
     let insert = rpc(
         &socket_path,

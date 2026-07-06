@@ -100,6 +100,7 @@ struct BrowserState {
     pane_pixels: (u32, u32),
     capture_pixels: (u32, u32),
     capture_scale: f64,
+    page_viewport: Option<(u32, u32)>,
     status: BrowserStatus,
     live_since: Option<Instant>,
     last_frame_at: Option<Instant>,
@@ -285,6 +286,7 @@ pub(crate) fn new_surface(
             pane_pixels: (pixel_w, pixel_h),
             capture_pixels,
             capture_scale,
+            page_viewport: None,
             status: BrowserStatus::Starting,
             live_since: None,
             last_frame_at: None,
@@ -636,6 +638,7 @@ impl BrowserSurface {
         }
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
+        state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
         state.latest_frame = Some(frame.clone());
         state.taps.retain(|tap| {
             *tap.slot.lock().unwrap() = Some(frame.clone());
@@ -734,13 +737,22 @@ impl BrowserSurface {
 
     fn scale_input_point(&self, x: f64, y: f64) -> (f64, f64) {
         let state = self.state.lock().unwrap();
-        let (width, height) = state.capture_pixels;
-        let scale = state.capture_scale;
-        ((x * scale).clamp(0.0, f64::from(width)), (y * scale).clamp(0.0, f64::from(height)))
+        let (pane_width, pane_height) = state.pane_pixels;
+        let (page_width, page_height) = state.page_viewport.unwrap_or(state.capture_pixels);
+        let page_width = page_width.max(1);
+        let page_height = page_height.max(1);
+        let x = x / f64::from(pane_width.max(1)) * f64::from(page_width);
+        let y = y / f64::from(pane_height.max(1)) * f64::from(page_height);
+        (x.clamp(0.0, f64::from(page_width)), y.clamp(0.0, f64::from(page_height)))
     }
 
     fn scale_delta(&self, delta: f64) -> f64 {
-        delta * self.state.lock().unwrap().capture_scale
+        let state = self.state.lock().unwrap();
+        if let Some((_, page_height)) = state.page_viewport {
+            delta * f64::from(page_height.max(1)) / f64::from(state.pane_pixels.1.max(1))
+        } else {
+            delta * state.capture_scale
+        }
     }
 
     fn maybe_nudge_stalled_external(&self, session: &BrowserSession) {
@@ -1016,10 +1028,14 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        capture_scale_for, new_surface, normalize_url, scaled_pixels, BrowserCaptureOptions,
-        BrowserFrame, BrowserStatus,
+        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
+        BrowserCaptureOptions, BrowserFrame, BrowserSource, BrowserStatus,
     };
     use crate::SurfaceOptions;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::thread;
     use std::time::{Duration, Instant};
 
     fn test_frame(seq: u64) -> BrowserFrame {
@@ -1070,6 +1086,88 @@ mod tests {
             BrowserCaptureOptions { max_capture_megapixels: 2.0, fixed_capture_scale: Some(0.5) };
         assert_eq!(capture_scale_for(800, 600, fixed), 0.5);
         assert_eq!(scaled_pixels(800, 600, 0.5), (400, 300));
+    }
+
+    #[test]
+    fn browser_discovery_is_explicit_opt_in() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let server = thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 512];
+            let _ = stream.read(&mut request).unwrap();
+            let body = r#"{"webSocketDebuggerUrl":"ws://127.0.0.1:9/devtools/browser/fake"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let opts = SurfaceOptions {
+            chrome_binary: Some("/definitely/missing/cmux-test-chrome".to_string()),
+            browser_discover_ports: vec![port],
+            ..Default::default()
+        };
+        let err = match runtime_endpoint(&opts) {
+            Ok((url, _, source)) => {
+                panic!("default config should launch, not discover; got {source:?} {url}")
+            }
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("configured browser.chrome_binary"));
+
+        let discover_opts = SurfaceOptions { browser_discover: true, ..opts };
+        let (url, chrome, source) = runtime_endpoint(&discover_opts).unwrap();
+        assert_eq!(url, "ws://127.0.0.1:9/devtools/browser/fake");
+        assert!(chrome.is_none());
+        assert_eq!(source, BrowserSource::External);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn input_mapping_uses_latest_frame_viewport() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        {
+            let state = browser.state.lock().unwrap();
+            assert_eq!(state.pane_pixels, (4760, 2548));
+        }
+
+        let mut frame = test_frame(1);
+        frame.css_width = 2320;
+        frame.css_height = 1363;
+        browser.store_frame(frame);
+
+        assert_eq!(browser.scale_input_point(2380.0, 1274.0), (1160.0, 681.5));
+        assert_eq!(browser.scale_delta(100.0), 100.0 * 1363.0 / 2548.0);
+    }
+
+    #[test]
+    fn input_mapping_falls_back_to_capture_pixels_before_first_frame() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (476, 182), (10, 14), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+
+        assert_eq!(browser.scale_input_point(2380.0, 1274.0), (966.5, 517.5));
+        let expected_scale = browser.state.lock().unwrap().capture_scale;
+        assert!((browser.scale_delta(100.0) - 100.0 * expected_scale).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn input_mapping_clamps_to_page_viewport() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+
+        assert_eq!(browser.scale_input_point(-5.0, 999.0), (0.0, 48.0));
     }
 
     #[test]

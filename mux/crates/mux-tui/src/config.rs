@@ -27,7 +27,7 @@
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 //!     "cdp_url": "http://127.0.0.1:9222",
-//!     "discover": true,
+//!     "discover": false,
 //!     "discover_ports": [9222],
 //!     "user_data_dir": "/Users/me/Library/Application Support/cmux-mux/chrome-profile",
 //!     "ephemeral": false,
@@ -258,7 +258,7 @@ impl Default for Browser {
         Browser {
             chrome_binary: None,
             cdp_url: None,
-            discover: true,
+            discover: false,
             discover_ports: vec![9222],
             user_data_dir: None,
             ephemeral: false,
