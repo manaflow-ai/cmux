@@ -1,16 +1,33 @@
 import { and, eq, gt, notInArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
 import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schema";
+import { buildObjectKey } from "./storage";
 import { logVaultQuotaError } from "./logging";
 
-type VaultDb = ReturnType<typeof cloudDb>;
+type CloudDb = ReturnType<typeof cloudDb>;
+type VaultTx = Parameters<Parameters<CloudDb["transaction"]>[0]>[0];
+type VaultDb = CloudDb | VaultTx;
+
+export type VaultGrantItem = {
+  agent: string;
+  agentSessionId: string;
+  sha256: string;
+  relPath: string;
+  cwd: string | null;
+  compressedSizeBytes: number;
+};
+
+export type VaultReservationOutcome =
+  | { kind: "granted"; objectKey: string; item: VaultGrantItem }
+  | { kind: "unchanged"; item: VaultGrantItem }
+  | { kind: "error"; error: "upload_too_large" | "quota_exceeded"; item: VaultGrantItem };
+
+export type VaultReserveHooks = { afterQuotaRead?: () => Promise<void> };
 
 /**
  * Total compressed bytes a user currently has stored across all snapshots.
  * Used by the uploads (presign) and commit routes to enforce the per-user
- * storage quota. Concurrent batches can each read the same total before the
- * other commits, so enforcement overshoots by at most one in-flight batch
- * (25 items x maxUploadBytes); that bound is acceptable for a cost cap.
+ * storage quota.
  */
 export async function getVaultStoredCompressedBytes(
   db: VaultDb,
@@ -29,6 +46,95 @@ export async function getVaultStoredCompressedBytes(
     logVaultQuotaError("get_stored_compressed_bytes", error);
     throw error;
   }
+}
+
+export async function reserveVaultUploadGrants(
+  db: CloudDb,
+  params: {
+    userId: string;
+    items: readonly VaultGrantItem[];
+    maxUploadBytes: number;
+    maxUserBytes: number;
+    now: Date;
+    grantTtlMs: number;
+  },
+  hooks: VaultReserveHooks = {},
+): Promise<VaultReservationOutcome[]> {
+  const batchObjectKeys = params.items.map((item) =>
+    buildObjectKey(params.userId, item.agent, item.agentSessionId, item.sha256),
+  );
+  const expiresAt = new Date(params.now.getTime() + params.grantTtlMs);
+
+  return await db.transaction(async (tx) => {
+    let projectedUserBytes =
+      (await getVaultStoredCompressedBytes(tx, params.userId)) +
+      (await getVaultPendingGrantBytes(tx, params.userId, params.now, batchObjectKeys));
+
+    await hooks.afterQuotaRead?.();
+
+    const outcomes: VaultReservationOutcome[] = [];
+    for (const item of params.items) {
+      if (item.compressedSizeBytes > params.maxUploadBytes) {
+        outcomes.push({ kind: "error", error: "upload_too_large", item });
+        continue;
+      }
+      if (projectedUserBytes + item.compressedSizeBytes > params.maxUserBytes) {
+        outcomes.push({ kind: "error", error: "quota_exceeded", item });
+        continue;
+      }
+
+      const [existing] = await tx
+        .select({
+          id: vaultSessions.id,
+          latestSha256: vaultSessions.latestSha256,
+          relPath: vaultSessions.relPath,
+          cwd: vaultSessions.cwd,
+        })
+        .from(vaultSessions)
+        .where(
+          and(
+            eq(vaultSessions.userId, params.userId),
+            eq(vaultSessions.agent, item.agent),
+            eq(vaultSessions.agentSessionId, item.agentSessionId),
+          ),
+        )
+        .limit(1);
+
+      if (existing && existing.latestSha256 === item.sha256) {
+        if (existing.relPath !== item.relPath || existing.cwd !== item.cwd) {
+          await tx
+            .update(vaultSessions)
+            .set({ relPath: item.relPath, cwd: item.cwd })
+            .where(eq(vaultSessions.id, existing.id));
+        }
+        outcomes.push({ kind: "unchanged", item });
+        continue;
+      }
+
+      const objectKey = buildObjectKey(params.userId, item.agent, item.agentSessionId, item.sha256);
+      await tx
+        .insert(vaultUploadGrants)
+        .values({
+          userId: params.userId,
+          objectKey,
+          compressedSizeBytes: item.compressedSizeBytes,
+          createdAt: params.now,
+          expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: vaultUploadGrants.objectKey,
+          set: {
+            compressedSizeBytes: item.compressedSizeBytes,
+            createdAt: params.now,
+            expiresAt,
+          },
+        });
+      projectedUserBytes += item.compressedSizeBytes;
+      outcomes.push({ kind: "granted", objectKey, item });
+    }
+
+    return outcomes;
+  });
 }
 
 /**
