@@ -1391,6 +1391,63 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatScrollToBottomFromFarAwayLandsAtBottom() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_CHAT_FIXTURE_REPEAT": "40",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        _ = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.contentHeight > $0.boundsHeight * 3
+        }
+
+        // Get several viewports away from the live tail.
+        let farUp = try scrollTranscript(table, direction: .down, timeout: 20) {
+            $0.distanceFromBottom > $0.boundsHeight * 3
+        }
+        XCTAssertNotNil(farUp)
+
+        let button = app.buttons["ChatScrollToBottomButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 4))
+        button.tap()
+
+        // The pill must land at the true bottom even though the rows between the
+        // start point and the tail were unrealized (estimated heights) at tap time.
+        _ = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.distanceFromBottom < 40 && !$0.scrollTracking && !$0.scrollDragging && !$0.scrollDecelerating
+        }
+        XCTAssertTrue(
+            button.waitForNonExistence(withTimeout: 2),
+            "Pill must hide once the transcript is at the bottom"
+        )
+    }
+
+    @MainActor
+    func testAgentChatScrollToBottomFromMiddleOfHugeHistoryLandsAtBottom() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_CHAT_FIXTURE_REPEAT": "40",
+            "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        _ = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.contentHeight > $0.boundsHeight * 3 && $0.distanceFromBottom > $0.boundsHeight
+        }
+
+        let button = app.buttons["ChatScrollToBottomButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 4))
+        button.tap()
+
+        _ = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.distanceFromBottom < 40 && !$0.scrollTracking && !$0.scrollDragging && !$0.scrollDecelerating
+        }
+        XCTAssertTrue(
+            button.waitForNonExistence(withTimeout: 2),
+            "Pill must hide once the transcript is at the bottom"
+        )
+    }
+
+    @MainActor
     func testAgentChatTranscriptFastSwipeEvidence() throws {
         let app = launchAgentChatInlinePreviewApp(environment: [
             "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",

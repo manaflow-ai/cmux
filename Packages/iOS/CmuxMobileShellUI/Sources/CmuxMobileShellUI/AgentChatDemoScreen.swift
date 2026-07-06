@@ -28,7 +28,8 @@ struct AgentChatDemoScreen: View {
                 } else {
                     ProgressView()
                         .task {
-                            let (messages, descriptor) = ChatFixtureConversation().make()
+                            let (base, descriptor) = ChatFixtureConversation().make()
+                            let messages = Self.repeatedFixtureMessages(base, count: Self.fixtureRepeatCount)
                             let source = FixtureChatEventSource(backlog: messages, replyToSends: true)
                             stack = DemoStack(
                                 store: ChatConversationStore(descriptor: descriptor, source: source)
@@ -201,6 +202,40 @@ struct AgentChatDemoScreen: View {
             for: "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE",
             env: ProcessInfo.processInfo.environment
         ) ?? "cmuxterm-hq"
+    }
+
+    /// `CMUX_UITEST_CHAT_FIXTURE_REPEAT` repeats the fixture conversation so UI
+    /// tests can exercise long transcripts (paging + far scroll-to-bottom).
+    /// Read directly from the environment (like `CMUX_UITEST_CHAT_INITIAL_SCROLL`):
+    /// the inline chat preview launches with `CMUX_UITEST_MOCK_DATA=0`, which
+    /// disables the mock-gated `UITestConfig.value(for:)` accessor.
+    private static var fixtureRepeatCount: Int {
+        let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_FIXTURE_REPEAT"]
+        return max(1, raw.flatMap(Int.init) ?? 1)
+    }
+
+    /// Rebuilds `base` repeated `count` times with fresh ids, ascending seq, and a
+    /// monotonic timeline ending near now, so paging and date headers stay sane.
+    private static func repeatedFixtureMessages(_ base: [ChatMessage], count: Int) -> [ChatMessage] {
+        guard count > 1 else { return base }
+        let total = base.count * count
+        let start = Date().addingTimeInterval(-Double(total) * 10)
+        var messages: [ChatMessage] = []
+        messages.reserveCapacity(total)
+        for copy in 0..<count {
+            for message in base {
+                messages.append(
+                    ChatMessage(
+                        id: "fixture-\(copy)-\(message.seq)",
+                        seq: messages.count,
+                        role: message.role,
+                        timestamp: start.addingTimeInterval(Double(messages.count) * 10),
+                        kind: message.kind
+                    )
+                )
+            }
+        }
+        return messages
     }
 
     /// Holds the demo's store so its identity is stable across re-renders.
