@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
@@ -26,6 +27,21 @@ fileprivate struct TerminalSocketMutationEntry {
     let mutation: TerminalSocketMutation
     let notificationGeneration: UInt64?
     let notificationCoalescingKey: TerminalNotificationCoalescingKey?
+    let performReplaceKey: TerminalMutationReplaceKey?
+}
+
+/// Identity for last-write-wins `.perform` mutations: a fresh enqueue removes
+/// the pending same-key entry, bounding `pending` at one entry per key even
+/// while the main actor is blocked and cannot drain.
+struct TerminalMutationReplaceKey: Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
+        case shellActivity, gitBranch, directory
+        case portsKick(PortScanKickReason)
+    }
+
+    let tabId: UUID
+    let surfaceId: UUID
+    let kind: Kind
 }
 
 fileprivate struct TerminalNotificationCoalescingKey: Hashable {
@@ -149,7 +165,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: sequence,
             mutation: .deliverNotification(notification),
             notificationGeneration: generation,
-            notificationCoalescingKey: coalescingKey
+            notificationCoalescingKey: coalescingKey,
+            performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
@@ -185,7 +202,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
@@ -205,7 +223,37 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        scheduleDrain()
+    }
+
+    /// Last-write-wins `enqueueMainActorMutation`: drops any still-pending
+    /// mutation with the same `replaceKey` before appending, so the survivor
+    /// applies at its new enqueue position (the notification coalescing
+    /// semantics above, for `.perform` mutations).
+    nonisolated func enqueueReplacingMainActorMutation(
+        replaceKey: TerminalMutationReplaceKey,
+        _ mutation: @escaping @MainActor () -> Void
+    ) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        pending.removeAll { $0.performReplaceKey == replaceKey }
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: .perform(mutation),
+            notificationGeneration: nil,
+            notificationCoalescingKey: nil,
+            performReplaceKey: replaceKey
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
