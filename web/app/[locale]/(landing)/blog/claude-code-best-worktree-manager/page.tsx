@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "../../../../i18n/seo";
-import { Link } from "../../../../i18n/navigation";
+import { buildAlternates } from "@/i18n/seo";
+import { Link } from "@/i18n/navigation";
 import { BlogSchema } from "../blog-schema";
 
 export async function generateMetadata({

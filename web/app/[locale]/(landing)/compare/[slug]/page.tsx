@@ -73,15 +73,23 @@ async function ComparePageBody({ params }: { params: Promise<PageParams> }) {
     notFound();
   }
 
-  return <ComparePageContent pageKey={page.key} slug={page.slug} />;
+  return (
+    <ComparePageContent
+      pageKey={page.key}
+      slug={page.slug}
+      lastModified={page.lastModified}
+    />
+  );
 }
 
 function ComparePageContent({
   pageKey,
   slug,
+  lastModified,
 }: {
   pageKey: ComparePageKey;
   slug: string;
+  lastModified: string;
 }) {
   const namespace = `landing.compare.pages.${pageKey}`;
   const t = useTranslations(namespace);
@@ -105,7 +113,8 @@ function ComparePageContent({
           path,
           headline: t("title"),
           description: t("metaDescription"),
-          datePublished: "2026-07-03",
+          datePublished: lastModified,
+          dateModified: lastModified,
         })}
       />
       <JsonLd

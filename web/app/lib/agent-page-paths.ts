@@ -23,6 +23,45 @@ type AgentReadablePage = {
   locales?: readonly string[];
 };
 
+const llmsCompareDescriptions = {
+  "best-terminal-for-ai-coding-agents":
+    "compares cmux, Conductor, Superset, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, tmux, Kitty, Alacritty, WezTerm, OpenCode, Herdr, and other tools for agent-heavy workflows.",
+  "cmux-vs-alacritty":
+    "native macOS agent supervision versus a fast cross-platform OpenGL terminal emulator.",
+  "cmux-vs-conductor":
+    "native terminal/browser supervision versus a Mac app for running Claude Code, Codex, Cursor, and OpenCode in isolated workspaces.",
+  "cmux-vs-cursor":
+    "terminal agent supervision beside any editor versus an AI editor and hosted agent platform.",
+  "cmux-vs-devin":
+    "local terminal supervision for your CLI agents versus a cloud AI software engineer and team agent platform.",
+  "cmux-vs-ghostty":
+    "cmux as a libghostty-based agent workflow app versus Ghostty as a general-purpose terminal.",
+  "cmux-vs-herdr":
+    "native Mac agent workspace with browser panes versus a terminal-native agent multiplexer with SSH attach.",
+  "cmux-vs-iterm2":
+    "agent-aware native terminal workspace versus a mature general-purpose macOS terminal.",
+  "cmux-vs-kitty":
+    "agent-aware macOS workspace versus a fast, feature-rich, GPU-based terminal emulator.",
+  "cmux-vs-opencode":
+    "terminal workspace and supervision layer versus an open source coding agent that can run in terminal, desktop, or IDE surfaces.",
+  "cmux-vs-superset":
+    "native terminal/browser supervision versus an Electron agent orchestration workspace.",
+  "cmux-vs-tmux":
+    "native macOS agent supervision versus a portable terminal multiplexer.",
+  "cmux-vs-vscode":
+    "terminal agent supervision beside a general-purpose editor and extension platform.",
+  "cmux-vs-warp":
+    "agent supervision terminal versus an AI-enhanced terminal product.",
+  "cmux-vs-wezterm":
+    "agent notification workspace versus a cross-platform terminal emulator and multiplexer.",
+  "cmux-vs-windsurf":
+    "terminal agent supervision beside any editor versus the Devin Desktop IDE lineage.",
+  "cmux-vs-zed":
+    "terminal agent supervision beside a fast collaborative code editor.",
+  "multiple-claude-code-agents-parallel":
+    "explains parallel Claude Code, Codex, OpenCode, and other CLI agents with visible workspaces, notification rings, and jump-to-latest-unread review flow.",
+} satisfies Record<(typeof comparePages)[number]["slug"], string>;
+
 const extensionPattern = /\.(md|txt)$/i;
 const reservedTextRoutes = new Set(["/robots.txt"]);
 const blockedPrefixes = [
@@ -247,24 +286,10 @@ export function buildLlmsText(origin: string): string {
     "",
     "## Comparisons and buying guides",
     "",
-    "- [Best terminals and agent workspaces for AI coding agents](https://cmux.com/compare/best-terminal-for-ai-coding-agents): compares cmux, Conductor, Superset, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, tmux, Kitty, Alacritty, WezTerm, OpenCode, Herdr, and other tools for agent-heavy workflows.",
-    "- [cmux vs Alacritty](https://cmux.com/compare/cmux-vs-alacritty): native macOS agent supervision versus a fast cross-platform OpenGL terminal emulator.",
-    "- [cmux vs Conductor](https://cmux.com/compare/cmux-vs-conductor): native terminal/browser supervision versus a Mac app for running Claude Code, Codex, Cursor, and OpenCode in isolated workspaces.",
-    "- [cmux vs Cursor](https://cmux.com/compare/cmux-vs-cursor): terminal agent supervision beside any editor versus an AI editor and hosted agent platform.",
-    "- [cmux vs Devin](https://cmux.com/compare/cmux-vs-devin): local terminal supervision for your CLI agents versus a cloud AI software engineer and team agent platform.",
-    "- [cmux vs Ghostty](https://cmux.com/compare/cmux-vs-ghostty): cmux as a libghostty-based agent workflow app versus Ghostty as a general-purpose terminal.",
-    "- [cmux vs Herdr](https://cmux.com/compare/cmux-vs-herdr): native Mac agent workspace with browser panes versus a terminal-native agent multiplexer with SSH attach.",
-    "- [cmux vs iTerm2](https://cmux.com/compare/cmux-vs-iterm2): agent-aware native terminal workspace versus a mature general-purpose macOS terminal.",
-    "- [cmux vs Kitty](https://cmux.com/compare/cmux-vs-kitty): agent-aware macOS workspace versus a fast, feature-rich, GPU-based terminal emulator.",
-    "- [cmux vs OpenCode](https://cmux.com/compare/cmux-vs-opencode): terminal workspace and supervision layer versus an open source coding agent that can run in terminal, desktop, or IDE surfaces.",
-    "- [cmux vs Superset](https://cmux.com/compare/cmux-vs-superset): native terminal/browser supervision versus an Electron agent orchestration workspace.",
-    "- [cmux vs tmux](https://cmux.com/compare/cmux-vs-tmux): native macOS agent supervision versus a portable terminal multiplexer.",
-    "- [cmux vs VS Code](https://cmux.com/compare/cmux-vs-vscode): terminal agent supervision beside a general-purpose editor and extension platform.",
-    "- [cmux vs Warp](https://cmux.com/compare/cmux-vs-warp): agent supervision terminal versus an AI-enhanced terminal product.",
-    "- [cmux vs WezTerm](https://cmux.com/compare/cmux-vs-wezterm): agent notification workspace versus a cross-platform terminal emulator and multiplexer.",
-    "- [cmux vs Windsurf](https://cmux.com/compare/cmux-vs-windsurf): terminal agent supervision beside any editor versus the Devin Desktop IDE lineage.",
-    "- [cmux vs Zed](https://cmux.com/compare/cmux-vs-zed): terminal agent supervision beside a fast collaborative code editor.",
-    "- [How to run multiple Claude Code agents in parallel](https://cmux.com/compare/multiple-claude-code-agents-parallel): explains parallel Claude Code, Codex, OpenCode, and other CLI agents with visible workspaces, notification rings, and jump-to-latest-unread review flow.",
+    ...comparePages.map(
+      (page) =>
+        `- [${comparePageLlmsTitle(page.key)}](${origin}${comparePath(page.slug)}): ${llmsCompareDescriptions[page.slug]}`,
+    ),
     "",
     "## Page variants",
     "",
@@ -282,6 +307,28 @@ export function buildLlmsText(origin: string): string {
   ];
 
   return lines.join("\n");
+}
+
+function comparePageLlmsTitle(key: ComparePageKey): string {
+  switch (key) {
+    case "bestTerminalForAgents":
+      return "Best terminals and agent workspaces for AI coding agents";
+    case "multipleClaudeAgents":
+      return "How to run multiple Claude Code agents in parallel";
+    default:
+      return compareTitleFromKey(key);
+  }
+}
+
+function compareTitleFromKey(key: Exclude<ComparePageKey, "bestTerminalForAgents" | "multipleClaudeAgents">): string {
+  const value = key.slice("cmuxVs".length);
+  const spaced = value
+    .replace(/Iterm2/, "iTerm2")
+    .replace(/Vscode/, "VS Code")
+    .replace(/Opencode/, "OpenCode")
+    .replace(/Wezterm/, "WezTerm")
+    .replace(/Tmux/, "tmux");
+  return `cmux vs ${spaced}`;
 }
 
 function normalizeRequestedPath(rawPath: string): string | null {
