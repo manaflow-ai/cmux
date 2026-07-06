@@ -2783,6 +2783,7 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    private static let defaultSSHReconnectLimit = 0
     private static let claudeCodeStatusKey = "claude_code"
 
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
@@ -9784,8 +9785,8 @@ struct CMUXCLI {
             "CMUX_SSH_SESSION_ENDED=0",
             "CMUX_SSH_STARTUP_PID=$$",
             "export CMUX_SSH_STARTUP_PID",
-            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
+            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(Self.defaultSSHReconnectLimit)}\"",
+            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=\(Self.defaultSSHReconnectLimit) ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
             "cmux_ssh_retry=0",
@@ -9828,9 +9829,13 @@ struct CMUXCLI {
             "  CMUX_SSH_CHILD_PID=",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
             "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
-            "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
+            "  if [ \"$cmux_ssh_reconnect_limit\" -gt 0 ] && [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
-            "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "  if [ \"$cmux_ssh_reconnect_limit\" -eq 0 ]; then",
+            "    cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\"",
+            "  else",
+            "    cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "  fi",
             "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
             "done",
@@ -11083,8 +11088,8 @@ struct CMUXCLI {
 
     private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
         [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
+            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(Self.defaultSSHReconnectLimit)}\"",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=\(Self.defaultSSHReconnectLimit) ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_retry=0",
@@ -11092,9 +11097,15 @@ struct CMUXCLI {
             "  \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
-            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  if [ \"$cmux_ssh_attach_reconnect_limit\" -gt 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
-            "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
+            "  if [ -t 2 ]; then",
+            "    if [ \"$cmux_ssh_attach_reconnect_limit\" -eq 0 ]; then",
+            "      printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" >&2 || true",
+            "    else",
+            "      printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true",
+            "    fi",
+            "  fi",
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
             "done",
         ]
@@ -11163,6 +11174,7 @@ struct CMUXCLI {
         }
         var bridgeReachedReady = false
         var attachFinished = false
+        var clearLocalSurfaceOnFailedAttach = true
         var attachmentToken = ""
         defer {
             if !attachFinished {
@@ -11173,7 +11185,7 @@ struct CMUXCLI {
                     sessionID: sessionID,
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
-                    clearLocalSurface: !bridgeReachedReady
+                    clearLocalSurface: clearLocalSurfaceOnFailedAttach && !bridgeReachedReady
                 )
             }
         }
@@ -11197,7 +11209,15 @@ struct CMUXCLI {
                 responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
-            throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
+            let message = userFacingRemotePTYErrorMessage(error)
+            let retryable = waitForReady && retryableSSHPTYAttachBridgeStartupFailureMessage(message)
+            if retryable {
+                clearLocalSurfaceOnFailedAttach = false
+            }
+            throw CLIError(
+                message: "ssh-pty-attach: \(message)",
+                exitCode: retryable ? 255 : 1
+            )
         }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
@@ -11459,6 +11479,9 @@ struct CMUXCLI {
         if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
             return "remote daemon is not ready"
         }
+        if lowered.contains("daemon transport") || lowered.contains("proxy failure") {
+            return "remote daemon transport is re-bootstrapping after proxy failure"
+        }
         if lowered.contains("missing workspace_id in ssh pty session list response") {
             return "missing workspace_id in SSH PTY session list response"
         }
@@ -11478,6 +11501,20 @@ struct CMUXCLI {
             return trimmed
         }
         return "remote PTY operation failed"
+    }
+
+    private func retryableSSHPTYAttachBridgeStartupFailureMessage(_ message: String) -> Bool {
+        let lowered = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch lowered {
+        case "remote connection is not active",
+             "remote daemon is not ready",
+             "remote daemon transport is re-bootstrapping after proxy failure",
+             "remote daemon did not respond in time",
+             "remote pty operation failed":
+            return true
+        default:
+            return false
+        }
     }
 
     private func readSSHPTYBridgeReady(fd: Int32) throws -> String {

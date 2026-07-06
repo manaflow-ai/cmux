@@ -98,6 +98,9 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
         return "remote daemon is not ready"
     }
+    if lowered.contains("daemon transport") || lowered.contains("proxy failure") {
+        return "remote daemon transport is re-bootstrapping after proxy failure"
+    }
     if lowered.contains("missing workspace_id in ssh pty session list response") {
         return "missing workspace_id in SSH PTY session list response"
     }
@@ -106,6 +109,9 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     }
     if lowered.contains("timed out") || lowered.contains("timeout") {
         return "remote daemon did not respond in time"
+    }
+    if lowered.contains("could not allocate a remote pty") {
+        return trimmed
     }
     return "remote PTY operation failed"
 }

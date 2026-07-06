@@ -2,6 +2,8 @@ import Foundation
 import CmuxFoundation
 
 nonisolated enum SSHPTYAttachStartupCommandBuilder {
+    private static let defaultReconnectLimit = 0
+
     struct ForegroundAuth {
         let destination: String
         let port: Int?
@@ -55,8 +57,8 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
 
     private static func retryingAttachLines(command: String) -> [String] {
         [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
+            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(defaultReconnectLimit)}\"",
+            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=\(defaultReconnectLimit) ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_retry=0",
@@ -64,9 +66,15 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             "  \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
-            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  if [ \"$cmux_ssh_attach_reconnect_limit\" -gt 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
-            "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
+            "  if [ -t 2 ]; then",
+            "    if [ \"$cmux_ssh_attach_reconnect_limit\" -eq 0 ]; then",
+            "      printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" >&2 || true",
+            "    else",
+            "      printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true",
+            "    fi",
+            "  fi",
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
             "done",
         ]
