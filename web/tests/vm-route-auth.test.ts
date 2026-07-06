@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -28,6 +28,39 @@ const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
 
+// Capture the real implementations BY VALUE before mocking. bun's
+// mock.module can mutate an already-loaded module namespace in place, so a
+// captured namespace object would resolve to the mock at call time and a
+// delegating wrapper would recurse into itself. Copied function references
+// keep pointing at the originals under either registry semantics.
+const workflowsModule = await import("../services/vms/workflows");
+const realCreateVm = workflowsModule.createVm;
+const realDestroyVm = workflowsModule.destroyVm;
+const realExecVm = workflowsModule.execVm;
+const realListUserVms = workflowsModule.listUserVms;
+const realOpenAttachEndpoint = workflowsModule.openAttachEndpoint;
+const realOpenSshEndpoint = workflowsModule.openSshEndpoint;
+const realRunVmWorkflow = workflowsModule.runVmWorkflow;
+const realVmWorkflowLive = workflowsModule.VmWorkflowLive;
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+
+let useWorkflowStubs = false;
+let useStubDb = false;
+
+function callMock(fn: unknown, args: unknown[]) {
+  return (fn as (...args: unknown[]) => unknown)(...args);
+}
+
+function rejectRunVmWorkflowWith(error: unknown): void {
+  (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void })
+    .mockImplementation(async () => {
+      throw error;
+    });
+}
+
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
@@ -35,23 +68,60 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../services/vms/workflows", () => ({
-  createVm,
-  destroyVm,
-  execVm,
-  listUserVms,
-  openAttachEndpoint,
-  openSshEndpoint,
-  runVmWorkflow,
+  VmWorkflowLive: realVmWorkflowLive,
+  createVm: ((...args: Parameters<typeof realCreateVm>) =>
+    useWorkflowStubs ? callMock(createVm, args) : realCreateVm(...args)) as typeof realCreateVm,
+  destroyVm: ((...args: Parameters<typeof realDestroyVm>) =>
+    useWorkflowStubs ? callMock(destroyVm, args) : realDestroyVm(...args)) as typeof realDestroyVm,
+  execVm: ((...args: Parameters<typeof realExecVm>) =>
+    useWorkflowStubs ? callMock(execVm, args) : realExecVm(...args)) as typeof realExecVm,
+  listUserVms: ((...args: Parameters<typeof realListUserVms>) =>
+    useWorkflowStubs ? callMock(listUserVms, args) : realListUserVms(...args)) as typeof realListUserVms,
+  openAttachEndpoint: ((...args: Parameters<typeof realOpenAttachEndpoint>) =>
+    useWorkflowStubs ? callMock(openAttachEndpoint, args) : realOpenAttachEndpoint(...args)) as typeof realOpenAttachEndpoint,
+  openSshEndpoint: ((...args: Parameters<typeof realOpenSshEndpoint>) =>
+    useWorkflowStubs ? callMock(openSshEndpoint, args) : realOpenSshEndpoint(...args)) as typeof realOpenSshEndpoint,
+  runVmWorkflow: ((...args: Parameters<typeof realRunVmWorkflow>) =>
+    useWorkflowStubs ? callMock(runVmWorkflow, args) : realRunVmWorkflow(...args)) as typeof realRunVmWorkflow,
 }));
 
-const { GET, POST } = await import("../app/api/vm/route");
+// Self-shield from other suites' process-global db mocks AND from the real
+// pool: the VM route's Pro-plan reconcile calls cloudDb(), and without this
+// stub the real client can sit retrying a connection (hang) or another
+// suite's fixture data leaks in. The thrown message must match pro.ts's
+// isMissingDatabaseConfig so the reconcile degrades exactly like a
+// DATABASE_URL-less environment.
+mock.module("../db/client", () => ({
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: () => {
+    if (!useStubDb) return realCloudDb();
+    throw new Error("DATABASE_URL is required for Cloud VM database access");
+  },
+}));
+
+const { GET, POST, withBillingReconcileDeadline } = await import("../app/api/vm/route");
 const { DELETE } = await import("../app/api/vm/[id]/route");
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
-const { VmProviderOperationError } = await import("../services/vms/errors");
+const {
+  VmCreateCreditsInsufficientError,
+  VmCreateFailedError,
+  VmProviderOperationError,
+} = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
+
+beforeAll(() => {
+  useWorkflowStubs = true;
+  useStubDb = true;
+});
+
+afterAll(() => {
+  useWorkflowStubs = false;
+  useStubDb = false;
+});
 
 beforeEach(() => {
   restoreVmEnv();
@@ -194,6 +264,61 @@ describe("VM REST auth", () => {
     }));
   });
 
+  test("includes original failed create cause in the idempotency failure response", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmCreateFailedError({
+        idempotencyKey: "idem-failed",
+        code: "create",
+        message: "provider unavailable",
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-failed", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({
+      error: "vm_create_failed",
+      details: {
+        idempotencyKeySet: true,
+        failureCode: "create",
+        failureMessage: "provider unavailable",
+      },
+    });
+  });
+
+  test("maps create credit exhaustion to a clean payment response", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmCreateCreditsInsufficientError({
+        itemId: "cmux-vm-create-credit",
+        billingCustomerId: "team-1",
+        amount: 1,
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-credits", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({
+      error: "vm_create_credits_insufficient",
+      amount: 1,
+      details: { amount: 1 },
+    });
+  });
+
   test("uses the native client's requested Stack team for billing", async () => {
     const listTeams = mock(async () => [
       {
@@ -265,6 +390,7 @@ describe("VM REST auth", () => {
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
       listTeams,
+      listProducts: async () => Object.assign([], { nextCursor: null }),
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-body-team",
@@ -290,7 +416,8 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(getUser).toHaveBeenCalledTimes(2);
+    // initial auth + team-mismatch re-verify + pro-plan reconcile user fetch
+    expect(getUser).toHaveBeenCalledTimes(3);
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingCustomerType: "team",
@@ -547,6 +674,53 @@ describe("VM REST auth", () => {
       expect(finalizedStatus).toBe(502);
     } finally {
       console.error = originalError;
+    }
+  });
+
+  test("does not block VM create past the billing reconcile deadline or leak late rejections", async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const originalConsoleError = console.error;
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandledRejections.push(reason);
+    };
+    let scheduledDelay: number | undefined;
+    let rejectReconcile: ((reason?: unknown) => void) | undefined;
+
+    process.on("unhandledRejection", onUnhandledRejection);
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    globalThis.setTimeout = ((handler: TimerHandler, timeout?: number) => {
+      scheduledDelay = timeout;
+      queueMicrotask(() => {
+        if (typeof handler === "function") handler();
+      });
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = mock(() => undefined) as unknown as typeof clearTimeout;
+
+    try {
+      const reconcile = new Promise<boolean>((_resolve, reject) => {
+        rejectReconcile = reject;
+      });
+
+      await expect(withBillingReconcileDeadline(reconcile)).resolves.toBe(false);
+      expect(scheduledDelay).toBe(5_000);
+
+      rejectReconcile?.(new Error("late reconcile failure"));
+      await new Promise((resolve) => originalSetTimeout(resolve, 0));
+
+      expect(unhandledRejections).toEqual([]);
+      const consoleErrorCalls = (console.error as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls;
+      expect(consoleErrorCalls[0]?.[0]).toBe("[VM] Pro plan reconcile failed");
+      expect(consoleErrorCalls[0]?.[1]).toBeInstanceOf(Error);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+      console.error = originalConsoleError;
     }
   });
 

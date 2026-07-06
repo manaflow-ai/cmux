@@ -1883,7 +1883,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
                 focus: false
             ) {
                 _ = closePanel(panelId, force: true)
@@ -1928,7 +1928,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
                 focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -3381,6 +3381,17 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        // The default mobile-connect button is remotely toggleable; the flag
+        // is read when buttons are (re)applied, so a dashboard change lands
+        // on the next config reload or launch.
+        let buttons = CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
+            ? buttons
+            : buttons.filter { button in
+                if case .builtIn(let builtInAction) = button.action, builtInAction == .mobileConnect {
+                    return false
+                }
+                return true
+            }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
                 if button.terminalCommand != nil {
@@ -5909,17 +5920,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func reconnectRemoteConnection(surfaceId: UUID? = nil) {
         guard let configuration = remoteConfiguration else { return }
-        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
-            guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
-                  panels[candidate] is TerminalPanel else {
-                return nil
-            }
-            return candidate
+        let reconnectingSurfaceId = surfaceId.flatMap { candidate -> UUID? in panels[candidate] is TerminalPanel && (remoteDisconnectPlaceholderPanelIds.contains(candidate) || pendingRemoteTerminalChildExitSurfaceIds.contains(candidate)) ? candidate : nil }
+        if surfaceId != nil, reconnectingSurfaceId == nil { return }
+        if let reconnectingSurfaceId {
+            remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
+            trackRemoteTerminalSurface(reconnectingSurfaceId)
         }
-        if let reconnectingPlaceholderSurfaceId {
-            remoteDisconnectPlaceholderPanelIds.remove(reconnectingPlaceholderSurfaceId)
-            trackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
-        }
+        if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return }
+        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return }
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
@@ -12963,6 +12971,8 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .mobileConnect:
+                MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

@@ -12,6 +12,7 @@ public struct ChatProseBubbleView: View {
     private let message: ChatMessage
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
+    private let onShowCodeDetail: (String, Int) -> Void
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
@@ -26,16 +27,19 @@ public struct ChatProseBubbleView: View {
     ///   - groupPosition: Position inside the visual bubble group.
     ///   - showsTimestamp: Whether the group timestamp renders under this
     ///     bubble.
+    ///   - onShowCodeDetail: Opens full code block text outside the row.
     public init(
         prose: ChatProse,
         message: ChatMessage,
         groupPosition: ChatGroupPosition,
-        showsTimestamp: Bool
+        showsTimestamp: Bool,
+        onShowCodeDetail: @escaping (String, Int) -> Void = { _, _ in }
     ) {
         self.prose = prose
         self.message = message
         self.groupPosition = groupPosition
         self.showsTimestamp = showsTimestamp
+        self.onShowCodeDetail = onShowCodeDetail
     }
 
     public var body: some View {
@@ -59,7 +63,7 @@ public struct ChatProseBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: hasInteractiveCodeBlocks ? .contain : .combine)
             .accessibilityAction(
                 named: Text(
                     String(localized: "chat.bubble.copy", defaultValue: "Copy", bundle: .module)
@@ -73,6 +77,14 @@ public struct ChatProseBubbleView: View {
 
     private var isUser: Bool { message.role == .user }
 
+    private var hasInteractiveCodeBlocks: Bool {
+        guard !isUser else { return false }
+        return proseSegments.contains { segment in
+            if case .code = segment.kind { return true }
+            return false
+        }
+    }
+
     /// Copies the bubble's full prose text to the system pasteboard; shared
     /// by the context menu and the VoiceOver custom action.
     private func copyProse() {
@@ -85,6 +97,8 @@ public struct ChatProseBubbleView: View {
         contentCache?.proseSegments(messageID: message.id, text: prose.text)
             ?? ChatProseSegmenter().segments(from: prose.text)
     }
+
+    private static let codeBlockLineCap = 8
 
     private var bubble: some View {
         Group {
@@ -119,31 +133,90 @@ public struct ChatProseBubbleView: View {
                 }
             }
         case .code(let language):
-            VStack(alignment: .leading, spacing: 0) {
-                if let language, !language.isEmpty {
-                    Text(language.uppercased())
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(theme.terminalCardText.opacity(0.6))
-                        .padding(.horizontal, 8)
-                        .padding(.top, 6)
-                        .accessibilityLabel(
+            let codeLines = segment.content
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            let visibleCode = codeLines.count > Self.codeBlockLineCap
+                ? codeLines.prefix(Self.codeBlockLineCap).joined(separator: "\n")
+                : segment.content
+            Button {
+                onShowCodeDetail(message.id, segment.index)
+            } label: {
+                VStack(alignment: .leading, spacing: 0) {
+                    codeHeader(language: language)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(verbatim: visibleCode.isEmpty ? " " : visibleCode)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(theme.terminalCardText)
+                            .padding(8)
+                    }
+                    if codeLines.count > Self.codeBlockLineCap {
+                        Text(
                             String(
-                                localized: "chat.code.language.accessibility",
-                                defaultValue: "\(language) code",
+                                localized: "chat.terminal.more_lines",
+                                defaultValue: "⋯ \(codeLines.count - Self.codeBlockLineCap) more lines",
                                 bundle: .module
                             )
                         )
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(segment.content)
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(theme.terminalCardText)
-                        .textSelection(.enabled)
-                        .padding(8)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
+                    }
                 }
+                .background(theme.terminalCardFill, in: .rect(cornerRadius: 8))
+                .contentShape(.rect)
             }
-            .background(theme.terminalCardFill, in: .rect(cornerRadius: 8))
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ChatCodeBlockDetail-\(message.id)-\(segment.index)")
+            .accessibilityLabel(codeBlockAccessibilityLabel(language: language))
+            .accessibilityHint(
+                String(
+                    localized: "chat.detail.show.hint",
+                    defaultValue: "Opens a sheet with the full block content",
+                    bundle: .module
+                )
+            )
         }
+    }
+
+    private func codeBlockAccessibilityLabel(language: String?) -> String {
+        let codeBlockLabel = String(
+            localized: "chat.code_block.accessibility",
+            defaultValue: "Code block",
+            bundle: .module
+        )
+        guard let language, !language.isEmpty else {
+            return codeBlockLabel
+        }
+        return "\(language) \(codeBlockLabel)"
+    }
+
+    private func codeHeader(language: String?) -> some View {
+        HStack(spacing: 6) {
+            if let language, !language.isEmpty {
+                Text(verbatim: language.uppercased())
+                    .accessibilityLabel(
+                        String(
+                            localized: "chat.code.language.accessibility",
+                            defaultValue: "\(language) code",
+                            bundle: .module
+                        )
+                    )
+            } else {
+                Text(
+                    String(localized: "chat.detail.code.section", defaultValue: "Code", bundle: .module)
+                )
+            }
+            Spacer(minLength: 6)
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.caption2)
+                .accessibilityHidden(true)
+        }
+        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        .foregroundStyle(theme.terminalCardText.opacity(0.6))
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
     }
 
     /// Block-level elements of a text segment (headings, lists, quotes,

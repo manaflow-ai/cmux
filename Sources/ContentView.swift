@@ -2816,6 +2816,12 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
+            if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
+                presentSavedLayoutSavePrompt()
+            }
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -6123,6 +6129,7 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
+            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
             snapshot.setBool(
                 CommandPaletteContextKeys.authWorking,
                 auth.coordinator.isLoading || auth.coordinator.isRestoringSession || auth.browserSignIn.isSigningIn
@@ -6577,7 +6584,7 @@ struct ContentView: View {
                 keywords: Self.commandPaletteMobileConnectKeywords
             )
         )
-        contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.makeDefaultTerminal",
@@ -6831,6 +6838,7 @@ struct ContentView: View {
             workspaceSubtitle: workspaceSubtitle,
             panelSubtitle: panelSubtitle
         )
+        appendSavedLayoutCommandContributions(to: &contributions, workspaceSubtitle: workspaceSubtitle)
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7653,6 +7661,7 @@ struct ContentView: View {
         }
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
+        registerSavedLayoutCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -7701,6 +7710,7 @@ struct ContentView: View {
             MobilePairingWindowController.shared.show()
         }
         registerAuthCommandHandlers(&registry)
+        registerProCommandHandlers(&registry)
         registry.register(commandId: "palette.makeDefaultTerminal") {
             DefaultTerminalUserAction.setAsDefault(debugSource: "palette.makeDefaultTerminal")
         }
@@ -8604,6 +8614,7 @@ struct ContentView: View {
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace",
+             "palette.layout.saveCurrent",
              // Entering browser focus mode focuses the web view synchronously;
              // dismiss the palette first so its makeFirstResponder(nil) doesn't
              // clear that focus and leave focus mode active without key routing.
@@ -12664,6 +12675,7 @@ private struct SidebarFooterButtons: View {
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            SidebarProBadge()
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
             if extensionsExperimentalEnabled {
