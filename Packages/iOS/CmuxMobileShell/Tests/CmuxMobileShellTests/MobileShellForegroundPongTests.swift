@@ -84,7 +84,7 @@ import Testing
 }
 
 @MainActor
-@Test func foregroundResumeWithoutEventPingCapabilityDoesNotPingOrRestart() async throws {
+@Test func foregroundResumeWithoutEventPingCapabilityRestartsWithoutCallingPing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
@@ -114,9 +114,52 @@ import Testing
         await router.count(of: "mobile.events.ping") >= 1
     }
     #expect(pinged == false, "older Macs without terminal.event_ping.v1 must not receive mobile.events.ping")
+    let restarted = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") >= 2
+    }
+    #expect(
+        restarted,
+        "without event-ping proof, an older Mac's already-subscribed ack must use the legacy foreground restart path"
+    )
+    collector.unmount()
+}
+
+@MainActor
+@Test func foregroundSubscribeTimeoutDoesNotRestartAfterAppBackgroundsAgain() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing subscribe timeout cancellation"
+    )
+
+    await router.holdSubscribeRequest(number: 2)
+    store.setAppForegroundActive(false)
+    store.resumeForegroundRefresh()
+    let reasserted = try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    }
+    #expect(reasserted, "foreground resume should send a bounded subscription reassertion")
+    store.setAppForegroundActive(false)
+    try await Task.sleep(nanoseconds: 300_000_000)
+
     #expect(
         await router.count(of: "mobile.host.status") == 1,
-        "missing the event-ping capability must not be treated as a dead stream"
+        "a subscribe timeout after the app backgrounds again must not restart the listener"
     )
     collector.unmount()
 }

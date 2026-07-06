@@ -1,4 +1,5 @@
 import CmuxMobileRPC
+internal import CmuxMobileDiagnostics
 import Foundation
 
 extension MobileShellComposite {
@@ -75,6 +76,32 @@ extension MobileShellComposite {
                 }
             }
         }
+    }
+
+    func verifyOrRecoverTerminalEventStream(
+        client: MobileCoreRPCClient,
+        reason: String,
+        alreadySubscribed: Bool?,
+        timeoutNanoseconds: UInt64
+    ) async -> Bool {
+        if supportedHostCapabilities.contains(Self.terminalEventPingCapability) {
+            let streamDelivered = await verifyTerminalEventStreamDelivery(
+                client: client,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
+            guard streamDelivered else {
+                guard isAppForegroundActive else { return false }
+                MobileDebugLog.anchormux("sync.refresh_stream_failed reason=\(reason)")
+                resyncTerminalOutput(reason: "\(reason).stream_failed", restartEventStream: true)
+                return false
+            }
+        } else if alreadySubscribed != false {
+            guard isAppForegroundActive else { return false }
+            MobileDebugLog.anchormux("sync.refresh_legacy_stream_unproved reason=\(reason)")
+            resyncTerminalOutput(reason: "\(reason).legacy_stream_unproved", restartEventStream: true)
+            return false
+        }
+        return true
     }
 
     func handleTerminalEventPong(_ event: MobileEventEnvelope) {

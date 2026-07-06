@@ -88,7 +88,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
-    private static let terminalEventPingCapability = "terminal.event_ping.v1"
+    static let terminalEventPingCapability = "terminal.event_ping.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
@@ -701,7 +701,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
-    private var isAppForegroundActive = true
+    var isAppForegroundActive = true
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var terminalSubscriptionRefreshID: UUID?
     var terminalEventPongContinuationsByNonce: [String: CheckedContinuation<Bool, Never>] = [:]
@@ -6377,6 +6377,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard case .subscribed(let alreadySubscribed) = ack else {
                 MobileDebugLog.anchormux("sync.refresh_failed reason=\(reason) restart=\(restartOnFailure)")
                 if restartOnFailure {
+                    guard self.isAppForegroundActive else { return }
                     self.resyncTerminalOutput(
                         reason: "\(reason).subscribe_failed",
                         restartEventStream: true
@@ -6384,17 +6385,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 return
             }
-            if restartOnFailure && self.supportedHostCapabilities.contains(Self.terminalEventPingCapability) {
-                let streamDelivered = await self.verifyTerminalEventStreamDelivery(client: client, timeoutNanoseconds: timeoutNanoseconds)
-                guard streamDelivered else {
-                    guard self.isAppForegroundActive else { return }
-                    MobileDebugLog.anchormux("sync.refresh_stream_failed reason=\(reason)")
-                    self.resyncTerminalOutput(
-                        reason: "\(reason).stream_failed",
-                        restartEventStream: true
-                    )
-                    return
-                }
+            if restartOnFailure {
+                guard await self.verifyOrRecoverTerminalEventStream(
+                    client: client,
+                    reason: reason,
+                    alreadySubscribed: alreadySubscribed,
+                    timeoutNanoseconds: timeoutNanoseconds
+                ) else { return }
             }
             self.recordTerminalEventStreamLiveness()
             self.markMacConnectionHealthy()
@@ -6796,7 +6793,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return ack
     }
 
-    private func resyncTerminalOutput(
+    func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,
         restartOnSubscriptionFailure: Bool = false,
