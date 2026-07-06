@@ -40,7 +40,7 @@ export default function IosLanding() {
   const t = useTranslations("ios");
 
   const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+    "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
   const features = [
     ["realtimeSync", "realtimeSyncDesc"],

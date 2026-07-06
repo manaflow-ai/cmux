@@ -311,7 +311,7 @@ function BillingBanner({ banner }: { banner: BillingBannerModel }) {
           {" "}
           <a
             href={banner.action.href}
-            className="underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+            className="underline underline-offset-2 decoration-link-underline transition-colors hover:decoration-foreground"
           >
             {banner.action.label}
           </a>
