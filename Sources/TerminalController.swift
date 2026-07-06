@@ -98,6 +98,9 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
         return "remote daemon is not ready"
     }
+    if v2IsRemoteDaemonProxyRebootstrapMessage(lowered) {
+        return "remote daemon transport is re-bootstrapping after proxy failure"
+    }
     if lowered.contains("missing workspace_id in ssh pty session list response") {
         return "missing workspace_id in SSH PTY session list response"
     }
@@ -107,7 +110,20 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     if lowered.contains("timed out") || lowered.contains("timeout") {
         return "remote daemon did not respond in time"
     }
+    // Surface the daemon's PTY-allocation diagnostic verbatim (it names the
+    // failing device and the devpts/ptmxmode cause) instead of collapsing it
+    // into a generic message. Key off the daemon's stable marker only, so an
+    // unrelated error that merely mentions a device path is not leaked. The
+    // daemon constructs this message in newPTYAllocationError. See issue #5185.
+    if lowered.contains("could not allocate a remote pty") {
+        return trimmed
+    }
     return "remote PTY operation failed"
+}
+
+nonisolated private func v2IsRemoteDaemonProxyRebootstrapMessage(_ lowered: String) -> Bool {
+    lowered.contains("remote daemon transport needs re-bootstrap after proxy failure") ||
+        lowered.contains("remote daemon transport is re-bootstrapping after proxy failure")
 }
 
 /// Unix socket-based controller for programmatic terminal control
