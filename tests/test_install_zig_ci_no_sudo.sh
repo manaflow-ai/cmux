@@ -36,6 +36,14 @@ except Exception:
 }
 
 ZIG_REQUIRED="99.99.99"
+case "$(uname -s)" in
+  Darwin) ZIG_OS="macos" ;;
+  Linux) ZIG_OS="linux" ;;
+  *)
+    echo "Unsupported test operating system: $(uname -s)" >&2
+    exit 1
+    ;;
+esac
 case "$(uname -m)" in
   arm64 | aarch64) ZIG_ARCH="aarch64" ;;
   x86_64) ZIG_ARCH="x86_64" ;;
@@ -46,7 +54,7 @@ case "$(uname -m)" in
 esac
 
 FIXTURE_ROOT="$TMP_DIR/fixture"
-ZIG_NAME="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
+ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
 ARCHIVE="$TMP_DIR/${ZIG_NAME}.tar.xz"
 DEFAULT_INSTALL_ROOT="/tmp/cmux-zig-ci/$ZIG_NAME"
 SHARED_TMP_ZIG_DIR="/tmp/$ZIG_NAME"
