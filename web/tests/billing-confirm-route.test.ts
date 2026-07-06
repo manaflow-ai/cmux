@@ -17,6 +17,9 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser, listProducts: appListProducts },
 }));
 
+// bun's mock.module replaces the module for the whole test process, so keep
+// every real export other tests import (vm-workflows, vm-db-read-model call
+// closeCloudDbForTests during teardown).
 mock.module("../db/client", () => ({
   cloudDb: () => ({
     select: () => ({
@@ -27,6 +30,7 @@ mock.module("../db/client", () => ({
       }),
     }),
   }),
+  closeCloudDbForTests: async () => {},
 }));
 
 const { GET } = await import("../app/api/billing/confirm/route");
