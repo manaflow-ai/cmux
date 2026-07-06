@@ -45,11 +45,15 @@ extension WorkspaceDetailView {
             workspaceTrailingToolbarIsland
                 .layoutPriority(1)
         }
-        // Fill the width the navigation bar grants the principal item (already
-        // inset by the bar's leading/trailing layout margins), so the back and
-        // trailing islands keep their native edge insets instead of clipping.
-        // The title truncates within the leftover space via its lower priority.
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // The navigation bar measures a principal item at its ideal width and
+        // centers the result. Report the container width as the ideal so UIKit
+        // caps it to the inset toolbar region, while `maxWidth` keeps the
+        // layout compressible and fills the capped proposal without overflow.
+        .frame(idealWidth: workspaceToolbarIdealWidth, maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var workspaceToolbarIdealWidth: CGFloat? {
+        toolbarContentWidth > 0 ? toolbarContentWidth : nil
     }
 
     private var workspaceBackToolbarIsland: some View {

@@ -35,6 +35,10 @@ struct WorkspaceDetailView: View {
     @Environment(BrowserSurfaceStore.self) private var browserStore
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
+    /// Detail content width, reported as the principal toolbar item's ideal
+    /// width so the navigation bar grants it the full inset region. Non-private
+    /// so the toolbar layout (WorkspaceDetailView+Toolbar.swift) can read it.
+    @State var toolbarContentWidth: CGFloat = 0
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -85,6 +89,7 @@ struct WorkspaceDetailView: View {
         content
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { toolbarContentWidth = $0 }
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) {
