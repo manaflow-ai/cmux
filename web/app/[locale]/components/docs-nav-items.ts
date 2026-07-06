@@ -51,6 +51,8 @@ export const navItems: NavEntry[] = [
   { titleKey: "taskManager", href: "/docs/task-manager", locales: featureWorkflowContentLocales },
   { titleKey: "customCommands", href: "/docs/custom-commands" },
   { titleKey: "dock", href: "/docs/dock" },
+  { titleKey: "extensions", href: "/docs/extensions" },
+  { titleKey: "extensionsMarketplace", href: "/docs/extensions-marketplace" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
   { titleKey: "apiReference", href: "/docs/api" },
   { titleKey: "browserAutomation", href: "/docs/browser-automation" },
