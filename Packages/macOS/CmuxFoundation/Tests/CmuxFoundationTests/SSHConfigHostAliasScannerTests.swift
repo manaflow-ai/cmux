@@ -199,15 +199,15 @@ private struct InMemorySSHConfigFileReader: SSHConfigFileReading {
 
     @Test func includeWithTildePathIsFollowed() {
         let config = """
-        Host alpha
         Include ~/.ssh/extra
+        Host alpha
         """
         let extra = """
         Host included
         """
         #expect(
             aliases(config: config, extraFiles: ["\(home)/.ssh/extra": extra])
-                == ["alpha", "included"]
+                == ["included", "alpha"]
         )
     }
 
@@ -269,8 +269,8 @@ private struct InMemorySSHConfigFileReader: SSHConfigFileReading {
 
     @Test func includedFilesAreDeduplicatedAgainstMainConfig() {
         let config = """
-        Host alpha
         Include ~/.ssh/extra
+        Host alpha
         """
         let extra = """
         Host alpha beta
@@ -286,10 +286,10 @@ private struct InMemorySSHConfigFileReader: SSHConfigFileReading {
         Include level1
         """
         let files = [
-            "\(home)/.ssh/level1": "Host one\nInclude level2",
+            "\(home)/.ssh/level1": "Include level2\nHost one",
             "\(home)/.ssh/level2": "Host two",
         ]
-        #expect(aliases(config: config, extraFiles: files) == ["one", "two"])
+        #expect(aliases(config: config, extraFiles: files) == ["two", "one"])
     }
 
     @Test func includeCyclesTerminateAndStillCollectAliases() {
@@ -297,10 +297,89 @@ private struct InMemorySSHConfigFileReader: SSHConfigFileReading {
         Include loop-a
         """
         let files = [
-            "\(home)/.ssh/loop-a": "Host from-a\nInclude loop-b",
-            "\(home)/.ssh/loop-b": "Host from-b\nInclude loop-a",
+            "\(home)/.ssh/loop-a": "Include loop-b\nHost from-a",
+            "\(home)/.ssh/loop-b": "Include loop-a\nHost from-b",
         ]
         #expect(aliases(config: config, extraFiles: files) == ["from-a", "from-b"])
+    }
+
+    // MARK: - Conditional includes
+
+    @Test func includeBeforeFirstHostBlockIsUnconditional() {
+        let config = """
+        Include extra
+        Host alpha
+        """
+        let extra = """
+        Host included
+        """
+        #expect(
+            aliases(config: config, extraFiles: ["\(home)/.ssh/extra": extra])
+                == ["included", "alpha"]
+        )
+    }
+
+    @Test func includeInsideHostBlockIsScopedToItsPatterns() {
+        // ssh only reads an Include inside a Host block when the target host
+        // matches that block, so `other-db` is unreachable via `ssh other-db`
+        // and must not be listed.
+        let config = """
+        Host prod-*
+            Include prod-extra
+        Host alpha
+        """
+        let extra = """
+        Host prod-db other-db
+        """
+        #expect(
+            aliases(config: config, extraFiles: ["\(home)/.ssh/prod-extra": extra])
+                == ["prod-db", "alpha"]
+        )
+    }
+
+    @Test func includeInsideMatchBlockIsSkipped() {
+        // Match criteria (user/exec/...) cannot be evaluated statically, so
+        // aliases behind a Match-scoped Include are not reliably connectable.
+        let config = """
+        Match user deploy
+            Include cond
+        Host beta
+        """
+        let cond = """
+        Host conditional
+        """
+        #expect(
+            aliases(config: config, extraFiles: ["\(home)/.ssh/cond": cond])
+                == ["beta"]
+        )
+    }
+
+    @Test func hostScopedIncludeHonorsNegatedPatterns() {
+        let config = """
+        Host * !secret
+            Include extra
+        """
+        let extra = """
+        Host secret ok
+        """
+        #expect(
+            aliases(config: config, extraFiles: ["\(home)/.ssh/extra": extra])
+                == ["ok"]
+        )
+    }
+
+    @Test func nestedHostScopedIncludesIntersect() {
+        // An alias from a doubly nested include must match every enclosing
+        // Host pattern list, mirroring ssh's conditional-include semantics.
+        let config = """
+        Host prod-*
+            Include mid
+        """
+        let files = [
+            "\(home)/.ssh/mid": "Host prod-eu-*\n    Include inner",
+            "\(home)/.ssh/inner": "Host prod-eu-1 prod-us-1",
+        ]
+        #expect(aliases(config: config, extraFiles: files) == ["prod-eu-1"])
     }
 
     // MARK: - Missing config

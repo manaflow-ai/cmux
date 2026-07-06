@@ -16,9 +16,14 @@ import Observation
 final class SSHHostsSidebarModel {
     private(set) var hostAliases: [String] = []
     var isCollapsed = false
+    /// Bumped when any workspace's remote connection state transitions, so the
+    /// section's per-host active markers re-derive. TabManager churn covers
+    /// workspace add/remove/select but not per-workspace state changes.
+    private(set) var remoteStateRevision: UInt64 = 0
 
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var appActivationTask: Task<Void, Never>?
+    @ObservationIgnored private var remoteStateTask: Task<Void, Never>?
 
     init() {
         refresh()
@@ -30,10 +35,19 @@ final class SSHHostsSidebarModel {
                 self?.refresh()
             }
         }
+        remoteStateTask = Task { [weak self] in
+            let transitions = NotificationCenter.default.notifications(
+                named: .workspaceRemoteConnectionStateDidChange
+            )
+            for await _ in transitions {
+                self?.remoteStateRevision &+= 1
+            }
+        }
     }
 
     deinit {
         appActivationTask?.cancel()
+        remoteStateTask?.cancel()
         refreshTask?.cancel()
     }
 

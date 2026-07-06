@@ -12,10 +12,14 @@
 ///   `ssh <destination>` argument).
 /// - `Match` blocks and all other keywords are ignored.
 ///
-/// `Include` directives are followed unconditionally — even when they appear
-/// inside a `Host` or `Match` block — because an alias declared in a
-/// conditionally included file is still an alias `ssh` can be asked to
-/// connect to.
+/// `Include` directives inside a `Host` block are conditional in `ssh(1)`:
+/// the included file is only read when the target host matches the enclosing
+/// patterns. The scanner mirrors that by intersecting — an alias found under
+/// one or more enclosing `Host` scopes is listed only when it matches every
+/// enclosing pattern list, so every listed alias resolves when passed to
+/// `ssh`. `Include` directives inside a `Match` block depend on conditions
+/// that cannot be evaluated statically (user, exec, ...), so they are skipped
+/// rather than risk listing aliases `ssh` would not honor.
 ///
 /// Results preserve first-encounter order and are de-duplicated. All file
 /// access goes through the injected ``SSHConfigFileReading`` seam, so parsing
@@ -68,12 +72,28 @@ public struct SSHConfigHostAliasScanner: Sendable {
     public func hostAliases(inConfigAtPath path: String) -> [String] {
         var seen: Set<String> = []
         var aliases: [String] = []
-        collectAliases(fromConfigAtPath: path, depth: 0, seen: &seen, aliases: &aliases)
+        collectAliases(
+            fromConfigAtPath: path,
+            enclosingHostScopes: [],
+            depth: 0,
+            seen: &seen,
+            aliases: &aliases
+        )
         return aliases
+    }
+
+    /// The block context an `Include` line inherits within one file: the top
+    /// of a file is unconditional, and each `Host`/`Match` line starts a new
+    /// block that scopes every following line until the next block line.
+    private enum BlockScope {
+        case unconditional
+        case host(patterns: [String])
+        case match
     }
 
     private func collectAliases(
         fromConfigAtPath path: String,
+        enclosingHostScopes: [[String]],
         depth: Int,
         seen: inout Set<String>,
         aliases: inout [String]
@@ -82,20 +102,37 @@ public struct SSHConfigHostAliasScanner: Sendable {
               let contents = fileReader.contentsOfFile(atPath: path) else {
             return
         }
+        var currentBlock = BlockScope.unconditional
         for rawLine in contents.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = Self.parse(configLine: rawLine)
             switch line {
             case .host(let patterns):
+                currentBlock = .host(patterns: patterns)
                 for pattern in patterns where Self.isConcreteAlias(pattern) {
+                    guard Self.alias(pattern, matchesEveryScopeIn: enclosingHostScopes) else { continue }
                     if seen.insert(pattern).inserted {
                         aliases.append(pattern)
                     }
                 }
+            case .match:
+                currentBlock = .match
             case .include(let arguments):
+                var childScopes = enclosingHostScopes
+                switch currentBlock {
+                case .unconditional:
+                    break
+                case .host(let patterns):
+                    childScopes.append(patterns)
+                case .match:
+                    // Match conditions are not statically evaluable; skip the
+                    // include instead of listing aliases ssh may never read.
+                    continue
+                }
                 for argument in arguments {
                     for includePath in fileReader.filePaths(matchingGlob: resolvedIncludePattern(for: argument)) {
                         collectAliases(
                             fromConfigAtPath: includePath,
+                            enclosingHostScopes: childScopes,
                             depth: depth + 1,
                             seen: &seen,
                             aliases: &aliases
@@ -105,6 +142,52 @@ public struct SSHConfigHostAliasScanner: Sendable {
             case .other:
                 continue
             }
+        }
+    }
+
+    /// Whether an alias found under nested conditional includes would actually
+    /// activate every enclosing `Host` block when `ssh <alias>` runs.
+    private static func alias(_ alias: String, matchesEveryScopeIn scopes: [[String]]) -> Bool {
+        scopes.allSatisfy { patterns in
+            aliasMatchesPatternList(alias, patterns: patterns)
+        }
+    }
+
+    /// `ssh_config(5)` pattern-list matching: the alias must match at least
+    /// one positive pattern and no negated (`!`) pattern.
+    private static func aliasMatchesPatternList(_ alias: String, patterns: [String]) -> Bool {
+        var matched = false
+        for pattern in patterns {
+            if pattern.hasPrefix("!") {
+                if wildcardMatches(alias[...], pattern: pattern.dropFirst()) {
+                    return false
+                }
+            } else if !matched, wildcardMatches(alias[...], pattern: pattern[...]) {
+                matched = true
+            }
+        }
+        return matched
+    }
+
+    /// Shell-style `*`/`?` matching over the whole string, as used by
+    /// `ssh_config(5)` host patterns (no path-component semantics).
+    private static func wildcardMatches(_ text: Substring, pattern: Substring) -> Bool {
+        guard let patternCharacter = pattern.first else { return text.isEmpty }
+        switch patternCharacter {
+        case "*":
+            let rest = pattern.dropFirst()
+            var candidate = text
+            while true {
+                if wildcardMatches(candidate, pattern: rest) { return true }
+                guard !candidate.isEmpty else { return false }
+                candidate = candidate.dropFirst()
+            }
+        case "?":
+            guard !text.isEmpty else { return false }
+            return wildcardMatches(text.dropFirst(), pattern: pattern.dropFirst())
+        default:
+            guard text.first == patternCharacter else { return false }
+            return wildcardMatches(text.dropFirst(), pattern: pattern.dropFirst())
         }
     }
 
@@ -140,6 +223,7 @@ public struct SSHConfigHostAliasScanner: Sendable {
     private enum ConfigLine {
         case host(patterns: [String])
         case include(arguments: [String])
+        case match
         case other
     }
 
@@ -171,6 +255,8 @@ public struct SSHConfigHostAliasScanner: Sendable {
             return .host(patterns: arguments(in: line, from: index))
         case "include":
             return .include(arguments: arguments(in: line, from: index))
+        case "match":
+            return .match
         default:
             return .other
         }
