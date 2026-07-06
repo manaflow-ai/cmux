@@ -184,7 +184,7 @@ function HintTooltip({ label, action, children }: { label: string; action?: KeyA
   const combo = comboForAction(action);
   return (
     <Tooltip.Root>
-      <Tooltip.Trigger delay={450} render={children} />
+      <Tooltip.Trigger render={children} />
       <Tooltip.Portal>
         <Tooltip.Positioner sideOffset={7}>
           <Tooltip.Popup className="tooltip">
@@ -777,30 +777,34 @@ function HarnessModelPicker({
                       />
                     </div>
                     <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models">
-                      {listItems.length ? listItems.map((item, i) => (
-                        <button
-                          key={item.id}
-                          id={item.id}
-                          type="button"
-                          role="option"
-                          className={"model-row" + (i === activeIndex ? " active" : "") + (item.disabled ? " disabled" : "")}
-                          disabled={item.disabled}
-                          aria-selected={item.selected}
-                          aria-disabled={item.disabled ? "true" : undefined}
-                          title={item.disabled ? item.disabledReason : undefined}
-                          onMouseEnter={() => setActiveIndex(i)}
-                          onClick={() => choose(item)}
-                        >
-                          <ProviderIcon provider={item.provider} />
-                          <span className="model-row-main">
-                            <span className="model-row-name">{item.label}</span>
-                            <span className="model-row-subtitle">
-                              {item.disabled ? item.disabledReason ?? "Unavailable" : item.description ?? item.provider.label}
+                      {listItems.length ? listItems.map((item, i) => {
+                        const row = (
+                          <button
+                            key={item.id}
+                            id={item.id}
+                            type="button"
+                            role="option"
+                            className={"model-row" + (i === activeIndex ? " active" : "") + (item.disabled ? " disabled" : "")}
+                            disabled={item.disabled}
+                            aria-selected={item.selected}
+                            aria-disabled={item.disabled ? "true" : undefined}
+                            onMouseEnter={() => setActiveIndex(i)}
+                            onClick={() => choose(item)}
+                          >
+                            <ProviderIcon provider={item.provider} />
+                            <span className="model-row-main">
+                              <span className="model-row-name">{item.label}</span>
+                              <span className="model-row-subtitle">
+                                {item.disabled ? item.disabledReason ?? "Unavailable" : item.description ?? item.provider.label}
+                              </span>
                             </span>
-                          </span>
-                          {item.selected ? <span className="mi-check selected"><Check /></span> : null}
-                        </button>
-                      )) : (
+                            {item.selected ? <span className="mi-check selected"><Check /></span> : null}
+                          </button>
+                        );
+                        return item.disabled && item.disabledReason
+                          ? <HintTooltip key={item.id} label={item.disabledReason}><span className="model-row-tooltip-wrap">{row}</span></HintTooltip>
+                          : row;
+                      }) : (
                         <div className="model-picker-empty">No models found</div>
                       )}
                     </div>
@@ -1606,11 +1610,15 @@ function TurnActions({ stats, text, actions, onFork }: { stats: string; text: st
   return (
     <div className="turn-actions">
       <span className="turn-duration">{durationText(stats)}</span>
-      <button className="turn-action-btn" type="button" aria-label="Copy response" onClick={copy}>
-        {copied ? <Check /> : <CopyIcon />}
-      </button>
+      <HintTooltip label={copied ? "Copied" : "Copy response"}>
+        <button className="turn-action-btn" type="button" aria-label="Copy response" onClick={copy}>
+          {copied ? <Check /> : <CopyIcon />}
+        </button>
+      </HintTooltip>
       <Popover.Root>
-        <Popover.Trigger className="turn-action-btn" aria-label="Message actions"><EllipsisIcon /></Popover.Trigger>
+        <HintTooltip label="Message actions">
+          <Popover.Trigger className="turn-action-btn" aria-label="Message actions"><EllipsisIcon /></Popover.Trigger>
+        </HintTooltip>
         <Popover.Portal>
           <Popover.Positioner sideOffset={6} align="start">
             <Popover.Popup className="turn-menu menu" data-agent-popup="true">
@@ -1779,10 +1787,12 @@ export function App() {
   useTypeToFocus();
   useOverlayScrollbars();
   return (
-    <Ctx.Provider value={s}>
-      <main id="main">
-        {!s.ready && s.phase === "composer" ? null : s.phase === "chat" ? <Chat /> : <Composer />}
-      </main>
-    </Ctx.Provider>
+    <Tooltip.Provider delay={500} closeDelay={80} timeout={800}>
+      <Ctx.Provider value={s}>
+        <main id="main">
+          {!s.ready && s.phase === "composer" ? null : s.phase === "chat" ? <Chat /> : <Composer />}
+        </main>
+      </Ctx.Provider>
+    </Tooltip.Provider>
   );
 }
