@@ -1,6 +1,7 @@
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import SwiftUI
 
 #if os(iOS)
@@ -361,6 +362,7 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
+        GhosttySurfaceView.resignActiveInput()
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }

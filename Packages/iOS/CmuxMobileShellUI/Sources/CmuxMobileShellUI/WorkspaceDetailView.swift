@@ -180,13 +180,10 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var detailSurfaceContent: some View {
         #if os(iOS)
-        if isChatMode, let session = chosenChatSession {
-            chatContent(session)
-                .transition(.opacity)
-        } else if let browser = activeBrowser {
+        if let browser = activeBrowser {
             browserContent(browser)
         } else {
-            detailContent()
+            terminalContentWithChatOverlay
         }
         #else
         detailContent()
@@ -194,6 +191,25 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    /// Keep the terminal renderer mounted while GUI chat is shown. Toggling
+    /// chat should cover the terminal, not destroy and recreate Ghostty.
+    @ViewBuilder
+    private var terminalContentWithChatOverlay: some View {
+        let isPresentingChat = isChatMode && chosenChatSession != nil
+
+        ZStack {
+            detailContent()
+                .allowsHitTesting(!isPresentingChat)
+                .accessibilityHidden(isPresentingChat)
+
+            if isChatMode, let session = chosenChatSession {
+                chatContent(session)
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+    }
+
     /// The browser pane shown when this workspace has an active browser surface.
     /// It carries its own navigation chrome, so it does not get the terminal's
     /// keyboard/safe-area handling. Closing returns to the terminal.
