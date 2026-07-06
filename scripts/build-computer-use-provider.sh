@@ -2,9 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MCP_SOURCE="$ROOT/Resources/computer-use-mcp/cmux-computer-use-mcp.mjs"
+SOURCE_INPUTS=()
 OUTPUT=""
-SOURCE_OUTPUT=""
 ARCHS_RAW=""
 DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 
@@ -13,7 +12,7 @@ usage() {
 usage: scripts/build-computer-use-provider.sh --output <path> [options]
 
 Options:
-  --source <path>              write the extracted Swift source to this path
+  --source <path>              Swift provider source file or directory; repeatable
   --archs "<archs>"            architectures to build (default: host arch)
   --deployment-target <value>  macOS deployment target (default: env or 13.0)
 USAGE
@@ -28,7 +27,7 @@ while (($#)); do
       ;;
     --source)
       [[ $# -ge 2 ]] || { usage; exit 2; }
-      SOURCE_OUTPUT="$2"
+      SOURCE_INPUTS+=("$2")
       shift 2
       ;;
     --archs)
@@ -59,56 +58,39 @@ if [[ -z "$OUTPUT" ]]; then
   exit 2
 fi
 
+if ((${#SOURCE_INPUTS[@]} == 0)); then
+  SOURCE_INPUTS=(
+    "$ROOT/Resources/computer-use-mcp/cmux-computer-use-provider-support.swift"
+    "$ROOT/Resources/computer-use-mcp/main.swift"
+  )
+fi
+
+SOURCE_FILES=()
+for source_input in "${SOURCE_INPUTS[@]}"; do
+  if [[ -d "$source_input" ]]; then
+    while IFS= read -r source_file; do
+      SOURCE_FILES+=("$source_file")
+    done < <(find "$source_input" -maxdepth 1 -type f -name '*.swift' | sort)
+  elif [[ -f "$source_input" ]]; then
+    SOURCE_FILES+=("$source_input")
+  else
+    echo "error: Swift provider source not found at $source_input" >&2
+    exit 1
+  fi
+done
+
+if ((${#SOURCE_FILES[@]} == 0)); then
+  echo "error: no Swift provider sources found" >&2
+  exit 1
+fi
+
 TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cu-provider.XXXXXX")"
 cleanup() {
   rm -rf "$TMPDIR_BUILD"
 }
 trap cleanup EXIT
 
-if [[ -z "$SOURCE_OUTPUT" ]]; then
-  SOURCE_OUTPUT="$TMPDIR_BUILD/provider.swift"
-fi
-mkdir -p "$(dirname "$SOURCE_OUTPUT")" "$(dirname "$OUTPUT")"
-
-node - "$MCP_SOURCE" "$SOURCE_OUTPUT" <<'NODE'
-const fs = require("node:fs");
-const vm = require("node:vm");
-
-const sourcePath = process.argv[2];
-const outputPath = process.argv[3];
-const source = fs.readFileSync(sourcePath, "utf8");
-const match = /const\s+MAC_PROVIDER_SWIFT\s*=\s*`/.exec(source);
-if (!match) {
-  throw new Error("MAC_PROVIDER_SWIFT template literal not found");
-}
-const literalStart = match.index + match[0].lastIndexOf("`");
-let escaped = false;
-let end = -1;
-for (let i = literalStart + 1; i < source.length; i += 1) {
-  const ch = source[i];
-  if (escaped) {
-    escaped = false;
-    continue;
-  }
-  if (ch === "\\") {
-    escaped = true;
-    continue;
-  }
-  if (ch === "`") {
-    end = i;
-    break;
-  }
-}
-if (end < 0) {
-  throw new Error("MAC_PROVIDER_SWIFT template literal was not terminated");
-}
-const literal = source.slice(literalStart, end + 1);
-if (literal.includes("${")) {
-  throw new Error("MAC_PROVIDER_SWIFT must stay a plain template literal without interpolation");
-}
-const swift = vm.runInNewContext(literal, Object.freeze({}), { timeout: 1000 });
-fs.writeFileSync(outputPath, swift, "utf8");
-NODE
+mkdir -p "$(dirname "$OUTPUT")"
 
 if [[ -z "$ARCHS_RAW" ]]; then
   case "$(uname -m)" in
@@ -147,7 +129,7 @@ for arch in "${ARCHS[@]}"; do
     -warnings-as-errors \
     -sdk "$SDK_PATH" \
     -target "$target" \
-    "$SOURCE_OUTPUT" \
+    "${SOURCE_FILES[@]}" \
     -o "$arch_output"
   BUILT+=("$arch_output")
 done
