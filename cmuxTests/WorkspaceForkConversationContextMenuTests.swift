@@ -242,7 +242,7 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         }
 
-        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: staleWorkspaceId, panelId: stalePanelId)
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: staleWorkspaceId,
