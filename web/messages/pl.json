@@ -110,6 +110,60 @@
     "faqFeatureQ": "Mam prośbę o funkcję lub znalazłem błąd",
     "faqFeatureA": "Chcemy to usłyszeć. Otwórz <issuesLink>zgłoszenie</issuesLink> lub <prLink>pull request</prLink> na GitHub albo <mailLink>napisz do nas</mailLink>."
   },
+  "dashboard": {
+    "aiAccounts": {
+      "metaTitle": "Konta AI — cmux",
+      "metaDescription": "Zarządzaj kontami dostawców AI zespołu w cmux.",
+      "section": "Panel",
+      "title": "Konta AI",
+      "description": "Zarządzaj kontami dostawców, z których ten zespół może korzystać w cmux AI.",
+      "personalTeam": "Osobisty",
+      "teamSwitcherLabel": "Zespół",
+      "notConfiguredTitle": "Zarządzanie kontami AI nie jest jeszcze dostępne",
+      "notConfiguredBody": "Zespołowe konta AI nie są włączone w tym wdrożeniu. Spróbuj później lub skontaktuj się z pomocą techniczną.",
+      "loadErrorTitle": "Nie udało się wczytać kont",
+      "loadErrorBody": "Nie można połączyć się z usługą kont. Spróbuj ponownie za chwilę.",
+      "accountsTitle": "Połączone konta",
+      "accountsCount": "{count, plural, one {# konto} few {# konta} many {# kont} other {# konta}}",
+      "emptyTitle": "Nie ma jeszcze kont",
+      "emptyBody": "Dodaj konto dostawcy, aby udostępnić je temu zespołowi.",
+      "providerColumn": "Dostawca",
+      "labelColumn": "Etykieta",
+      "createdColumn": "Utworzono",
+      "actionsColumn": "Akcje",
+      "unlabeledAccount": "Bez etykiety",
+      "unknownCreatedAt": "Nieznana",
+      "addAccountsTitle": "Dodaj konto",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "Klucz API Anthropic",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "Klucz API OpenAI",
+      "providerUnknown": "Nieznany dostawca",
+      "labelField": "Etykieta",
+      "labelPlaceholder": "Domyślne zespołu",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "Klucz API",
+      "addClaude": "Dodaj Claude",
+      "addAnthropic": "Dodaj Anthropic",
+      "addCodex": "Dodaj Codex",
+      "addOpenAi": "Dodaj OpenAI",
+      "addSuccess": "Dodano konto.",
+      "addError": "Nie udało się zapisać konta.",
+      "deleteError": "Nie udało się usunąć konta.",
+      "jsonError": "Wklej prawidłowy obiekt JSON.",
+      "validationError": "Sprawdź dane konta i spróbuj ponownie.",
+      "teamAccessError": "Nie masz dostępu do tego zespołu.",
+      "deletingAction": "Usuwanie",
+      "deleteAction": "Usuń",
+      "deleteConfirmTitle": "Usunąć to konto?",
+      "deleteConfirmBody": "Konto dostawcy zostanie usunięte dla całego zespołu. Aby dodać je ponownie, potrzebne będą oryginalne dane logowania.",
+      "cancelAction": "Anuluj",
+      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
+      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
+    }
+  },
   "community": {
     "title": "Społeczność",
     "description": "Przeglądaj projekty tworzone przez społeczność cmux, od hooków agentów po orkiestrację wielu agentów i zdalny dostęp.",
@@ -799,6 +853,8 @@
       "exampleConfig": "Przykładowa konfiguracja",
       "metaTitle": "Konfiguracja",
       "schemaDescriptions": {
+        "paneBorderColor": "Zastępuje kolor separatora paneli cmux w podzielonych obszarach roboczych. Dotyczy granic paneli cmux, a nie wewnętrznych podziałów Ghostty.",
+        "activePaneBorderColor": "Opcjonalny kolor obramowania rysowany wokół aktywnego panelu cmux w podzielonych obszarach roboczych.",
         "automation": {
           "ampIntegration": "Włącza haki integracji cmux dla Amp. Po wyłączeniu dołączona wtyczka pozostaje nieaktywna bez konieczności jej usuwania.",
           "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed.",
@@ -850,7 +906,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
+          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
           "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
         }
       },
@@ -1594,7 +1650,8 @@
   "afterSignIn": {
     "title": "Zalogowano do cmux",
     "body": "Jeśli cmux nie otworzył się automatycznie, użyj przycisku poniżej.",
-    "button": "Wróć do cmux"
+    "button": "Wróć do cmux",
+    "switchAccountButton": "Użyj innego konta"
   },
   "landing": {
     "bestTerminal": {
@@ -1616,9 +1673,9 @@
       "kittyBuiltFor": "Szybki, skryptowalny, bogaty w funkcje",
       "weztermBuiltFor": "Terminal GPU z wbudowanym multiplekserem",
       "tmuxBuiltFor": "Multipleksowanie wewnątrz dowolnego terminala",
-      "cmuxBody": "Natywny terminal macOS zbudowany na libghostty, stworzony do trzech rzeczy: wielozadaniowości, organizacji i programowalności. Pionowy pasek boczny grupuje pracę w przestrzenie robocze, z których każda pokazuje swoją gałąź git, katalog, porty i ostatnią linię wyjścia agenta, dzięki czemu możesz uruchamiać wiele rzeczy naraz, nie tracąc orientacji. Panele dzwonią, gdy agent potrzebuje uwagi. Każda akcja jest skryptowalna przez CLI i gniazdo Unix, a wbudowaną przeglądarką możesz sterować programowo. Jest nawet towarzysząca aplikacja iOS, by sprawdzać terminale z telefonu. Najlepszy, jeśli żonglujesz kilkoma zadaniami lub agentami kodującymi AI i chcesz mieć je zorganizowane i automatyzowalne bez konfiguracji multipleksera.",
+      "cmuxBody": "cmux to natywny terminal macOS zbudowany na silniku terminala Ghostty, libghostty. Oznacza to, że siatka terminala dziedziczy mocne strony Ghostty: szybkie renderowanie GPU, świetne renderowanie fontów i kolorów, nowoczesną zgodność terminalową oraz istniejące motywy, fonty, kolory i ustawienia kursora z Ghostty. cmux dodaje warstwę, którą Ghostty celowo nie próbuje być: pionowe workspace’y, dzielone panele, pierścienie powiadomień, kontekst git/portów/agentów w pasku bocznym, skryptowalne CLI i socket Unix, programowalną przeglądarkę oraz aplikację towarzyszącą iOS. Wybierz cmux, gdy chcesz renderowania terminala jakości Ghostty oraz organizacji i automatyzacji dla wielu zadań lub agentów kodujących AI.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Szybki, akcelerowany przez GPU terminal, którego silnik, libghostty, napędza cmux. Jeśli chcesz pojedyncze, czyste okno terminala z doskonałym renderowaniem i bez warstwy przestrzeni roboczych czy automatyzacji, Ghostty świetnie sprawdza się sam.",
+      "ghosttyBody": "Ghostty to szybki natywny terminal, którego silnik, libghostty, napędza cmux. W porównaniu ze starszymi terminalami renderowanymi przez CPU i cięższymi terminalami w stylu Electron mocne strony Ghostty to niskolatencyjne renderowanie GPU, ostre fonty i kolory, wysoka zgodność terminalowa, prosta konfiguracja plikowa i brak wymogu konta w chmurze. Jeśli chcesz jednego czystego okna terminala z tymi zaletami renderowania, bez warstwy workspace’ów i automatyzacji, Ghostty jest znakomity samodzielnie. Jeśli chcesz tych samych zalet renderowania Ghostty oraz workspace’ów, powiadomień, skryptowania i orkiestracji agentów, użyj cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Dojrzały, niemal nieskończenie konfigurowalny terminal macOS. Rozbudowane profile, wyzwalacze i integracja z tmux. Bezpieczny domyślny wybór, jeśli chcesz maksimum funkcji i nie orkiestrujesz wielu zadań naraz.",
       "warpTitle": "Warp",

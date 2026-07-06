@@ -67,11 +67,25 @@ enum AgentHookRuntimeStatus: String, Codable {
     case error
 }
 
+/// Category tag the app uses to gate agent notifications by user config.
+/// Serialized into the `notify_target_async` payload's optional meta segment.
+enum AgentHookNotifyCategory: String {
+    case turnComplete = "turn-complete"
+    case needsPermission = "needs-permission"
+    case idleReminder = "idle-reminder"
+    case other
+}
+
 private struct AgentHookNotificationSummary {
     let subtitle: String
     let body: String
     let status: AgentHookNotificationStatus?
     let isFallback: Bool
+    /// Which user-facing notification setting gates this alert, decided by the
+    /// classifier alongside subtitle/status so "Permission" and "Waiting" cues
+    /// (both `.needsInput`) gate under their own settings. `nil` = ungated,
+    /// always deliver (errors, unclassified attention alerts, fallbacks).
+    var notifyCategory: AgentHookNotifyCategory? = nil
 }
 
 #if DEBUG
@@ -172,6 +186,12 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
+    /// Whether the most recent Stop reported unfinished background work
+    /// (a running `background_tasks` entry or a pending `session_crons`).
+    /// Cached here because the ~60s-later `idle_prompt` Notification payload
+    /// does not carry `background_tasks`, so the idle-reminder gate reads this.
+    /// Optional so stores written before this field decode unchanged.
+    var hadPendingBackgroundWorkAtStop: Bool?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -670,6 +690,7 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
+        hadPendingBackgroundWorkAtStop: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -718,6 +739,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: updateLastNotificationStatus,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
+                hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1088,6 +1110,7 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool,
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
+        hadPendingBackgroundWorkAtStop: Bool? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1112,7 +1135,7 @@ final class ClaudeHookSessionStore {
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
             // earlier capture to an env-only stub.
-            if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments) {
+            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
             }
         }
@@ -1135,6 +1158,9 @@ final class ClaudeHookSessionStore {
         }
         if updateRuntimeStatus {
             record.runtimeStatus = runtimeStatus
+        }
+        if let hadPendingBackgroundWorkAtStop {
+            record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
         }
         record.updatedAt = now
     }
@@ -3186,8 +3212,7 @@ struct CMUXCLI {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
-            print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
-            return
+            throw unknownCommandError(command)
         }
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -5303,8 +5328,7 @@ struct CMUXCLI {
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
-            print(usage())
-            throw CLIError(message: "Unknown command: \(command)")
+            throw unknownCommandError(command)
         }
         } catch {
             if !capturesSocketErrorsInsideCommand {
@@ -5544,165 +5568,6 @@ struct CMUXCLI {
         }
         return FileManager.default.fileExists(atPath: resolvePath(arg))
     }
-
-    private static let topLevelCommandNames: Set<String> = [
-        "__codex-teams-watch",
-        "__tmux-compat",
-        "agent-hibernation",
-        "auth",
-        "bind-key",
-        "break-pane",
-        "browser",
-        "browser-back",
-        "browser-forward",
-        "browser-reload",
-        "browser-status",
-        "capabilities",
-        "capture-pane",
-        "claude-hook",
-        "claude-teams",
-        "clear-history",
-        "clear-log",
-        "clear-notifications",
-        "clear-progress",
-        "clear-status",
-        "close-surface",
-        "close-window",
-        "close-workspace",
-        "cloud",
-        "codex",
-        "codex-hook",
-        "codex-teams",
-        "config",
-        "copy-mode",
-        "current-window",
-        "current-workspace",
-        "debug-terminals",
-        "detach-tab",
-        "diff",
-        "disable-browser",
-        "dismiss-notification",
-        "display-message",
-        "docs",
-        "drag-surface-to-split",
-        "enable-browser",
-        "events",
-        "feedback",
-        "feed",
-        "feed-hook",
-        "find-window",
-        "focus-pane",
-        "focus-panel",
-        "focus-webview",
-        "focus-window",
-        "get-url",
-        "help",
-        "hooks",
-        "identify",
-        "is-webview-focused",
-        "join-pane",
-        "jump-to-unread",
-        "last-pane",
-        "last-window",
-        "list-buffers",
-        "list-log",
-        "list-notifications",
-        "list-pane-surfaces",
-        "list-panels",
-        "list-panes",
-        "list-status",
-        "list-windows",
-        "list-workspaces",
-        "log",
-        "login",
-        "logout",
-        "markdown",
-        "mark-notification-read",
-        "memory",
-        "mobile",
-        "move-surface",
-        "move-tab-to-new-workspace",
-        "move-workspace-to-window",
-        "navigate",
-        "new-pane",
-        "new-split",
-        "new-surface",
-        "new-window",
-        "new-workspace",
-        "next-window",
-        "notify",
-        "omc",
-        "omo",
-        "omx",
-        "open",
-        "open-browser",
-        "open-notification",
-        "paste-buffer",
-        "ping",
-        "pipe-pane",
-        "popup",
-        "previous-window",
-        "read-screen",
-        "refresh-surfaces",
-        "reload-config",
-        "remote-daemon-status",
-        "rename-tab",
-        "rename-window",
-        "rename-workspace",
-        "reorder-surface",
-        "reorder-workspace",
-        "reorder-workspaces",
-        "resize-pane",
-        "respawn-pane",
-        "restore-session",
-        "right-sidebar",
-        "rpc",
-        "select-workspace",
-        "send",
-        "send-key",
-        "send-key-panel",
-        "send-panel",
-        "set-app-focus",
-        "set-buffer",
-        "set-hook",
-        "set-progress",
-        "set-status",
-        "settings",
-        "setup-hooks",
-        "shortcuts",
-        "simulate-app-active",
-        "sidebar",
-        "sidebar-state",
-        "split-off",
-        "ssh",
-        "ssh-pty-attach",
-        "ssh-session-attach",
-        "ssh-session-cleanup",
-        "ssh-session-end",
-        "ssh-session-list",
-        "ssh-tmux",
-        "surface",
-        "surface-health",
-        "surface-resume",
-        "swap-pane",
-        "tab-action",
-        "themes",
-        "top",
-        "tree",
-        "trigger-flash",
-        "unbind-key",
-        "uninstall-hooks",
-        "version",
-        "vm",
-        "vm-pty-attach",
-        "vm-pty-connect",
-        "vm-ssh-attach",
-        "wait-for",
-        "welcome",
-        "workspace",
-        "workspace-action",
-        "workspace-group",
-    ]
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
     private func openPath(_ path: String) throws {
@@ -7581,7 +7446,10 @@ struct CMUXCLI {
         }
         if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
             let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
+            let sendParams: [String: Any] = [
+                "text": text,
+                "workspace_id": wsId
+            ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
     }
@@ -9656,7 +9524,7 @@ struct CMUXCLI {
             }
             parts.append(options.destination)
         } else {
-            parts.append(options.destination)
+            parts = sshArgumentsOverridingHostRemoteCommand(parts) + [options.destination]
             parts.append(contentsOf: options.extraArguments)
         }
         return parts
@@ -9716,7 +9584,7 @@ struct CMUXCLI {
         localCommandScript: String? = nil
     ) -> String {
         let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
-        let installSSHPrefix = baseSSHArguments(options, localCommandScript: localCommandScript).map(shellQuote).joined(separator: " ")
+        let installSSHPrefix = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript)).map(shellQuote).joined(separator: " ")
         let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
         let remoteCommandTemplate = openSSHRemoteCommandValue(
             shellScript: stagedRemoteBootstrapCommandShell(
@@ -10240,7 +10108,7 @@ struct CMUXCLI {
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
-        var authArguments = baseSSHArguments(options, localCommandScript: localCommandScript)
+        var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript))
         authArguments += ["-T", options.destination, "true"]
         let authCommand = authArguments.map(shellQuote).joined(separator: " ")
         let attachScript = buildSSHPTYAttachScriptBody(
@@ -15185,7 +15053,7 @@ struct CMUXCLI {
             if let id = focused["id"] as? String { return id }
         }
 
-        throw CLIError(message: "Unable to resolve surface ID")
+        throw CLIError(message: "Couldn't resolve a surface ID. Pass --surface or run 'cmux list-pane-surfaces' to list surfaces.")
     }
 
     private func resolveSurfaceTargetInWindow(
@@ -20402,7 +20270,7 @@ struct CMUXCLI {
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
             extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
-        if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
+        clearInheritedClaudeSessionEnvironment(); if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -21466,7 +21334,7 @@ struct CMUXCLI {
             "--remote",
             appServerURL,
             threadId
-        ]
+        ] + AgentResumeArgv.codexUpdateCheckSuppressionOverride
         return parts
             .map { codexTeamsShellQuote($0) }
             .joined(separator: " ")
@@ -24200,14 +24068,14 @@ struct CMUXCLI {
         )
 
         var didSendFeedTelemetry = false
-        func sendClaudeFeedTelemetry(workspaceId: String? = nil) {
+        func sendClaudeFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg,
+                workspaceId: workspaceId ?? workspaceArg, surfaceId: surfaceId,
                 socketPassword: socketPassword
             )
         }
@@ -24236,7 +24104,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -24372,7 +24240,7 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
 
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -24392,6 +24260,12 @@ struct CMUXCLI {
                     return
                 }
 
+                // Whether this turn ended with unfinished background work (a running
+                // background task or a pending cron). Cached on the session record so
+                // the ~60s-later idle_prompt Notification can consult it, and forwarded
+                // to the app so it can suppress the done-ping until work truly drains.
+                let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
+
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
                     parsedInput: parsedInput,
@@ -24405,9 +24279,13 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
                         isRestorable: true,
-                        agentLifecycle: .idle,
+                        // Pending background work keeps the pane out of the
+                        // hibernatable .idle state so the planner cannot SIGTERM
+                        // a live task (mirrors the antigravity fullyIdle flip).
+                        agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
+                        hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -24426,24 +24304,44 @@ struct CMUXCLI {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .idle,
+                    lifecycle: hasPendingBackgroundWork ? .running : .idle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
-                try? setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    value: "Idle",
-                    icon: "pause.circle.fill",
-                    color: "#8E8E93"
-                )
+                if hasPendingBackgroundWork {
+                    // The turn ended but a background task or scheduled wakeup is
+                    // still live, so the pane is not idle — show it as still
+                    // running rather than the misleading "Idle". Reuse the shared
+                    // generic-agent status strings so the pill stays localized.
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: "bolt.fill",
+                        color: "#4C8DFF"
+                    )
+                } else {
+                    try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93"
+                    )
+                }
                 if let completion {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
+                    let payload = notificationPayload(
+                        title: title,
+                        subtitle: completion.subtitle,
+                        body: completion.body,
+                        meta: notifyMeta(.turnComplete, pending: hasPendingBackgroundWork)
+                    )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
                 print("OK")
@@ -24480,7 +24378,7 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let shouldApplyPromptSubmit =
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -24602,6 +24500,12 @@ struct CMUXCLI {
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
+            // The classifier's subtitle is a stable internal literal ("Permission",
+            // "Waiting", "Error", "Completed", "Attention" — see
+            // classifyClaudeNotification). Capture it before the saved-body swap
+            // below so payloads without a notification_type field (older claude
+            // clients, nested payloads) can still gate under the right setting.
+            let classifiedSubtitle = summary.subtitle
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
@@ -24616,7 +24520,6 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -24626,6 +24529,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
+            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -24652,9 +24556,69 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
-            if let sessionId = parsedInput.sessionId {
+            // Classify the Notification so the app can gate it by user config.
+            // `permission_prompt` = Claude is blocked on the user (always worth a
+            // ping); `idle_prompt` = the ~60s idle nag, which fires even while a
+            // background task runs — its payload lacks `background_tasks`, so read
+            // the pending flag cached by the most recent Stop.
+            let notificationType = parsedInput.rawObject.flatMap {
+                firstString(in: $0, keys: ["notification_type"])
+            }
+            let notifyCategory: AgentHookNotifyCategory
+            let notifyPending: Bool
+            switch notificationType {
+            case "permission_prompt":
+                notifyCategory = .needsPermission
+                notifyPending = false
+            case "idle_prompt":
+                notifyCategory = .idleReminder
+                // The cached Stop-time flag is not stale in practice: a completed
+                // background task re-invokes claude (new turn -> fresh Stop with
+                // empty background_tasks refreshes the cache before any later
+                // idle_prompt), and no fresh Stop means the work is still running,
+                // so pending=true is correct. Deliberately no freshness heuristic;
+                // permission_prompt is never gated by this flag.
+                notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
+            default:
+                // No (or unknown) notification_type: fall back to the summarizer's
+                // cue classification so older clients still gate under the right
+                // setting. Unclassified alerts stay .other and always deliver.
+                switch classifiedSubtitle {
+                case "Permission":
+                    notifyCategory = .needsPermission
+                    notifyPending = false
+                case "Waiting":
+                    notifyCategory = .idleReminder
+                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
+                case "Completed":
+                    notifyCategory = .turnComplete
+                    notifyPending = (mappedSession?.hadPendingBackgroundWorkAtStop == true)
+                default:
+                    notifyCategory = .other
+                    notifyPending = false
+                }
+            }
+
+            // An idle reminder while background work is still pending is not a
+            // real "waiting for input" state: the pane is still running (the Stop
+            // hook set it to Running) and the app suppresses this banner. Skip the
+            // "Needs input" pill/lifecycle so the idle nag can't undo the Running
+            // status; the app still gates the (tagged) notification itself.
+            let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
+
+            // `.other` means "ungated, always deliver" — identical to an untagged
+            // payload, so don't put it on the wire: the app parser accepts only
+            // the three known category literals, keeping the reserved suffix
+            // grammar as narrow as possible.
+            let payload = notificationPayload(
+                title: title,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                meta: notifyCategory == .other ? nil : notifyMeta(notifyCategory, pending: notifyPending)
+            )
+
+            if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -24667,21 +24631,23 @@ struct CMUXCLI {
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF", pid: claudePid
-            )
+            if !suppressNeedsInputState {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: .needsInput,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF", pid: claudePid
+                )
+            }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
 
@@ -24776,7 +24742,7 @@ struct CMUXCLI {
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: consumedSession.surfaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
@@ -24835,7 +24801,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -24938,7 +24904,15 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: waitingSubtitle, body: needsInputBody)
+                    // A question/plan-approval prompt blocks the agent on the user's
+                    // decision, so it gates under "Agent Needs Permission" like the
+                    // interactive permission_prompt path.
+                    let payload = notificationPayload(
+                        title: title,
+                        subtitle: waitingSubtitle,
+                        body: needsInputBody,
+                        meta: notifyMeta(.needsPermission, pending: false)
+                    )
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
                         client: client
@@ -27083,7 +27057,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
                 body: String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed"),
                 status: .idle,
-                isFallback: false
+                isFallback: false,
+                notifyCategory: .turnComplete
             )
         }
         return classifyAgentHookNotification(
@@ -27115,7 +27090,8 @@ struct CMUXCLI {
             subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
             body: truncate(normalizedSingleLine(body), maxLength: 180),
             status: .idle,
-            isFallback: false
+            isFallback: false,
+            notifyCategory: .turnComplete
         )
     }
 
@@ -27326,7 +27302,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
-                isFallback: isFallback
+                isFallback: isFallback,
+                notifyCategory: .needsPermission
             )
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
@@ -27351,7 +27328,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
                 body: truncate(body, maxLength: 180),
                 status: .idle,
-                isFallback: isFallback
+                isFallback: isFallback,
+                notifyCategory: .turnComplete
             )
         }
         if containsWaitingCue(lower) {
@@ -27362,7 +27340,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
-                isFallback: isFallback
+                isFallback: isFallback,
+                notifyCategory: .idleReminder
             )
         }
         if !message.isEmpty {
@@ -27464,8 +27443,39 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func notificationPayload(title: String, subtitle: String, body: String) -> String {
-        "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+    private func notificationPayload(
+        title: String,
+        subtitle: String,
+        body: String,
+        meta: String? = nil
+    ) -> String {
+        let base = "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+        // `meta` is a structured, delimiter-safe tag (see `notifyMeta`): it has no
+        // "|" or spaces, so it is NOT sanitized and rides as a 4th pipe segment.
+        // Omitting it reproduces the exact 3-field payload every legacy caller sends.
+        guard let meta, !meta.isEmpty else { return base }
+        return base + "|" + meta
+    }
+
+    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. No "|" and no spaces,
+    /// so it survives the pipe-delimited payload and the app's strict `c=` guard.
+    private func notifyMeta(_ category: AgentHookNotifyCategory, pending: Bool) -> String {
+        "c=\(category.rawValue);p=\(pending ? 1 : 0)"
+    }
+
+    /// True when a Claude `Stop`/`Notification` payload reports unfinished
+    /// background work: any `background_tasks` entry still `running`, or a
+    /// non-empty `session_crons`. A `nil` rawObject or absent keys (claude
+    /// < 2.1.145) yield `false`, so older clients behave exactly as before.
+    /// Pure over `rawObject` so both the notify gate and the hibernation
+    /// lifecycle decision can share it (mirrors `hasActiveAntigravityBackgroundWork`).
+    func hasActiveClaudeBackgroundWork(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let obj = parsedInput.rawObject else { return false }
+        if let crons = obj["session_crons"] as? [Any], !crons.isEmpty { return true }
+        if let tasks = obj["background_tasks"] as? [[String: Any]] {
+            return tasks.contains { ($0["status"] as? String) == "running" }
+        }
+        return false
     }
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
@@ -27879,7 +27889,9 @@ struct CMUXCLI {
         // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
-            guard !environment.isEmpty else { return nil }
+            guard !environment.isEmpty else {
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+            }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
                 executablePath: nil,
@@ -27902,11 +27914,9 @@ struct CMUXCLI {
             launcher: launcher,
             fallbackKind: fallbackKind
         ) else {
-            // Argv WAS captured but the sanitizer rejected it — this is exactly how AgentLaunchSanitizer
-            // suppresses non-restorable invocations (`codex exec`, `codex review`, `claude config`, …).
-            // Those must never get a resume/fork binding, so stay nil even when a safe env var (e.g.
-            // CODEX_HOME) is present; do NOT fall through to the env-only record here.
-            return nil
+            // Sanitized-away argv means a non-restorable invocation. Do not
+            // replace it with an env-only fallback.
+            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
         let source = envArguments == nil ? "process" : "environment"
 
@@ -27931,11 +27941,12 @@ struct CMUXCLI {
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
+        if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+            clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
+            return
+        }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
-        // Pin the resume binding to the directory the agent was *launched* in, not the drift-prone
-        // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
-        // launch dir, so resuming from a worktree the agent later `cd`'d into fails with "No
-        // conversation found".
+        // Pin to the launch directory, not drift-prone runtime cwd.
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
             runtimeCwd: cwd,
@@ -30778,7 +30789,6 @@ export default CMUXSessionRestore;
 #endif
                 return target
             }
-
             guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
 #if DEBUG
                 agentHookDebugLog(
@@ -30837,10 +30847,10 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30850,10 +30860,10 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30910,8 +30920,8 @@ export default CMUXSessionRestore;
                         kind: def.name,
                         displayName: def.displayName,
                         sessionId: sessionId,
-                        cwd: hookCwd ?? mapped?.cwd,
-                        launchCommand: launchCommand
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                     )
                 }
             }
@@ -31085,13 +31095,13 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: transcriptPathForStore,
                         turnId: input.turnId,
                         previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
                             for: def,
@@ -31144,21 +31154,21 @@ export default CMUXSessionRestore;
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: launchCommand
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                     )) ?? false
                 } else {
                     try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: hookCwd ?? mapped?.cwd,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .running,
                         runtimeStatus: .running,
                         updateRuntimeStatus: true
@@ -31177,8 +31187,8 @@ export default CMUXSessionRestore;
                     kind: def.name,
                     displayName: def.displayName,
                     sessionId: sessionId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -31317,7 +31327,9 @@ export default CMUXSessionRestore;
                 return summary.status == .error ? summary : nil
             }()
 
-            let cwd = hookCwd ?? mapped?.cwd
+            let rawCwd = hookCwd ?? mapped?.cwd
+            let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
+            let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
             let grokAssistantMessage: String? = {
                 guard def.name == "grok" else { return nil }
                 return latestGrokAssistantMessage(
@@ -31368,12 +31380,6 @@ export default CMUXSessionRestore;
             }()
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
-            let launchCommand = agentLaunchCommandFromEnvironment(
-                env,
-                fallbackPID: pid,
-                fallbackKind: def.name,
-                cwd: cwd
-            )
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
@@ -31409,7 +31415,7 @@ export default CMUXSessionRestore;
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
-                    launchCommand: launchCommand,
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
@@ -31436,7 +31442,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
-                                  launchCommand: launchCommand,
+                                  launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
                                   lastBody: body,
@@ -31452,7 +31458,7 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -31465,6 +31471,11 @@ export default CMUXSessionRestore;
             let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
                 || (input.object?["cmux_notification_routed"] as? Bool) == true
+            // Antigravity's integration defines a stop with active background work
+            // (fullyIdle=false) as an intermediate event, not a completed turn: its
+            // completion ping arrives at the later fullyIdle stop. Deliberately NOT
+            // routed through the app-side agentTurnComplete gate — publishing here
+            // would mark the dedupe fingerprint and swallow the real final ping.
             let shouldPublishStopNotification = def.publishesStopNotification
                 && !stopNotificationAlreadyRouted
                 && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
@@ -31484,7 +31495,13 @@ export default CMUXSessionRestore;
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                // Tag successful turn-end pings so the app's "Agent Finished"
+                // setting covers every built-in agent, not just Claude. Error
+                // alerts stay untagged and always deliver.
+                let stopMeta: String? = stopNotificationStatus == .idle
+                    ? notifyMeta(.turnComplete, pending: antigravityHasActiveBackgroundWork)
+                    : nil
+                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -31622,10 +31639,10 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: hookCwd ?? mapped?.cwd,
+                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
-                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )
@@ -31636,8 +31653,8 @@ export default CMUXSessionRestore;
                     kind: def.name,
                     displayName: def.displayName,
                     sessionId: sessionId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -31708,17 +31725,29 @@ export default CMUXSessionRestore;
                 sessionId: input.sessionId ?? sessionId
             )
             if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
+                // Rebuilt from the stored session record: a stale .idle status is
+                // still a completion re-notification, so keep it under the
+                // "Agent Finished" gate. A stale .needsInput cannot distinguish
+                // permission from waiting, so it stays untagged (always deliver).
                 summary = AgentHookNotificationSummary(
                     subtitle: mapped?.lastSubtitle ?? summary.subtitle,
                     body: savedBody,
                     status: mapped?.lastNotificationStatus,
-                    isFallback: false
+                    isFallback: false,
+                    notifyCategory: mapped?.lastNotificationStatus == .idle ? .turnComplete : nil
                 )
             }
             let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
                 && summary.status == .idle
                 && mapped?.runtimeStatus == .running
                 && mapped?.lastNotificationStatus == .idle
+                && hasActiveAntigravityBackgroundWork()
+
+            // A waiting/idle nag while background work is still live is not a real
+            // "needs input" state (same invariant as the Claude pending idle_prompt):
+            // the banner is gated app-side (p=1) and the pane must stay Running
+            // rather than flipping to "needs input".
+            let suppressPendingWaitingState = summary.notifyCategory == .idleReminder
                 && hasActiveAntigravityBackgroundWork()
 
 #if DEBUG
@@ -31754,6 +31783,24 @@ export default CMUXSessionRestore;
                 return
             }
 
+            // A turn-complete notification while Antigravity still reports active
+            // background work (fullyIdle=false) is an intermediate event, not a
+            // turn boundary — the same invariant the stop lane enforces. Skip the
+            // send AND the dedupe fingerprint: sending a gated payload here would
+            // mark the idle fingerprint and swallow the real fullyIdle completion.
+            if summary.notifyCategory == .turnComplete, hasActiveAntigravityBackgroundWork() {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=backgroundWorkPendingTurnComplete",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
+                print("{}")
+                return
+            }
+
             let staleIdleNotificationHasNewerRunningSession = summary.status == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             if staleIdleNotificationHasNewerRunningSession {
@@ -31777,7 +31824,8 @@ export default CMUXSessionRestore;
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let lifecycle = agentLifecycle(for: summary.status)
+                let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
+                let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (def.name == "grok" || def.name == "antigravity"),
@@ -31795,7 +31843,7 @@ export default CMUXSessionRestore;
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
+                        runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: true,
                         autoNameMessages: autoNamingMessages(
                             for: def,
@@ -31818,7 +31866,7 @@ export default CMUXSessionRestore;
                         lastBody: summary.body,
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
+                        runtimeStatus: storedRuntimeStatus,
                         updateRuntimeStatus: summary.status != nil
                     )
                 }
@@ -31826,7 +31874,23 @@ export default CMUXSessionRestore;
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
             if shouldSendNotification(fingerprint: notificationFingerprint) {
-                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
+                // Tag by the classifier's category so the app's agent notification
+                // settings cover every built-in agent: approval prompts gate under
+                // "Agent Needs Permission", waiting-for-input cues under "Agent
+                // Waiting for Input", turn-boundary completions (grok and
+                // antigravity route them through this hook) under "Agent
+                // Finished". Errors and unclassified alerts stay untagged.
+                let notificationMeta: String? = summary.notifyCategory.map { category in
+                    // Completions AND waiting nags are both "pending" while
+                    // background work is live, so a fullyIdle=false Antigravity
+                    // waiting cue doesn't deliver a false "waiting for input".
+                    notifyMeta(
+                        category,
+                        pending: (category == .turnComplete || category == .idleReminder)
+                            && hasActiveAntigravityBackgroundWork()
+                    )
+                }
+                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -31865,6 +31929,10 @@ export default CMUXSessionRestore;
             }
 
             switch summary.status {
+            case .needsInput? where suppressPendingWaitingState:
+                // Suppressed pending waiting cue: leave the Running pill and
+                // lifecycle in place; the fullyIdle turn boundary reconciles.
+                break
             case .needsInput?:
                 setAgentLifecycle(
                     client: client,
@@ -35377,20 +35445,20 @@ export default CMUXSessionRestore;
           cmux <path>                Open a directory in a new workspace (launches cmux if needed)
           cmux [global-options] <command> [options]
 
-        Handle Inputs:
-          Use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes where commands accept window, workspace, pane, or surface inputs.
+        Targets:
+          Commands that accept a window, workspace, pane, or surface take a UUID, a short ref (window:1/workspace:2/pane:3/surface:4), or an index.
           `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Socket Auth:
-          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
+          --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
 
         Agent Help:
-          To change cmux settings, run `cmux docs settings` and `cmux settings path`; to add Dock controls, run `cmux docs dock`.
-          Back up any existing cmux.json file to a timestamped .bak copy before editing.
-          Use printed curl commands to fetch the latest docs/schema, and prefer Ghostty config for terminal behavior Ghostty already supports.
-          Ghostty config lives at ~/.config/ghostty/config (controls terminal transparency, blur, font, theme, keybinds, etc.).
-          `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json and refreshes terminals in place. No app restart needed.
+          Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
+          Before editing, back up any existing cmux.json file to a timestamped .bak copy.
+          Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
+          Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
+          `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
         Commands:
           welcome

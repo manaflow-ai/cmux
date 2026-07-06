@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
 const freestyleDriverSource = readFileSync(
-  join(import.meta.dir, "../services/vms/drivers/freestyle.ts"),
+  join(dirname(fileURLToPath(import.meta.url)), "../services/vms/drivers/freestyle.ts"),
   "utf8",
 );
 

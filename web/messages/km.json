@@ -110,6 +110,60 @@
     "faqFeatureQ": "ខ្ញុំមានសំណើមុខងារ ឬបានរកឃើញកំហុស",
     "faqFeatureA": "យើងចង់ស្ដាប់វា។ បើក <issuesLink>issue</issuesLink> ឬ <prLink>pull request</prLink> នៅលើ GitHub ឬ <mailLink>ផ្ញើអ៊ីមែលមកយើង</mailLink>។"
   },
+  "dashboard": {
+    "aiAccounts": {
+      "metaTitle": "គណនី AI — cmux",
+      "metaDescription": "គ្រប់គ្រងគណនីអ្នកផ្តល់សេវា AI របស់ក្រុមសម្រាប់ cmux។",
+      "section": "ផ្ទាំងគ្រប់គ្រង",
+      "title": "គណនី AI",
+      "description": "គ្រប់គ្រងគណនីអ្នកផ្តល់សេវាដែលក្រុមនេះអាចប្រើជាមួយ cmux AI។",
+      "personalTeam": "ផ្ទាល់ខ្លួន",
+      "teamSwitcherLabel": "ក្រុម",
+      "notConfiguredTitle": "ការគ្រប់គ្រងគណនី AI មិនទាន់អាចប្រើបានទេ",
+      "notConfiguredBody": "គណនី AI របស់ក្រុមមិនត្រូវបានបើកសម្រាប់ការដំឡើងនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ ឬទាក់ទងផ្នែកគាំទ្រ។",
+      "loadErrorTitle": "មិនអាចផ្ទុកគណនីបានទេ",
+      "loadErrorBody": "មិនអាចភ្ជាប់ទៅសេវាគណនីបានទេ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។",
+      "accountsTitle": "គណនីដែលបានភ្ជាប់",
+      "accountsCount": "{count} គណនី",
+      "emptyTitle": "មិនទាន់មានគណនីនៅឡើយ",
+      "emptyBody": "បន្ថែមគណនីអ្នកផ្តល់សេវា ដើម្បីឱ្យក្រុមនេះអាចប្រើបាន។",
+      "providerColumn": "អ្នកផ្តល់សេវា",
+      "labelColumn": "ស្លាក",
+      "createdColumn": "បានបង្កើត",
+      "actionsColumn": "សកម្មភាព",
+      "unlabeledAccount": "គ្មានស្លាក",
+      "unknownCreatedAt": "មិនស្គាល់",
+      "addAccountsTitle": "បន្ថែមគណនី",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "សោ API របស់ Anthropic",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "សោ API របស់ OpenAI",
+      "providerUnknown": "អ្នកផ្តល់សេវាមិនស្គាល់",
+      "labelField": "ស្លាក",
+      "labelPlaceholder": "លំនាំដើមរបស់ក្រុម",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "សោ API",
+      "addClaude": "បន្ថែម Claude",
+      "addAnthropic": "បន្ថែម Anthropic",
+      "addCodex": "បន្ថែម Codex",
+      "addOpenAi": "បន្ថែម OpenAI",
+      "addSuccess": "បានបន្ថែមគណនី។",
+      "addError": "មិនអាចរក្សាទុកគណនីបានទេ។",
+      "deleteError": "មិនអាចលុបគណនីបានទេ។",
+      "jsonError": "សូមបិទភ្ជាប់វត្ថុ JSON ដែលត្រឹមត្រូវ។",
+      "validationError": "សូមពិនិត្យព័ត៌មានគណនី រួចព្យាយាមម្តងទៀត។",
+      "teamAccessError": "អ្នកមិនមានសិទ្ធិចូលប្រើក្រុមនេះទេ។",
+      "deletingAction": "កំពុងលុប",
+      "deleteAction": "លុប",
+      "deleteConfirmTitle": "លុបគណនីនេះ?",
+      "deleteConfirmBody": "គណនីអ្នកផ្តល់សេវានឹងត្រូវបានដកចេញសម្រាប់ក្រុមទាំងមូល។ ការបន្ថែមឡើងវិញត្រូវការព័ត៌មានសម្គាល់ដើម។",
+      "cancelAction": "បោះបង់",
+      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
+      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
+    }
+  },
   "community": {
     "title": "សហគមន៍",
     "description": "រកមើលគម្រោងដែលសហគមន៍ cmux បានបង្កើត ចាប់ពី agent hooks ដល់ multi-agent orchestration និងការចូលប្រើពីចម្ងាយ។",
@@ -799,6 +853,8 @@
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
+        "paneBorderColor": "ប្ដូរពណ៌ខ្សែបំបែក pane របស់ cmux នៅក្នុង workspace ដែលបានបំបែក។ វាប៉ះពាល់ដល់ព្រំដែន pane របស់ cmux មិនមែនការបំបែកខាងក្នុងរបស់ Ghostty ទេ។",
+        "activePaneBorderColor": "ពណ៌ស៊ុមជាជម្រើស ដែលគូរជុំវិញ pane របស់ cmux ដែលកំពុងផ្តោត នៅក្នុង workspace ដែលបានបំបែក។",
         "automation": {
           "ampIntegration": "បើកដំណើរ cmux integration hooks សម្រាប់ Amp។ ពេលបិទ កម្មវិធីបន្ថែមដែលរួមបញ្ចូលនឹងនៅអសកម្ម ដោយមិនចាំបាច់ដកវាចេញ។",
           "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។",
@@ -850,7 +906,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
+          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
         }
       },
@@ -1594,7 +1650,8 @@
   "afterSignIn": {
     "title": "បានចូល cmux ហើយ",
     "body": "ប្រសិនបើ cmux មិនបានបើកដោយស្វ័យប្រវត្តិ សូមប្រើប៊ូតុងខាងក្រោម។",
-    "button": "ត្រឡប់ទៅ cmux"
+    "button": "ត្រឡប់ទៅ cmux",
+    "switchAccountButton": "ប្រើគណនីផ្សេងទៀត"
   },
   "landing": {
     "bestTerminal": {
@@ -1616,9 +1673,9 @@
       "kittyBuiltFor": "លឿន អាចសរសេរស្គ្រីបបាន សម្បូរមុខងារ",
       "weztermBuiltFor": "ស្ថានីយ GPU ដែលមាន multiplexer ភ្ជាប់មកស្រាប់",
       "tmuxBuiltFor": "ការ multiplex នៅខាងក្នុងស្ថានីយណាមួយ",
-      "cmuxBody": "ស្ថានីយ macOS ដើមកំណើតបង្កើតលើ libghostty បង្កើតឡើងសម្រាប់រឿងបីយ៉ាង៖ ពហុកិច្ចការ ការរៀបចំ និងភាពអាចសរសេរកម្មវិធីបាន។ របារចំហៀងបញ្ឈរដាក់ការងារជាក្រុមទៅក្នុង workspaces នីមួយៗបង្ហាញ git branch ថត ports និងបន្ទាត់ចុងក្រោយនៃលទ្ធផល agent របស់វា ដូច្នេះអ្នកអាចដំណើរការរបស់ច្រើនក្នុងពេលតែមួយដោយមិនបាត់ការតាមដាន។ បន្ទះបន្លឺសំឡេងនៅពេល agent ត្រូវការការយកចិត្តទុកដាក់។ រាល់សកម្មភាពអាចសរសេរស្គ្រីបបានតាមរយៈ CLI និង Unix socket ហើយមានកម្មវិធីរុករកក្នុងកម្មវិធីដែលអ្នកអាចបញ្ជាតាមកម្មវិធីបាន។ ថែមទាំងមានកម្មវិធីដៃគូ iOS ដើម្បីពិនិត្យមើលស្ថានីយរបស់អ្នកពីទូរស័ព្ទ។ ល្អបំផុតប្រសិនបើអ្នកគ្រប់គ្រងកិច្ចការ ឬ AI coding agents ច្រើន ហើយចង់ឱ្យពួកវាមានរបៀបរៀបរយ និងអាចស្វ័យប្រវត្តិកម្មបានដោយមិនចាំបាច់ការកំណត់រចនាសម្ព័ន្ធ multiplexer។",
+      "cmuxBody": "cmux គឺជា terminal ដើមសម្រាប់ macOS ដែលស្ថាបនាលើម៉ាស៊ីន terminal របស់ Ghostty គឺ libghostty។ នេះមានន័យថា terminal grid ទទួលបានចំណុចខ្លាំងរបស់ Ghostty ដូចជា GPU rendering លឿន ការបង្ហាញ font និងពណ៌ល្អ ភាពត្រូវគ្នាជាមួយ terminal ទំនើប និង theme, font, color, cursor settings របស់ Ghostty ដែលអ្នកមានរួច។ cmux បន្ថែមស្រទាប់ដែល Ghostty មិនមានបំណងធ្វើជា៖ workspace បញ្ឈរ split panes notification rings បរិបទ git/port/agent នៅ sidebar CLI និង Unix socket ដែលសរសេរ script បាន browser ដែលបញ្ជាបានតាមកម្មវិធី និង iOS companion app។ ជ្រើស cmux ប្រសិនបើអ្នកចង់បាន terminal rendering គុណភាព Ghostty បូកនឹងការរៀបចំ និង automation សម្រាប់ការងារច្រើន ឬ AI coding agents។",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "ស្ថានីយលឿនដែលបង្កើនល្បឿនដោយ GPU ដែលម៉ាស៊ីនរបស់វា libghostty ដំណើរការ cmux។ ប្រសិនបើអ្នកចង់បានបង្អួចស្ថានីយតែមួយដ៏ស្អាតដែលមានការបង្ហាញដ៏ល្អឥតខ្ចោះ និងគ្មានស្រទាប់ workspace ឬស្វ័យប្រវត្តិកម្ម នោះ Ghostty ល្អណាស់ដោយខ្លួនវាផ្ទាល់។",
+      "ghosttyBody": "Ghostty គឺជា terminal ដើមលឿន ដែលម៉ាស៊ីន libghostty របស់វាជួយដំណើរការ cmux។ បើប្រៀបធៀបនឹង terminal ចាស់ៗដែល render ដោយ CPU និង terminal បែប Electron ដែលធ្ងន់ជាង Ghostty មានចំណុចខ្លាំងជា GPU rendering latency ទាប ការគ្រប់គ្រង font និងពណ៌ច្បាស់ ភាពត្រូវគ្នាជាមួយ terminal ខ្លាំង ការកំណត់ config តាម file ងាយៗ និងមិនទាមទារ cloud account។ ប្រសិនបើអ្នកចង់បាន window terminal តែមួយស្អាតៗ មានអត្ថប្រយោជន៍ rendering ទាំងនេះ ដោយមិនត្រូវការ workspace ឬ automation layer Ghostty ល្អឥតខ្ចោះដោយខ្លួនវា។ ប្រសិនបើអ្នកចង់បានអត្ថប្រយោជន៍ rendering ដូច Ghostty បូក workspace notification scripting និង agent orchestration សូមប្រើ cmux។",
       "iterm2Title": "iTerm2",
       "iterm2Body": "ស្ថានីយ macOS ដែលចាស់ទុំ និងអាចកំណត់រចនាសម្ព័ន្ធបានគ្មានទីបញ្ចប់។ មាន profiles triggers និងការរួមបញ្ចូល tmux ស៊ីជម្រៅ។ ជាលំនាំដើមដ៏មានសុវត្ថិភាពប្រសិនបើអ្នកចង់បានមុខងារអតិបរមា ហើយមិនរៀបចំកិច្ចការច្រើនក្នុងពេលតែមួយ។",
       "warpTitle": "Warp",

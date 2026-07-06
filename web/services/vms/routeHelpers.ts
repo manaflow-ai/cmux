@@ -488,14 +488,14 @@ export function requestedVmTeamIdFromRequest(request: Request): string | null {
   );
 }
 
-function requiresBrowserMutationProtection(method: string, bearer: StackBearer | null): boolean {
+export function requiresBrowserMutationProtection(method: string, bearer: StackBearer | null): boolean {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) {
     return false;
   }
   return bearer === null;
 }
 
-function browserMutationOriginAllowed(request: Request): boolean {
+export function browserMutationOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin")?.trim();
   const secFetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase();
 

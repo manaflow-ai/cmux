@@ -112,6 +112,7 @@ fi
 export RESEND_API_KEY="${RESEND_API_KEY:-cmux-local-dev}"
 export CMUX_FEEDBACK_FROM_EMAIL="${CMUX_FEEDBACK_FROM_EMAIL:-dev@example.invalid}"
 export CMUX_FEEDBACK_RATE_LIMIT_ID="${CMUX_FEEDBACK_RATE_LIMIT_ID:-cmux-feedback-local}"
+export CMUX_CLIENT_CONFIG_RATE_LIMIT_ID="${CMUX_CLIENT_CONFIG_RATE_LIMIT_ID:-cmux-client-config-local}"
 export CMUX_PUSH_RATE_LIMIT_ID="${CMUX_PUSH_RATE_LIMIT_ID:-cmux-push-local}"
 
 export CMUX_WEB_SECRET_ENV_FILE="$cmux_secret_file"

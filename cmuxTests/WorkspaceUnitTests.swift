@@ -3185,6 +3185,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
@@ -3193,6 +3194,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
@@ -3223,7 +3225,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
-            workspaceEnvironment: [String: String]
+            workspaceEnvironment: [String: String],
+            allowTextBoxFocusDefault: Bool
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
@@ -3235,7 +3238,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
-                workspaceEnvironment: workspaceEnvironment
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
         }
     }
@@ -3526,7 +3530,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
-            workspaceEnvironment: [String: String]
+            workspaceEnvironment: [String: String],
+            allowTextBoxFocusDefault: Bool
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
@@ -3538,7 +3543,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
-                workspaceEnvironment: workspaceEnvironment
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
         }
     }
@@ -4952,7 +4958,10 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
     }
 
     func testCloudVMLoadingFailureSummarizesRetrySpam() {
-        let panel = CloudVMLoadingPanel(workspaceId: UUID())
+        let panel = CloudVMLoadingPanel(
+            workspaceId: UUID(),
+            startedAt: Date(timeIntervalSinceNow: -42)
+        )
         panel.showFailure("""
         Created Cloud VM in066h50tkjqapx042qn
         \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 1/120).
@@ -4966,7 +4975,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         }
         XCTAssertTrue(message.contains("could not create a VM yet"), message)
         XCTAssertTrue(message.contains("same VM"), message)
-        XCTAssertGreaterThanOrEqual(elapsedSeconds, 0)
+        XCTAssertEqual(elapsedSeconds, 42)
         XCTAssertFalse(message.contains("[cmux]"))
         XCTAssertFalse(message.contains("[2K"))
         XCTAssertFalse(message.contains("in066h50"))
@@ -6810,6 +6819,39 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.directory),
             [liveDirectory]
+        )
+    }
+
+    func testSidebarDirectoryDisplayLabelUpgradesSharedRowWhileFilesystemVariantKeepsPath() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected panels for display-label ordering test")
+            return
+        }
+
+        let sharedDirectory = "/tmp/cmux-display-label-shared"
+        workspace.updatePanelDirectory(panelId: firstPanelId, directory: sharedDirectory)
+        workspace.updatePanelDirectory(
+            panelId: secondPanel.id,
+            directory: sharedDirectory,
+            displayLabel: "Shared  main"
+        )
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(orderedPanelIds, [firstPanelId, secondPanel.id])
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            ["Shared  main"]
+        )
+        XCTAssertEqual(
+            workspace.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [Workspace.SidebarDisplayedDirectory(text: "Shared  main", isDisplayLabel: true)]
+        )
+        XCTAssertEqual(
+            workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [sharedDirectory]
         )
     }
 

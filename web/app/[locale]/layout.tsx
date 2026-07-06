@@ -10,7 +10,6 @@ import { routing } from "../../i18n/routing";
 import { buildAlternates } from "../../i18n/seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
-import { SiteFooter } from "./components/site-footer";
 import { ThemeBootstrapScript } from "./theme-bootstrap-script";
 import { darkThemeColor, lightThemeColor } from "./theme-colors";
 import { DOWNLOAD_URL } from "../lib/download";
@@ -106,7 +105,6 @@ export default async function LocaleLayout({
       <NextIntlClientProvider messages={messages}>
         <Providers>
           {children}
-          <SiteFooter />
           <DevPanel />
         </Providers>
       </NextIntlClientProvider>

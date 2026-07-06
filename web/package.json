@@ -31,7 +31,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
     "@aws-sdk/rds-signer": "^3.1045.0",
+    "@aws-sdk/s3-request-presigner": "^3.1045.0",
     "@base-ui-components/react": "^1.0.0-rc.0",
     "@daytonaio/sdk": "^0.192.0",
     "@effect/experimental": "0.57.9",
@@ -42,6 +44,7 @@
     "@stackframe/js": "^2.8.89",
     "@stackframe/stack": "^2.8.89",
     "@t3-oss/env-nextjs": "^0.13.10",
+    "@tanstack/react-virtual": "^3.14.5",
     "@vercel/firewall": "^1.1.2",
     "@vercel/oidc-aws-credentials-provider": "^3.1.1",
     "@vercel/otel": "^2.1.2",
@@ -49,6 +52,7 @@
     "e2b": "^2.20.0",
     "effect": "^3.21.2",
     "freestyle": "0.1.51",
+    "fzstd": "^0.1.1",
     "next": "16.2.6",
     "next-intl": "^4.11.2",
     "next-themes": "^0.4.6",
@@ -96,5 +100,8 @@
   "trustedDependencies": [
     "sharp",
     "unrs-resolver"
-  ]
+  ],
+  "patchedDependencies": {
+    "@stackframe/stack@2.8.89": "patches/@stackframe%2Fstack@2.8.89.patch"
+  }
 }

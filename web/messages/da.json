@@ -110,6 +110,60 @@
     "faqFeatureQ": "Jeg har et funktionsønske eller har fundet en fejl",
     "faqFeatureA": "Vi vil gerne høre det. Åbn et <issuesLink>issue</issuesLink> eller en <prLink>pull request</prLink> på GitHub, eller <mailLink>skriv til os</mailLink>."
   },
+  "dashboard": {
+    "aiAccounts": {
+      "metaTitle": "AI-konti — cmux",
+      "metaDescription": "Administrér teamets AI-udbyderkonti til cmux.",
+      "section": "Dashboard",
+      "title": "AI-konti",
+      "description": "Administrér de udbyderkonti, dette team kan bruge til cmux AI.",
+      "personalTeam": "Personlig",
+      "teamSwitcherLabel": "Team",
+      "notConfiguredTitle": "AI-kontoadministration er ikke tilgængelig endnu",
+      "notConfiguredBody": "Team-AI-konti er ikke aktiveret for denne installation. Prøv igen senere, eller kontakt support.",
+      "loadErrorTitle": "Konti kunne ikke indlæses",
+      "loadErrorBody": "Kontotjenesten kunne ikke nås. Prøv igen om lidt.",
+      "accountsTitle": "Forbundne konti",
+      "accountsCount": "{count, plural, one {# konto} other {# konti}}",
+      "emptyTitle": "Ingen konti endnu",
+      "emptyBody": "Tilføj en udbyderkonto for at gøre den tilgængelig for dette team.",
+      "providerColumn": "Udbyder",
+      "labelColumn": "Etiket",
+      "createdColumn": "Oprettet",
+      "actionsColumn": "Handlinger",
+      "unlabeledAccount": "Uden etiket",
+      "unknownCreatedAt": "Ukendt",
+      "addAccountsTitle": "Tilføj konto",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "Anthropic API-nøgle",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "OpenAI API-nøgle",
+      "providerUnknown": "Ukendt udbyder",
+      "labelField": "Etiket",
+      "labelPlaceholder": "Teamstandard",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "API-nøgle",
+      "addClaude": "Tilføj Claude",
+      "addAnthropic": "Tilføj Anthropic",
+      "addCodex": "Tilføj Codex",
+      "addOpenAi": "Tilføj OpenAI",
+      "addSuccess": "Konto tilføjet.",
+      "addError": "Kontoen kunne ikke gemmes.",
+      "deleteError": "Kontoen kunne ikke slettes.",
+      "jsonError": "Indsæt et gyldigt JSON-objekt.",
+      "validationError": "Tjek kontooplysningerne, og prøv igen.",
+      "teamAccessError": "Du har ikke adgang til dette team.",
+      "deletingAction": "Sletter",
+      "deleteAction": "Slet",
+      "deleteConfirmTitle": "Vil du slette denne konto?",
+      "deleteConfirmBody": "Udbyderkontoen fjernes for hele teamet. Du skal bruge de oprindelige legitimationsoplysninger for at tilføje den igen.",
+      "cancelAction": "Annuller",
+      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
+      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
+    }
+  },
   "community": {
     "title": "Fællesskab",
     "description": "Gennemse projekter bygget af cmux-communityet, fra agent-hooks til multi-agent-orkestrering og fjernadgang.",
@@ -799,6 +853,8 @@
       "exampleConfig": "Eksempelkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "paneBorderColor": "Tilsidesæt farven på cmux-rudeadskilleren i opdelte arbejdsområder. Dette påvirker cmux-rudegrænser, ikke Ghosttys interne opdelinger.",
+        "activePaneBorderColor": "Valgfri kantfarve, der tegnes omkring den fokuserede cmux-rude i opdelte arbejdsområder.",
         "automation": {
           "ampIntegration": "Aktivér cmux-integrationskroge for Amp. Når deaktiveret, forbliver det medfølgende plugin inaktivt uden at skulle fjernes.",
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
@@ -850,7 +906,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
+          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
           "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
         }
       },
@@ -1594,7 +1650,8 @@
   "afterSignIn": {
     "title": "Logget ind på cmux",
     "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
-    "button": "Tilbage til cmux"
+    "button": "Tilbage til cmux",
+    "switchAccountButton": "Brug en anden konto"
   },
   "landing": {
     "bestTerminal": {
@@ -1616,9 +1673,9 @@
       "kittyBuiltFor": "Hurtig, skriptbar, funktionsrig",
       "weztermBuiltFor": "GPU-terminal med indbygget multiplexer",
       "tmuxBuiltFor": "Multiplexing inde i enhver terminal",
-      "cmuxBody": "En nativ macOS-terminal bygget på libghostty, bygget til tre ting: multitasking, organisering og programmerbarhed. Den lodrette sidebjælke grupperer arbejdet i arbejdsområder, der hver viser sin git-gren, mappe, porte og den seneste linje af agentens output, så du kan køre mange ting på én gang uden at miste overblikket. Paneler ringer, når en agent har brug for opmærksomhed. Hver handling kan skriptes gennem en CLI og en Unix-socket, og der er en indbygget browser, du kan styre programmatisk. Der er endda en iOS-følgeapp til at holde øje med dine terminaler fra telefonen. Bedst hvis du jonglerer med flere opgaver eller AI-kodningsagenter og vil have dem organiseret og automatisérbare uden en multiplexer-konfiguration.",
+      "cmuxBody": "cmux er en indbygget macOS-terminal bygget på Ghosttys terminalmotor, libghostty. Det betyder, at terminalgitteret arver Ghosttys styrker: hurtig GPU-rendering, fremragende skrifttype- og farvegengivelse, moderne terminalkompatibilitet og dine eksisterende Ghostty-temaer, skrifttyper, farver og markørindstillinger. cmux tilføjer det lag, Ghostty med vilje ikke prøver at være: lodrette workspaces, split panes, notifikationsringe, git/port/agent-kontekst i sidebaren, en scriptbar CLI og Unix-socket, en programmerbar browser og en iOS companion-app. Vælg cmux, når du vil have terminalrendering i Ghostty-kvalitet plus organisering og automatisering til mange opgaver eller AI-kodeagenter.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Den hurtige, GPU-accelererede terminal, hvis motor, libghostty, driver cmux. Hvis du vil have et enkelt, rent terminalvindue med fremragende rendering og intet af arbejdsområde- eller automatiseringslaget, er Ghostty fremragende på egen hånd.",
+      "ghosttyBody": "Ghostty er den hurtige native terminal, hvis motor, libghostty, driver cmux. Sammenlignet med ældre CPU-renderede terminaler og tungere Electron-lignende terminaler er Ghosttys styrker lav-latens GPU-rendering, skarp skrifttype- og farvehåndtering, stærk terminalkompatibilitet, simpel filbaseret konfiguration og intet krav om cloud-konto. Hvis du vil have ét rent terminalvindue med disse renderingfordele og uden workspace- eller automatiseringslag, er Ghostty fremragende alene. Hvis du vil have de samme Ghostty-renderingfordele plus workspaces, notifikationer, scripting og agent-orkestrering, så brug cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Den modne, uendeligt konfigurerbare macOS-terminal. Dybe profiler, triggere og tmux-integration. Det sikre valg, hvis du vil have maksimale funktioner og ikke orkestrerer mange opgaver på én gang.",
       "warpTitle": "Warp",

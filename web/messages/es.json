@@ -110,6 +110,60 @@
     "faqFeatureQ": "Tengo una sugerencia o he encontrado un error",
     "faqFeatureA": "Queremos saberlo. Abre un <issuesLink>issue</issuesLink> o un <prLink>pull request</prLink> en GitHub, o <mailLink>escríbenos</mailLink>."
   },
+  "dashboard": {
+    "aiAccounts": {
+      "metaTitle": "Cuentas de IA — cmux",
+      "metaDescription": "Gestiona las cuentas de proveedores de IA del equipo para cmux.",
+      "section": "Panel",
+      "title": "Cuentas de IA",
+      "description": "Gestiona las cuentas de proveedores que este equipo puede usar con cmux AI.",
+      "personalTeam": "Personal",
+      "teamSwitcherLabel": "Equipo",
+      "notConfiguredTitle": "La gestión de cuentas de IA aún no está disponible",
+      "notConfiguredBody": "Las cuentas de IA de equipo no están habilitadas en esta implementación. Inténtalo más tarde o contacta con soporte.",
+      "loadErrorTitle": "No se pudieron cargar las cuentas",
+      "loadErrorBody": "No se pudo conectar con el servicio de cuentas. Inténtalo de nuevo en un momento.",
+      "accountsTitle": "Cuentas conectadas",
+      "accountsCount": "{count, plural, one {# cuenta} other {# cuentas}}",
+      "emptyTitle": "Aún no hay cuentas",
+      "emptyBody": "Añade una cuenta de proveedor para que este equipo pueda usarla.",
+      "providerColumn": "Proveedor",
+      "labelColumn": "Etiqueta",
+      "createdColumn": "Creada",
+      "actionsColumn": "Acciones",
+      "unlabeledAccount": "Sin etiqueta",
+      "unknownCreatedAt": "Desconocida",
+      "addAccountsTitle": "Añadir cuenta",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "Clave de API de Anthropic",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "Clave de API de OpenAI",
+      "providerUnknown": "Proveedor desconocido",
+      "labelField": "Etiqueta",
+      "labelPlaceholder": "Predeterminada del equipo",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "Clave de API",
+      "addClaude": "Añadir Claude",
+      "addAnthropic": "Añadir Anthropic",
+      "addCodex": "Añadir Codex",
+      "addOpenAi": "Añadir OpenAI",
+      "addSuccess": "Cuenta añadida.",
+      "addError": "No se pudo guardar la cuenta.",
+      "deleteError": "No se pudo eliminar la cuenta.",
+      "jsonError": "Pega un objeto JSON válido.",
+      "validationError": "Revisa los datos de la cuenta y vuelve a intentarlo.",
+      "teamAccessError": "No tienes acceso a este equipo.",
+      "deletingAction": "Eliminando",
+      "deleteAction": "Eliminar",
+      "deleteConfirmTitle": "¿Eliminar esta cuenta?",
+      "deleteConfirmBody": "La cuenta del proveedor se eliminará para todo el equipo. Para volver a añadirla necesitarás las credenciales originales.",
+      "cancelAction": "Cancelar",
+      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
+      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
+    }
+  },
   "community": {
     "title": "Comunidad",
     "description": "Explora proyectos creados por la comunidad de cmux, desde hooks de agentes hasta orquestación multiagente y acceso remoto.",
@@ -799,6 +853,8 @@
       "exampleConfig": "Configuración de ejemplo",
       "metaTitle": "Configuración",
       "schemaDescriptions": {
+        "paneBorderColor": "Sobrescribe el color del divisor de paneles de cmux en workspaces divididos. Afecta a los límites de paneles de cmux, no a las divisiones internas de Ghostty.",
+        "activePaneBorderColor": "Color de borde opcional que se dibuja alrededor del panel de cmux enfocado en workspaces divididos.",
         "automation": {
           "ampIntegration": "Habilita los hooks de integración de cmux para Amp. Cuando está desactivado, el complemento incluido permanece inactivo sin necesidad de eliminarlo.",
           "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed.",
@@ -850,7 +906,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
+          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
         }
       },
@@ -1594,7 +1650,8 @@
   "afterSignIn": {
     "title": "Sesión iniciada en cmux",
     "body": "Si cmux no se abrió automáticamente, usa el botón de abajo.",
-    "button": "Volver a cmux"
+    "button": "Volver a cmux",
+    "switchAccountButton": "Usar otra cuenta"
   },
   "landing": {
     "bestTerminal": {
@@ -1616,9 +1673,9 @@
       "kittyBuiltFor": "Rápida, programable, repleta de funciones",
       "weztermBuiltFor": "Terminal por GPU con multiplexor integrado",
       "tmuxBuiltFor": "Multiplexación dentro de cualquier terminal",
-      "cmuxBody": "Una terminal nativa de macOS construida sobre libghostty, diseñada para tres cosas: multitarea, organización y programabilidad. La barra lateral vertical agrupa el trabajo en espacios de trabajo, cada uno mostrando su rama de git, directorio, puertos y la última línea de salida del agente, para que ejecutes muchas cosas a la vez sin perderte. Los paneles suenan cuando un agente necesita atención. Cada acción es programable a través de una CLI y un socket de Unix, y hay un navegador integrado que puedes controlar de forma programática. Incluso hay una app complementaria para iOS para revisar tus terminales desde el teléfono. Lo mejor si manejas varias tareas o agentes de programación con IA y quieres tenerlos organizados y automatizables sin configurar un multiplexor.",
+      "cmuxBody": "cmux es un terminal nativo para macOS construido sobre el motor de terminal de Ghostty, libghostty. Eso significa que la cuadrícula del terminal hereda las ventajas de Ghostty: renderizado GPU rápido, excelente tratamiento de fuentes y colores, compatibilidad moderna de terminal y tus temas, fuentes, colores y ajustes de cursor de Ghostty existentes. cmux añade la capa que Ghostty no intenta ser: espacios de trabajo verticales, paneles divididos, anillos de notificación, contexto de git/puertos/agentes en la barra lateral, una CLI y un socket Unix programables, un navegador controlable por código y una app compañera para iOS. Elige cmux si quieres renderizado de terminal con calidad Ghostty más organización y automatización para muchas tareas o agentes de programación con IA.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "La terminal rápida y acelerada por GPU cuyo motor, libghostty, impulsa cmux. Si quieres una sola ventana de terminal limpia con un renderizado excelente y nada de la capa de espacios de trabajo o automatización, Ghostty es excelente por sí sola.",
+      "ghosttyBody": "Ghostty es el terminal nativo rápido cuyo motor, libghostty, impulsa cmux. Frente a terminales antiguos renderizados por CPU y terminales más pesados de estilo Electron, Ghostty destaca por renderizado GPU de baja latencia, fuentes y colores nítidos, gran compatibilidad de terminal, configuración sencilla basada en archivos y ausencia de requisito de cuenta en la nube. Si quieres una sola ventana de terminal limpia con esas ventajas de renderizado y sin capa de espacios de trabajo ni automatización, Ghostty es excelente por sí solo. Si quieres esas mismas ventajas de renderizado de Ghostty más espacios de trabajo, notificaciones, scripting y orquestación de agentes, usa cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "La terminal de macOS madura e infinitamente configurable. Perfiles profundos, disparadores e integración con tmux. La opción segura si quieres el máximo de funciones y no estás orquestando muchas tareas a la vez.",
       "warpTitle": "Warp",
