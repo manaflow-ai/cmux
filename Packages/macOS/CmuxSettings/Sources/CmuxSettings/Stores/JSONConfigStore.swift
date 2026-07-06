@@ -248,11 +248,11 @@ public actor JSONConfigStore {
     }
 
     private func loadedRoot() -> [String: Any] {
-        let resolvedPath = Self.resolvedWriteURL(for: fileURL).path
-        if cacheIsCurrent(for: resolvedPath) { return cachedRoot }
-        cachedRoot = (try? readFromDisk()) ?? [:]
+        let resolvedURL = Self.resolvedWriteURL(for: fileURL)
+        if cacheIsCurrent(for: resolvedURL.path) { return cachedRoot }
+        cachedRoot = (try? readFromDisk(at: resolvedURL)) ?? [:]
         cacheValid = true
-        cachedRootResolvedPath = resolvedPath
+        cachedRootResolvedPath = resolvedURL.path
         return cachedRoot
     }
 
@@ -266,9 +266,13 @@ public actor JSONConfigStore {
     /// ``snapshotValue(for:)`` can call it without hopping onto the actor; it
     /// only touches the `nonisolated` `fileURL` and the `Sendable` `sanitizer`.
     private nonisolated func readFromDisk() throws -> [String: Any] {
+        try readFromDisk(at: fileURL)
+    }
+
+    private nonisolated func readFromDisk(at url: URL) throws -> [String: Any] {
         let data: Data
         do {
-            data = try Data(contentsOf: fileURL)
+            data = try Data(contentsOf: url)
         } catch let error as NSError where error.domain == NSCocoaErrorDomain
             && error.code == NSFileReadNoSuchFileError {
             return [:]
@@ -323,17 +327,19 @@ public actor JSONConfigStore {
     /// JSON, malformed JSONC, top-level non-object), the write is refused
     /// — overwriting a corrupt file would silently destroy whatever real
     /// content the user has in it. The error from
-    /// ``readFromDisk()`` is propagated to the caller.
+    /// ``readFromDisk(at:)`` is propagated to the caller.
     ///
     /// The root must never come from a cache loaded under a different resolved
     /// target, since that would overwrite the new target's contents with the old
-    /// target's data.
+    /// target's data. A single mutation reads and writes through one resolution
+    /// snapshot, so a concurrent retarget serializes against the write instead
+    /// of splitting the operation across two targets.
     private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
-        var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk()
+        var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
         mutate(&root)
 
         let parent = writeURL.deletingLastPathComponent()
