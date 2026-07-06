@@ -1,4 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  checkRateLimit,
+  installVercelFirewallMock,
+} from "./vercel-firewall-mock";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -20,7 +24,6 @@ const getUser = mock(async () => ({
   primaryEmail: null,
   selectedTeam: null,
 }));
-const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
 const cloudDb = mock(() => {
   throw new Error("cloudDb should not be reached after a push rate-limit block");
 });
@@ -31,9 +34,7 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
-mock.module("@vercel/firewall", () => ({
-  checkRateLimit,
-}));
+installVercelFirewallMock();
 
 mock.module("../db/client", () => ({
   cloudDb,

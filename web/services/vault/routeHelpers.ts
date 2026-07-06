@@ -11,7 +11,12 @@ import {
   verifyRequest,
   type AuthedUser,
 } from "@/services/vms/auth";
-import { jsonResponse } from "@/services/vms/routeHelpers";
+import {
+  browserMutationOriginAllowed,
+  jsonResponse,
+  parseBearer,
+  requiresBrowserMutationProtection,
+} from "@/services/vms/routeHelpers";
 
 type VerifyRequestOptions = NonNullable<Parameters<typeof verifyRequest>[1]>;
 
@@ -62,6 +67,13 @@ export async function withAuthedVaultApiRoute(
   return withVaultApiRoute(request, route, attributes, failureLog, async (context) => {
     const user = await verify(request, verifyOptions);
     if (!user) return unauthorized();
+    const bearer = parseBearer(request);
+    if (
+      requiresBrowserMutationProtection(request.method, bearer) &&
+      !browserMutationOriginAllowed(request)
+    ) {
+      return jsonResponse({ error: "forbidden" }, 403);
+    }
     setSpanAttributes(context.span, { "cmux.vault.user_id": user.id });
     return handler({ ...context, user });
   });

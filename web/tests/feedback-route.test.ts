@@ -10,19 +10,21 @@ process.env.CMUX_FEEDBACK_FROM_EMAIL = "feedback@example.test";
 process.env.CMUX_FEEDBACK_RATE_LIMIT_ID = "feedback-rate-limit-test";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  checkRateLimit,
+  installVercelFirewallMock,
+} from "./vercel-firewall-mock";
 
-const checkRateLimit = mock(async () => ({ rateLimited: false, error: null as string | null }));
 const sendEmail = mock(async () => ({ data: { id: "email-1" }, error: null }));
 
-mock.module("@vercel/firewall", () => ({
-  checkRateLimit,
-}));
+installVercelFirewallMock();
 
 mock.module("@/app/env", () => ({
   env: {
     RESEND_API_KEY: "resend-test-key",
     CMUX_FEEDBACK_FROM_EMAIL: "feedback@example.test",
     CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback-rate-limit-test",
+    CMUX_PUSH_RATE_LIMIT_ID: "cmux-push-test",
   },
 }));
 
@@ -61,7 +63,7 @@ describe("feedback route", () => {
     const res = await POST(feedbackRequest());
 
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "Rate limit unavailable" });
+    expect(await res.json()).toEqual({ error: "service_unavailable" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
@@ -72,7 +74,7 @@ describe("feedback route", () => {
     const res = await POST(feedbackRequest());
 
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "Rate limit unavailable" });
+    expect(await res.json()).toEqual({ error: "service_unavailable" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 });

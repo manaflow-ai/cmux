@@ -10,8 +10,10 @@ export async function withVaultUserQuotaLock<T>(
   userId: string,
   run: (db: VaultDb) => Promise<T>,
 ): Promise<T> {
-  void userId;
-  return await run(db);
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 2))`);
+    return await run(tx as unknown as VaultDb);
+  });
 }
 
 /**

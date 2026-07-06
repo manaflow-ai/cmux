@@ -1,14 +1,16 @@
 public import Darwin
 
-public enum SocketClientAuthorization {
-    public static func isCmuxOnlyClientAllowed(
+public struct SocketClientAuthorization {
+    public init() {}
+
+    public func isCmuxOnlyClientAllowed(
         peerProcessID: pid_t?,
-        peerHasSameUID: Bool,
+        peerHasSameUID _: Bool,
         isDescendant: (pid_t) -> Bool
     ) -> Bool {
         if let peerProcessID {
             return isDescendant(peerProcessID)
         }
-        return peerHasSameUID
+        return false
     }
 }

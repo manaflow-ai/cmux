@@ -68,6 +68,7 @@ export async function POST(
       try {
         const result = await runVmWorkflow(execVm({
           userId: user.id,
+          teamIds: user.teamIds,
           providerVmId: id,
           command,
           timeoutMs,

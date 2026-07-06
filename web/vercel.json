@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["pdx1"]
+  "regions": ["pdx1"],
+  "crons": [
+    {
+      "path": "/api/internal/vm/leases/revoke-expired",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

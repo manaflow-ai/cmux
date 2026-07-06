@@ -3,8 +3,10 @@ import Testing
 
 @Suite("Socket client authorization")
 struct SocketClientAuthorizationTests {
+    private let authorization = SocketClientAuthorization()
+
     @Test func cmuxOnlyFailsClosedWhenPeerPidIsUnavailable() {
-        #expect(!SocketClientAuthorization.isCmuxOnlyClientAllowed(
+        #expect(!authorization.isCmuxOnlyClientAllowed(
             peerProcessID: nil,
             peerHasSameUID: true,
             isDescendant: { _ in true }
@@ -12,7 +14,7 @@ struct SocketClientAuthorizationTests {
     }
 
     @Test func cmuxOnlyAllowsDescendantPeerPid() {
-        #expect(SocketClientAuthorization.isCmuxOnlyClientAllowed(
+        #expect(authorization.isCmuxOnlyClientAllowed(
             peerProcessID: 123,
             peerHasSameUID: false,
             isDescendant: { $0 == 123 }
@@ -20,7 +22,7 @@ struct SocketClientAuthorizationTests {
     }
 
     @Test func cmuxOnlyRejectsNonDescendantPeerPid() {
-        #expect(!SocketClientAuthorization.isCmuxOnlyClientAllowed(
+        #expect(!authorization.isCmuxOnlyClientAllowed(
             peerProcessID: 123,
             peerHasSameUID: true,
             isDescendant: { _ in false }

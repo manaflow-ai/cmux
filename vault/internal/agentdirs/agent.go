@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -172,7 +174,7 @@ func statSession(agentName, root, path, id, cwd string) (Session, error) {
 }
 
 func statSessionWithLogicalPath(agentName, root, path, logicalPath, id, cwd string) (Session, error) {
-	info, err := os.Stat(path)
+	info, err := RegularFileInfoNoSymlink(path)
 	if err != nil {
 		return Session{}, err
 	}
@@ -192,7 +194,7 @@ func statSessionWithLogicalPath(agentName, root, path, logicalPath, id, cwd stri
 }
 
 func recoverCWDFromJSONL(path string) string {
-	file, err := os.Open(path)
+	file, _, err := OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return ""
 	}
@@ -211,6 +213,41 @@ func recoverCWDFromJSONL(path string) string {
 		}
 	}
 	return ""
+}
+
+func IsSymlinkEntry(entry fs.DirEntry) bool {
+	return entry.Type()&fs.ModeSymlink != 0
+}
+
+func RegularFileInfoNoSymlink(path string) (os.FileInfo, error) {
+	file, info, err := OpenRegularFileNoSymlink(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return info, nil
+}
+
+func OpenRegularFileNoSymlink(path string) (*os.File, os.FileInfo, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if file == nil {
+		_ = syscall.Close(fd)
+		return nil, nil, fmt.Errorf("failed to open %s", path)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return file, info, nil
 }
 
 func cwdFromJSON(data []byte) string {

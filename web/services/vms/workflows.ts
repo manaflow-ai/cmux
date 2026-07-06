@@ -49,6 +49,14 @@ export type VmEntry = {
   readonly createdAt: number;
 };
 
+const EXPIRED_IDENTITY_REVOKE_BATCH = 50;
+
+type ExistingVmAccessInput = {
+  readonly userId: string;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+};
+
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
 export async function runVmWorkflow<A>(
@@ -498,7 +506,8 @@ export function destroyVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
+    const vm = yield* requireUserVm(input);
 
     yield* revokeActiveIdentities(vm);
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
@@ -524,7 +533,28 @@ export function revokeExpiredIdentityLeases(_input: {
   readonly now?: Date;
   readonly limit?: number;
 } = {}) {
-  return Effect.void;
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const expiredIdentityLeases = repo.expiredIdentityLeases;
+    if (!expiredIdentityLeases) return 0;
+    const leases = yield* expiredIdentityLeases({
+      now: _input.now ?? new Date(),
+      limit: _input.limit ?? EXPIRED_IDENTITY_REVOKE_BATCH,
+    });
+    const revokedIds: string[] = [];
+    for (const lease of leases) {
+      const identityHandle = lease.providerIdentityHandle;
+      if (!identityHandle) continue;
+      const revoked = yield* providers.revokeSSHIdentity(lease.provider, identityHandle).pipe(
+        Effect.as(true),
+        Effect.catchAll(() => Effect.succeed(false)),
+      );
+      if (revoked) revokedIds.push(lease.id);
+    }
+    yield* repo.markLeasesRevoked(revokedIds);
+    return revokedIds.length;
+  });
 }
 
 export function execVm(input: {
@@ -537,7 +567,8 @@ export function execVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
+    const vm = yield* requireUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -570,7 +601,8 @@ export function openAttachEndpoint(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
+    const vm = yield* requireUserVm(input);
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the
@@ -618,7 +650,8 @@ export function openSshEndpoint(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
+    const vm = yield* requireUserVm(input);
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the
@@ -654,15 +687,28 @@ export function openSshEndpoint(input: {
   });
 }
 
-function requireUserVm(userId: string, providerVmId: string) {
+function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* repo.findUserVm({ userId, providerVmId });
+    const vm = yield* repo.findUserVm({
+      userId: input.userId,
+      providerVmId: input.providerVmId,
+    });
     if (!vm || !vm.providerVmId) {
-      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+    if (!callerStillOwnsBillingScope(input, vm)) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     return vm;
   });
+}
+
+function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRow): boolean {
+  const billingTeamId = vm.billingTeamId?.trim();
+  if (!billingTeamId) return true;
+  if (billingTeamId === input.userId) return true;
+  return new Set(input.teamIds ?? []).has(billingTeamId);
 }
 
 function revokeActiveIdentities(vm: CloudVmRow) {

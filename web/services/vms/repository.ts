@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -440,6 +440,39 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           })
           .where(eq(cloudVmLeases.tokenHash, input.tokenHash));
       }
+    }),
+
+  expiredIdentityLeases: (input) =>
+    dbEffect("expiredIdentityLeases", async () => {
+      const db = cloudDb();
+      return await db
+        .select({
+          id: cloudVmLeases.id,
+          vmId: cloudVmLeases.vmId,
+          userId: cloudVmLeases.userId,
+          kind: cloudVmLeases.kind,
+          tokenHash: cloudVmLeases.tokenHash,
+          providerIdentityHandle: cloudVmLeases.providerIdentityHandle,
+          sessionId: cloudVmLeases.sessionId,
+          transport: cloudVmLeases.transport,
+          metadata: cloudVmLeases.metadata,
+          expiresAt: cloudVmLeases.expiresAt,
+          consumedAt: cloudVmLeases.consumedAt,
+          revokedAt: cloudVmLeases.revokedAt,
+          createdAt: cloudVmLeases.createdAt,
+          provider: cloudVms.provider,
+        })
+        .from(cloudVmLeases)
+        .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
+        .where(
+          and(
+            isNotNull(cloudVmLeases.providerIdentityHandle),
+            isNull(cloudVmLeases.revokedAt),
+            lt(cloudVmLeases.expiresAt, input.now),
+            ne(cloudVms.status, "destroyed"),
+          ),
+        )
+        .limit(input.limit);
     }),
 
   activeIdentityLeases: (vmId) =>

@@ -24,6 +24,7 @@ import {
   VmLimitExceededError,
   VmNotFoundError,
   VmProviderOperationError,
+  vmWorkflowErrorCause,
 } from "../services/vms/errors";
 import {
   createVm,
@@ -130,7 +131,7 @@ describe("VM Effect workflows", () => {
         await Effect.runPromise(program.pipe(Effect.provide(workflowLayer(repo, provider))));
         throw new Error(`${operation} should have failed`);
       } catch (error) {
-        expect(error).toBeInstanceOf(VmNotFoundError);
+        expect(vmWorkflowErrorCause(error) ?? error).toBeInstanceOf(VmNotFoundError);
       }
       expect(providerCalls).toBe(0);
     }
@@ -219,6 +220,7 @@ describe("VM Effect workflows", () => {
     const result = await Effect.runPromise(
       execVm({
         userId: "user-workflow-exec-resume",
+        teamIds: ["team-workflow-exec-resume"],
         providerVmId: "provider-vm-exec-resume",
         command: "echo preflight",
         timeoutMs: 1000,
@@ -598,6 +600,7 @@ describe("VM Effect workflows", () => {
     const result = await Effect.runPromise(
       openAttachEndpoint({
         userId: "user-workflow-attach-resume",
+        teamIds: ["team-workflow-attach-resume"],
         providerVmId: "provider-vm-attach-resume",
         options: { requireDaemon: true },
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
@@ -671,6 +674,7 @@ describe("VM Effect workflows", () => {
     const error = await Effect.runPromise(
       openAttachEndpoint({
         userId: "user-workflow-attach-mark-fails",
+        teamIds: ["team-workflow-attach-mark-fails"],
         providerVmId: "provider-vm-attach-mark-fails",
       }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
@@ -732,6 +736,7 @@ describe("VM Effect workflows", () => {
     const error = await Effect.runPromise(
       openAttachEndpoint({
         userId: "user-workflow-attach-mark-false",
+        teamIds: ["team-workflow-attach-mark-false"],
         providerVmId: "provider-vm-attach-mark-false",
       }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
@@ -784,6 +789,7 @@ describe("VM Effect workflows", () => {
     const result = await Effect.runPromise(
       openSshEndpoint({
         userId: "user-workflow-ssh-resume",
+        teamIds: ["team-workflow-ssh-resume"],
         providerVmId: "provider-vm-ssh-resume",
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
@@ -845,6 +851,7 @@ describe("VM Effect workflows", () => {
     const result = await Effect.runPromise(
       openAttachEndpoint({
         userId: "user-workflow-attach-race",
+        teamIds: ["team-workflow-attach-race"],
         providerVmId: "provider-vm-attach-race",
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
@@ -892,6 +899,7 @@ describe("VM Effect workflows", () => {
     const error = await Effect.runPromise(
       openAttachEndpoint({
         userId: "user-workflow-attach-probe-fail",
+        teamIds: ["team-workflow-attach-probe-fail"],
         providerVmId: "provider-vm-attach-probe-fail",
       }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
     );
@@ -942,6 +950,7 @@ describe("VM Effect workflows", () => {
     const result = await Effect.runPromise(
       execVm({
         userId: "user-workflow-exec-settle",
+        teamIds: ["team-workflow-exec-settle"],
         providerVmId: "provider-vm-exec-settle",
         command: "echo ok",
         timeoutMs: 1000,
@@ -993,6 +1002,7 @@ describe("VM Effect workflows", () => {
     const result = await Effect.runPromise(
       execVm({
         userId: "user-workflow-exec-concurrent",
+        teamIds: ["team-workflow-exec-concurrent"],
         providerVmId: "provider-vm-exec-concurrent",
         command: "echo ok",
         timeoutMs: 1000,
@@ -1853,9 +1863,11 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer(provider);
 
     await Effect.runPromise(
-      destroyVm({ userId: "user-workflow-reuse-slot", providerVmId: "provider-vm-reuse-old" }).pipe(
-        Effect.provide(layer),
-      ),
+      destroyVm({
+        userId: "user-workflow-reuse-slot",
+        teamIds: ["team-workflow-reuse-slot"],
+        providerVmId: "provider-vm-reuse-old",
+      }).pipe(Effect.provide(layer)),
     );
     const created = await Effect.runPromise(
       createVm({
@@ -2380,10 +2392,14 @@ describe("VM Effect workflows", () => {
 
 function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   const now = new Date();
+  const userId = overrides.userId ?? "user-workflow-usage-events";
+  const billingTeamId: string | null = Object.prototype.hasOwnProperty.call(overrides, "billingTeamId")
+    ? (overrides.billingTeamId ?? null)
+    : userId;
   return {
     id: "00000000-0000-4000-8000-000000000001",
-    userId: "user-workflow-usage-events",
-    billingTeamId: "team-workflow-usage-events",
+    userId,
+    billingTeamId,
     billingPlanId: "free",
     provider: "freestyle",
     providerVmId: null,

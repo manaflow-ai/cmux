@@ -7,6 +7,7 @@ import { buildObjectKey, deleteObject, presignPut } from "../../../../services/v
 import {
   getVaultPendingGrantBytes,
   getVaultStoredCompressedBytes,
+  withVaultUserQuotaLock,
 } from "../../../../services/vault/usage";
 import { withAuthedVaultApiRoute } from "../../../../services/vault/routeHelpers";
 import { readVaultJsonObject, validateVaultBatch } from "../../../../services/vault/validation";
@@ -55,105 +56,108 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
 
   await gcExpiredGrants(db, now);
 
-  // Per-user storage quota covers committed snapshots plus unexpired upload
-  // grants, so minting URLs and never committing still consumes quota (the
-  // presigned ContentLength is signed, bounding each upload to its declared
-  // size). Grants for keys in this batch are excluded from the pending sum and
-  // re-added per item below, so retries are not double-counted. The commit
-  // route re-checks, so previously issued URLs cannot bypass the quota either.
-  const batchObjectKeys = batch.value.map((item) =>
-    buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256),
-  );
-  let projectedUserBytes =
-    (await getVaultStoredCompressedBytes(db, userId)) +
-    (await getVaultPendingGrantBytes(db, userId, now, batchObjectKeys));
-  const results = [];
-  for (const item of batch.value) {
-    // Per-item so one oversized transcript cannot block the rest of the batch.
-    if (item.compressedSizeBytes > config.maxUploadBytes) {
-      results.push({
-        agent: item.agent,
-        agentSessionId: item.agentSessionId,
-        relPath: item.relPath,
-        status: "error",
-        error: "upload_too_large",
-      });
-      continue;
-    }
-    if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
-      results.push({
-        agent: item.agent,
-        agentSessionId: item.agentSessionId,
-        relPath: item.relPath,
-        status: "error",
-        error: "quota_exceeded",
-      });
-      continue;
-    }
-
-    const [existing] = await db
-      .select({
-        id: vaultSessions.id,
-        latestSha256: vaultSessions.latestSha256,
-        relPath: vaultSessions.relPath,
-        cwd: vaultSessions.cwd,
-      })
-      .from(vaultSessions)
-      .where(
-        and(
-          eq(vaultSessions.userId, userId),
-          eq(vaultSessions.agent, item.agent),
-          eq(vaultSessions.agentSessionId, item.agentSessionId),
-        ),
-      )
-      .limit(1);
-
-    if (existing && existing.latestSha256 === item.sha256) {
-      // Same content can still move on disk (e.g. Codex archiving a session),
-      // so keep the restore metadata current even when no upload is needed.
-      if (existing.relPath !== item.relPath || existing.cwd !== item.cwd) {
-        await db
-          .update(vaultSessions)
-          .set({ relPath: item.relPath, cwd: item.cwd })
-          .where(eq(vaultSessions.id, existing.id));
+  const results = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
+    // Per-user storage quota covers committed snapshots plus unexpired upload
+    // grants, so minting URLs and never committing still consumes quota (the
+    // presigned ContentLength is signed, bounding each upload to its declared
+    // size). Grants for keys in this batch are excluded from the pending sum and
+    // re-added per item below, so retries are not double-counted. The commit
+    // route re-checks, so previously issued URLs cannot bypass the quota either.
+    const batchObjectKeys = batch.value.map((item) =>
+      buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256),
+    );
+    let projectedUserBytes =
+      (await getVaultStoredCompressedBytes(lockedDb, userId)) +
+      (await getVaultPendingGrantBytes(lockedDb, userId, now, batchObjectKeys));
+    const lockedResults = [];
+    for (const item of batch.value) {
+      // Per-item so one oversized transcript cannot block the rest of the batch.
+      if (item.compressedSizeBytes > config.maxUploadBytes) {
+        lockedResults.push({
+          agent: item.agent,
+          agentSessionId: item.agentSessionId,
+          relPath: item.relPath,
+          status: "error",
+          error: "upload_too_large",
+        });
+        continue;
       }
-      results.push({
-        agent: item.agent,
-        agentSessionId: item.agentSessionId,
-        relPath: item.relPath,
-        status: "unchanged",
-      });
-      continue;
-    }
+      if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
+        lockedResults.push({
+          agent: item.agent,
+          agentSessionId: item.agentSessionId,
+          relPath: item.relPath,
+          status: "error",
+          error: "quota_exceeded",
+        });
+        continue;
+      }
 
-    const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
-    await db
-      .insert(vaultUploadGrants)
-      .values({
-        userId,
-        objectKey,
-        compressedSizeBytes: item.compressedSizeBytes,
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
-      })
-      .onConflictDoUpdate({
-        target: vaultUploadGrants.objectKey,
-        set: {
+      const [existing] = await lockedDb
+        .select({
+          id: vaultSessions.id,
+          latestSha256: vaultSessions.latestSha256,
+          relPath: vaultSessions.relPath,
+          cwd: vaultSessions.cwd,
+        })
+        .from(vaultSessions)
+        .where(
+          and(
+            eq(vaultSessions.userId, userId),
+            eq(vaultSessions.agent, item.agent),
+            eq(vaultSessions.agentSessionId, item.agentSessionId),
+          ),
+        )
+        .limit(1);
+
+      if (existing && existing.latestSha256 === item.sha256) {
+        // Same content can still move on disk (e.g. Codex archiving a session),
+        // so keep the restore metadata current even when no upload is needed.
+        if (existing.relPath !== item.relPath || existing.cwd !== item.cwd) {
+          await lockedDb
+            .update(vaultSessions)
+            .set({ relPath: item.relPath, cwd: item.cwd })
+            .where(eq(vaultSessions.id, existing.id));
+        }
+        lockedResults.push({
+          agent: item.agent,
+          agentSessionId: item.agentSessionId,
+          relPath: item.relPath,
+          status: "unchanged",
+        });
+        continue;
+      }
+
+      const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
+      await lockedDb
+        .insert(vaultUploadGrants)
+        .values({
+          userId,
+          objectKey,
           compressedSizeBytes: item.compressedSizeBytes,
           createdAt: now,
           expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
-        },
+        })
+        .onConflictDoUpdate({
+          target: vaultUploadGrants.objectKey,
+          set: {
+            compressedSizeBytes: item.compressedSizeBytes,
+            createdAt: now,
+            expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
+          },
+        });
+      projectedUserBytes += item.compressedSizeBytes;
+      lockedResults.push({
+        agent: item.agent,
+        agentSessionId: item.agentSessionId,
+        relPath: item.relPath,
+        status: "upload",
+        objectKey,
+        putUrl: await presignPut(objectKey, item.compressedSizeBytes),
       });
-    projectedUserBytes += item.compressedSizeBytes;
-    results.push({
-      agent: item.agent,
-      agentSessionId: item.agentSessionId,
-      relPath: item.relPath,
-      status: "upload",
-      objectKey,
-      putUrl: await presignPut(objectKey, item.compressedSizeBytes),
-    });
-  }
+    }
+    return lockedResults;
+  });
   setSpanAttributes(span, {
     "cmux.vault.result_count": results.length,
     "cmux.vault.result.upload_count": countResultStatus(results, "upload"),

@@ -34,7 +34,11 @@ export async function POST(
       const { id } = await params;
       setSpanAttributes(span, { "cmux.vm.id": id });
       try {
-        const endpoint = await runVmWorkflow(openSshEndpoint({ userId: user.id, providerVmId: id }));
+        const endpoint = await runVmWorkflow(openSshEndpoint({
+          userId: user.id,
+          teamIds: user.teamIds,
+          providerVmId: id,
+        }));
         setSpanAttributes(span, { "cmux.ssh.credential_kind": endpoint.credential.kind });
         return jsonResponse(endpoint);
       } catch (err) {

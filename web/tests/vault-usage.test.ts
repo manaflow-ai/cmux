@@ -7,7 +7,10 @@ describe("vault usage quota locking", () => {
       execute: mock(async () => undefined),
     };
     const db = {
-      transaction: mock(async (run: (tx: unknown) => Promise<string>) => await run(tx)),
+      transaction: mock(async (...args: unknown[]) => {
+        const run = args[0] as (tx: unknown) => Promise<string>;
+        return await run(tx);
+      }),
     };
     const run = mock(async (lockedDb: unknown) => {
       expect(lockedDb).toBe(tx);

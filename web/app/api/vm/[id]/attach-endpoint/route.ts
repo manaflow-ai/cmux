@@ -27,6 +27,7 @@ export async function POST(
       try {
         const endpoint = await runVmWorkflow(openAttachEndpoint({
           userId: user.id,
+          teamIds: user.teamIds,
           providerVmId: id,
           options: { requireDaemon },
         }));

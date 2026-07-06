@@ -8,6 +8,10 @@ process.env.SKIP_ENV_VALIDATION = "1";
 process.env.CMUX_FEEDBACK_RATE_LIMIT_ID = "feedback-rate-limit-test";
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  checkRateLimit,
+  installVercelFirewallMock,
+} from "./vercel-firewall-mock";
 
 afterAll(() => {
   if (priorSkipEnvValidation === undefined) {
@@ -51,15 +55,12 @@ mock.module("node:dns", () => ({
   },
 }));
 
-const checkRateLimit = mock(async () => ({ rateLimited: false, error: null as string | null }));
-
-mock.module("@vercel/firewall", () => ({
-  checkRateLimit,
-}));
+installVercelFirewallMock();
 
 mock.module("@/app/env", () => ({
   env: {
     CMUX_FEEDBACK_RATE_LIMIT_ID: "feedback-rate-limit-test",
+    CMUX_PUSH_RATE_LIMIT_ID: "cmux-push-test",
     SLACK_WAITLIST_WEBHOOK_URL: undefined,
   },
 }));
@@ -127,7 +128,7 @@ describe("waitlist route", () => {
     );
 
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "Rate limit unavailable" });
+    expect(await res.json()).toEqual({ error: "service_unavailable" });
   });
 
   test("fails closed when the Vercel firewall check errors", async () => {
@@ -139,6 +140,6 @@ describe("waitlist route", () => {
     );
 
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "Rate limit unavailable" });
+    expect(await res.json()).toEqual({ error: "service_unavailable" });
   });
 });
