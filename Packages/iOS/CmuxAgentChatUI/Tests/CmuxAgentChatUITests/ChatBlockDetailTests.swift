@@ -26,7 +26,7 @@ struct ChatBlockDetailTests {
         #expect(detail?.sections.map(\.id) == ["input", "output"])
         #expect(detail?.sections[0].text == "url: https://ci.example.com/runs/8412")
         #expect(detail?.sections[1].text == "build failed at step 4")
-        #expect(detail?.copyText.contains("build failed at step 4") == true)
+        #expect(detail?.copyText == "url: https://ci.example.com/runs/8412\n\nbuild failed at step 4")
     }
 
     @Test func codeBlockDetailKeepsTheFullCodeText() {
@@ -40,7 +40,7 @@ struct ChatBlockDetailTests {
         #expect(detail.subtitle == "swift")
         #expect(detail.sections.map(\.id) == ["code"])
         #expect(detail.sections[0].text == code)
-        #expect(detail.copyText.contains("line 12"))
+        #expect(detail.copyText == code)
     }
 
     @Test func terminalDetailSanitizesControlSequences() {
@@ -58,5 +58,6 @@ struct ChatBlockDetailTests {
         #expect(detail.sections.map(\.id) == ["command", "output"])
         #expect(detail.sections[0].text == "npm test")
         #expect(detail.sections[1].text == "pass")
+        #expect(detail.copyText == "npm test\n\npass")
     }
 }

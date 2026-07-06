@@ -27,9 +27,7 @@ struct ChatBlockDetail: Identifiable, Equatable {
 
     var copyText: String {
         sections
-            .map { section in
-                "\(section.title)\n\(section.text)"
-            }
+            .map(\.text)
             .joined(separator: "\n\n")
     }
 }

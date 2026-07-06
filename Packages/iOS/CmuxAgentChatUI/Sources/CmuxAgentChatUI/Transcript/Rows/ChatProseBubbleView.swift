@@ -12,7 +12,7 @@ public struct ChatProseBubbleView: View {
     private let message: ChatMessage
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
-    private let onShowCodeDetail: (String, String?) -> Void
+    private let onShowCodeDetail: (String, String, String?) -> Void
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
@@ -33,7 +33,7 @@ public struct ChatProseBubbleView: View {
         message: ChatMessage,
         groupPosition: ChatGroupPosition,
         showsTimestamp: Bool,
-        onShowCodeDetail: @escaping (String, String?) -> Void = { _, _ in }
+        onShowCodeDetail: @escaping (String, String, String?) -> Void = { _, _, _ in }
     ) {
         self.prose = prose
         self.message = message
@@ -131,8 +131,9 @@ public struct ChatProseBubbleView: View {
             let visibleCode = codeLines.count > Self.codeBlockLineCap
                 ? codeLines.prefix(Self.codeBlockLineCap).joined(separator: "\n")
                 : segment.content
+            let detailID = "\(message.id)-\(segment.index)"
             Button {
-                onShowCodeDetail(segment.content, language)
+                onShowCodeDetail(detailID, segment.content, language)
             } label: {
                 VStack(alignment: .leading, spacing: 0) {
                     codeHeader(language: language)

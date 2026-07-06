@@ -26,7 +26,7 @@ public struct ChatRowActions {
     public var showTerminalCommandDetail: (TerminalCommandBlock) -> Void
 
     /// Shows a non-resizing detail sheet for an embedded prose code block.
-    public var showCodeBlockDetail: (String, String?) -> Void
+    public var showCodeBlockDetail: (String, String, String?) -> Void
 
     /// Creates an action bundle.
     ///
@@ -45,7 +45,7 @@ public struct ChatRowActions {
         openTerminal: @escaping () -> Void = {},
         showMessageDetail: @escaping (ChatMessage) -> Void = { _ in },
         showTerminalCommandDetail: @escaping (TerminalCommandBlock) -> Void = { _ in },
-        showCodeBlockDetail: @escaping (String, String?) -> Void = { _, _ in }
+        showCodeBlockDetail: @escaping (String, String, String?) -> Void = { _, _, _ in }
     ) {
         self.answerOption = answerOption
         self.retryPending = retryPending

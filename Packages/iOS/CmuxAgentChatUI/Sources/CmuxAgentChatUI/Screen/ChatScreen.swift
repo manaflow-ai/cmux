@@ -231,9 +231,9 @@ public struct ChatScreen: View {
             showTerminalCommandDetail: { block in
                 selectedBlockDetail = ChatBlockDetail.make(block: block)
             },
-            showCodeBlockDetail: { code, language in
+            showCodeBlockDetail: { id, code, language in
                 selectedBlockDetail = ChatBlockDetail.codeBlock(
-                    id: "code-\(code.hashValue)-\(language ?? "")",
+                    id: "code-\(id)",
                     code: code,
                     language: language
                 )
