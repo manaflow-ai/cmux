@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -9,6 +9,7 @@ const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[ke
   (typeof envKeys)[number],
   string | undefined
 >;
+const realDbClient = await import("../db/client");
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.VERCEL = "1";
@@ -24,6 +25,7 @@ const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
 const cloudDb = mock(() => {
   throw new Error("cloudDb should not be reached after a push rate-limit block");
 });
+let useStubDb = false;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -36,13 +38,21 @@ mock.module("@vercel/firewall", () => ({
 }));
 
 mock.module("../db/client", () => ({
-  cloudDb,
-  closeCloudDbForTests: async () => {},
+  ...realDbClient,
+  cloudDb: (() =>
+    useStubDb
+      ? (cloudDb() as unknown as ReturnType<typeof realDbClient.cloudDb>)
+      : realDbClient.cloudDb()) as typeof realDbClient.cloudDb,
 }));
 
 const pushRoute = await import("../app/api/notifications/push/route");
 
+beforeAll(() => {
+  useStubDb = true;
+});
+
 afterAll(() => {
+  useStubDb = false;
   for (const key of envKeys) {
     const value = originalEnv[key];
     if (typeof value === "undefined") {

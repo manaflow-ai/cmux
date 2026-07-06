@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -28,6 +28,16 @@ const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
 
+const realWorkflows = await import("../services/vms/workflows");
+const realDbClient = await import("../db/client");
+
+let useWorkflowStubs = false;
+let useStubDb = false;
+
+function callMock(fn: unknown, args: unknown[]) {
+  return (fn as (...args: unknown[]) => unknown)(...args);
+}
+
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
@@ -35,13 +45,21 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../services/vms/workflows", () => ({
-  createVm,
-  destroyVm,
-  execVm,
-  listUserVms,
-  openAttachEndpoint,
-  openSshEndpoint,
-  runVmWorkflow,
+  ...realWorkflows,
+  createVm: ((...args: Parameters<typeof realWorkflows.createVm>) =>
+    useWorkflowStubs ? callMock(createVm, args) : realWorkflows.createVm(...args)) as typeof realWorkflows.createVm,
+  destroyVm: ((...args: Parameters<typeof realWorkflows.destroyVm>) =>
+    useWorkflowStubs ? callMock(destroyVm, args) : realWorkflows.destroyVm(...args)) as typeof realWorkflows.destroyVm,
+  execVm: ((...args: Parameters<typeof realWorkflows.execVm>) =>
+    useWorkflowStubs ? callMock(execVm, args) : realWorkflows.execVm(...args)) as typeof realWorkflows.execVm,
+  listUserVms: ((...args: Parameters<typeof realWorkflows.listUserVms>) =>
+    useWorkflowStubs ? callMock(listUserVms, args) : realWorkflows.listUserVms(...args)) as typeof realWorkflows.listUserVms,
+  openAttachEndpoint: ((...args: Parameters<typeof realWorkflows.openAttachEndpoint>) =>
+    useWorkflowStubs ? callMock(openAttachEndpoint, args) : realWorkflows.openAttachEndpoint(...args)) as typeof realWorkflows.openAttachEndpoint,
+  openSshEndpoint: ((...args: Parameters<typeof realWorkflows.openSshEndpoint>) =>
+    useWorkflowStubs ? callMock(openSshEndpoint, args) : realWorkflows.openSshEndpoint(...args)) as typeof realWorkflows.openSshEndpoint,
+  runVmWorkflow: ((...args: Parameters<typeof realWorkflows.runVmWorkflow>) =>
+    useWorkflowStubs ? callMock(runVmWorkflow, args) : realWorkflows.runVmWorkflow(...args)) as typeof realWorkflows.runVmWorkflow,
 }));
 
 // Self-shield from other suites' process-global db mocks AND from the real
@@ -51,10 +69,11 @@ mock.module("../services/vms/workflows", () => ({
 // isMissingDatabaseConfig so the reconcile degrades exactly like a
 // DATABASE_URL-less environment.
 mock.module("../db/client", () => ({
+  ...realDbClient,
   cloudDb: () => {
+    if (!useStubDb) return realDbClient.cloudDb();
     throw new Error("DATABASE_URL is required for Cloud VM database access");
   },
-  closeCloudDbForTests: async () => {},
 }));
 
 const { GET, POST, withBillingReconcileDeadline } = await import("../app/api/vm/route");
@@ -65,6 +84,16 @@ const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const { VmProviderOperationError } = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
+
+beforeAll(() => {
+  useWorkflowStubs = true;
+  useStubDb = true;
+});
+
+afterAll(() => {
+  useWorkflowStubs = false;
+  useStubDb = false;
+});
 
 beforeEach(() => {
   restoreVmEnv();

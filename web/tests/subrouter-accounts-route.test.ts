@@ -1,11 +1,13 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const originalFetch = globalThis.fetch;
 const secret = Buffer.alloc(32, 11).toString("base64");
+const realDbClient = await import("../db/client");
 
 let currentUser: unknown;
 let fakeDb: ReturnType<typeof createFakeRouteDb>;
 let upstream: ReturnType<typeof createMockSubrouter>;
+let useStubDb = false;
 
 const getUser = mock(async () => currentUser);
 const cloudDb = mock(() => fakeDb);
@@ -17,15 +19,23 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../db/client", () => ({
-  cloudDb,
-  closeCloudDbForTests: async () => {},
+  ...realDbClient,
+  cloudDb: (() =>
+    useStubDb
+      ? (cloudDb() as unknown as ReturnType<typeof realDbClient.cloudDb>)
+      : realDbClient.cloudDb()) as typeof realDbClient.cloudDb,
 }));
 
 const { encryptTenantKey } = await import("../services/subrouter/crypto");
 const accountsRoute = await import("../app/api/subrouter/accounts/route");
 const accountRoute = await import("../app/api/subrouter/accounts/[accountId]/route");
 
+beforeAll(() => {
+  useStubDb = true;
+});
+
 afterAll(() => {
+  useStubDb = false;
   globalThis.fetch = originalFetch;
 });
 
