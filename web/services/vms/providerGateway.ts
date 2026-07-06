@@ -18,6 +18,8 @@ export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
+  readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -63,6 +65,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       if (!driver.getStatus) return "running" as const;
       return await driver.getStatus(vmId);
     }),
+  resume: (provider, vmId) =>
+    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
+  pause: (provider, vmId) =>
+    providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   openAttach: (provider, vmId, options) =>

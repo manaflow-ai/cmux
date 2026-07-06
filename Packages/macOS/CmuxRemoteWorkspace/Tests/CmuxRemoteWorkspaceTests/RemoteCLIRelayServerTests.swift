@@ -159,7 +159,7 @@ private final class RelayTestClient: @unchecked Sendable {
     func cancel() { connection.cancel() }
 }
 
-@Suite("RemoteCLIRelayServer")
+@Suite("RemoteCLIRelayServer", .serialized)
 struct RemoteCLIRelayServerTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
 
