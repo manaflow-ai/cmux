@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import { pipe } from "effect/Function";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
@@ -73,6 +74,13 @@ function workflowLayer(
   );
 }
 
+function runWithLayer<A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  layer: Layer.Layer<any, any, any>,
+) {
+  return Effect.runPromise(pipe(effect, Effect.provide(layer)));
+}
+
 beforeAll(() => {
   if (!runDbTests) return;
   sql = postgres(databaseURL(), { max: 1 });
@@ -121,16 +129,14 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-resume",
-          providerVmId: "provider-vm-exec-resume",
-          command: "echo preflight",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+    const result = await runWithLayer(
+      execVm({
+        userId: "user-workflow-exec-resume",
+        providerVmId: "provider-vm-exec-resume",
+        command: "echo preflight",
+        timeoutMs: 1000,
+      }),
+      workflowLayer(repo, provider),
     );
 
     expect(result).toEqual({ exitCode: 7, stdout: "preflight", stderr: "" });
@@ -181,18 +187,16 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-running",
-            providerVmId: "provider-vm-exec-running",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        execVm({
+          userId: "user-workflow-exec-running",
+          providerVmId: "provider-vm-exec-running",
+          command: "true",
+          timeoutMs: 1000,
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBe(originalError);
@@ -233,18 +237,16 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-resume-fails",
-            providerVmId: "provider-vm-exec-resume-fails",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        execVm({
+          userId: "user-workflow-exec-resume-fails",
+          providerVmId: "provider-vm-exec-resume-fails",
+          command: "true",
+          timeoutMs: 1000,
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBe(resumeError);
@@ -286,18 +288,16 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-mark-false",
-            providerVmId: "provider-vm-exec-mark-false",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        execVm({
+          userId: "user-workflow-exec-mark-false",
+          providerVmId: "provider-vm-exec-mark-false",
+          command: "true",
+          timeoutMs: 1000,
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBeInstanceOf(VmNotFoundError);
@@ -331,18 +331,16 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-no-status",
-            providerVmId: "provider-vm-exec-no-status",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        execVm({
+          userId: "user-workflow-exec-no-status",
+          providerVmId: "provider-vm-exec-no-status",
+          command: "true",
+          timeoutMs: 1000,
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBe(originalError);
@@ -376,18 +374,16 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-no-resume",
-            providerVmId: "provider-vm-exec-no-resume",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        execVm({
+          userId: "user-workflow-exec-no-resume",
+          providerVmId: "provider-vm-exec-no-resume",
+          command: "true",
+          timeoutMs: 1000,
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBe(originalError);
@@ -429,18 +425,16 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-exec-no-replay",
-            providerVmId: "provider-vm-exec-no-replay",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        execVm({
+          userId: "user-workflow-exec-no-replay",
+          providerVmId: "provider-vm-exec-no-replay",
+          command: "true",
+          timeoutMs: 1000,
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBe(originalError);
@@ -481,16 +475,14 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-status-fails",
-          providerVmId: "provider-vm-exec-status-fails",
-          command: "true",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+    const result = await runWithLayer(
+      execVm({
+        userId: "user-workflow-exec-status-fails",
+        providerVmId: "provider-vm-exec-status-fails",
+        command: "true",
+        timeoutMs: 1000,
+      }),
+      workflowLayer(repo, provider),
     );
 
     expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
@@ -536,15 +528,13 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const result = await Effect.runPromise(
-      Effect.provide(
-        openAttachEndpoint({
-          userId: "user-workflow-attach-resume",
-          providerVmId: "provider-vm-attach-resume",
-          options: { requireDaemon: true },
-        }),
-        workflowLayer(repo, provider),
-      ),
+    const result = await runWithLayer(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-resume",
+        providerVmId: "provider-vm-attach-resume",
+        options: { requireDaemon: true },
+      }),
+      workflowLayer(repo, provider),
     );
 
     expect(result).toEqual(endpoint);
@@ -612,16 +602,14 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openAttachEndpoint({
-            userId: "user-workflow-attach-mark-fails",
-            providerVmId: "provider-vm-attach-mark-fails",
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        openAttachEndpoint({
+          userId: "user-workflow-attach-mark-fails",
+          providerVmId: "provider-vm-attach-mark-fails",
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBe(markError);
@@ -678,16 +666,14 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openAttachEndpoint({
-            userId: "user-workflow-attach-mark-false",
-            providerVmId: "provider-vm-attach-mark-false",
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        openAttachEndpoint({
+          userId: "user-workflow-attach-mark-false",
+          providerVmId: "provider-vm-attach-mark-false",
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBeInstanceOf(VmNotFoundError);
@@ -735,14 +721,12 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const result = await Effect.runPromise(
-      Effect.provide(
-        openSshEndpoint({
-          userId: "user-workflow-ssh-resume",
-          providerVmId: "provider-vm-ssh-resume",
-        }),
-        workflowLayer(repo, provider),
-      ),
+    const result = await runWithLayer(
+      openSshEndpoint({
+        userId: "user-workflow-ssh-resume",
+        providerVmId: "provider-vm-ssh-resume",
+      }),
+      workflowLayer(repo, provider),
     );
 
     expect(result).toEqual(endpoint);
@@ -799,14 +783,12 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const result = await Effect.runPromise(
-      Effect.provide(
-        openAttachEndpoint({
-          userId: "user-workflow-attach-race",
-          providerVmId: "provider-vm-attach-race",
-        }),
-        workflowLayer(repo, provider),
-      ),
+    const result = await runWithLayer(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-race",
+        providerVmId: "provider-vm-attach-race",
+      }),
+      workflowLayer(repo, provider),
     );
 
     expect(result).toEqual(endpoint);
@@ -849,16 +831,14 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openAttachEndpoint({
-            userId: "user-workflow-attach-probe-fail",
-            providerVmId: "provider-vm-attach-probe-fail",
-          }),
-        ),
-        workflowLayer(repo, provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        openAttachEndpoint({
+          userId: "user-workflow-attach-probe-fail",
+          providerVmId: "provider-vm-attach-probe-fail",
+        }),
       ),
+      workflowLayer(repo, provider),
     );
 
     expect(error).toBe(probeError);
@@ -904,16 +884,14 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-settle",
-          providerVmId: "provider-vm-exec-settle",
-          command: "echo ok",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+    const result = await runWithLayer(
+      execVm({
+        userId: "user-workflow-exec-settle",
+        providerVmId: "provider-vm-exec-settle",
+        command: "echo ok",
+        timeoutMs: 1000,
+      }),
+      workflowLayer(repo, provider),
     );
 
     expect(result.exitCode).toBe(0);
@@ -958,16 +936,14 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const result = await Effect.runPromise(
-      Effect.provide(
-        execVm({
-          userId: "user-workflow-exec-concurrent",
-          providerVmId: "provider-vm-exec-concurrent",
-          command: "echo ok",
-          timeoutMs: 1000,
-        }),
-        workflowLayer(repo, provider),
-      ),
+    const result = await runWithLayer(
+      execVm({
+        userId: "user-workflow-exec-concurrent",
+        providerVmId: "provider-vm-exec-concurrent",
+        command: "echo ok",
+        timeoutMs: 1000,
+      }),
+      workflowLayer(repo, provider),
     );
 
     expect(result.exitCode).toBe(0);
@@ -1041,21 +1017,19 @@ describe("VM Effect workflows", () => {
       Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
     );
 
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-usage-events",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-usage-events",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "freestyle",
-          image: "snapshot-test",
-          imageVersion: "test-version",
-          idempotencyKey: "usage-events",
-        }),
-        layer,
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-usage-events",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-usage-events",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        imageVersion: "test-version",
+        idempotencyKey: "usage-events",
+      }),
+      layer,
     );
 
     expect(created.providerVmId).toBe("provider-vm-usage-events");
@@ -1099,8 +1073,8 @@ describe("VM Effect workflows", () => {
       idempotencyKey: "idem-1",
     });
     const layer = providerLayer(provider);
-    const first = await Effect.runPromise(Effect.provide(program, layer));
-    const second = await Effect.runPromise(Effect.provide(program, layer));
+    const first = await runWithLayer(program, layer);
+    const second = await runWithLayer(program, layer);
 
     expect(first).toEqual(second);
     expect(createCalls).toBe(1);
@@ -1156,17 +1130,13 @@ describe("VM Effect workflows", () => {
     };
     const layer = providerLayer(provider);
 
-    const endpoint1 = await Effect.runPromise(
-      Effect.provide(
-        openSshEndpoint({ userId: "user-workflow-ssh", providerVmId: "provider-vm-ssh-1" }),
-        layer,
-      ),
+    const endpoint1 = await runWithLayer(
+      openSshEndpoint({ userId: "user-workflow-ssh", providerVmId: "provider-vm-ssh-1" }),
+      layer,
     );
-    const endpoint2 = await Effect.runPromise(
-      Effect.provide(
-        openSshEndpoint({ userId: "user-workflow-ssh", providerVmId: "provider-vm-ssh-1" }),
-        layer,
-      ),
+    const endpoint2 = await runWithLayer(
+      openSshEndpoint({ userId: "user-workflow-ssh", providerVmId: "provider-vm-ssh-1" }),
+      layer,
     );
 
     expect(endpoint1.identityHandle).toBe("identity-1");
@@ -1213,22 +1183,20 @@ describe("VM Effect workflows", () => {
       revokeSSHIdentity: () => Effect.void,
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          createVm({
-            userId: "user-workflow-limit-new",
-            billingCustomerType: "team",
-            billingTeamId: "team-workflow-limit",
-            billingPlanId: "free",
-            maxActiveVms: 1,
-            provider: "e2b",
-            image: "cmuxd-ws:test",
-            idempotencyKey: "limit-new-1",
-          }),
-        ),
-        providerLayer(provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        createVm({
+          userId: "user-workflow-limit-new",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-limit",
+          billingPlanId: "free",
+          maxActiveVms: 1,
+          provider: "e2b",
+          image: "cmuxd-ws:test",
+          idempotencyKey: "limit-new-1",
+        }),
       ),
+      providerLayer(provider),
     );
 
     expect(error).toBeInstanceOf(VmLimitExceededError);
@@ -1269,20 +1237,18 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-paused-slot-new",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-paused-slot",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "freestyle",
-          image: "snapshot-test",
-          idempotencyKey: "paused-slot-new",
-        }),
-        providerLayer(provider),
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-paused-slot-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-paused-slot",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "paused-slot-new",
+      }),
+      providerLayer(provider),
     );
 
     expect(created.providerVmId).toBe("provider-vm-paused-new");
@@ -1324,20 +1290,18 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-under-limit-new",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-under-limit",
-          billingPlanId: "free",
-          maxActiveVms: 2,
-          provider: "freestyle",
-          image: "snapshot-test",
-          idempotencyKey: "under-limit-new",
-        }),
-        providerLayer(provider),
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-under-limit-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-under-limit",
+        billingPlanId: "free",
+        maxActiveVms: 2,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "under-limit-new",
+      }),
+      providerLayer(provider),
     );
 
     expect(created.providerVmId).toBe("provider-vm-under-limit-new");
@@ -1379,20 +1343,18 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-provider-paused-new",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-provider-paused",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "freestyle",
-          image: "snapshot-test",
-          idempotencyKey: "provider-paused-new",
-        }),
-        providerLayer(provider),
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-provider-paused-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-paused",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-paused-new",
+      }),
+      providerLayer(provider),
     );
 
     expect(created.providerVmId).toBe("provider-vm-provider-paused-new");
@@ -1448,20 +1410,18 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-provider-deleted-new",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-provider-deleted",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "freestyle",
-          image: "snapshot-test",
-          idempotencyKey: "provider-deleted-new",
-        }),
-        providerLayer(provider),
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-provider-deleted-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-deleted",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-deleted-new",
+      }),
+      providerLayer(provider),
     );
 
     expect(created.providerVmId).toBe("provider-vm-provider-deleted-new");
@@ -1530,20 +1490,18 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-provider-concurrent-new",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-provider-concurrent",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "freestyle",
-          image: "snapshot-test",
-          idempotencyKey: "provider-concurrent-new",
-        }),
-        providerLayer(provider),
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-provider-concurrent-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-concurrent",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-concurrent-new",
+      }),
+      providerLayer(provider),
     );
 
     expect(created.providerVmId).toBe("provider-vm-provider-concurrent-new");
@@ -1588,22 +1546,20 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          createVm({
-            userId: "user-workflow-provider-creating-new",
-            billingCustomerType: "team",
-            billingTeamId: "team-workflow-provider-creating",
-            billingPlanId: "free",
-            maxActiveVms: 1,
-            provider: "freestyle",
-            image: "snapshot-test",
-            idempotencyKey: "provider-creating-new",
-          }),
-        ),
-        providerLayer(provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        createVm({
+          userId: "user-workflow-provider-creating-new",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-provider-creating",
+          billingPlanId: "free",
+          maxActiveVms: 1,
+          provider: "freestyle",
+          image: "snapshot-test",
+          idempotencyKey: "provider-creating-new",
+        }),
       ),
+      providerLayer(provider),
     );
 
     expect(error).toBeInstanceOf(VmLimitExceededError);
@@ -1645,22 +1601,20 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          createVm({
-            userId: "user-workflow-provider-running-new",
-            billingCustomerType: "team",
-            billingTeamId: "team-workflow-provider-running",
-            billingPlanId: "free",
-            maxActiveVms: 1,
-            provider: "freestyle",
-            image: "snapshot-test",
-            idempotencyKey: "provider-running-new",
-          }),
-        ),
-        providerLayer(provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        createVm({
+          userId: "user-workflow-provider-running-new",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-provider-running",
+          billingPlanId: "free",
+          maxActiveVms: 1,
+          provider: "freestyle",
+          image: "snapshot-test",
+          idempotencyKey: "provider-running-new",
+        }),
       ),
+      providerLayer(provider),
     );
 
     expect(error).toBeInstanceOf(VmLimitExceededError);
@@ -1708,20 +1662,18 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-provider-destroy-race-new",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-provider-destroy-race",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "freestyle",
-          image: "snapshot-test",
-          idempotencyKey: "provider-destroy-race-new",
-        }),
-        providerLayer(provider),
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-provider-destroy-race-new",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-provider-destroy-race",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "provider-destroy-race-new",
+      }),
+      providerLayer(provider),
     );
 
     expect(created.providerVmId).toBe("provider-vm-provider-destroy-race-new");
@@ -1796,12 +1748,7 @@ describe("VM Effect workflows", () => {
             ${input.idempotencyKey}
           )
         `;
-        retry = Effect.runPromise(
-          Effect.provide(
-            Effect.flip(createVm(input)),
-            layer,
-          ),
-        );
+        retry = runWithLayer(Effect.flip(createVm(input)), layer);
         await waitForBlockedAdvisoryLock(testSql, input.billingTeamId);
       });
     } finally {
@@ -1852,26 +1799,22 @@ describe("VM Effect workflows", () => {
     };
     const layer = providerLayer(provider);
 
-    await Effect.runPromise(
-      Effect.provide(
-        destroyVm({ userId: "user-workflow-reuse-slot", providerVmId: "provider-vm-reuse-old" }),
-        layer,
-      ),
+    await runWithLayer(
+      destroyVm({ userId: "user-workflow-reuse-slot", providerVmId: "provider-vm-reuse-old" }),
+      layer,
     );
-    const created = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-reuse-slot",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-reuse-slot",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "e2b",
-          image: "cmuxd-ws:test",
-          idempotencyKey: "reuse-slot-new",
-        }),
-        layer,
-      ),
+    const created = await runWithLayer(
+      createVm({
+        userId: "user-workflow-reuse-slot",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-reuse-slot",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "e2b",
+        image: "cmuxd-ws:test",
+        idempotencyKey: "reuse-slot-new",
+      }),
+      layer,
     );
 
     expect(created.providerVmId).toBe("provider-vm-reuse-new");
@@ -1939,8 +1882,8 @@ describe("VM Effect workflows", () => {
     });
     const layer = providerLayer(provider, billing);
 
-    const first = await Effect.runPromise(Effect.provide(program, layer));
-    const second = await Effect.runPromise(Effect.provide(program, layer));
+    const first = await runWithLayer(program, layer);
+    const second = await runWithLayer(program, layer);
 
     expect(first).toEqual(second);
     expect(createCalls).toBe(1);
@@ -2009,20 +1952,18 @@ describe("VM Effect workflows", () => {
 
     const layer = providerLayer(provider, billing);
     for (const idempotencyKey of ["credit-grant-1", "credit-grant-2"]) {
-      await Effect.runPromise(
-        Effect.provide(
-          createVm({
-            userId: "user-workflow-credit-grant",
-            billingCustomerType: "team",
-            billingTeamId: "team-workflow-credit-grant",
-            billingPlanId: "free",
-            maxActiveVms: 10,
-            provider: "e2b",
-            image: "cmuxd-ws:credit-grant",
-            idempotencyKey,
-          }),
-          layer,
-        ),
+      await runWithLayer(
+        createVm({
+          userId: "user-workflow-credit-grant",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-credit-grant",
+          billingPlanId: "free",
+          maxActiveVms: 10,
+          provider: "e2b",
+          image: "cmuxd-ws:credit-grant",
+          idempotencyKey,
+        }),
+        layer,
       );
     }
 
@@ -2074,22 +2015,20 @@ describe("VM Effect workflows", () => {
       refundCreate: () => Effect.void,
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          createVm({
-            userId: "user-workflow-credit-empty",
-            billingCustomerType: "team",
-            billingTeamId: "team-workflow-credit-empty",
-            billingPlanId: "free",
-            maxActiveVms: 1,
-            provider: "freestyle",
-            image: "snapshot-credit-empty",
-            idempotencyKey: "credit-empty-1",
-          }),
-        ),
-        providerLayer(provider, billing),
+    const error = await runWithLayer(
+      Effect.flip(
+        createVm({
+          userId: "user-workflow-credit-empty",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-credit-empty",
+          billingPlanId: "free",
+          maxActiveVms: 1,
+          provider: "freestyle",
+          image: "snapshot-credit-empty",
+          idempotencyKey: "credit-empty-1",
+        }),
       ),
+      providerLayer(provider, billing),
     );
 
     expect(error).toBeInstanceOf(VmCreateCreditsInsufficientError);
@@ -2138,20 +2077,18 @@ describe("VM Effect workflows", () => {
       revokeSSHIdentity: () => Effect.void,
     };
 
-    const recovered = await Effect.runPromise(
-      Effect.provide(
-        createVm({
-          userId: "user-workflow-credit-empty",
-          billingCustomerType: "team",
-          billingTeamId: "team-workflow-credit-empty",
-          billingPlanId: "free",
-          maxActiveVms: 1,
-          provider: "freestyle",
-          image: "snapshot-credit-recovered",
-          idempotencyKey: "credit-empty-2",
-        }),
-        providerLayer(recoveryProvider),
-      ),
+    const recovered = await runWithLayer(
+      createVm({
+        userId: "user-workflow-credit-empty",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-credit-empty",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-credit-recovered",
+        idempotencyKey: "credit-empty-2",
+      }),
+      providerLayer(recoveryProvider),
     );
 
     expect(recovered.providerVmId).toBe("provider-vm-credit-recovered");
@@ -2191,20 +2128,18 @@ describe("VM Effect workflows", () => {
     };
 
     await expect(
-      Effect.runPromise(
-        Effect.provide(
-          createVm({
-            userId: "user-workflow-credit-refund",
-            billingCustomerType: "team",
-            billingTeamId: "team-workflow-credit-refund",
-            billingPlanId: "free",
-            maxActiveVms: 1,
-            provider: "freestyle",
-            image: "snapshot-credit-refund",
-            idempotencyKey: "credit-refund-1",
-          }),
-          providerLayer(provider, billing),
-        ),
+      runWithLayer(
+        createVm({
+          userId: "user-workflow-credit-refund",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-credit-refund",
+          billingPlanId: "free",
+          maxActiveVms: 1,
+          provider: "freestyle",
+          image: "snapshot-credit-refund",
+          idempotencyKey: "credit-refund-1",
+        }),
+        providerLayer(provider, billing),
       ),
     ).rejects.toThrow();
 
@@ -2251,16 +2186,14 @@ describe("VM Effect workflows", () => {
       revokeSSHIdentity: () => Effect.void,
     };
 
-    const error = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openAttachEndpoint({
-            userId: "user-workflow-attacker",
-            providerVmId: "provider-vm-private-1",
-          }),
-        ),
-        providerLayer(provider),
+    const error = await runWithLayer(
+      Effect.flip(
+        openAttachEndpoint({
+          userId: "user-workflow-attacker",
+          providerVmId: "provider-vm-private-1",
+        }),
       ),
+      providerLayer(provider),
     );
     expect(error).toBeInstanceOf(VmNotFoundError);
     expect(attachCalls).toBe(0);
@@ -2303,34 +2236,28 @@ describe("VM Effect workflows", () => {
     };
     const layer = providerLayer(provider);
 
-    const destroyError = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          destroyVm({ userId: "user-workflow-attacker", providerVmId: "provider-vm-private-2" }),
-        ),
-        layer,
+    const destroyError = await runWithLayer(
+      Effect.flip(
+        destroyVm({ userId: "user-workflow-attacker", providerVmId: "provider-vm-private-2" }),
       ),
+      layer,
     );
-    const execError = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          execVm({
-            userId: "user-workflow-attacker",
-            providerVmId: "provider-vm-private-2",
-            command: "true",
-            timeoutMs: 1000,
-          }),
-        ),
-        layer,
+    const execError = await runWithLayer(
+      Effect.flip(
+        execVm({
+          userId: "user-workflow-attacker",
+          providerVmId: "provider-vm-private-2",
+          command: "true",
+          timeoutMs: 1000,
+        }),
       ),
+      layer,
     );
-    const sshError = await Effect.runPromise(
-      Effect.provide(
-        Effect.flip(
-          openSshEndpoint({ userId: "user-workflow-attacker", providerVmId: "provider-vm-private-2" }),
-        ),
-        layer,
+    const sshError = await runWithLayer(
+      Effect.flip(
+        openSshEndpoint({ userId: "user-workflow-attacker", providerVmId: "provider-vm-private-2" }),
       ),
+      layer,
     );
 
     expect(destroyError).toBeInstanceOf(VmNotFoundError);
@@ -2379,17 +2306,13 @@ describe("VM Effect workflows", () => {
     };
     const layer = providerLayer(provider);
 
-    await Effect.runPromise(
-      Effect.provide(
-        openAttachEndpoint({ userId: "user-workflow-attach", providerVmId: "provider-vm-attach-1" }),
-        layer,
-      ),
+    await runWithLayer(
+      openAttachEndpoint({ userId: "user-workflow-attach", providerVmId: "provider-vm-attach-1" }),
+      layer,
     );
-    await Effect.runPromise(
-      Effect.provide(
-        openAttachEndpoint({ userId: "user-workflow-attach", providerVmId: "provider-vm-attach-1" }),
-        layer,
-      ),
+    await runWithLayer(
+      openAttachEndpoint({ userId: "user-workflow-attach", providerVmId: "provider-vm-attach-1" }),
+      layer,
     );
 
     const leases = await sql<{ kind: string; sessionId: string | null }[]>`
