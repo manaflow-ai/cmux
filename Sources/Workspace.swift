@@ -2639,6 +2639,10 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    /// Agent lifecycle status keys that were `.idle` when a pane hibernated, stashed so
+    /// resume can restore `.idle` even after the SIGTERM'd agent process's child-exit
+    /// clears the live `agentLifecycleStatesByPanelId` entry. Cleared on resume / removal.
+    var hibernatedAgentLifecycleKeysByPanelId: [UUID: Set<String>] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
@@ -4768,11 +4772,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// non-idle until a fresh Stop hook fired, so they never re-hibernated. The resumed
     /// agent's own hooks overwrite this to `.running`/`.needsInput` the moment it works.
     func restoreAgentLifecycleToIdleAfterResume(panelId: UUID) {
-        guard let keys = agentLifecycleStatesByPanelId[panelId]?.keys, !keys.isEmpty else {
-            return
-        }
-        for key in Array(keys) {
-            agentLifecycleStatesByPanelId[panelId]?[key] = .idle
+        // Prefer any live keys, but fall back to the keys stashed at hibernation time,
+        // since the SIGTERM'd process's child-exit clears the live map before resume runs.
+        let liveKeys = agentLifecycleStatesByPanelId[panelId].map { Set($0.keys) } ?? []
+        let keys = liveKeys.isEmpty ? (hibernatedAgentLifecycleKeysByPanelId[panelId] ?? []) : liveKeys
+        hibernatedAgentLifecycleKeysByPanelId.removeValue(forKey: panelId)
+        guard !keys.isEmpty else { return }
+        for key in keys {
+            agentLifecycleStatesByPanelId[panelId, default: [:]][key] = .idle
         }
         recordAgentLifecycleChange(panelId: panelId)
     }
@@ -4837,6 +4844,13 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        // Stash the agent lifecycle status keys before clearing PIDs below: the pane is
+        // `.idle` right now (the only reason the planner hibernated it), but the clears
+        // here and the SIGTERM'd process's child-exit wipe the live lifecycle map, so
+        // resume needs this stash to restore `.idle` and stay hibernation-eligible.
+        if let idleKeys = agentLifecycleStatesByPanelId[panelId]?.keys, !idleKeys.isEmpty {
+            hibernatedAgentLifecycleKeysByPanelId[panelId] = Set(idleKeys)
+        }
         let keys = agentPIDKeysByPanelId[panelId] ?? []
         for key in keys {
             _ = clearAgentPID(key: key, panelId: panelId, clearStatus: false, refreshPorts: false)

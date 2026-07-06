@@ -453,6 +453,7 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        hibernatedAgentLifecycleKeysByPanelId.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)

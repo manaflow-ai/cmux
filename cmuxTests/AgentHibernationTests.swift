@@ -965,6 +965,15 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
+        // Simulate what the live app does: hibernation SIGTERMs the agent process, and its
+        // child-exit clears the pane's live lifecycle map before resume runs. Resume must
+        // still restore `.idle` from the keys stashed at hibernation time — re-stamping
+        // only surviving live keys (the earlier, insufficient fix) leaves it `.unknown` here.
+        workspace.clearAgentLifecycleStates(panelId: panelId)
+        XCTAssertTrue(
+            workspace.agentLifecycleStatesByPanelId[panelId]?.isEmpty ?? true,
+            "precondition: live lifecycle map cleared, mirroring the child-exit"
+        )
 
         XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
         XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
