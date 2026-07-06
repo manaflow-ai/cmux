@@ -8475,7 +8475,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     var onDownloadFailed: ((Error, Bool, String?) -> Void)?
     var savePanelParentWindow: (() -> NSWindow?)?
 
-    private static let tempDir: URL = {
+    static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -8518,7 +8518,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         }
     }
 
-    private nonisolated static func moveTemporaryDownloadToDownloads(
+    nonisolated static func moveTemporaryDownloadToDownloads(
         tempURL: URL,
         suggestedFilename: String,
         sourceURL: URL,
@@ -8549,7 +8549,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     }
 
     @MainActor
-    private func presentSavePanel(
+    func presentSavePanel(
         downloadID: String,
         tempURL: URL,
         suggestedFilename: String,
@@ -8688,7 +8688,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - UI Delegate
 
-private class BrowserUIDelegate: NSObject, WKUIDelegate {
+private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?; var recordPDFPrintIntent: ((URLRequest, WKFrameInfo?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
