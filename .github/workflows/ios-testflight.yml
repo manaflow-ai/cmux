@@ -528,7 +528,6 @@ jobs:
       SHOULD_ASSIGN_ONLY: ${{ needs.decide.outputs.should_assign_only }}
       LAST_UPLOADED_RUN_ID: ${{ needs.decide.outputs.last_uploaded_run_id }}
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
-      CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE: ${{ runner.temp }}/ios-testflight-assign-state.txt
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -547,6 +546,7 @@ jobs:
         id: assign
         run: |
           set -euo pipefail
+          export CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE="$RUNNER_TEMP/ios-testflight-assign-state.txt"
           if [ -z "${BUILD_NUMBER:-}" ] || [ "$BUILD_NUMBER" = "unknown" ]; then
             echo "missing uploaded build number for external TestFlight assignment" >&2
             exit 1
