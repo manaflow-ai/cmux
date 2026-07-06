@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -79,7 +79,7 @@ pub struct CdpClient {
 }
 
 struct Inner {
-    ws: Mutex<WebSocket<TcpStream>>,
+    outbound: Sender<String>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
     events: Sender<CdpEvent>,
     next_id: AtomicU64,
@@ -99,16 +99,16 @@ impl CdpClient {
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = web_socket_url.into_client_request()?;
         let (ws, _) = client(request, stream)?;
-        // The reader loop holds the ws mutex for the whole read poll
-        // (sync tungstenite cannot split read/write halves), so this
-        // window is also the worst-case wait for every outgoing call.
-        // Keep it short: writers stall at most ~20ms, and the idle
-        // wakeup cost (one timed-out read per window) is negligible.
+        // The reader thread owns the socket and drains queued outbound
+        // writes before each read poll. A message enqueued just after a
+        // read starts can wait for this window, but writers never contend
+        // on the socket itself.
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
+        let (outbound_tx, outbound_rx) = channel();
         let client = CdpClient {
             inner: Arc::new(Inner {
-                ws: Mutex::new(ws),
+                outbound: outbound_tx,
                 pending: Mutex::new(HashMap::new()),
                 events,
                 next_id: AtomicU64::new(1),
@@ -116,14 +116,18 @@ impl CdpClient {
                 timeout: Duration::from_secs(30),
             }),
         };
-        client.spawn_reader()?;
+        client.spawn_reader(ws, outbound_rx)?;
         Ok(client)
     }
 
-    fn spawn_reader(&self) -> anyhow::Result<()> {
+    fn spawn_reader(
+        &self,
+        ws: WebSocket<TcpStream>,
+        outbound: Receiver<String>,
+    ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
         std::thread::Builder::new().name("mux-cdp-reader".into()).spawn(move || {
-            reader_loop(weak);
+            reader_loop(weak, ws, outbound);
         })?;
         Ok(())
     }
@@ -371,8 +375,7 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        let mut ws = self.inner.ws.lock().unwrap();
-        ws.send(Message::Text(text))?;
+        self.inner.outbound.send(text).map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
         Ok(())
     }
 }
@@ -393,16 +396,17 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
     ports.iter().find_map(|port| fetch_json_version("127.0.0.1", *port).ok())
 }
 
-fn reader_loop(weak: Weak<Inner>) {
+fn reader_loop(weak: Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: Receiver<String>) {
     loop {
         let Some(inner) = weak.upgrade() else { break };
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
-        let message = {
-            let mut ws = inner.ws.lock().unwrap();
-            ws.read()
-        };
+        if let Err(err) = drain_outbound(&mut ws, &outbound) {
+            close_inner(&inner, &format!("CDP socket error: {err}"));
+            break;
+        }
+        let message = ws.read();
         match message {
             Ok(Message::Text(text)) => handle_text(&inner, &text),
             Ok(Message::Binary(bytes)) => {
@@ -427,6 +431,18 @@ fn reader_loop(weak: Weak<Inner>) {
                 close_inner(&inner, &format!("CDP socket error: {e}"));
                 break;
             }
+        }
+    }
+}
+
+fn drain_outbound(
+    ws: &mut WebSocket<TcpStream>,
+    outbound: &Receiver<String>,
+) -> anyhow::Result<()> {
+    loop {
+        match outbound.try_recv() {
+            Ok(text) => ws.send(Message::Text(text))?,
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
         }
     }
 }
@@ -488,7 +504,7 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    let _ = inner.ws.lock().unwrap().send(Message::Text(text));
+    let _ = inner.outbound.send(text);
 }
 
 fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame> {
@@ -640,5 +656,105 @@ impl WsEndpoint {
             None => (host_port, 80),
         };
         Ok(WsEndpoint { host: host.trim_matches(['[', ']']).to_string(), port })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use tungstenite::{accept, Message};
+
+    use super::*;
+
+    #[test]
+    fn concurrent_calls_complete_while_reader_receives_events() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        const CALLS: usize = 12;
+
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(5))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut responses = 0usize;
+
+            while responses < CALLS && Instant::now() < deadline {
+                ws.send(Message::Text(
+                    json!({
+                        "method": "Target.targetInfoChanged",
+                        "params": {
+                            "targetInfo": {
+                                "targetId": "target-busy",
+                                "title": "busy",
+                                "url": "https://busy.test"
+                            }
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+
+                match ws.read() {
+                    Ok(Message::Text(text)) => {
+                        let request: Value = serde_json::from_str(&text).unwrap();
+                        let id = request["id"].clone();
+                        ws.send(Message::Text(
+                            json!({"id": id, "result": {"method": request["method"]}}).to_string(),
+                        ))
+                        .unwrap();
+                        responses += 1;
+                    }
+                    Ok(Message::Binary(bytes)) => {
+                        let request: Value = serde_json::from_slice(&bytes).unwrap();
+                        let id = request["id"].clone();
+                        ws.send(Message::Text(
+                            json!({"id": id, "result": {"method": request["method"]}}).to_string(),
+                        ))
+                        .unwrap();
+                        responses += 1;
+                    }
+                    Ok(Message::Ping(_))
+                    | Ok(Message::Pong(_))
+                    | Ok(Message::Frame(_))
+                    | Ok(Message::Close(_)) => {}
+                    Err(WsError::Io(err))
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(err) => panic!("server websocket read failed: {err}"),
+                }
+            }
+
+            assert_eq!(responses, CALLS);
+        });
+
+        let (event_tx, _event_rx) = channel();
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        let barrier = Arc::new(Barrier::new(CALLS));
+        let start = Instant::now();
+        let mut workers = Vec::new();
+        for idx in 0..CALLS {
+            let client = client.clone();
+            let barrier = barrier.clone();
+            workers.push(thread::spawn(move || {
+                barrier.wait();
+                let result = client.call("Test.concurrent", json!({ "idx": idx }), None).unwrap();
+                assert_eq!(result["method"], "Test.concurrent");
+            }));
+        }
+
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert!(start.elapsed() < Duration::from_secs(5));
+        server.join().unwrap();
     }
 }
