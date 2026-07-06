@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { UserButton } from "@stackframe/stack";
 import { useTranslations } from "next-intl";
 import { ThemeToggle } from "@/app/[locale]/theme";
@@ -53,7 +54,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <UserButton />
+            <Suspense fallback={null}>
+              <UserButton />
+            </Suspense>
           </div>
         </div>
       </header>
