@@ -83,7 +83,7 @@ extension FleetEngine {
               let workspaceID = located.workspaceID,
               let surfaceID = located.surfaceID
         else { return }
-        let rendered = FleetPromptTemplate.render(
+        let rendered = FleetPromptTemplate().render(
             template: config.agentCommandTemplate,
             task: located,
             directory: located.directoryPath ?? "",

@@ -1,5 +1,8 @@
 /// Renders Fleet agent command templates.
-public enum FleetPromptTemplate {
+public struct FleetPromptTemplate: Sendable {
+    /// Creates a prompt template renderer.
+    public init() {}
+
     /// Renders a shell command template for a task.
     /// - Parameters:
     ///   - template: The agent command template.
@@ -7,7 +10,7 @@ public enum FleetPromptTemplate {
     ///   - directory: The task working directory.
     ///   - branch: The task branch, when known.
     /// - Returns: The rendered command text.
-    public static func render(
+    public func render(
         template: String,
         task: FleetTask,
         directory: String,
@@ -29,7 +32,7 @@ public enum FleetPromptTemplate {
         return rendered
     }
 
-    private static func shellQuoted(_ value: String) -> String {
+    private func shellQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
