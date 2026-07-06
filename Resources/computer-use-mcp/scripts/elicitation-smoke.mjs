@@ -217,7 +217,15 @@ async function runRawCancellationSmoke({ queued }) {
       )
         .then((message) => summarizeResult(message.result))
         .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
-      return { result: await slow, afterCancel };
+      const hiddenSnapshotClick = await request(
+        "after-cancel-click",
+        "tools/call",
+        { name: "computer_click", arguments: { app: "SlowStateApp", element: 1 } },
+        1000
+      )
+        .then((message) => summarizeResult(message.result))
+        .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+      return { result: await slow, afterCancel, hiddenSnapshotClick };
     }
 
     const rounds = [];
@@ -598,7 +606,7 @@ if (
 
 const cancelled = await runRawCancellationSmoke({ queued: false });
 console.log(
-  `cancelled tool call -> isError=${cancelled.result.isError} followUp=${cancelled.afterCancel.isError} text=${cancelled.afterCancel.text}`
+  `cancelled tool call -> isError=${cancelled.result.isError} followUp=${cancelled.afterCancel.isError} hiddenSnapshot=${cancelled.hiddenSnapshotClick.isError} text=${cancelled.afterCancel.text}`
 );
 if (!cancelled.result.isError) {
   console.error("FAIL: cancelled tool call should not complete successfully");
@@ -606,6 +614,10 @@ if (!cancelled.result.isError) {
 }
 if (cancelled.afterCancel.isError) {
   console.error("FAIL: cancellation should release the tool queue for the next call");
+  process.exit(1);
+}
+if (!cancelled.hiddenSnapshotClick.isError || !cancelled.hiddenSnapshotClick.text.includes("computer_state")) {
+  console.error("FAIL: cancelled perception must not grant a hidden element snapshot");
   process.exit(1);
 }
 

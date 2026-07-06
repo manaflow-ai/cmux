@@ -1064,6 +1064,7 @@ async function perceive(app) {
   } catch (error) {
     return providerError(error);
   }
+  throwIfActiveToolCancelled();
   s.rememberState(normalizedApp, state, { exposeElements: true, exposeCoordinates: !!state.image });
   const tree = truncateTree(state.tree ?? "");
   const content = [
@@ -1101,6 +1102,7 @@ async function appScreenshot(app) {
   } catch (error) {
     return providerError(error);
   }
+  throwIfActiveToolCancelled();
   s.rememberState(normalizedApp, state, { exposeElements: false, exposeCoordinates: !!state.image });
   return ok(state.image ? [{ type: "image", data: state.image.data, mimeType: state.image.mimeType }] : [text("(captured, no image)")]);
 }
