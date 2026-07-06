@@ -107,6 +107,14 @@ extension Workspace {
         return nil
     }
 
+    func restoresLegacyRemoteDirectoryWithoutProvenance(_ snapshot: SessionPanelSnapshot) -> Bool {
+        guard remoteConfiguration != nil,
+              snapshot.directoryIsTrustedRemoteReport == nil,
+              snapshot.directoryRequiresRemoteTrust == nil else { return false }
+        if let terminal = snapshot.terminal { return terminal.isRemoteTerminal != false }
+        return snapshot.agentSession != nil
+    }
+
     func currentDirectoryChangeRevisionPublisher() -> AnyPublisher<UInt64, Never> {
         NotificationCenter.default
             .publisher(for: .workspaceCurrentDirectoryDidChange)

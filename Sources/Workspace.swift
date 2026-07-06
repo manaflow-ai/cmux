@@ -1196,7 +1196,7 @@ extension Workspace {
     ) -> UUID? {
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
             (snapshot.directoryRequiresRemoteTrust == true ||
-                (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil && snapshot.terminal != nil && snapshot.terminal?.isRemoteTerminal != false))
+                restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
         switch snapshot.type {
         case .terminal:
             let snapshotRestorableAgent = snapshot.terminal?.agent
@@ -1652,7 +1652,7 @@ extension Workspace {
         let restoredDirectoryRequiresRemoteTrust = snapshot.directoryIsTrustedRemoteReport != true && (
             snapshot.directoryRequiresRemoteTrust == true ||
                 remoteDirectoryTrustRequiredPanelIds.contains(panelId) ||
-                (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil && snapshot.terminal != nil && snapshot.terminal?.isRemoteTerminal != false)
+                restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)
         )
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
             let source: PanelDirectoryUpdateSource = snapshot.directoryIsTrustedRemoteReport == true

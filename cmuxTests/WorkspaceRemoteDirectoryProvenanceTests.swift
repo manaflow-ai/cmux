@@ -455,8 +455,8 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
     }
 
     @MainActor
-    @Test("legacy local agent in remote workspace restores local cwd")
-    func legacyLocalAgentInRemoteWorkspaceRestoresLocalDirectory() throws {
+    @Test("legacy remote-workspace agent restores guarded cwd")
+    func legacyRemoteWorkspaceAgentRestoresGuardedDirectory() throws {
         let localDirectory = "/Users/alice/development"
         let agentDirectory = "/Users/alice/local-agent"
         let sshCommand = "ssh seepine@192.168.5.20"
@@ -477,9 +477,9 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         let restored = Workspace()
         let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[agentPanel.id])
         let restoredAgentPanel = try #require(restored.panels[restoredPanelId] as? AgentSessionPanel)
-        #expect(restoredAgentPanel.workingDirectory == agentDirectory)
-        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == agentDirectory)
-        #expect(!restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
+        #expect(restoredAgentPanel.workingDirectory == nil)
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
+        #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
     }
 
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
