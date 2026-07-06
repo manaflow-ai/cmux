@@ -49,6 +49,12 @@ export type VmEntry = {
   readonly createdAt: number;
 };
 
+export type ReconcileExpiredLeasesSummary = {
+  readonly scanned: number;
+  readonly revoked: number;
+  readonly failed: number;
+};
+
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
 export async function runVmWorkflow<A>(
@@ -59,6 +65,36 @@ export async function runVmWorkflow<A>(
   } catch (err) {
     throw vmWorkflowErrorCause(err) ?? err;
   }
+}
+
+export function reconcileExpiredLeases(): Effect.Effect<
+  ReconcileExpiredLeasesSummary,
+  VmWorkflowError,
+  VmRepository | VmProviderGateway
+> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const leases = yield* repo.expiredIdentityLeases();
+    const revokedIds = yield* Effect.forEach(leases, (lease) =>
+      providers.revokeSSHIdentity(lease.provider, lease.providerIdentityHandle).pipe(
+        Effect.as(lease.id),
+        Effect.catchAll(() => Effect.succeed(null)),
+      )
+    ).pipe(
+      Effect.map((ids) => ids.filter((id): id is string => id !== null)),
+    );
+    yield* repo.markLeasesRevoked(revokedIds);
+    return {
+      scanned: leases.length,
+      revoked: revokedIds.length,
+      failed: leases.length - revokedIds.length,
+    };
+  });
+}
+
+export function runReconcileExpiredLeases(): Promise<ReconcileExpiredLeasesSummary> {
+  return runVmWorkflow(reconcileExpiredLeases());
 }
 
 export function listUserVms(userId: string, billingTeamId?: string | null) {
@@ -668,13 +704,15 @@ function revokeActiveIdentities(vm: CloudVmRow) {
 function storeEndpointLeases(vm: CloudVmRow, endpoint: AttachEndpoint | SSHEndpoint) {
   return Effect.gen(function* () {
     if (endpoint.transport === "ssh") {
+      const metadata: Record<string, unknown> = { credentialKind: endpoint.credential.kind };
+      if (endpoint.providerTokenId) metadata.providerTokenId = endpoint.providerTokenId;
       yield* recordEndpointLease(vm, {
         kind: "ssh",
         token: sshCredentialToken(endpoint),
         expiresAt: new Date(Date.now() + 15 * 60 * 1000),
         providerIdentityHandle: endpoint.identityHandle || undefined,
         transport: "ssh",
-        metadata: { credentialKind: endpoint.credential.kind },
+        metadata,
       });
       return;
     }

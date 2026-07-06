@@ -447,7 +447,7 @@ export class FreestyleProvider implements VMProvider {
             vmId,
             allowedUsers: [CMUX_LINUX_USER],
           });
-          const { token } = await identity.tokens.create();
+          const { tokenId, token } = await identity.tokens.create();
           return {
             transport: "ssh",
             host: SSH_HOST,
@@ -456,6 +456,7 @@ export class FreestyleProvider implements VMProvider {
             publicKeyFingerprint: null,
             credential: { kind: "password", value: token },
             identityHandle: identityId,
+            providerTokenId: tokenId,
           };
         } catch (err) {
           // Without this, an identity created above but failed-on afterwards (grant or token
