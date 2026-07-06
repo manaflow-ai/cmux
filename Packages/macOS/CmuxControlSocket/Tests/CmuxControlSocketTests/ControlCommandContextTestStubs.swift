@@ -8,6 +8,30 @@ import CmuxSettings
 // the methods they drive; everything else returns an inert "nothing here"
 // result. As domains land, add their defaults here (one block per domain).
 
+extension ControlCommandContext {
+    /// Test default for the worker-lane resolution hop primitive: run the
+    /// body on the main actor (inline when the test is already there, else a
+    /// synchronous dispatch), mirroring the app's `v2MainSync` semantics.
+    /// Test fakes have no app topology, so there is no known-ref refresh —
+    /// exactly like the pre-migration main-lane coordinator tests, whose
+    /// refresh also lived app-side.
+    nonisolated func controlResolveOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T {
+        // The hop is synchronous: the calling thread blocks until `body`
+        // returns, so handing the seam into the main-actor window cannot
+        // outlive the call (the same contract as the app's `v2MainSync`).
+        // Strict checking can't see that, hence the unsafe transfer.
+        nonisolated(unsafe) let seam: any ControlCommandContext = self
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { body(seam) }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { body(seam) }
+        }
+    }
+}
+
 extension ControlAppFocusContext {
     func controlSetAppFocusOverride(_ focused: Bool?) {}
     func controlSimulateAppActive() {}
@@ -412,7 +436,7 @@ extension ControlSurfaceContext {
         surfaceID: UUID?
     ) -> ControlSurfaceTriggerFlashResolution { .tabManagerUnavailable }
 
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }
 
@@ -429,14 +453,6 @@ extension ControlSurfaceContext {
         hasSurfaceIDParam: Bool,
         key: String
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
-
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution { .tabManagerUnavailable }
 
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
@@ -459,8 +475,8 @@ extension ControlSurfaceContext {
         expectedSource: String?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
-    func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
-    func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
+    nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
+    nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
 
     func controlSurfaceReportTTY(workspaceID: UUID, requestedSurfaceID: UUID?, ttyName: String)
         -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
