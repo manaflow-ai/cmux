@@ -1409,7 +1409,7 @@ final class MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
+        case "mobile.events.subscribe", "mobile.events.unsubscribe", "mobile.events.ping":
             return nil
         case "mobile.host.status":
             return nil
@@ -2199,7 +2199,7 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            if let intercepted = handleSubscriptionRPC(request) {
+            if let intercepted = await handleSubscriptionRPC(request) {
                 _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
                 return
             }
@@ -2221,7 +2221,7 @@ actor MobileHostConnection {
         }
     }
 
-    private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+    private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         switch request.method {
         case "mobile.events.subscribe":
             let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
@@ -2246,6 +2246,29 @@ actor MobileHostConnection {
                 "topics": Array(topics).sorted(),
                 "already_subscribed": alreadySubscribed,
             ])
+        case "mobile.events.ping":
+            let streamID = request.params["stream_id"] as? String ?? ""
+            let topic = request.params["topic"] as? String ?? ""
+            let nonce = request.params["nonce"] as? String ?? ""
+            guard !streamID.isEmpty, !topic.isEmpty, !nonce.isEmpty else {
+                return .failure(MobileHostRPCError(
+                    code: "invalid_params",
+                    message: "stream_id, topic, and nonce are required"
+                ))
+            }
+            guard subscriptions[streamID]?.contains(topic) == true else {
+                return .ok([
+                    "stream_id": streamID,
+                    "topic": topic,
+                    "delivered": false,
+                ])
+            }
+            let delivered = await sendEvent(topic: topic, payload: ["nonce": nonce])
+            return .ok([
+                "stream_id": streamID,
+                "topic": topic,
+                "delivered": delivered,
+            ])
         case "mobile.events.unsubscribe":
             let streamID = request.params["stream_id"] as? String ?? ""
             let removed = unsubscribe(streamID: streamID)
@@ -2266,7 +2289,7 @@ actor MobileHostConnection {
              // subscription on every silence window (~9s when idle), and
              // counting that as interactive activity starves host work gated
              // on mobile quiet (e.g. TabManager background git/PR refresh).
-             "mobile.events.subscribe", "mobile.events.unsubscribe":
+             "mobile.events.subscribe", "mobile.events.unsubscribe", "mobile.events.ping":
             return false
         default:
             return true

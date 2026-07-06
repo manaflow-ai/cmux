@@ -91,6 +91,7 @@ import Testing
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
     #expect(topics.contains("terminal.bytes"))
     #expect(topics.contains("terminal.render_grid"))
+    #expect(topics.contains("mobile.events.pong"))
 }
 
 @MainActor
@@ -107,6 +108,7 @@ import Testing
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
     #expect(topics.contains("terminal.render_grid"))
     #expect(topics.contains("terminal.bytes") == false)
+    #expect(topics.contains("mobile.events.pong"))
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
@@ -441,6 +443,107 @@ import Testing
     await transport.deliver(event)
     let delivered = try await pollUntil { collector.lines.isEmpty == false }
     #expect(delivered, "the original stream must still be consumed after the probe")
+    collector.unmount()
+}
+
+/// Foregrounding the app should catch up mounted terminals without destroying a
+/// healthy event stream. The old foreground path forced `restartEventStream:
+/// true`, which looked like a Mac reconnect on every brief app switch and could
+/// expose an empty renderer while the replay arrived.
+@MainActor
+@Test func foregroundResumeRefreshesWithoutRestartingHealthyTerminalEventStream() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing foreground resume"
+    )
+
+    store.setAppForegroundActive(false)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    let subscribeCountWhileInactive = await router.count(of: "mobile.events.subscribe")
+    #expect(
+        subscribeCountWhileInactive == 1,
+        "background silence must not trigger a liveness probe or stream restart"
+    )
+
+    store.resumeForegroundRefresh()
+    let reasserted = try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    }
+    #expect(reasserted, "foreground resume should reassert the existing subscription")
+    let pinged = try await pollUntil {
+        await router.count(of: "mobile.events.ping") >= 1
+    }
+    #expect(pinged, "foreground resume must prove the push stream by consuming a pong event")
+    let replayed = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(replayed, "foreground resume should replay mounted surfaces for catch-up")
+    #expect(
+        await router.count(of: "mobile.host.status") == 1,
+        "foreground resume must not restart the listener; a restart re-resolves capabilities through mobile.host.status"
+    )
+    #expect(store.macConnectionStatus == .connected)
+    #expect(store.isRecoveringConnection == false)
+    collector.unmount()
+}
+
+/// If iOS resumes after the event listener was actually killed or half-closed,
+/// foreground refresh must not wait for the general liveness silence window.
+/// It first tries the cheap in-place reassertion used by the healthy path; if
+/// that bounded reassertion does not answer, it restarts the listener and
+/// replays mounted terminals immediately.
+@MainActor
+@Test func foregroundResumeRestartsWhenSubscriptionReassertionDoesNotAnswer() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing foreground dead-stream recovery"
+    )
+
+    store.setAppForegroundActive(false)
+    await router.holdSubscribeRequest(number: 2)
+    store.resumeForegroundRefresh()
+
+    let restarted = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") >= 2
+    }
+    #expect(
+        restarted,
+        "a foreground subscription reassertion that does not answer must restart the terminal listener immediately"
+    )
+    let replayed = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(replayed, "foreground restart recovery must replay mounted terminal surfaces")
     collector.unmount()
 }
 

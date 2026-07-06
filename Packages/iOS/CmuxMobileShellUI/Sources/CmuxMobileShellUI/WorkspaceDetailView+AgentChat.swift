@@ -1,6 +1,7 @@
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileSupport
+import CmuxMobileTerminal
 import SwiftUI
 
 #if os(iOS)
@@ -97,10 +98,7 @@ extension WorkspaceDetailView {
                     set: { chatDrafts[session.id] = $0 }
                 ),
                 onExitChat: {
-                    withAnimation(.snappy(duration: 0.28)) {
-                        isChatMode = false
-                    }
-                    pinnedChatSessionID = nil
+                    exitChatModeToTerminal()
                 }
             )
             .id(session.id)
@@ -355,16 +353,46 @@ extension WorkspaceDetailView {
     /// chosen session. Shared by the toolbar button and the menu row.
     private func toggleChatMode() {
         if isChatMode {
-            withAnimation(.snappy(duration: 0.28)) { isChatMode = false }
-            pinnedChatSessionID = nil
+            exitChatModeToTerminal()
             return
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
+        let focusToken = GhosttySurfaceView.resignActiveInput()
+        let openedFromBrowser = hasActiveBrowserForCurrentWorkspace()
+        chatInputFocusToken = focusToken
+        chatShouldFocusTerminalOnExit = openedFromBrowser && focusToken == nil
+        if openedFromBrowser {
+            store.suppressSelectedTerminalAutoFocusOnNextAttach()
+        }
+        closeBrowserForCurrentWorkspace()
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }
         pinnedChatSessionID = openingSession.id
+    }
+
+    /// Leave GUI chat without remounting the terminal, then restore keyboard
+    /// focus to the terminal that was selected when chat closed.
+    private func exitChatModeToTerminal() {
+        let terminalID = selectedTerminalID
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode = false
+        }
+        pinnedChatSessionID = nil
+        let token = chatInputFocusToken
+        let shouldFocusTerminal = chatShouldFocusTerminalOnExit || token != nil
+        chatInputFocusToken = nil
+        chatShouldFocusTerminalOnExit = false
+        if let terminalID {
+            let restored = GhosttySurfaceView.restoreInputFocus(token, surfaceID: terminalID)
+            if !restored, shouldFocusTerminal {
+                _ = GhosttySurfaceView.focusMountedInput(
+                    surfaceID: terminalID,
+                    sceneID: workspaceSceneID
+                )
+            }
+        }
     }
 
     /// Keeps the active transcript store warm without retaining stores for every
@@ -398,8 +426,7 @@ extension WorkspaceDetailView {
     private func applyChatModeFallback(canInvalidateSelection: Bool) {
         guard canInvalidateSelection else { return }
         if isChatMode, chosenChatSession == nil {
-            isChatMode = false
-            pinnedChatSessionID = nil
+            exitChatModeToTerminal()
         }
     }
 

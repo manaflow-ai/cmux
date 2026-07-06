@@ -70,6 +70,7 @@ actor LivenessHostRouter {
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
+    private var dropPongEvents = false
     private var replayRequestCount = 0
     private var replayResponseCount = 0
     private var heldReplayRequestNumbers: Set<Int> = []
@@ -77,6 +78,7 @@ actor LivenessHostRouter {
     private var viewportRequestCount = 0
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
+    private var omitAlreadySubscribedFromSubscribeResponse = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
@@ -252,6 +254,18 @@ actor LivenessHostRouter {
         hasActiveSubscription = false
     }
 
+    func omitAlreadySubscribedField() {
+        omitAlreadySubscribedFromSubscribeResponse = true
+    }
+
+    func setDropPongEvents(_ drop: Bool) {
+        dropPongEvents = drop
+    }
+
+    func shouldDropPongEvent() -> Bool {
+        dropPongEvents
+    }
+
     /// Resume every held request so parked continuations do not leak past the
     /// end of the test.
     func releaseAllHeld() {
@@ -308,10 +322,19 @@ actor LivenessHostRouter {
             }
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true
-            return try? Self.resultFrame(id: id, result: [
+            var result: [String: Any] = [
                 "stream_id": "test-stream",
                 "topics": ["workspace.updated", "terminal.render_grid"],
-                "already_subscribed": alreadySubscribed,
+            ]
+            if !omitAlreadySubscribedFromSubscribeResponse {
+                result["already_subscribed"] = alreadySubscribed
+            }
+            return try? Self.resultFrame(id: id, result: result)
+        case "mobile.events.ping":
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": "test-stream",
+                "topic": "mobile.events.pong",
+                "delivered": true,
             ])
         case "mobile.terminal.replay":
             replayRequestCount += 1
@@ -466,6 +489,8 @@ actor LivenessTransport: CmxByteTransport {
             let id = parsed?["id"] as? String
             let params = parsed?["params"] as? [String: Any]
             let topics = params?["topics"] as? [String]
+            let pingTopic = method == "mobile.events.ping" ? params?["topic"] as? String : nil
+            let pingNonce = method == "mobile.events.ping" ? params?["nonce"] as? String : nil
             let viewportReport: LivenessViewportReport? = {
                 guard method == "mobile.terminal.viewport",
                       let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
@@ -478,7 +503,14 @@ actor LivenessTransport: CmxByteTransport {
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
-            Task { [router, weak self] in
+            Task { [router, weak self, method, pingTopic, pingNonce] in
+                if method == "mobile.events.ping",
+                   let topic = pingTopic,
+                   let nonce = pingNonce,
+                   !(await router.shouldDropPongEvent()),
+                   let event = livenessEventFrame(topic: topic, payload: ["nonce": nonce]) {
+                    await self?.deliver(event)
+                }
                 guard let response = await router.response(method: method, id: id, viewportReport: viewportReport) else {
                     return
                 }
@@ -506,6 +538,16 @@ actor LivenessTransport: CmxByteTransport {
         let waiter = receiveWaiters.removeFirst()
         waiter.resume(returning: frame)
     }
+}
+
+private func livenessEventFrame(topic: String, payload: [String: Any]) -> Data? {
+    let envelope: [String: Any] = [
+        "kind": "event",
+        "topic": topic,
+        "payload": payload,
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return nil }
+    return try? MobileSyncFrameCodec.encodeFrame(data)
 }
 
 // MARK: - Test helpers

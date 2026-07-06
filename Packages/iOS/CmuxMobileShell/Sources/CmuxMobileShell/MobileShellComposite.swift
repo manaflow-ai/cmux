@@ -15,6 +15,8 @@ private let mobileShellLog = Logger(
     category: "mobile-shell"
 )
 
+let terminalEventPongTopic = "mobile.events.pong"
+
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -45,11 +47,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", terminalEventPongTopic]
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", terminalEventPongTopic]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", terminalEventPongTopic]
             }
         }
 
@@ -698,7 +700,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
+    private var isAppForegroundActive = true
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
+    private var terminalSubscriptionRefreshID: UUID?
+    var terminalEventPongContinuationsByNonce: [String: CheckedContinuation<Bool, Never>] = [:]
+    var terminalEventPongTimersByNonce: [String: any DispatchSourceTimer] = [:]
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
@@ -948,6 +954,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalEventListenerTask = nil
         self.terminalEventListenerID = nil
         self.terminalSubscriptionRefreshTask = nil
+        self.terminalSubscriptionRefreshID = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
@@ -1172,17 +1179,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        setAppForegroundActive(true)
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
-        // restarts a subscription torn down while backgrounded.
+        // reasserts a live subscription without tearing down a healthy stream.
         evaluatePresenceSubscription()
-        resyncTerminalOutput(reason: "foreground", restartEventStream: true)
+        resyncTerminalOutput(
+            reason: "foreground",
+            restartEventStream: false,
+            restartOnSubscriptionFailure: true
+        )
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
         if multiMacAggregationEnabled, connectionState == .connected {
             self.scheduleSecondaryAggregation()
+        }
+    }
+
+    /// Track app lifecycle for terminal-stream liveness. iOS can suspend socket
+    /// delivery while the app is inactive; that wall-clock silence must not be
+    /// interpreted as a dead Mac stream.
+    public func setAppForegroundActive(_ isActive: Bool) {
+        guard isAppForegroundActive != isActive else {
+            if isActive {
+                recordTerminalEventStreamLiveness()
+                restartRenderGridLivenessWatchdogIfNeeded()
+            }
+            return
+        }
+        isAppForegroundActive = isActive
+        recordTerminalEventStreamLiveness()
+        if isActive {
+            restartRenderGridLivenessWatchdogIfNeeded()
+        } else {
+            cancelTerminalEventPongWaiters()
+            stopRenderGridLivenessWatchdog(listenerID: nil)
         }
     }
 
@@ -4206,6 +4239,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
     }
 
+    /// Suppress autofocus for the selected terminal when chrome is about to
+    /// reveal an already-selected surface by remounting it.
+    public func suppressSelectedTerminalAutoFocusOnNextAttach() {
+        suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
+    }
+
     /// Clears the one-shot autofocus suppression for `terminalID` once its
     /// surface has mounted (and so has already attached with autofocus
     /// disabled). Called from the surface's `onAppear`.
@@ -5298,6 +5337,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hostIdentityAdoptionTask = nil
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
+        terminalSubscriptionRefreshID = nil
         createWorkspaceTask?.cancel()
         createWorkspaceTask = nil
         createWorkspaceTaskID = nil
@@ -5355,6 +5395,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
+        terminalSubscriptionRefreshID = nil
+        cancelTerminalEventPongWaiters()
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
     }
@@ -6150,7 +6192,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private var terminalEventStreamID: String {
+    var terminalEventStreamID: String {
         "ios-terminal-events-\(clientID)"
     }
 
@@ -6290,19 +6332,78 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func refreshTerminalEventSubscription(reason: String) {
+    private func refreshTerminalEventSubscription(reason: String, restartOnFailure: Bool = false) {
         guard let client = remoteClient, connectionState == .connected else { return }
         guard runtime?.supportsServerPushEvents ?? true else { return }
-        guard terminalSubscriptionRefreshTask == nil else { return }
+        if terminalSubscriptionRefreshTask != nil {
+            guard restartOnFailure else { return }
+            terminalSubscriptionRefreshTask?.cancel()
+            terminalSubscriptionRefreshTask = nil
+            terminalSubscriptionRefreshID = nil
+            cancelTerminalEventPongWaiters()
+        }
+        let refreshID = UUID()
+        terminalSubscriptionRefreshID = refreshID
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
-            defer { self?.terminalSubscriptionRefreshTask = nil }
+            defer {
+                if self?.terminalSubscriptionRefreshID == refreshID {
+                    self?.terminalSubscriptionRefreshTask = nil
+                    self?.terminalSubscriptionRefreshID = nil
+                }
+            }
             guard let self else { return }
             let topics = self.terminalOutputTransport.eventTopics
-            _ = await self.requestTerminalEventSubscription(
-                client: client,
-                reason: reason,
-                topics: topics
-            )
+            let ack: TerminalEventSubscriptionAck
+            let timeoutNanoseconds = self.runtime?.livenessProbeTimeoutNanoseconds
+                ?? 3_000_000_000
+            if restartOnFailure {
+                ack = await self.probeEventSubscriptionLiveness(
+                    client: client,
+                    topics: topics,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+            } else {
+                ack = await self.requestTerminalEventSubscription(
+                    client: client,
+                    reason: reason,
+                    topics: topics
+                )
+            }
+            guard !Task.isCancelled,
+                  self.terminalSubscriptionRefreshID == refreshID,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            guard case .subscribed(let alreadySubscribed) = ack else {
+                MobileDebugLog.anchormux("sync.refresh_failed reason=\(reason) restart=\(restartOnFailure)")
+                if restartOnFailure {
+                    self.resyncTerminalOutput(
+                        reason: "\(reason).subscribe_failed",
+                        restartEventStream: true
+                    )
+                }
+                return
+            }
+            if restartOnFailure {
+                let streamDelivered = await self.verifyTerminalEventStreamDelivery(client: client, timeoutNanoseconds: timeoutNanoseconds)
+                guard streamDelivered else {
+                    guard self.isAppForegroundActive else { return }
+                    MobileDebugLog.anchormux("sync.refresh_stream_failed reason=\(reason)")
+                    self.resyncTerminalOutput(
+                        reason: "\(reason).stream_failed",
+                        restartEventStream: true
+                    )
+                    return
+                }
+            }
+            self.recordTerminalEventStreamLiveness()
+            self.markMacConnectionHealthy()
+            if alreadySubscribed == false || (restartOnFailure && alreadySubscribed == nil) {
+                MobileDebugLog.anchormux("sync.refresh_repaired reason=\(reason)")
+                for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
+                    self.requestTerminalReplay(surfaceID: surfaceID)
+                }
+                self.scheduleWorkspaceListRefreshFromEvent()
+            }
         }
     }
 
@@ -6317,7 +6418,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // transport tests, which set `supportsServerPushEvents = false`, never
         // schedule speculative re-subscribes. A fresh subscription gets a full
         // silence window before it can be judged dead.
-        startRenderGridLivenessWatchdog(listenerID: listenerID)
+        if isAppForegroundActive {
+            startRenderGridLivenessWatchdog(listenerID: listenerID)
+        }
         terminalEventListenerTask = Task { @MainActor [weak self] in
             defer {
                 if self?.terminalEventListenerID == listenerID {
@@ -6360,7 +6463,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // it resets the liveness window (not just render_grid events).
                 self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
-                if event.topic == "workspace.updated" {
+                if event.topic == terminalEventPongTopic {
+                    self.handleTerminalEventPong(event)
+                } else if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
@@ -6514,6 +6619,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeID = nil
     }
 
+    private func restartRenderGridLivenessWatchdogIfNeeded() {
+        guard isAppForegroundActive else { return }
+        guard runtime?.supportsServerPushEvents ?? true else { return }
+        guard let listenerID = terminalEventListenerID else { return }
+        startRenderGridLivenessWatchdog(listenerID: listenerID)
+    }
+
     /// Single ownership point for the liveness clock the watchdog reads.
     ///
     /// Stamped by (1) every envelope the listener loop actually consumes,
@@ -6562,6 +6674,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// probe restarts nothing: no listener teardown, no replay, no stream
     /// interruption.
     private func checkRenderGridLiveness(listenerID: UUID) {
+        guard isAppForegroundActive else {
+            recordTerminalEventStreamLiveness()
+            return
+        }
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
         guard terminalEventListenerID == listenerID else { return }
@@ -6682,6 +6798,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,
+        restartOnSubscriptionFailure: Bool = false,
         surfaceIDs requestedSurfaceIDs: [String]? = nil
     ) {
         guard remoteClient != nil, connectionState == .connected else { return }
@@ -6691,7 +6808,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else if terminalEventListenerTask == nil {
             startTerminalRefreshPolling()
         } else {
-            refreshTerminalEventSubscription(reason: reason)
+            refreshTerminalEventSubscription(
+                reason: reason,
+                restartOnFailure: restartOnSubscriptionFailure
+            )
         }
 
         let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)
@@ -7542,6 +7662,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalEventListenerID = nil
         terminalSubscriptionStartTask?.cancel()
         terminalSubscriptionStartTask = nil
+        cancelTerminalEventPongWaiters()
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 

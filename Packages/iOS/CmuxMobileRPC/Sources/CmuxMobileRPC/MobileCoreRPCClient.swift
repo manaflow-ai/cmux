@@ -327,7 +327,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
+        case "mobile.events.subscribe", "mobile.events.unsubscribe", "mobile.events.ping":
             return false
         default:
             return true
