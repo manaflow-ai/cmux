@@ -149,7 +149,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
-    @State private var extensionSidebarInspectorWindowController = CmuxExtensionSidebarInspectorWindowController()
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     /// Owns the transient cursor / hit-band / pointer-monitor / drag-active state
     /// for the two sidebar resizer dividers. The width math and overlay views stay
@@ -5536,6 +5535,10 @@ struct VerticalTabsSidebar: View {
     @Binding var inlineRenameRequestToken: Int
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
+    // Owns the extension-sidebar inspector window (CmuxSidebarUI); the only
+    // caller is this sidebar's onOpenWindow, so the instance lives here rather
+    // than on ContentView.
+    @State private var extensionSidebarInspectorWindowController = CmuxExtensionSidebarInspectorWindowController()
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor(
         debugLog: VerticalTabsSidebar.sidebarDragFailsafeDebugLog
     )
