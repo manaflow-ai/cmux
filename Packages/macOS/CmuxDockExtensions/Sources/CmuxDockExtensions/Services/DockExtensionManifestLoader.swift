@@ -17,6 +17,13 @@ public struct DockExtensionManifestLoader: Sendable {
     ///   ``DockExtensionManifest/parse(data:)``.
     public func load(fromDirectory directory: URL) throws -> DockExtensionManifest {
         let url = manifestURL(inDirectory: directory)
+        // Enforce the size cap before reading: a linked directory or staged
+        // checkout can put an arbitrarily large file at the manifest path, and
+        // the guard inside `parse` would only run after allocating all of it.
+        if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           fileSize > DockExtensionManifest.maximumFileSize {
+            throw DockExtensionError.manifestTooLarge(limitBytes: DockExtensionManifest.maximumFileSize)
+        }
         let data: Data
         do {
             data = try Data(contentsOf: url)
