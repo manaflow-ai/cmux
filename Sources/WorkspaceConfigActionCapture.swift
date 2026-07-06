@@ -17,9 +17,11 @@ extension Workspace {
     func captureConfigActionSnapshot() -> WorkspaceConfigActionSnapshot {
         var skippedPanelCount = 0
         let workspaceCwd = Self.configCaptureAbbreviatedPath(currentDirectory)
+        let liveCommands = TerminalForegroundCommandCapture.liveCommandsBySurfaceUUID()
         let layout = configCaptureLayoutNode(
             from: bonsplitController.treeSnapshot(),
             workspaceCwd: workspaceCwd,
+            liveCommands: liveCommands,
             skippedPanelCount: &skippedPanelCount
         )
 
@@ -38,6 +40,7 @@ extension Workspace {
     private func configCaptureLayoutNode(
         from node: ExternalTreeNode,
         workspaceCwd: String,
+        liveCommands: [UUID: String],
         skippedPanelCount: inout Int
     ) -> CmuxLayoutNode? {
         switch node {
@@ -45,11 +48,13 @@ extension Workspace {
             let first = configCaptureLayoutNode(
                 from: split.first,
                 workspaceCwd: workspaceCwd,
+                liveCommands: liveCommands,
                 skippedPanelCount: &skippedPanelCount
             )
             let second = configCaptureLayoutNode(
                 from: split.second,
                 workspaceCwd: workspaceCwd,
+                liveCommands: liveCommands,
                 skippedPanelCount: &skippedPanelCount
             )
             switch (first, second) {
@@ -74,7 +79,9 @@ extension Workspace {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
                 return configCaptureSurfaceDefinition(
                     panelId: panelId,
+                    tabUUID: tab.id.uuid,
                     workspaceCwd: workspaceCwd,
+                    liveCommands: liveCommands,
                     skippedPanelCount: &skippedPanelCount
                 )
             }
@@ -85,7 +92,9 @@ extension Workspace {
 
     private func configCaptureSurfaceDefinition(
         panelId: UUID,
+        tabUUID: UUID,
         workspaceCwd: String,
+        liveCommands: [UUID: String],
         skippedPanelCount: inout Int
     ) -> CmuxSurfaceDefinition? {
         let customName = panelCustomTitles[panelId]
@@ -95,9 +104,12 @@ extension Workspace {
             var surface = CmuxSurfaceDefinition(type: .terminal)
             surface.name = customName
             surface.cwd = configCaptureSurfaceCwd(panelDirectories[panelId], workspaceCwd: workspaceCwd)
-            if let agent = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
-                // Save the bare CLI so the action launches a fresh session, not a
-                // resume of the captured one.
+            if let liveCommand = liveCommands[panelId] ?? liveCommands[tabUUID] {
+                // What the terminal is actually running right now (foreground
+                // argv, agent resume flags stripped so relaunch is fresh).
+                surface.command = liveCommand
+            } else if let agent = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
+                // Fallback: hook-tracked agent with no readable foreground argv.
                 surface.command = agent.kind.rawValue
             }
             surface.focus = focus

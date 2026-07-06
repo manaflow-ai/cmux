@@ -40,13 +40,16 @@ enum CmuxConfigActionSaver {
 
     /// Upserts `actions.<generated-id>` in the config file at `globalConfigPath`,
     /// creating the file from a minimal template when absent. Returns the id the
-    /// action was saved under (slugged from `title`, uniquified against existing
-    /// action ids).
+    /// action was saved under: slugged from `title` and uniquified against both
+    /// the file's action ids and `reservedActionIDs` (the caller passes the
+    /// active store's resolved ids so project-local actions can't shadow the
+    /// saved one).
     @discardableResult
     static func saveWorkspaceAction(
         title: String,
         definition: CmuxWorkspaceDefinition,
         globalConfigPath: String,
+        reservedActionIDs: Set<String> = [],
         fileManager: FileManager = .default
     ) throws -> SaveResult {
         let source: String
@@ -63,6 +66,7 @@ enum CmuxConfigActionSaver {
         let actionID = uniqueActionID(
             forTitle: title,
             existingIDs: existingActionIDs(inConfigSource: source)
+                .union(reservedActionIDs)
         )
         let actionDefinition = CmuxConfigActionDefinition(
             action: .workspace(definition, restart: nil),

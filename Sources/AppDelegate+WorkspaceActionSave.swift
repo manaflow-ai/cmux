@@ -144,7 +144,11 @@ extension AppDelegate {
                 let result = try CmuxConfigActionSaver.saveWorkspaceAction(
                     title: title,
                     definition: snapshot.definition,
-                    globalConfigPath: globalConfigPath
+                    globalConfigPath: globalConfigPath,
+                    // Reserve every id the active store resolved (including
+                    // project-local actions) so the saved global action can't
+                    // be shadowed into a no-op.
+                    reservedActionIDs: cmuxConfigStore.map { Set($0.actionLookup.keys) } ?? []
                 )
                 // The app's store runs without file watchers; reload explicitly
                 // so the saved action shows up in the menus right away.

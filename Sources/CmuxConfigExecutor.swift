@@ -76,14 +76,10 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
-        if let inline = action.action.inlineWorkspace {
+        if let syntheticCommand = action.inlineWorkspaceSyntheticCommand {
             // Inline `type: "workspace"` actions reuse the named-command path via a
-            // synthetic definition so trust, restart, and layout behavior stay identical.
-            let syntheticCommand = CmuxCommandDefinition(
-                name: action.title,
-                restart: inline.restart,
-                workspace: inline.definition
-            )
+            // synthetic definition so trust, restart, confirm, and layout behavior
+            // stay identical.
             return execute(
                 command: syntheticCommand,
                 tabManager: tabManager,

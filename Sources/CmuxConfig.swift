@@ -1013,13 +1013,15 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     }
 
     /// Synthetic named command for inline `type: "workspace"` buttons/actions so
-    /// execution and trust fingerprinting share one definition.
+    /// execution and trust fingerprinting share one definition. Carries the
+    /// button's `confirm` so explicit confirmation requests survive the wrap.
     var inlineWorkspaceSyntheticCommand: CmuxCommandDefinition? {
         guard let inline = action.inlineWorkspace else { return nil }
         return CmuxCommandDefinition(
             name: title ?? tooltip ?? inline.definition.name ?? id,
             restart: inline.restart,
-            workspace: inline.definition
+            workspace: inline.definition,
+            confirm: confirm
         )
     }
 
@@ -1308,6 +1310,20 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     /// actions default to true.
     var wantsNewWorkspaceMenu: Bool {
         newWorkspaceMenu ?? (action.inlineWorkspace != nil)
+    }
+
+    /// Synthetic named command for inline `type: "workspace"` actions so
+    /// execution and trust fingerprinting reuse the named-command path.
+    /// Carries the action's `confirm` so explicit confirmation requests
+    /// survive the wrap.
+    var inlineWorkspaceSyntheticCommand: CmuxCommandDefinition? {
+        guard let inline = action.inlineWorkspace else { return nil }
+        return CmuxCommandDefinition(
+            name: title,
+            restart: inline.restart,
+            workspace: inline.definition,
+            confirm: confirm
+        )
     }
 
     func applying(

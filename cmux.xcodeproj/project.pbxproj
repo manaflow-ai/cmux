@@ -349,6 +349,7 @@
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		A5FB1209 /* CmuxConfigActionDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120A /* CmuxConfigActionDefinition.swift */; };
 		A5FB1201 /* CmuxConfigActionSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1202 /* CmuxConfigActionSaver.swift */; };
+		A5FB1305 /* CmuxConfigActionSaverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1306 /* CmuxConfigActionSaverTests.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
@@ -1130,6 +1131,7 @@
 		6190C0126190C0126190C012 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6190C0116190C0116190C011 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift */; };
 		0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */; };
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
+		A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1304 /* TerminalForegroundCommandCapture.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
 		A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */; };
 		A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */; };
@@ -1711,6 +1713,7 @@
 		A5001651 /* CmuxConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfig.swift; sourceTree = "<group>"; };
 		A5FB120A /* CmuxConfigActionDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionDefinition.swift; sourceTree = "<group>"; };
 		A5FB1202 /* CmuxConfigActionSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionSaver.swift; sourceTree = "<group>"; };
+		A5FB1306 /* CmuxConfigActionSaverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionSaverTests.swift; sourceTree = "<group>"; };
 		C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigContextMenuTests.swift; sourceTree = "<group>"; };
 		A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigExecutor+WorkspaceLaunch.swift"; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
@@ -2439,6 +2442,7 @@
 		6190C0116190C0116190C011 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCopyOnSelectManagedConfigLayeringTests.swift; sourceTree = "<group>"; };
 		6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalDirectoryOpenSupport.swift; sourceTree = "<group>"; };
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
+		A5FB1304 /* TerminalForegroundCommandCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalForegroundCommandCapture.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
 		A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerResolver.swift; sourceTree = "<group>"; };
 		A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerTests.swift; sourceTree = "<group>"; };
@@ -3292,6 +3296,7 @@
 				604500100000000000000006 /* AppDelegate+WindowIdentity.swift */,
 				A5FB1208 /* AppDelegate+WorkspaceActionSave.swift */,
 				A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */,
+				A5FB1304 /* TerminalForegroundCommandCapture.swift */,
 				ODBG00010000000000000002 /* OpenDiffViewerAgentBaselineLookup.swift */,
 				ODBG00020000000000000002 /* OpenDiffViewerAgentContextRequest.swift */,
 				C10D00020000000000000002 /* CloudVMActionLauncher.swift */,
@@ -4039,6 +4044,7 @@
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
 				C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */,
 				A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */,
+				A5FB1306 /* CmuxConfigActionSaverTests.swift */,
 				E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */,
 				FE002012 /* FileExplorerGitStatusProviderTests.swift */,
 				FE002001 /* FileExplorerRootResolverTests.swift */,
@@ -5145,6 +5151,7 @@
 				C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */,
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
+				A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
@@ -5481,6 +5488,7 @@
 					C0DE64950000000000000005 /* CMUXCLISessionsListTests.swift in Sources */,
 					C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */,
 					C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */,
+				A5FB1305 /* CmuxConfigActionSaverTests.swift in Sources */,
 				C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */,
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
