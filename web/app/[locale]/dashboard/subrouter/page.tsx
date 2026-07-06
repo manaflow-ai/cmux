@@ -2,20 +2,27 @@ import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import {
+  SubrouterAccountManager,
+  type StackUserLike,
+} from "../components/subrouter-account-manager";
 
 export const dynamic = "force-dynamic";
 
 export default async function SubrouterOverviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>;
+  searchParams: Promise<{ team?: string | string[] }>;
 }) {
   const { locale } = await params;
+  const { team: teamParam } = await searchParams;
 
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
+  const user = await getStackServerApp().getUser({ or: "return-null" }) as StackUserLike | null;
   if (!user) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
@@ -23,16 +30,14 @@ export default async function SubrouterOverviewPage({
   const t = await getTranslations({ locale, namespace: "dashboard.subrouter" });
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <h1 className="text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-      </div>
-
-      <section className="border border-border p-3">
-        <h2 className="text-sm font-medium">{t("comingSoonTitle")}</h2>
-        <p className="mt-1 text-muted">{t("comingSoonBody")}</p>
-      </section>
-    </div>
+    <SubrouterAccountManager
+      locale={locale}
+      stackUser={user}
+      teamParam={teamParam}
+      teamPath="/dashboard/subrouter"
+      title={t("title")}
+      description={t("description")}
+      className="mx-auto w-full max-w-6xl px-6 py-10"
+    />
   );
 }
