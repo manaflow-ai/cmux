@@ -40,9 +40,7 @@ public struct ChatToolUseRowView: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("ChatToolUseToggle-\(rowID)")
-        .accessibilityLabel(
-            String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
-        )
+        .accessibilityLabel(toolUseAccessibilityLabel)
         .accessibilityHint(
             String(
                 localized: "chat.detail.show.hint",
@@ -50,6 +48,21 @@ public struct ChatToolUseRowView: View {
                 bundle: .module
             )
         )
+    }
+
+    private var toolUseAccessibilityLabel: String {
+        "\(toolUse.summary), \(statusAccessibilityLabel)"
+    }
+
+    private var statusAccessibilityLabel: String {
+        switch toolUse.status {
+        case .running:
+            return String(localized: "chat.tool.running.accessibility", defaultValue: "Running", bundle: .module)
+        case .succeeded:
+            return String(localized: "chat.tool.succeeded.accessibility", defaultValue: "Succeeded", bundle: .module)
+        case .failed:
+            return String(localized: "chat.tool.failed.accessibility", defaultValue: "Failed", bundle: .module)
+        }
     }
 
     /// SF symbol for the tool, keyed off its machine name.

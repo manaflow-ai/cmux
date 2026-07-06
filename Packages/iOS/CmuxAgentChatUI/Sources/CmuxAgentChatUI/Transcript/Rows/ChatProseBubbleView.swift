@@ -161,9 +161,7 @@ public struct ChatProseBubbleView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("ChatCodeBlockDetail-\(message.id)-\(segment.index)")
-            .accessibilityLabel(
-                String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
-            )
+            .accessibilityLabel(codeBlockAccessibilityLabel(language: language))
             .accessibilityHint(
                 String(
                     localized: "chat.detail.show.hint",
@@ -172,6 +170,18 @@ public struct ChatProseBubbleView: View {
                 )
             )
         }
+    }
+
+    private func codeBlockAccessibilityLabel(language: String?) -> String {
+        let codeBlockLabel = String(
+            localized: "chat.code_block.accessibility",
+            defaultValue: "Code block",
+            bundle: .module
+        )
+        guard let language, !language.isEmpty else {
+            return codeBlockLabel
+        }
+        return "\(language) \(codeBlockLabel)"
     }
 
     private func codeHeader(language: String?) -> some View {

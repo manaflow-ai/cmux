@@ -375,6 +375,23 @@
         }
       }
     },
+    "chat.code_block.accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code block"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コードブロック"
+          }
+        }
+      }
+    },
     "chat.detail.status.failed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -738,13 +755,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ %@"
+            "value" : "File edit"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ %@"
+            "value" : "ファイル編集"
           }
         }
       }
@@ -755,13 +772,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld additions"
+            "value" : "additions"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "追加%lld件"
+            "value" : "追加"
           }
         }
       }
@@ -772,13 +789,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld deletions"
+            "value" : "deletions"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "削除%lld件"
+            "value" : "削除"
           }
         }
       }
@@ -1493,6 +1510,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "失敗"
+          }
+        }
+      }
+    },
+    "chat.tool.running.accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実行中"
           }
         }
       }

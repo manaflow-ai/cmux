@@ -23,7 +23,7 @@ public struct ChatThoughtRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("ChatThoughtDetail-\(rowID)")
         .accessibilityLabel(
-            String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
+            String(localized: "chat.thought.title", defaultValue: "Thought", bundle: .module)
         )
         .accessibilityHint(
             String(
@@ -38,6 +38,7 @@ public struct ChatThoughtRowView: View {
         HStack(spacing: 5) {
             Image(systemName: "brain")
                 .font(.caption)
+                .accessibilityHidden(true)
             Text(
                 String(localized: "chat.thought.title", defaultValue: "Thought", bundle: .module)
             )

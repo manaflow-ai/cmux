@@ -75,26 +75,25 @@ public struct ChatFileEditCardView: View {
     }
 
     private var fileEditAccessibilityLabel: String {
+        let title = String(localized: "chat.file_edit.accessibility", defaultValue: "File edit", bundle: .module)
         var parts = [
-            String(
-                localized: "chat.file_edit.accessibility",
-                defaultValue: "\(operationAccessibilityLabel) \(edit.filePath)",
-                bundle: .module
-            ),
+            "\(title): \(operationAccessibilityLabel) \(edit.filePath)",
         ]
         if let additions = edit.additions {
-            parts.append(String(
+            let additionsLabel = String(
                 localized: "chat.file_edit.additions.accessibility",
-                defaultValue: "\(additions) additions",
+                defaultValue: "additions",
                 bundle: .module
-            ))
+            )
+            parts.append("\(additions) \(additionsLabel)")
         }
         if let deletions = edit.deletions {
-            parts.append(String(
+            let deletionsLabel = String(
                 localized: "chat.file_edit.deletions.accessibility",
-                defaultValue: "\(deletions) deletions",
+                defaultValue: "deletions",
                 bundle: .module
-            ))
+            )
+            parts.append("\(deletions) \(deletionsLabel)")
         }
         return parts.joined(separator: ", ")
     }
