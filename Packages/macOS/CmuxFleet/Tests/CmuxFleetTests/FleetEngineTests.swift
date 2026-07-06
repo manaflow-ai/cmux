@@ -126,6 +126,40 @@ struct FleetEngineTests {
     }
 
     @Test
+    func reconcileRescuesFailedTaskToAwaitingReviewWhenPullRequestOpens() async throws {
+        let (harness, engine, fleet, task, workspaceID) = try await Self.failedTask()
+
+        harness.world.pullRequests[workspaceID] = FleetPullRequestStatus(
+            number: 7,
+            url: URL(string: "https://example.com/pr/7"),
+            state: .open
+        )
+        harness.timers.fire("reconcile")
+
+        let awaiting = try #require(try engine.tasks(fleetID: fleet.id, state: .awaitingReview).get().first?.task)
+        #expect(awaiting.id == task.id)
+        #expect(awaiting.pr?.state == .open)
+        #expect(harness.actuator.closes.isEmpty)
+    }
+
+    @Test
+    func reconcileRescuesFailedTaskToDoneWhenPullRequestMerged() async throws {
+        let (harness, engine, fleet, task, workspaceID) = try await Self.failedTask()
+
+        harness.world.pullRequests[workspaceID] = FleetPullRequestStatus(
+            number: 7,
+            url: URL(string: "https://example.com/pr/7"),
+            state: .merged
+        )
+        harness.timers.fire("reconcile")
+
+        let done = try #require(try engine.tasks(fleetID: fleet.id, state: .done).get().first?.task)
+        #expect(done.id == task.id)
+        #expect(done.pr?.state == .merged)
+        #expect(harness.actuator.closes == [workspaceID])
+    }
+
+    @Test
     func schedulerCapCancelRetryOpenAndUnknownHooks() async throws {
         let harness = FleetEngineHarness()
         let engine = harness.engine()
@@ -288,6 +322,29 @@ struct FleetEngineTests {
         harness.world.existingWorkspaces.insert(launching.workspaceID!)
         engine.noteWorkstreamHook(workspaceID: launching.workspaceID!, sessionID: "s1", pid: pid, kind: .sessionStart, at: harness.dateBox.now)
         return (harness, engine, fleet, task)
+    }
+
+    /// Drives a running task through its retry budget until it reaches `.failed`.
+    private static func failedTask() async throws -> (
+        FleetEngineHarness,
+        FleetEngine,
+        FleetConfig,
+        FleetTask,
+        String
+    ) {
+        let (harness, engine, fleet, task) = try await runningTask()
+        let workspaceID = try #require(
+            try engine.tasks(fleetID: fleet.id, state: .running).get().first?.task.workspaceID
+        )
+        engine.noteWorkstreamHook(workspaceID: workspaceID, sessionID: nil, pid: nil, kind: .sessionEnd, at: harness.dateBox.now)
+        harness.timers.fire("backoff:\(task.id.rawValue):1")
+        engine.noteWorkstreamHook(workspaceID: workspaceID, sessionID: "s2", pid: nil, kind: .sessionStart, at: harness.dateBox.now)
+        engine.noteWorkstreamHook(workspaceID: workspaceID, sessionID: nil, pid: nil, kind: .sessionEnd, at: harness.dateBox.now)
+        harness.timers.fire("backoff:\(task.id.rawValue):2")
+        engine.noteWorkstreamHook(workspaceID: workspaceID, sessionID: "s3", pid: nil, kind: .sessionStart, at: harness.dateBox.now)
+        engine.noteWorkstreamHook(workspaceID: workspaceID, sessionID: nil, pid: nil, kind: .sessionEnd, at: harness.dateBox.now)
+        #expect(try engine.tasks(fleetID: fleet.id, state: .failed).get().first?.task.id == task.id)
+        return (harness, engine, fleet, task, workspaceID)
     }
 
     private static func tempDirectory() throws -> URL {
