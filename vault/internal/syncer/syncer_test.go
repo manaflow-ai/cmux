@@ -158,6 +158,126 @@ func TestSyncerUploadsIncrementallyAndCompresses(t *testing.T) {
 	}
 }
 
+func TestSyncerRejectsSymlinkSwappedBeforeUpload(t *testing.T) {
+	home := t.TempDir()
+	sessionRel := filepath.Join("sessions", "2026", "07", "05", "rollout-2026-07-05T00-00-00-22222222-2222-4222-8222-222222222222.jsonl")
+	sessionPath := filepath.Join(home, ".codex", sessionRel)
+	original := []byte(`{"type":"session_meta","payload":{"id":"22222222-2222-4222-8222-222222222222","cwd":"/repo"}}` + "\n")
+	writeTestFile(t, sessionPath, original)
+
+	env := agentdirs.Environ{HomeDir: home, Vars: map[string]string{}}
+	sessions, err := agentdirs.DiscoverAll(env, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 discovered session before swap, got %d: %#v", len(sessions), sessions)
+	}
+
+	secret := []byte("private transcript bytes from outside the tree\n")
+	secretPath := filepath.Join(home, "outside-secret.jsonl")
+	writeTestFile(t, secretPath, secret)
+	if err := os.Remove(sessionPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secretPath, sessionPath); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	blobs := map[string][]byte{}
+	blobServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		if r.Method != "PUT" || key == "" {
+			http.Error(w, "bad blob request", http.StatusBadRequest)
+			return
+		}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		mu.Lock()
+		blobs[key] = data
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer blobServer.Close()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		switch r.URL.Path {
+		case "/api/vault/uploads":
+			var body struct {
+				Items []api.UploadItem `json:"items"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			items := make([]api.UploadResult, 0, len(body.Items))
+			for _, item := range body.Items {
+				key := item.Agent + "/" + item.RelPath
+				items = append(items, api.UploadResult{
+					Agent:          item.Agent,
+					AgentSessionID: item.AgentSessionID,
+					RelPath:        item.RelPath,
+					Status:         "upload",
+					ObjectKey:      key,
+					PutURL:         blobServer.URL + "/put?key=" + key,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(api.UploadsResponse{Items: items})
+		case "/api/vault/sessions/commit":
+			var body struct {
+				Items []api.UploadItem `json:"items"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			items := make([]api.CommitResult, 0, len(body.Items))
+			for _, item := range body.Items {
+				items = append(items, api.CommitResult{Agent: item.Agent, AgentSessionID: item.AgentSessionID, RelPath: item.RelPath, Status: "committed"})
+			}
+			_ = json.NewEncoder(w).Encode(api.CommitResponse{Items: items})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	store, err := state.Load(home, map[string]string{"CMUX_VAULT_STATE_DIR": filepath.Join(home, "state")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := Engine{
+		Env:     env,
+		State:   store,
+		Client:  api.New(apiServer.URL, &authstore.Tokens{AccessToken: "access", RefreshToken: "refresh"}),
+		TempDir: filepath.Join(home, "tmp"),
+	}
+
+	summary, err := engine.syncSessions(context.Background(), sessions, Options{Agent: "codex"})
+	if err == nil {
+		t.Fatal("expected swapped symlink upload to fail")
+	}
+	if summary.Uploaded != 0 || summary.Failed < 1 {
+		t.Fatalf("summary = %#v, want uploaded=0 and failed>=1", summary)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for key, blob := range blobs {
+		if bytes.Contains(blob, secret) {
+			t.Fatalf("blob %s contains secret bytes in plaintext", key)
+		}
+		if bytes.Contains(decompressZstd(t, blob), secret) {
+			t.Fatalf("blob %s contains symlink target bytes after decompression", key)
+		}
+	}
+}
+
 func writeTestFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

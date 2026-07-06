@@ -57,11 +57,15 @@ type candidate struct {
 }
 
 func (e *Engine) Sync(ctx context.Context, opts Options) (Summary, error) {
-	var summary Summary
 	sessions, err := agentdirs.DiscoverAll(e.Env, opts.Agent)
 	if err != nil {
-		return summary, err
+		return Summary{}, err
 	}
+	return e.syncSessions(ctx, sessions, opts)
+}
+
+func (e *Engine) syncSessions(ctx context.Context, sessions []agentdirs.Session, opts Options) (Summary, error) {
+	var summary Summary
 
 	var candidates []candidate
 	for _, session := range sessions {
