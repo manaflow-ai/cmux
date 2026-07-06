@@ -15,7 +15,7 @@
 //   CMUX_CU_SCREENSHOT_CURSOR=0 omits the native macOS cursor from screenshots
 //   CMUX_CU_FAKE_PROVIDER=1 uses a hermetic provider for tests
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { accessSync, constants as fsConstants, rmSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
@@ -507,10 +507,10 @@ class MacComputerUseProvider {
 
   async run(input) {
     let stdout;
-    const payload = Buffer.from(JSON.stringify(input), "utf8").toString("base64");
+    const payload = JSON.stringify(input);
     try {
       const binaryPath = await this.executable();
-      const { stdout: providerOutput } = await execFileTool(binaryPath, ["--", payload], {
+      const { stdout: providerOutput } = await execFileWithStdinTool(binaryPath, [], payload, {
         timeout: TIMEOUT_MS,
         env: childEnv(),
       });
@@ -1410,6 +1410,77 @@ async function execFileTool(file, args, options) {
   token.abortControllers.add(controller);
   try {
     return await execFileP(file, args, { ...options, signal: controller.signal });
+  } finally {
+    token.abortControllers.delete(controller);
+  }
+}
+
+function execFileWithStdin(file, args, input, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, args, {
+      env: options.env,
+      cwd: options.cwd,
+      signal: options.signal,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const rejectOnce = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(error);
+    };
+    const timer = options.timeout
+      ? setTimeout(() => {
+          child.kill();
+          const error = new Error(`Command failed: ${file} timed out after ${options.timeout}ms`);
+          error.stdout = stdout;
+          error.stderr = stderr;
+          rejectOnce(error);
+        }, options.timeout)
+      : null;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      error.stdout = stdout;
+      error.stderr = stderr;
+      rejectOnce(error);
+    });
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = new Error(`Command failed: ${file} exited with ${code ?? signal}`);
+      error.stdout = stdout;
+      error.stderr = stderr;
+      error.code = code;
+      error.signal = signal;
+      reject(error);
+    });
+    child.stdin.end(input);
+  });
+}
+
+async function execFileWithStdinTool(file, args, input, options) {
+  const token = activeToolToken;
+  if (!token) return execFileWithStdin(file, args, input, options);
+  if (token.canceled) throw new Error("tool call was cancelled");
+  const controller = new AbortController();
+  token.abortControllers.add(controller);
+  try {
+    return await execFileWithStdin(file, args, input, { ...options, signal: controller.signal });
   } finally {
     token.abortControllers.delete(controller);
   }

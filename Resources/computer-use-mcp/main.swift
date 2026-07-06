@@ -8,7 +8,7 @@ let payloadArgument = CommandLine.arguments.dropFirst().last { $0 != "--" }
 if let payloadArgument, let data = Data(base64Encoded: payloadArgument) {
     inputData = data
 } else {
-    inputData = Data()
+    inputData = FileHandle.standardInput.readDataToEndOfFile()
 }
 let inputObject = (try? JSONSerialization.jsonObject(with: inputData)) as? [String: Any] ?? [:]
 let op = inputObject["op"] as? String ?? ""
