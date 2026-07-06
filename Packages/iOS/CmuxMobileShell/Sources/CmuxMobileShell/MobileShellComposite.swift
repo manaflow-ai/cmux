@@ -4201,6 +4201,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
     }
 
+    /// Suppress autofocus for the selected terminal when chrome is about to
+    /// reveal an already-selected surface by remounting it.
+    public func suppressSelectedTerminalAutoFocusOnNextAttach() {
+        suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
+    }
+
     /// Clears the one-shot autofocus suppression for `terminalID` once its
     /// surface has mounted (and so has already attached with autofocus
     /// disabled). Called from the surface's `onAppear`.

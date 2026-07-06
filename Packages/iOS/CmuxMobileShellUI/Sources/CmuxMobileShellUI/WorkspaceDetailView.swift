@@ -687,6 +687,10 @@ struct WorkspaceDetailView: View {
         browserStore.closeBrowser(for: workspace.id.rawValue)
     }
 
+    func hasActiveBrowserForCurrentWorkspace() -> Bool {
+        activeBrowser != nil
+    }
+
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
         isChatMode = false

@@ -359,6 +359,9 @@ extension WorkspaceDetailView {
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
         chatInputFocusToken = GhosttySurfaceView.resignActiveInput()
+        if hasActiveBrowserForCurrentWorkspace() {
+            store.suppressSelectedTerminalAutoFocusOnNextAttach()
+        }
         closeBrowserForCurrentWorkspace()
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
@@ -412,9 +415,7 @@ extension WorkspaceDetailView {
     private func applyChatModeFallback(canInvalidateSelection: Bool) {
         guard canInvalidateSelection else { return }
         if isChatMode, chosenChatSession == nil {
-            isChatMode = false
-            pinnedChatSessionID = nil
-            chatInputFocusToken = nil
+            exitChatModeToTerminal()
         }
     }
 
