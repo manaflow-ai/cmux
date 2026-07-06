@@ -33414,7 +33414,16 @@ export default CMUXSessionRestore;
                 }
                 return "{}"
             }
-            if source == "antigravity" {
+            // Grok and Antigravity both honor a native PreToolUse decision of
+            // the shape {"decision":"allow|deny","reason":"..."} on stdout (see
+            // each agent's hooks docs). The Claude-shaped permissionDecision
+            // JSON emitted by `nonClaudePreToolDecision` is ignored by these
+            // agents, so a sidebar approve/deny would otherwise be silently
+            // dropped — the tool runs (or never blocks) regardless of the
+            // user's choice, and side-effecting calls hang until the agent's
+            // PreToolUse hook timeout fires.
+            // https://github.com/manaflow-ai/cmux/issues/6303
+            if source == "antigravity" || source == "grok" {
                 let reason = mode == "deny"
                     ? "User denied permission via cmux Feed."
                     : "User approved via cmux Feed."
