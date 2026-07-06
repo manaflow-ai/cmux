@@ -444,6 +444,57 @@ import Testing
     collector.unmount()
 }
 
+/// Foregrounding the app should catch up mounted terminals without destroying a
+/// healthy event stream. The old foreground path forced `restartEventStream:
+/// true`, which looked like a Mac reconnect on every brief app switch and could
+/// expose an empty renderer while the replay arrived.
+@MainActor
+@Test func foregroundResumeRefreshesWithoutRestartingHealthyTerminalEventStream() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing foreground resume"
+    )
+
+    store.setAppForegroundActive(false)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    let subscribeCountWhileInactive = await router.count(of: "mobile.events.subscribe")
+    #expect(
+        subscribeCountWhileInactive == 1,
+        "background silence must not trigger a liveness probe or stream restart"
+    )
+
+    store.resumeForegroundRefresh()
+    let reasserted = try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    }
+    #expect(reasserted, "foreground resume should reassert the existing subscription")
+    let replayed = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(replayed, "foreground resume should replay mounted surfaces for catch-up")
+    #expect(
+        await router.count(of: "mobile.host.status") == 1,
+        "foreground resume must not restart the listener; a restart re-resolves capabilities through mobile.host.status"
+    )
+    #expect(store.macConnectionStatus == .connected)
+    #expect(store.isRecoveringConnection == false)
+    collector.unmount()
+}
+
 /// A successful probe that REPAIRED a lost registration (the host reports
 /// `already_subscribed: false`) must replay mounted surfaces: render-grid
 /// deltas emitted while the registration was absent were never delivered, so

@@ -4,6 +4,8 @@ import Foundation
 /// All mutable state is accessed only from `queue`; main-actor code replaces whole instances on recovery.
 final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     let queue: DispatchQueue
+    /// Accessed only from ``queue`` while refreshing the recovery snapshot cache.
+    var lastRecoverySnapshotTime: CFTimeInterval = 0
     #if DEBUG
     /// Accessed only from ``queue`` while producing DEBUG accessibility snapshots.
     var lastAccessibilityTextTime: CFTimeInterval = 0

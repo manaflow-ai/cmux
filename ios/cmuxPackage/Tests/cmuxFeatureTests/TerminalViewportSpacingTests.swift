@@ -468,6 +468,36 @@ struct TerminalViewportSpacingTests {
         #expect(outputApplied, "recovered surface must still accept terminal output")
     }
 
+    /// Recovery must preserve the last visible terminal text until the Mac replay
+    /// reaches the replacement surface. Otherwise reconnect or render recovery
+    /// shows an empty terminal with only a cursor, even though the previous frame
+    /// was still useful context.
+    @Test("render recovery keeps last terminal snapshot visible until replay")
+    func recoveryKeepsLastSnapshotVisibleUntilReplay() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+        harness.echo(initial)
+        #expect(await harness.waitForFill())
+
+        let preRecoveryText = "before-recovery-output"
+        let preRecoveryOutput = await harness.view.processOutputAndWait(Data("\(preRecoveryText)\r\n".utf8))
+        #expect(preRecoveryOutput, "initial output must reach the surface before recovery")
+        #expect(harness.view.isUsingSnapshotFallbackForTesting() == false)
+
+        #expect(harness.view.simulateRenderRecoveryWithStuckPriorFreeForTesting())
+        #expect(harness.view.isUsingSnapshotFallbackForTesting())
+        #expect(
+            harness.view.visibleSnapshotTextForTesting().contains(preRecoveryText),
+            "the fallback snapshot must preserve the last rendered terminal text while replay is pending"
+        )
+
+        let replayOutput = await harness.view.processOutputAndWait(Data("post-recovery-output\r\n".utf8))
+        #expect(replayOutput, "replay output must reach the recovered surface")
+        #expect(harness.view.isUsingSnapshotFallbackForTesting() == false)
+    }
+
     /// Whether the render rect currently reflects the effective pin (used to
     /// wait out the async geometry pass after a daemon push).
     private func renderMatchesPin(_ harness: ViewportSpacingHarness) -> Bool {

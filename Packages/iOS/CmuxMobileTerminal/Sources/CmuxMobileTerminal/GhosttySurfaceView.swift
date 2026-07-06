@@ -696,6 +696,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
     private var lastSnapshotFallbackHTML: String?
+    private var lastRecoverySnapshotText: String = ""
     /// Daemon-authoritative grid used for modes that need exact remote-cell
     /// replay. When nil, the surface fills the phone's natural capacity.
     private var effectiveGrid: (cols: Int, rows: Int)?
@@ -2388,20 +2389,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
-            #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
-            // `process_output`. Reading it on the MAIN thread per-output (to feed
-            // the XCUITest accessibility label) contended that lock against the
-            // off-main renderer/IO during a fast render storm and wedged the main
-            // thread on libghostty's futex until the scene-update watchdog
-            // (0x8BADF00D) froze the app. Read it HERE on the serial output queue
-            // instead — already serialized with `process_output`, so the two are
-            // never concurrent — throttled, and hand only the finished string to
-            // main. Off-main reads can never trip the main-thread watchdog.
+            // `process_output`. Keep recovery snapshots on this serial queue, not
+            // on the main actor during failure recovery, so a stuck render lock
+            // cannot make the preservation path stall the UI.
+            var recoverySnapshotText: String?
+            let snapshotNow = CACurrentMediaTime()
+            if snapshotNow - workQueue.lastRecoverySnapshotTime > 0.5 {
+                workQueue.lastRecoverySnapshotTime = snapshotNow
+                recoverySnapshotText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+            }
+            #if DEBUG
+            // The DEBUG accessibility mirror uses the same queue for the same
+            // lock-ordering reason as the recovery snapshot cache above.
             var accessibilityText: String?
-            let a11yNow = CACurrentMediaTime()
-            if a11yNow - workQueue.lastAccessibilityTextTime > 0.5 {
-                workQueue.lastAccessibilityTextTime = a11yNow
+            if snapshotNow - workQueue.lastAccessibilityTextTime > 0.5 {
+                workQueue.lastAccessibilityTextTime = snapshotNow
                 accessibilityText = Self.accessibilitySurfaceText(surface)
             }
             #endif
@@ -2422,6 +2425,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 #if DEBUG
                 self.lastOutputAppliedTime = CACurrentMediaTime()
                 #endif
+                if let recoverySnapshotText {
+                    self.lastRecoverySnapshotText = recoverySnapshotText
+                    self.lastSnapshotFallbackHTML = nil
+                }
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
                     self.snapshotFallbackView.isHidden = true
@@ -2754,6 +2761,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "render.recover reason=\(reason) stalledMs=\(stalledMs) generation=\(surfaceGeneration) pendingFrees=\(pendingSurfaceFreeCount)"
         )
         let completedFailedOperation = completePendingSurfaceOperations(returning: false)
+        let capturedFallback = captureSnapshotFallbackForRecovery()
 
         stopDisplayLink()
         let oldSurface = surface
@@ -2790,6 +2798,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         bridge.attach(to: self)
 
         initializeSurface()
+        if capturedFallback {
+            snapshotFallbackView.isHidden = false
+            flushSnapshotFallbackPresentation()
+        }
         if replay == .delegateWhenNoCaller && !completedFailedOperation {
             delegate?.ghosttySurfaceViewDidResetRenderPipeline(self)
         }
@@ -2832,10 +2844,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if let config = runtime?.config {
                 applyBackgroundColorFromConfig(config)
             }
-            // Hide the snapshot fallback immediately. The Metal renderer
-            // handles all rendering once the surface exists.
-            snapshotFallbackView.isHidden = true
-            surfaceHasReceivedOutput = true
+            // A new surface starts empty. Keep any recovery snapshot visible until
+            // real terminal bytes reach this generation, otherwise reconnect or
+            // render recovery briefly erases the user's last visible terminal.
+            surfaceHasReceivedOutput = false
         }
         setNeedsGeometrySync()
         startDisplayLink()
@@ -3797,16 +3809,34 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
 
-        let snapshot = renderedTextForTesting() ?? ""
+        _ = updateSnapshotFallback(
+            text: lastRecoverySnapshotText,
+            html: lastSnapshotFallbackHTML,
+            clearWhenEmpty: true
+        )
+    }
+
+    @discardableResult
+    private func captureSnapshotFallbackForRecovery() -> Bool {
+        updateSnapshotFallback(
+            text: lastRecoverySnapshotText,
+            html: lastSnapshotFallbackHTML,
+            clearWhenEmpty: false
+        )
+    }
+
+    @discardableResult
+    private func updateSnapshotFallback(text snapshot: String, html: String?, clearWhenEmpty: Bool) -> Bool {
         guard !snapshot.isEmpty else {
-            lastSnapshotFallbackHTML = nil
-            snapshotFallbackView.attributedText = nil
-            snapshotFallbackView.text = ""
-            snapshotFallbackView.isHidden = true
-            return
+            if clearWhenEmpty {
+                lastSnapshotFallbackHTML = nil
+                snapshotFallbackView.attributedText = nil
+                snapshotFallbackView.text = ""
+                snapshotFallbackView.isHidden = true
+            }
+            return false
         }
 
-        let html = renderedHTMLForTesting()
         if let html,
            html != lastSnapshotFallbackHTML,
            let attributedSnapshot = makeSnapshotAttributedText(from: html) {
@@ -3829,6 +3859,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         snapshotFallbackView.isHidden = false
         flushSnapshotFallbackPresentation()
+        return true
     }
 
     private func flushSnapshotFallbackPresentation() {

@@ -111,7 +111,11 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
-            store.resumeForegroundRefresh()
+            if scenePhase == .active {
+                store.resumeForegroundRefresh()
+            } else {
+                store.setAppForegroundActive(false)
+            }
             #if os(iOS)
             pushCoordinator.bind(store: store)
             #endif
@@ -141,7 +145,10 @@ struct CMUXMobileRootView: View {
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                store.setAppForegroundActive(false)
+                return
+            }
             store.resumeForegroundRefresh()
             // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()

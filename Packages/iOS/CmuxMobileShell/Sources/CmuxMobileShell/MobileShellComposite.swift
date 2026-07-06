@@ -675,6 +675,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
+    private var isAppForegroundActive = true
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
@@ -1149,17 +1150,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        setAppForegroundActive(true)
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
-        // restarts a subscription torn down while backgrounded.
+        // reasserts a live subscription without tearing down a healthy stream.
         evaluatePresenceSubscription()
-        resyncTerminalOutput(reason: "foreground", restartEventStream: true)
+        resyncTerminalOutput(reason: "foreground", restartEventStream: false)
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
         if multiMacAggregationEnabled, connectionState == .connected {
             self.scheduleSecondaryAggregation()
+        }
+    }
+
+    /// Track app lifecycle for terminal-stream liveness. iOS can suspend socket
+    /// delivery while the app is inactive; that wall-clock silence must not be
+    /// interpreted as a dead Mac stream.
+    public func setAppForegroundActive(_ isActive: Bool) {
+        guard isAppForegroundActive != isActive else {
+            if isActive {
+                recordTerminalEventStreamLiveness()
+                restartRenderGridLivenessWatchdogIfNeeded()
+            }
+            return
+        }
+        isAppForegroundActive = isActive
+        recordTerminalEventStreamLiveness()
+        if isActive {
+            restartRenderGridLivenessWatchdogIfNeeded()
+        } else {
+            stopRenderGridLivenessWatchdog(listenerID: nil)
         }
     }
 
@@ -6280,7 +6302,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // transport tests, which set `supportsServerPushEvents = false`, never
         // schedule speculative re-subscribes. A fresh subscription gets a full
         // silence window before it can be judged dead.
-        startRenderGridLivenessWatchdog(listenerID: listenerID)
+        if isAppForegroundActive {
+            startRenderGridLivenessWatchdog(listenerID: listenerID)
+        }
         terminalEventListenerTask = Task { @MainActor [weak self] in
             defer {
                 if self?.terminalEventListenerID == listenerID {
@@ -6477,6 +6501,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeID = nil
     }
 
+    private func restartRenderGridLivenessWatchdogIfNeeded() {
+        guard isAppForegroundActive else { return }
+        guard runtime?.supportsServerPushEvents ?? true else { return }
+        guard let listenerID = terminalEventListenerID else { return }
+        startRenderGridLivenessWatchdog(listenerID: listenerID)
+    }
+
     /// Single ownership point for the liveness clock the watchdog reads.
     ///
     /// Stamped by (1) every envelope the listener loop actually consumes,
@@ -6525,6 +6556,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// probe restarts nothing: no listener teardown, no replay, no stream
     /// interruption.
     private func checkRenderGridLiveness(listenerID: UUID) {
+        guard isAppForegroundActive else {
+            recordTerminalEventStreamLiveness()
+            return
+        }
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
         guard terminalEventListenerID == listenerID else { return }
