@@ -89,6 +89,44 @@ enum AuthEnvironment {
         )
     }
 
+    /// Pricing page used by every "Upgrade to cmux Pro" entrypoint
+    /// (Settings, command palette, Help menu). Resolution order mirrors
+    /// ``vmAPIBaseURL``: process env `CMUX_WWW_ORIGIN`, then the DEBUG-only
+    /// `~/.cmux-dev.env` file (so a deeplink-launched dev build can point at
+    /// a local web server), then the production website.
+    static var pricingURL: URL {
+        resolvedPricingURL(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedPricingURL(environment: [String: String]) -> URL {
+        appWebOrigin(environment: environment).appendingPathComponent("pricing")
+    }
+
+    static var appPricingURL: URL {
+        resolvedAppPricingURL(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedAppPricingURL(environment: [String: String]) -> URL {
+        appWebOrigin(environment: environment).appendingPathComponent("app-pricing")
+    }
+
+    /// Payment entrypoint used by native app UI. `CMUX_BILLING_WWW_ORIGIN`
+    /// can explicitly pin checkout elsewhere, otherwise checkout follows the
+    /// same app web origin as `/app-pricing`. Direct Stripe Checkout binds the
+    /// purchaser to the server-created session, so dev builds must start the
+    /// request on the same origin that rendered pricing instead of crossing to
+    /// production.
+    static var billingCheckoutURL: URL {
+        resolvedBillingCheckoutURL(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedBillingCheckoutURL(environment: [String: String]) -> URL {
+        billingCheckoutURL(
+            origin: billingWebsiteOrigin(environment: environment),
+            callbackScheme: callbackScheme(environment: environment, bundleIdentifier: nil)
+        )
+    }
+
     static var signInWebsiteOrigin: URL {
         canonicalizedLoopbackURL(
             resolvedURL(
@@ -154,6 +192,51 @@ enum AuthEnvironment {
 
     private static var cmuxPort: String {
         resolvedCmuxPort(environment: ProcessInfo.processInfo.environment)
+    }
+
+    private static func billingWebsiteOrigin(environment: [String: String]) -> URL {
+        if let overridden = environmentURL("CMUX_BILLING_WWW_ORIGIN", environment: environment) {
+            return overridden
+        }
+        return appWebOrigin(environment: environment)
+    }
+
+    private static func appWebOrigin(environment: [String: String]) -> URL {
+        if let explicitWebsite = environmentURL("CMUX_WWW_ORIGIN", environment: environment) {
+            return canonicalizedLoopbackURL(explicitWebsite)
+        }
+        if let authWebsite = environmentURL("CMUX_AUTH_WWW_ORIGIN", environment: environment) {
+            return canonicalizedLoopbackURL(authWebsite)
+        }
+        #if DEBUG
+        if environmentPort("CMUX_PORT", environment: environment) != nil ||
+            environmentPort("PORT", environment: environment) != nil {
+            return URL(string: resolvedDefaultWebOrigin(environment: environment))!
+        }
+        if let override = devOverride(key: "CMUX_WWW_ORIGIN"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        #endif
+        return resolvedURL(
+            environmentKey: "CMUX_WWW_ORIGIN",
+            fallback: resolvedDefaultWebOrigin(environment: environment),
+            environment: environment
+        )
+    }
+
+    private static func billingCheckoutURL(origin: URL, callbackScheme: String) -> URL {
+        var components = URLComponents(
+            url: origin.appendingPathComponent("api/billing/checkout"),
+            resolvingAgainstBaseURL: false
+        )!
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "cmux_external_browser" }
+        queryItems.removeAll { $0.name == "cmux_scheme" }
+        queryItems.append(URLQueryItem(name: "cmux_external_browser", value: "1"))
+        queryItems.append(URLQueryItem(name: "cmux_scheme", value: callbackScheme))
+        components.queryItems = queryItems
+        return components.url!
     }
 
     private static func resolvedCmuxPort(environment: [String: String]) -> String {
@@ -340,6 +423,15 @@ enum AuthEnvironment {
             return url
         }
         return URL(string: fallback)!
+    }
+
+    private static func environmentURL(_ key: String, environment: [String: String]) -> URL? {
+        guard let raw = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty
+        else {
+            return nil
+        }
+        return URL(string: raw)
     }
 
     private static func canonicalizedLoopbackURL(_ url: URL) -> URL {

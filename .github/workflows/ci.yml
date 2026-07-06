@@ -133,6 +133,9 @@ jobs:
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
 
+      - name: Validate external TestFlight group assignment helper
+        run: python3 tests/test_ios_testflight_external_distribution.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -210,6 +213,9 @@ jobs:
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
+      - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
+        run: python3 scripts/lint-feature-flags.py
+
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
 
@@ -255,7 +261,11 @@ jobs:
         run: bun run typecheck
 
       - name: Web tests
-        run: bun test
+        # Explicit sorted file list: bun discovers test files in filesystem
+        # readdir order, which differs between Linux runners and local macOS,
+        # so an unpinned run exercises a file order no developer can
+        # reproduce. Sorted order makes CI failures replayable locally.
+        run: bun test $(ls tests/*.test.ts tests/*.test.tsx | sort)
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
