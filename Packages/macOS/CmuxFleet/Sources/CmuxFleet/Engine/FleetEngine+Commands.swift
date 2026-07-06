@@ -28,6 +28,14 @@ extension FleetEngine {
 
     private func provisionWorkspace(_ task: FleetTask, fleetID: FleetID) {
         guard var runtime = fleets[fleetID] else { return }
+        if let workspaceID = task.workspaceID,
+           task.surfaceID != nil,
+           let directoryPath = task.directoryPath,
+           dependencies.world.workspaceExists(workspaceID: workspaceID) {
+            // Reuse the prior attempt's live workspace instead of provisioning a duplicate.
+            apply(.provisioned(taskID: task.id, path: directoryPath, isBrandNew: false, at: dependencies.now()), to: task.id)
+            return
+        }
         let config = runtime.config
         let generation = (runtime.provisionGenerationByTaskID[task.id] ?? 0) + 1
         runtime.provisionGenerationByTaskID[task.id] = generation
@@ -46,6 +54,12 @@ extension FleetEngine {
                     return
                 }
                 runtime.provisionGenerationByTaskID.removeValue(forKey: task.id)
+                if let previousWorkspaceID = current.workspaceID,
+                   previousWorkspaceID != outcome.workspaceID,
+                   runtime.taskIDByWorkspaceID[previousWorkspaceID] == task.id {
+                    // The replaced workspace is gone; stale hooks from it must not bind.
+                    runtime.taskIDByWorkspaceID.removeValue(forKey: previousWorkspaceID)
+                }
                 current.workspaceID = outcome.workspaceID
                 current.surfaceID = outcome.surfaceID
                 current.directoryPath = outcome.directoryPath
