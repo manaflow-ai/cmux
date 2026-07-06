@@ -1,6 +1,7 @@
 import Foundation
 
 /// Builds and removes cmux-owned Kimi Code hook blocks in TOML config files.
+/// lint:allow namespace-type — stateless, dependency-free TOML text transform mirroring the grandfathered HermesAgentHookConfig/RovoDevHookConfig hook-config shape (baseline may only shrink); candidate for the shared marker-block helper consolidation.
 public enum KimiCodeHookConfig {
     /// A Kimi Code hook event entry written as a TOML `[[hooks]]` table.
     public struct Event: Equatable, Sendable {
