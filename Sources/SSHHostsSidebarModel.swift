@@ -18,11 +18,15 @@ import Observation
 final class SSHHostsSidebarModel {
     private(set) var hostAliases: [String] = []
     var isCollapsed = false
-    /// Bumped when any workspace's remote connection state transitions, so the
-    /// section's per-host active markers re-derive. TabManager churn covers
-    /// workspace add/remove/select but not per-workspace state changes.
+    /// Bumped when a listed host's workspace remote connection state
+    /// transitions, so the section's per-host active markers re-derive.
+    /// TabManager churn covers workspace add/remove/select but not
+    /// per-workspace state changes.
     private(set) var remoteStateRevision: UInt64 = 0
 
+    /// O(1) relevance filter for remote-state notifications; mirrors
+    /// `hostAliases`.
+    @ObservationIgnored private var hostAliasLookup: Set<String> = []
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
     deinit {
@@ -49,8 +53,17 @@ final class SSHHostsSidebarModel {
                 let transitions = NotificationCenter.default.notifications(
                     named: .workspaceRemoteConnectionStateDidChange
                 )
-                for await _ in transitions {
-                    self?.remoteStateRevision &+= 1
+                for await notification in transitions {
+                    guard let self else { return }
+                    // Only a listed alias's transition can change a row
+                    // marker; ignoring VM/user@host remotes keeps reconnect
+                    // storms from re-running sidebar bodies for nothing.
+                    guard let workspace = notification.object as? Workspace,
+                          let destination = workspace.remoteConfiguration?.destination,
+                          self.hostAliasLookup.contains(destination) else {
+                        continue
+                    }
+                    self.remoteStateRevision &+= 1
                 }
             }
         }
@@ -65,6 +78,7 @@ final class SSHHostsSidebarModel {
             let aliases = await Self.scanHostAliases()
             guard let self else { return }
             self.refreshTask = nil
+            self.hostAliasLookup = Set(aliases)
             if self.hostAliases != aliases {
                 self.hostAliases = aliases
             }
