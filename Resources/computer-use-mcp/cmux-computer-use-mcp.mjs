@@ -307,8 +307,7 @@ function isSupportedKeyName(key) {
 }
 
 function isValidElementIndex(value) {
-  const index = Number(value);
-  return Number.isFinite(index) && Number.isInteger(index) && index >= 0;
+  return Number.isFinite(value) && Number.isInteger(value) && value >= 0;
 }
 
 function pngDimensions(buffer) {

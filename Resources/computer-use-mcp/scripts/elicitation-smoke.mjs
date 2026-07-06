@@ -425,6 +425,29 @@ if (
   process.exit(1);
 }
 
+const nullElement = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_scroll", args: { app: "TestApp", element: null, direction: "down" } },
+    { tool: "computer_action", args: { app: "TestApp", element: null, action: "AXPress" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(
+  `null element -> state=${nullElement[0].isError} scroll=${nullElement[1].isError} action=${nullElement[2].isError}`
+);
+if (
+  nullElement[0].isError ||
+  !nullElement[1].isError ||
+  !nullElement[1].text.includes("element") ||
+  !nullElement[2].isError ||
+  !nullElement[2].text.includes("element")
+) {
+  console.error("FAIL: scroll/action should reject null element indices after a snapshot exists");
+  process.exit(1);
+}
+
 const cancelled = await runRawCancellationSmoke({ queued: false });
 console.log(
   `cancelled tool call -> isError=${cancelled.result.isError} followUp=${cancelled.afterCancel.isError} text=${cancelled.afterCancel.text}`
