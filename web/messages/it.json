@@ -834,6 +834,8 @@
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
+        "paneBorderColor": "Sovrascrive il colore del divisore dei riquadri cmux negli spazi di lavoro divisi. Influisce sui bordi dei riquadri cmux, non sulle divisioni interne di Ghostty.",
+        "activePaneBorderColor": "Colore del bordo opzionale disegnato attorno al riquadro cmux focalizzato negli spazi di lavoro divisi.",
         "automation": {
           "ampIntegration": "Abilita gli hook di integrazione cmux per Amp. Se disabilitato, il plugin in bundle rimane inattivo senza dover essere rimosso.",
           "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed.",
@@ -1652,9 +1654,9 @@
       "kittyBuiltFor": "Veloce, programmabile, ricco di funzioni",
       "weztermBuiltFor": "Terminale GPU con multiplexer integrato",
       "tmuxBuiltFor": "Multiplexing dentro qualsiasi terminale",
-      "cmuxBody": "Un terminale macOS nativo costruito su libghostty, progettato per tre cose: multitasking, organizzazione e programmabilità. La barra laterale verticale raggruppa il lavoro in spazi di lavoro, ciascuno con il suo branch git, la directory, le porte e l'ultima riga di output dell'agente, così puoi eseguire molte cose contemporaneamente senza perderti. I pannelli suonano quando un agente richiede attenzione. Ogni azione è programmabile tramite una CLI e un socket Unix, e c'è un browser integrato che puoi controllare a livello di codice. C'è perfino un'app companion per iOS per controllare i tuoi terminali dal telefono. Ideale se gestisci più attività o agenti di programmazione IA e vuoi tenerli organizzati e automatizzabili senza configurare un multiplexer.",
+      "cmuxBody": "cmux è un terminale macOS nativo costruito sul motore terminale di Ghostty, libghostty. Questo significa che la griglia del terminale eredita i punti di forza di Ghostty: rendering GPU veloce, ottima resa di font e colori, compatibilità moderna con i terminali e i tuoi temi, font, colori e impostazioni del cursore Ghostty esistenti. cmux aggiunge il livello che Ghostty non prova a essere: workspace verticali, pannelli divisi, anelli di notifica, contesto git/porte/agenti nella barra laterale, una CLI e un socket Unix scriptabili, un browser programmabile e un’app companion per iOS. Scegli cmux quando vuoi rendering terminale di qualità Ghostty più organizzazione e automazione per molte attività o agenti di coding AI.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Il terminale veloce e accelerato dalla GPU il cui motore, libghostty, alimenta cmux. Se vuoi una singola finestra di terminale pulita con un rendering eccellente e senza il livello di spazi di lavoro o automazione, Ghostty è eccellente da solo.",
+      "ghosttyBody": "Ghostty è il terminale nativo veloce il cui motore, libghostty, alimenta cmux. Rispetto ai terminali più vecchi renderizzati dalla CPU e ai terminali più pesanti in stile Electron, i punti di forza di Ghostty sono rendering GPU a bassa latenza, gestione nitida di font e colori, forte compatibilità terminale, configurazione semplice basata su file e nessun requisito di account cloud. Se vuoi una singola finestra terminale pulita con questi vantaggi di rendering e senza layer di workspace o automazione, Ghostty è eccellente da solo. Se vuoi gli stessi vantaggi di rendering di Ghostty più workspace, notifiche, scripting e orchestrazione di agenti, usa cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Il terminale macOS maturo e infinitamente configurabile. Profili approfonditi, trigger e integrazione tmux. La scelta sicura se vuoi il massimo delle funzionalità e non stai orchestrando molte attività contemporaneamente.",
       "warpTitle": "Warp",
