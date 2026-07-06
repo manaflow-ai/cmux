@@ -11,7 +11,19 @@ extension GhosttyNSView {
 
     @discardableResult
     func appendForkCurrentAgentConversationMenuItems(to menu: NSMenu) -> Bool {
-        guard canForkCurrentAgentConversation() else { return false }
+        let availability = currentAgentConversationForkAvailability()
+        guard availability.isAvailable || availability == .agentIndexRefreshing else { return false }
+
+        if availability == .agentIndexRefreshing {
+            let item = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.forkConversation", defaultValue: "Fork Conversation"),
+                action: nil,
+                keyEquivalent: ""
+            )
+            item.isEnabled = false
+            item.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
+            return true
+        }
 
         let defaultDestination = AgentConversationForkDefaultSettings.current()
         let primaryItem = menu.addItem(
@@ -47,12 +59,12 @@ extension GhosttyNSView {
         return true
     }
 
-    private func canForkCurrentAgentConversation() -> Bool {
+    private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {
         guard let panelId = terminalSurface?.id else {
 #if DEBUG
             cmuxDebugLog("fork.contextMenu.hidden reason=missing_terminal_surface")
 #endif
-            return false
+            return .noAgentSnapshot
         }
         guard let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId) else {
 #if DEBUG
@@ -61,11 +73,15 @@ extension GhosttyNSView {
                 "reason=missing_workspace"
             )
 #endif
-            return false
+            return .noAgentSnapshot
         }
         let availability = located.workspace.forkAgentConversationContextMenuOpenAvailability(
             forPanelId: panelId
         )
+        if availability == .agentIndexRefreshing,
+           !located.workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable {
+            return .noAgentSnapshot
+        }
 #if DEBUG
         if !availability.isAvailable {
             cmuxDebugLog(
@@ -74,7 +90,7 @@ extension GhosttyNSView {
             )
         }
 #endif
-        return availability.isAvailable
+        return availability
     }
 
     @objc func forkCurrentAgentConversation(_ sender: Any?) {

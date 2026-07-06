@@ -338,6 +338,9 @@ struct WorkspaceForkConversationContextMenuTests {
 
         now.withLock { $0 = Date(timeIntervalSince1970: 16) }
         #expect(
+            sharedIndex.snapshotForForkConversationCandidate(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId
+        )
+        #expect(
             !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
             "Fork availability must fail closed once the panel-specific probe expires."
         )

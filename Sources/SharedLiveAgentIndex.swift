@@ -61,6 +61,16 @@ final class SharedLiveAgentIndex {
     }
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
+    func snapshotForForkConversationCandidate(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard let index,
+              validatedForkPanels.contains(panelKey) else {
+            return nil
+        }
+        return index.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         guard hasFreshForkAvailabilityProbe(for: panelKey),
