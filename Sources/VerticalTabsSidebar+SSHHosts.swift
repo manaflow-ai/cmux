@@ -47,6 +47,7 @@ extension VerticalTabsSidebar {
                     connect: { alias in
                         Self.connectToSSHHost(
                             alias: alias,
+                            model: model,
                             tabManager: tabManager,
                             windowId: windowId,
                             preferredWindow: preferredWindow
@@ -86,6 +87,7 @@ extension VerticalTabsSidebar {
     @MainActor
     static func connectToSSHHost(
         alias: String,
+        model: SSHHostsSidebarModel,
         tabManager: TabManager,
         windowId: UUID,
         preferredWindow: NSWindow?
@@ -97,15 +99,21 @@ extension VerticalTabsSidebar {
             tabManager.selectWorkspace(existing)
             return
         }
-        CmuxSSHURLProcessLauncher.shared.start(
+
+        guard model.beginPendingConnect(alias: alias) else { return }
+        let didLaunch = CmuxSSHURLProcessLauncher.shared.start(
             cliArguments: ["ssh", "--window", windowId.uuidString, alias],
             destination: alias,
             failureAlertTitle: String(
                 localized: "sidebar.sshHosts.connectFailedTitle",
                 defaultValue: "Couldn't Connect to SSH Host"
             ),
-            preferredWindow: preferredWindow
+            preferredWindow: preferredWindow,
+            onExit: { model.endPendingConnect(alias: alias) }
         )
+        if !didLaunch {
+            model.endPendingConnect(alias: alias)
+        }
     }
 
     /// Live means connected or with a connection attempt in flight; those

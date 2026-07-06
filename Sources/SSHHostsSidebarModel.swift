@@ -24,6 +24,12 @@ final class SSHHostsSidebarModel {
     /// per-workspace state changes.
     private(set) var remoteStateRevision: UInt64 = 0
 
+    /// Aliases with a `cmux ssh` launch in flight: set when the bundled CLI
+    /// spawns and cleared when it exits (the CLI returns only after
+    /// workspace.create/configure/select complete), so rapid re-clicks cannot
+    /// spawn duplicate workspaces for one host.
+    private(set) var pendingConnectAliases: Set<String> = []
+
     /// O(1) relevance filter for remote-state notifications; mirrors
     /// `hostAliases`.
     @ObservationIgnored private var hostAliasLookup: Set<String> = []
@@ -67,6 +73,18 @@ final class SSHHostsSidebarModel {
                 }
             }
         }
+    }
+
+    /// Claims a pending connect slot for `alias`.
+    /// - Returns: `false` when a launch for that alias is already in flight
+    ///   (the caller should ignore the click).
+    func beginPendingConnect(alias: String) -> Bool {
+        pendingConnectAliases.insert(alias).inserted
+    }
+
+    /// Releases the pending connect slot for `alias`.
+    func endPendingConnect(alias: String) {
+        pendingConnectAliases.remove(alias)
     }
 
     /// Rescans the SSH config. Coalesces: a refresh requested while one is

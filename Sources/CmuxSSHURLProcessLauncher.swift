@@ -45,7 +45,8 @@ final class CmuxSSHURLProcessLauncher {
         cliArguments: [String],
         destination: String,
         failureAlertTitle: String,
-        preferredWindow: NSWindow?
+        preferredWindow: NSWindow?,
+        onExit: (@MainActor @Sendable () -> Void)? = nil
     ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
         guard let cliURL,
@@ -88,6 +89,7 @@ final class CmuxSSHURLProcessLauncher {
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
                 Self.shared.processes.removeValue(forKey: processIdentifier)
+                onExit?()
                 guard terminationStatus != 0, !Self.shared.isShuttingDown else { return }
                 let format = String(
                     localized: "dialog.sshURL.launchFailed.exit",
