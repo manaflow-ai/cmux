@@ -479,8 +479,17 @@ struct TerminalViewportSpacingTests {
         harness.echo(initial)
         #expect(await harness.waitForFill())
 
-        #expect(!harness.view.simulateRenderRecoveryAtSurfaceFreeLimitForTesting())
+        #expect(harness.view.simulateRenderRecoveryAtSurfaceFreeLimitForTesting())
         #expect(harness.delegate.renderPipelineResetCount == 0)
+
+        let outputApplied = await harness.view.processOutputAndWait(Data("paused-output\r\n".utf8))
+        #expect(!outputApplied, "paused recovery must reject output instead of queuing onto a wedged surface")
+
+        let geometryApplied = await harness.view.applyViewSizeAndWait(
+            cols: initial.columns,
+            rows: max(1, initial.rows - 1)
+        )
+        #expect(!geometryApplied, "paused recovery must reject geometry instead of queuing onto a wedged surface")
     }
 
     /// Recovery must preserve the last visible terminal text until the Mac replay

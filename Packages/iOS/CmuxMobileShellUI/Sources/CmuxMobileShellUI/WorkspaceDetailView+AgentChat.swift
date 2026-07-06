@@ -358,7 +358,8 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
-        GhosttySurfaceView.resignActiveInput()
+        chatInputFocusToken = GhosttySurfaceView.resignActiveInput()
+        closeBrowserForCurrentWorkspace()
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }
@@ -373,8 +374,10 @@ extension WorkspaceDetailView {
             isChatMode = false
         }
         pinnedChatSessionID = nil
+        let token = chatInputFocusToken
+        chatInputFocusToken = nil
         if let terminalID {
-            _ = GhosttySurfaceView.focusTerminalInput(surfaceID: terminalID)
+            _ = GhosttySurfaceView.restoreInputFocus(token, surfaceID: terminalID)
         }
     }
 
@@ -411,6 +414,7 @@ extension WorkspaceDetailView {
         if isChatMode, chosenChatSession == nil {
             isChatMode = false
             pinnedChatSessionID = nil
+            chatInputFocusToken = nil
         }
     }
 

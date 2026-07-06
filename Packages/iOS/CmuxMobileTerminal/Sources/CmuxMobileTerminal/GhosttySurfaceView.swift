@@ -369,6 +369,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     }
 }
 
+public struct GhosttySurfaceInputFocusToken {
+    fileprivate weak var view: GhosttySurfaceView?
+}
+
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
@@ -495,6 +499,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
     private var pendingSurfaceFreeCount = 0
+    private var renderPipelineRecoveryPaused = false
+    private var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
     private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
@@ -2201,7 +2207,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func ensureSurfaceOperationDeadlinePump() {
-        guard window != nil, displayLink == nil, !renderingSuspended else { return }
+        guard window != nil, displayLink == nil, !renderingSuspended, !renderPipelineRecoveryPaused else { return }
         startDisplayLink()
     }
 
@@ -2361,6 +2367,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         _ data: Data,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
+        guard !renderPipelineRecoveryPaused else {
+            logRecoveryPausedDrop(kind: "output", byteCount: data.count)
+            completion?(false)
+            return
+        }
         guard let surface, !isDismantled else {
             completion?(true)
             return
@@ -2513,8 +2524,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Use before presenting SwiftUI chrome over the terminal so UIKit releases
     /// the hidden text input and the terminal can recalculate full-height
     /// geometry after the keyboard leaves.
-    public static func resignActiveInput() {
-        activeInputSurface?.resignInput()
+    @discardableResult
+    public static func resignActiveInput() -> GhosttySurfaceInputFocusToken? {
+        guard let surface = activeInputSurface else { return nil }
+        let token = GhosttySurfaceInputFocusToken(view: surface)
+        surface.resignInput()
+        return token
+    }
+
+    public static func restoreInputFocus(
+        _ token: GhosttySurfaceInputFocusToken?,
+        surfaceID: String?
+    ) -> Bool {
+        guard let surfaceID,
+              let view = token?.view,
+              view.hostSurfaceID == surfaceID,
+              view.window != nil,
+              !view.isHidden,
+              view.alpha > 0.01 else {
+            return false
+        }
+        view.focusInput()
+        return true
     }
 
     /// Resigns this surface's hidden text input and clears keyboard geometry.
@@ -2661,6 +2692,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let generation = surfaceGeneration
         guard surface == expectedSurface,
               !isDismantled,
+              !renderPipelineRecoveryPaused,
               !renderingSuspended else {
             return nil
         }
@@ -2753,6 +2785,49 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    private func logRecoveryPausedDrop(kind: String, byteCount: Int? = nil) {
+        let now = CACurrentMediaTime()
+        guard now - lastRecoveryPausedDropLogTime >= 1 else { return }
+        lastRecoveryPausedDropLogTime = now
+        MobileDebugLog.anchormux(
+            "render.recover.paused_drop kind=\(kind) bytes=\(byteCount ?? 0) pendingFrees=\(pendingSurfaceFreeCount)"
+        )
+    }
+
+    @discardableResult
+    private func pauseRenderPipelineRecovery(
+        reason: String,
+        stalledMs: Int
+    ) -> Bool {
+        MobileDebugLog.anchormux(
+            "render.recover.paused reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
+        )
+        renderPipelineRecoveryPaused = true
+        stopDisplayLink()
+        _ = completePendingSurfaceOperations(returning: false)
+        renderInFlight = false
+        renderInFlightSince = nil
+        needsAnotherRender = false
+        needsDraw = false
+        return true
+    }
+
+    private func resumePausedRenderPipelineRecoveryIfPossible() {
+        guard renderPipelineRecoveryPaused,
+              !isDismantled,
+              surface != nil,
+              pendingSurfaceFreeCount < Self.surfaceFreeBacklogRecoveryLimit else { return }
+        MobileDebugLog.anchormux(
+            "render.recover.resuming pendingFrees=\(pendingSurfaceFreeCount)"
+        )
+        renderPipelineRecoveryPaused = false
+        _ = recoverRenderPipeline(
+            reason: "free_drained",
+            stalledMs: 0,
+            replay: .delegateWhenNoCaller
+        )
+    }
+
     @discardableResult
     private func recoverRenderPipeline(
         reason: String,
@@ -2763,11 +2838,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               surface != nil else {
             return false
         }
+        guard !renderPipelineRecoveryPaused else {
+            return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
+        }
         if pendingSurfaceFreeCount >= Self.surfaceFreeBacklogRecoveryLimit {
-            MobileDebugLog.anchormux(
-                "render.recover.free_backlog_limit reason=\(reason) stalledMs=\(stalledMs) pendingFrees=\(pendingSurfaceFreeCount)"
-            )
-            return false
+            return pauseRenderPipelineRecovery(reason: reason, stalledMs: stalledMs)
         }
         if pendingSurfaceFreeCount >= Self.surfaceFreeBacklogWarningThreshold {
             MobileDebugLog.anchormux(
@@ -2794,6 +2869,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 MobileDebugLog.anchormux(
                     "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
                 )
+                self.resumePausedRenderPipelineRecoveryIfPossible()
             }
         }
 
@@ -3051,7 +3127,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderingSuspended,
+        guard !renderPipelineRecoveryPaused,
+              !renderingSuspended,
               !isRenderDispatchSuppressed,
               let surface,
               !isDismantled else { return }
@@ -3389,6 +3466,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         shouldReassertNaturalSize: Bool = true,
         completion: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
+        guard !renderPipelineRecoveryPaused else {
+            logRecoveryPausedDrop(kind: "geometry")
+            completion?(false)
+            return
+        }
         guard let surface else {
             completion?(true)
             return
@@ -4048,7 +4130,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         font: Int
     ) async -> String? {
         guard self.surface == surface,
-              surfaceGeneration == generation else {
+              surfaceGeneration == generation,
+              !renderPipelineRecoveryPaused else {
             return nil
         }
         return await withCheckedContinuation { continuation in

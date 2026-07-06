@@ -99,26 +99,4 @@ extension GhosttySurfaceView {
         return await matchingView.copyableTextForCurrentSurface(surface: surface)
     }
 
-    /// Re-focus the mounted terminal view for a shell-level surface id.
-    ///
-    /// GUI chat temporarily resigns terminal input while it overlays the still
-    /// mounted terminal. Closing chat should give input back to the same
-    /// terminal without forcing a renderer remount.
-    @MainActor
-    public static func focusTerminalInput(surfaceID: String) -> Bool {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        guard let matchingView = registeredSurfaceViews
-            .sorted(by: { $0.key < $1.key })
-            .compactMap(\.value.value)
-            .first(where: { candidate in
-                candidate.hostSurfaceID == surfaceID && candidate.surface != nil
-                    && candidate.window != nil && !candidate.isHidden
-                    && candidate.alpha > 0.01
-            })
-        else {
-            return false
-        }
-        matchingView.focusInput()
-        return true
-    }
 }

@@ -57,6 +57,7 @@ struct WorkspaceDetailView: View {
     /// sorting first cannot swap the conversation out from under the user
     /// mid-read. Cleared when chat mode turns off.
     @State var pinnedChatSessionID: String?
+    @State var chatInputFocusToken: GhosttySurfaceInputFocusToken?
     @State var chatSessions: [ChatSessionDescriptor] = []
     @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session.
@@ -678,14 +679,19 @@ struct WorkspaceDetailView: View {
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
+        closeBrowserForCurrentWorkspace()
         createTerminal()
+    }
+
+    func closeBrowserForCurrentWorkspace() {
+        browserStore.closeBrowser(for: workspace.id.rawValue)
     }
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
         isChatMode = false
         pinnedChatSessionID = nil
+        chatInputFocusToken = nil
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
@@ -696,7 +702,7 @@ struct WorkspaceDetailView: View {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
+        closeBrowserForCurrentWorkspace()
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
