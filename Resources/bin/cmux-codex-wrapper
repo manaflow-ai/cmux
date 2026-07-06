@@ -256,11 +256,21 @@ cmux_computer_use_provider_available() {
 
 cmux_codex_emit_computer_use_args() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    cmux_computer_use_provider_available || return 1
+    local self_dir bundled_mcp candidate
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    bundled_mcp="$self_dir/cmux-computer-use-mcp"
+    if [[ -x "$bundled_mcp" ]]; then
+        printf '%s\0' \
+            "-c" \
+            "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$bundled_mcp")\"" \
+            "-c" \
+            "mcp_servers.cmux-computer-use.args=[]"
+        return 0
+    fi
+
     local node_binary
     node_binary="$(cmux_computer_use_resolve_node)" || return 1
-    cmux_computer_use_provider_available || return 1
-    local self_dir candidate
-    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     for candidate in \
         "$self_dir/../cmux-computer-use-mcp.mjs" \
         "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do

@@ -399,7 +399,7 @@ class FakeComputerUseProvider {
         { index: 1, path: [0], bounds: { x: 10, y: 10, width: 80, height: 30 }, actions: ["AXPress"] },
         { index: 2, path: [1], bounds: { x: 10, y: 60, width: 220, height: 30 }, actions: [] },
       ],
-      root: "window",
+      root: app === "NoWindowIdentityApp" ? "app" : "window",
       windowIndex: 0,
       windowId,
       target: { pid, bundleIdentifier, name: app },
@@ -814,7 +814,7 @@ async function callInputTool(tool, args) {
   if (!hasElementIndex && !usesCoordinates(args) && !snapshot) {
     return err(localizedMessage("visibleSnapshotRequired", app));
   }
-  if (snapshot?.root === "window" && snapshot.windowId == null) {
+  if (snapshot && snapshot.windowId == null) {
     return err(localizedMessage("windowIdentityRequired", app));
   }
 

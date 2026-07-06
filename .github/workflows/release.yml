@@ -187,6 +187,10 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Setup Bun
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |

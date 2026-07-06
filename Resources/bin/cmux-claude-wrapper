@@ -910,11 +910,18 @@ cmux_computer_use_mcp_config() {
                 ;;
         esac
     done
+    cmux_computer_use_swift_provider_available || return 1
+    local self_dir bundled_mcp candidate
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    bundled_mcp="$self_dir/cmux-computer-use-mcp"
+    if [[ -x "$bundled_mcp" ]]; then
+        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":[]}}}' \
+            "$(cmux_computer_use_json_escape "$bundled_mcp")"
+        return 0
+    fi
+
     local node_binary
     node_binary="$(cmux_computer_use_resolve_node)" || return 1
-    cmux_computer_use_swift_provider_available || return 1
-    local self_dir candidate
-    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     for candidate in \
         "$self_dir/../cmux-computer-use-mcp.mjs" \
         "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do

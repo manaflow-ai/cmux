@@ -35,7 +35,11 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
-def run_wrapper(argv: list[str]) -> tuple[int, list[str], str]:
+def run_wrapper(
+    argv: list[str],
+    *,
+    bundled_mcp: bool = True,
+) -> tuple[int, list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
@@ -83,6 +87,11 @@ exit 1
             wrapper_dir / "cmux-computer-use-provider",
             "#!/usr/bin/env bash\nexit 0\n",
         )
+        if bundled_mcp:
+            make_executable(
+                wrapper_dir / "cmux-computer-use-mcp",
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
         (computer_use_dir / "cmux-computer-use-mcp.mjs").write_text(
             "// test MCP server\n", encoding="utf-8"
         )
@@ -136,14 +145,14 @@ def test_codex_gets_cmux_computer_use_mcp(failures: list[str]) -> None:
     expect(args_config is not None, f"missing computer-use args config in {args}", failures)
     if command_config is not None:
         command = json.loads(command_config.split("=", 1)[1])
-        expect(Path(command).name == "node", f"expected node command, got {command_config}", failures)
-    if args_config is not None:
-        mcp_args = json.loads(args_config.split("=", 1)[1])
         expect(
-            len(mcp_args) == 1 and mcp_args[0].endswith("/computer-use-mcp/cmux-computer-use-mcp.mjs"),
-            f"expected bundled MCP server path, got {args_config}",
+            Path(command).name == "cmux-computer-use-mcp",
+            f"expected bundled MCP command, got {command_config}",
             failures,
         )
+    if args_config is not None:
+        mcp_args = json.loads(args_config.split("=", 1)[1])
+        expect(mcp_args == [], f"expected no args for bundled MCP command, got {args_config}", failures)
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
@@ -154,9 +163,35 @@ def test_codex_gets_cmux_computer_use_mcp(failures: list[str]) -> None:
     )
 
 
+def test_codex_source_checkout_falls_back_to_mcp_script(failures: list[str]) -> None:
+    code, args, stderr = run_wrapper(["hello"], bundled_mcp=False)
+    expect(code == 0, f"source fallback wrapper exited {code}: {stderr}", failures)
+    command_config = next(
+        (arg for arg in args if arg.startswith("mcp_servers.cmux-computer-use.command=")),
+        None,
+    )
+    args_config = next(
+        (arg for arg in args if arg.startswith("mcp_servers.cmux-computer-use.args=")),
+        None,
+    )
+    expect(command_config is not None, f"source fallback missing command config in {args}", failures)
+    expect(args_config is not None, f"source fallback missing args config in {args}", failures)
+    if command_config is not None:
+        command = json.loads(command_config.split("=", 1)[1])
+        expect(Path(command).name == "node", f"source fallback expected node command, got {command_config}", failures)
+    if args_config is not None:
+        mcp_args = json.loads(args_config.split("=", 1)[1])
+        expect(
+            len(mcp_args) == 1 and mcp_args[0].endswith("/computer-use-mcp/cmux-computer-use-mcp.mjs"),
+            f"source fallback expected MCP server script path, got {args_config}",
+            failures,
+        )
+
+
 def main() -> int:
     failures: list[str] = []
     test_codex_gets_cmux_computer_use_mcp(failures)
+    test_codex_source_checkout_falls_back_to_mcp_script(failures)
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")

@@ -872,15 +872,17 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 
 # --- cmux computer use MCP injection ------------------------------------------
 #
-# The wrapper attaches the bundled computer-use MCP server via --mcp-config only
-# when the server script, bundled provider helper (or source-checkout Swift
-# fallback), and a trusted node binary are available.
+# The wrapper attaches the bundled native computer-use MCP server via
+# --mcp-config when the bundled provider helper is available. Source checkouts
+# without the native server fall back to the server script plus a trusted node
+# binary.
 # Existing tests never inject because the sandboxed wrapper has no sibling
 # server script unless these fixtures create one.
 
 
 def computer_use_sandbox(
     *,
+    bundled_server: bool = True,
     script: bool = True,
     disabled: bool = False,
     provider: bool = True,
@@ -891,6 +893,11 @@ def computer_use_sandbox(
     path_helper_trap: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
+        if bundled_server:
+            make_executable(
+                tmp / "wrapper-bin" / "cmux-computer-use-mcp",
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
         if script:
             script_dir = tmp / "computer-use-mcp"
             script_dir.mkdir(parents=True, exist_ok=True)
@@ -1028,18 +1035,12 @@ def test_live_socket_attaches_computer_use_mcp_when_provider_available(failures:
         server = config.get("mcpServers", {}).get("cmux-computer-use", {})
         command = server.get("command")
         expect(
-            isinstance(command, str) and Path(command).is_absolute() and Path(command).name == "node",
-            f"computer use inject: expected absolute node command, got {config}",
+            isinstance(command, str) and Path(command).is_absolute() and Path(command).name == "cmux-computer-use-mcp",
+            f"computer use inject: expected absolute bundled MCP command, got {config}",
             failures,
         )
         args = server.get("args", [])
-        # The sandbox tempdir is deleted when run_wrapper returns, so assert on
-        # the path shape rather than a live stat.
-        expect(
-            len(args) == 1 and args[0].endswith("/computer-use-mcp/cmux-computer-use-mcp.mjs"),
-            f"computer use inject: expected the sandbox server script, got {config}",
-            failures,
-        )
+        expect(args == [], f"computer use inject: expected no args for bundled MCP command, got {config}", failures)
         expect(
             "env" not in server,
             f"computer use inject: expected no external runtime env pinning, got {config}",
@@ -1101,7 +1102,7 @@ def test_computer_use_mcp_skips_workspace_node(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(workspace_node_first=True),
+        setup_sandbox=computer_use_sandbox(bundled_server=False, workspace_node_first=True),
     )
     expect(code == 0, f"computer use workspace-node: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1116,6 +1117,7 @@ def test_computer_use_mcp_skips_workspace_root_node(failures: list[str]) -> None
         socket_state="live",
         argv=["hello"],
         setup_sandbox=computer_use_sandbox(
+            bundled_server=False,
             workspace_node_outside_pwd=True,
         ),
     )
@@ -1132,6 +1134,7 @@ def test_computer_use_mcp_skips_workspace_node_symlink_target(failures: list[str
         socket_state="live",
         argv=["hello"],
         setup_sandbox=computer_use_sandbox(
+            bundled_server=False,
             workspace_node_symlink_target_first=True,
         ),
     )
@@ -1148,6 +1151,7 @@ def test_computer_use_mcp_skips_untrusted_node_ancestor(failures: list[str]) -> 
         socket_state="live",
         argv=["hello"],
         setup_sandbox=computer_use_sandbox(
+            bundled_server=False,
             untrusted_node_ancestor_first=True,
         ),
     )
@@ -1192,16 +1196,16 @@ def test_computer_use_mcp_skipped_when_disabled(failures: list[str]) -> None:
     )
 
 
-def test_computer_use_mcp_skipped_when_server_script_missing(failures: list[str]) -> None:
+def test_computer_use_mcp_skipped_when_no_server_available(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(script=False),
+        setup_sandbox=computer_use_sandbox(bundled_server=False, script=False),
     )
-    expect(code == 0, f"computer use no-script: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"computer use no-server: wrapper exited {code}: {stderr}", failures)
     expect(
         injected_mcp_config_index(real_argv) is None,
-        f"computer use no-script: expected no injection without the server script, got {real_argv}",
+        f"computer use no-server: expected no injection without native server or source script, got {real_argv}",
         failures,
     )
 
@@ -2216,7 +2220,7 @@ def main() -> int:
     test_computer_use_mcp_skips_untrusted_node_ancestor(failures)
     test_computer_use_mcp_skipped_for_strict_mcp_config(failures)
     test_computer_use_mcp_skipped_when_disabled(failures)
-    test_computer_use_mcp_skipped_when_server_script_missing(failures)
+    test_computer_use_mcp_skipped_when_no_server_available(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)

@@ -95,6 +95,11 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
       - name: Download pre-built GhosttyKit.xcframework
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -130,12 +135,6 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
-
-      - name: Install Bun for Feed sidebar tests
-        if: ${{ inputs.test_filter == 'FeedSidebarUITests' || startsWith(inputs.test_filter, 'FeedSidebarUITests/') }}
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
 
       - name: Create virtual display
         if: ${{ inputs.test_filter != 'DisplayResolutionRegressionUITests' }}
