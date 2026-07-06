@@ -238,6 +238,8 @@
     "title": "Pricing",
     "perMonth": "/month",
     "perUserMonth": "/user/month",
+    "currentPlan": "Current plan",
+    "manageBilling": "Manage billing",
     "free": {
       "name": "Free",
       "price": "$0",
@@ -2534,6 +2536,7 @@
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
     "emailLabel": "Purchase email",
     "openCmux": "Open cmux",
+    "manageBilling": "Manage billing",
     "manageSignInMethods": "Manage sign-in methods"
   },
   "landing": {
