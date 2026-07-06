@@ -375,9 +375,24 @@ fn reader_loop(weak: Weak<Inner>) {
     }
 }
 
+/// Truncate `text` to at most `max` bytes without splitting a multi-byte UTF-8
+/// character. Slicing raw bytes (`&text[..max]`) panics when the cutoff lands
+/// inside a code point, which is reachable here because CDP payloads carry
+/// arbitrary page text such as non-ASCII tab titles.
+fn truncate_for_log(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut end = max;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
 fn handle_text(inner: &Arc<Inner>, text: &str) {
     if cdp_debug() {
-        eprintln!("cdp<- {}", &text[..text.len().min(300)]);
+        eprintln!("cdp<- {}", truncate_for_log(text, 300));
     }
     let Ok(value) = serde_json::from_str::<Value>(text) else { return };
     if let Some(id) = value.get("id").and_then(|v| v.as_u64()) {
@@ -568,5 +583,30 @@ impl WsEndpoint {
             None => (host_port, 80),
         };
         Ok(WsEndpoint { host: host.trim_matches(['[', ']']).to_string(), port })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_for_log;
+
+    #[test]
+    fn truncate_for_log_does_not_split_multibyte_chars() {
+        // A 4-byte character straddling the byte cutoff must be dropped whole.
+        // Slicing raw bytes here (`&text[..300]`) would panic because offset 300
+        // lands inside the emoji.
+        let mut text = "x".repeat(299);
+        text.push('😀'); // occupies bytes 299..303
+        text.push_str(&"y".repeat(50));
+        assert!(!text.is_char_boundary(300));
+
+        let truncated = truncate_for_log(&text, 300);
+        assert_eq!(truncated, "x".repeat(299));
+        assert!(text.starts_with(truncated));
+    }
+
+    #[test]
+    fn truncate_for_log_returns_short_input_unchanged() {
+        assert_eq!(truncate_for_log("hello", 300), "hello");
     }
 }
