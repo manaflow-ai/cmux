@@ -19,11 +19,12 @@ import Foundation
 /// `JSONSerialization` with sorted, pretty-printed output; comment-preserving
 /// edits are a follow-up.
 ///
-/// Observation uses a single ``CmuxFileWatch/FileWatcher`` owned by the store
-/// and fans out file-change events to per-subscriber `AsyncStream<Void>`
-/// signals. One file event causes exactly one cache invalidation and one
-/// notification per active subscriber, regardless of how many keys are being
-/// observed. Each subscriber dedups on its own typed value so only real
+/// Observation uses a primary ``CmuxFileWatch/FileWatcher`` on the configured
+/// path and, when that path resolves elsewhere, a secondary watcher on the
+/// resolved target. Both fan out file-change events to per-subscriber
+/// `AsyncStream<Void>` signals. A single filesystem change may fire both
+/// watchers; cache invalidation is idempotent, subscriber signals are
+/// coalesced, and each subscriber dedups on its own typed value so only real
 /// changes propagate.
 ///
 /// ```swift
@@ -40,11 +41,14 @@ public actor JSONConfigStore {
 
     private let sanitizer: JSONCSanitizer
     private let watcher: FileWatcher
+    private var targetWatcher: FileWatcher?
+    private var watchedTargetPath: String?
 
     private var cachedRoot: [String: Any] = [:]
     private var cacheValid = false
     private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var watcherTask: Task<Void, Never>?
+    private var targetWatcherTask: Task<Void, Never>?
 
     /// Creates a store backed by a JSON file at the given location.
     ///
@@ -59,14 +63,21 @@ public actor JSONConfigStore {
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
-        // Watch the symlink target when `fileURL` is a symlink (e.g. a
-        // dotfiles-managed cmux.json), so edits made through the real file are
-        // observed. Falls back to `fileURL` for plain or not-yet-created files.
-        self.watcher = FileWatcher(path: Self.resolvedWriteURL(for: fileURL).path)
+        // The primary watcher observes the configured path, including symlink
+        // replacement/retarget events in its parent directory. A secondary
+        // target watcher observes edits that land in the resolved target's own
+        // directory, which the configured-path watch cannot see.
+        self.watcher = FileWatcher(path: fileURL.path)
+        let resolved = Self.resolvedWriteURL(for: fileURL)
+        if resolved.path != fileURL.path {
+            self.targetWatcher = FileWatcher(path: resolved.path)
+            self.watchedTargetPath = resolved.path
+        }
     }
 
     deinit {
         watcherTask?.cancel()
+        targetWatcherTask?.cancel()
     }
 
     /// Returns the current value for the key.
@@ -177,13 +188,19 @@ public actor JSONConfigStore {
         }
     }
 
-    /// Spawns the watcher-consumer task on the first subscribe. The task
-    /// drains the ``CmuxFileWatch/FileWatcher`` events and fans out to every
-    /// registered subscriber after invalidating the cache.
+    /// Spawns watcher-consumer tasks on the first subscribe. Each task drains a
+    /// ``CmuxFileWatch/FileWatcher`` and fans out to every registered
+    /// subscriber after invalidating the cache.
     private func ensureWatcherTask() {
         guard watcherTask == nil else { return }
-        let watcher = self.watcher
-        watcherTask = Task { [weak self] in
+        watcherTask = drainTask(for: watcher)
+        if let targetWatcher {
+            targetWatcherTask = drainTask(for: targetWatcher)
+        }
+    }
+
+    private func drainTask(for watcher: FileWatcher) -> Task<Void, Never> {
+        Task { [weak self] in
             for await _ in watcher.events {
                 if Task.isCancelled { break }
                 guard let self else { break }
@@ -194,8 +211,33 @@ public actor JSONConfigStore {
 
     private func handleFileChange() {
         cacheValid = false
+        refreshTargetWatcher()
         for continuation in subscribers.values {
             continuation.yield(())
+        }
+    }
+
+    /// Keeps the secondary watcher following a retargeted configured symlink.
+    ///
+    /// Without this refresh, edits in the new target's own directory go
+    /// unobserved after a dotfiles tool swaps the configured link. Cancelling the
+    /// old drain task releases the previous watcher; `FileWatcher` tears down
+    /// its dispatch sources on deinit.
+    private func refreshTargetWatcher() {
+        let resolved = Self.resolvedWriteURL(for: fileURL)
+        let desired: String? = resolved.path == fileURL.path ? nil : resolved.path
+        guard desired != watchedTargetPath else { return }
+
+        targetWatcherTask?.cancel()
+        targetWatcherTask = nil
+        targetWatcher = nil
+        watchedTargetPath = desired
+
+        guard let desired else { return }
+        let replacement = FileWatcher(path: desired)
+        targetWatcher = replacement
+        if watcherTask != nil {
+            targetWatcherTask = drainTask(for: replacement)
         }
     }
 
