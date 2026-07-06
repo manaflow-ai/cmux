@@ -158,10 +158,9 @@ extension CMUXCLI {
                     defaultValue: "usage: cmux extension open <id | id.pane>"
                 ))
             }
-            let params: [String: Any] = target.contains(".")
-                ? ["qualified_id": target]
-                : ["id": target]
-            let payload = try client.sendV2(method: "extension.open", params: params)
+            // The app resolves dotted targets (extension ids may contain
+            // dots, pane ids may not) — the CLI never guesses the split.
+            let payload = try client.sendV2(method: "extension.open", params: ["target": target])
             let qualifiedId = (payload["qualified_id"] as? String) ?? target
             printExtensionResult(
                 payload,
@@ -233,6 +232,14 @@ extension CMUXCLI {
         assumeYes: Bool,
         jsonOutput: Bool
     ) throws {
+        // --json promises machine-readable stdout; an interactive prompt would
+        // pollute it. Refuse up front (before anything is staged app-side).
+        guard !jsonOutput || assumeYes else {
+            throw CLIError(message: String(
+                localized: "cli.extension.error.jsonNeedsYes",
+                defaultValue: "--json installs are non-interactive; pass --yes to confirm without the prompt"
+            ))
+        }
         let preview = try client.sendV2(
             method: "extension.preview",
             params: previewParams,
@@ -383,8 +390,10 @@ extension CMUXCLI {
                 if let cwd = pane["cwd"] as? String {
                     print("    \(dim)cwd: \(cwd)/\(reset)")
                 }
-                if let envKeys = pane["env_keys"] as? [String], !envKeys.isEmpty {
-                    print("    \(dim)env: \(envKeys.joined(separator: ", "))\(reset)")
+                if let env = pane["env"] as? [String: String], !env.isEmpty {
+                    for key in env.keys.sorted() {
+                        print("    \(dim)env \(key)=\(env[key] ?? "")\(reset)")
+                    }
                 }
             }
         }

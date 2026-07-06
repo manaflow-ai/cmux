@@ -103,6 +103,6 @@ struct DockExtensionSocketPayloadTests {
         let panes = payload["panes"] as? [[String: Any]]
         #expect(panes?.first?["command"] as? String == "./run.sh 'with space'")
         #expect(panes?.first?["cwd"] as? String == "app")
-        #expect(panes?.first?["env_keys"] as? [String] == ["MODE"])
+        #expect(panes?.first?["env"] as? [String: String] == ["MODE": "live"])
     }
 }
