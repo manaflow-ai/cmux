@@ -172,9 +172,12 @@ func statSession(agentName, root, path, id, cwd string) (Session, error) {
 }
 
 func statSessionWithLogicalPath(agentName, root, path, logicalPath, id, cwd string) (Session, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return Session{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return Session{}, fmt.Errorf("%s is not a regular file: %s", path, info.Mode().String())
 	}
 	rel, err := relPath(root, logicalPath)
 	if err != nil {

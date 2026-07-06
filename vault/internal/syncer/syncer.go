@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/manaflow-ai/cmux/vault/internal/agentdirs"
@@ -309,7 +310,7 @@ func itemKey(agent, relPath string) string {
 }
 
 func sha256File(path string) (string, error) {
-	file, err := os.Open(path)
+	file, err := openRegularNoFollow(path)
 	if err != nil {
 		return "", err
 	}
@@ -319,6 +320,27 @@ func sha256File(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// openRegularNoFollow opens path for reading without following a symlinked final
+// component (O_NOFOLLOW) and confirms via fstat that the opened file is a regular
+// file. This refuses to read a transcript that was swapped for a symlink between
+// discovery and upload, so Vault never hashes or compresses the target's bytes.
+func openRegularNoFollow(path string) (*os.File, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, fmt.Errorf("%s is not a regular file: %s", path, info.Mode().String())
+	}
+	return file, nil
 }
 
 type compressResult struct {
@@ -336,7 +358,7 @@ func compressFile(path, tempDir string) (compressResult, error) {
 	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return result, err
 	}
-	in, err := os.Open(path)
+	in, err := openRegularNoFollow(path)
 	if err != nil {
 		return result, err
 	}

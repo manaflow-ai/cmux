@@ -50,6 +50,10 @@ func (a Codex) Discover(env Environ) ([]Session, error) {
 			if id == "" {
 				return nil
 			}
+			if entry.Type()&fs.ModeSymlink != 0 {
+				env.Warn("codex: skipping symlinked transcript %s", path)
+				return nil
+			}
 			metaID, cwd := codexMeta(path)
 			if metaID != "" {
 				id = metaID

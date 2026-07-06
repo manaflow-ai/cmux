@@ -42,6 +42,10 @@ func (a Pi) Discover(env Environ) ([]Session, error) {
 		if len(matches) != 2 {
 			return nil
 		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			env.Warn("pi: skipping symlinked transcript %s", path)
+			return nil
+		}
 		cwd := recoverCWDFromJSONL(path)
 		if cwd == "" {
 			cwd = cwdFromMunged(filepath.Base(filepath.Dir(path)))
