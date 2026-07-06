@@ -17,6 +17,8 @@ final class AgentChatTranscriptService {
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
+    var searchIndexingSink: (@Sendable (String, AgentChatTranscriptTailer.Batch) -> Void)?
+    var searchTranscriptIndexer: GlobalSearchTranscriptIndexer?
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved; skipped until an
@@ -129,6 +131,7 @@ final class AgentChatTranscriptService {
     /// observe-floor scans later add live agent presence even before hooks fire.
     func start() {
         Self.liveInstance = self
+        GlobalSearchCoordinator.shared.configureTranscriptIndexing(for: self)
         // Apply resume re-binds buffered before the service was wired. The seed
         // only creates records that don't already exist, so an intent applied
         // here is preserved (the seed skips it) and one applied after flips the
@@ -378,6 +381,7 @@ final class AgentChatTranscriptService {
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        searchIndexingSink?(sessionID, batch)
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -458,6 +462,7 @@ final class AgentChatTranscriptService {
                 Task { await tailer.stop() }
             }
         }
+        activateSearchIndexingIfNeeded(for: record)
         guard hasEventSubscribers() else { return }
         if transcriptBecameAvailable, record.state != .ended {
             ensureTailer(for: record)
@@ -491,5 +496,10 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)
+    }
+
+    @discardableResult
+    func ensureSearchIndexingTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
+        ensureTailer(for: record)
     }
 }

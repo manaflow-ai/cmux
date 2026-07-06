@@ -5,6 +5,9 @@ enum GlobalSearchKind: String, Codable, Sendable {
     case browser
     case markdown
     case title
+    case workspace
+    case transcript
+    case command
 
     var localizedLabel: String {
         switch self {
@@ -14,6 +17,12 @@ enum GlobalSearchKind: String, Codable, Sendable {
             return String(localized: "globalSearch.kind.markdown", defaultValue: "Markdown")
         case .title:
             return String(localized: "globalSearch.kind.title", defaultValue: "Title")
+        case .workspace:
+            return String(localized: "globalSearch.kind.workspace", defaultValue: "Workspace")
+        case .transcript:
+            return String(localized: "globalSearch.kind.transcript", defaultValue: "Transcript")
+        case .command:
+            return String(localized: "globalSearch.kind.command", defaultValue: "Command")
         }
     }
 }
@@ -104,7 +113,7 @@ enum SearchIndexError: LocalizedError {
     }
 }
 
-actor SearchIndex {
+actor SearchIndex: SearchIndexWriting {
     private static let schemaVersion = 1
 
     private var database: OpaquePointer?
@@ -188,9 +197,23 @@ actor SearchIndex {
         }
     }
 
+    func deleteWorkspace(_ workspaceID: UUID) throws {
+        try withStatement("DELETE FROM chunks WHERE workspace_id = ?1") { statement in
+            try bind(workspaceID.uuidString, at: 1, in: statement)
+            try stepDone(statement)
+        }
+    }
+
     func deleteDocument(id: String) throws {
         try withStatement("DELETE FROM chunks WHERE id = ?1") { statement in
             try bind(id, at: 1, in: statement)
+            try stepDone(statement)
+        }
+    }
+
+    func deleteDocuments(idPrefix: String) throws {
+        try withStatement("DELETE FROM chunks WHERE id LIKE ?1 ESCAPE '\\'") { statement in
+            try bind(Self.escapedLikePrefix(idPrefix) + "%", at: 1, in: statement)
             try stepDone(statement)
         }
     }
@@ -455,6 +478,23 @@ actor SearchIndex {
         return tokens.map { token in
             "\(token)*"
         }.joined(separator: " AND ")
+    }
+
+    private static func escapedLikePrefix(_ prefix: String) -> String {
+        var escaped = ""
+        for character in prefix {
+            switch character {
+            case "\\":
+                escaped.append("\\\\")
+            case "%":
+                escaped.append("\\%")
+            case "_":
+                escaped.append("\\_")
+            default:
+                escaped.append(character)
+            }
+        }
+        return escaped
     }
 
     private static func ensureParentDirectoryExists(for databaseURL: URL) throws {

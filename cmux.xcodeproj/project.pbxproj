@@ -28,6 +28,7 @@
 		C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51D100000000000000001 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift */; };
 		C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */; };
 		ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */; };
+		BEE100050000000000000001 /* AgentChatTranscriptService+SearchIndexing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE100050000000000000002 /* AgentChatTranscriptService+SearchIndexing.swift */; };
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
@@ -630,6 +631,9 @@
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */; };
 		3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */; };
+		BEE100040000000000000001 /* GlobalSearchTranscriptDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE100040000000000000002 /* GlobalSearchTranscriptDocuments.swift */; };
+		BEE100030000000000000001 /* GlobalSearchTranscriptIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE100030000000000000002 /* GlobalSearchTranscriptIndexer.swift */; };
+		BEE100020000000000000001 /* GlobalSearchWorkspaceMetadataIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE100020000000000000002 /* GlobalSearchWorkspaceMetadataIndexer.swift */; };
 		C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE10001A1B2C3D4E5F719 /* grok */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
@@ -914,6 +918,7 @@
 		D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000F2 /* ScreenLockObserver.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
 		3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0043865B0043865B004 /* SearchIndexTests.swift */; };
+		BEE100010000000000000001 /* SearchIndexWriting.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE100010000000000000002 /* SearchIndexWriting.swift */; };
 		C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C20000000000000002 /* SemanticVersion.swift */; };
 		5E2701040000000000000003 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000001 /* Sentry */; };
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
@@ -1070,6 +1075,14 @@
 		C0DE70500000000000000002 /* start-cmux-profiling in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0DE70500000000000000001 /* start-cmux-profiling */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0DE70530000000000000001 /* submit-cmux-profile */; };
+		BEE200050000000000000001 /* SuperSearchCoalescingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200050000000000000002 /* SuperSearchCoalescingTests.swift */; };
+		BEE200040000000000000001 /* SuperSearchCommandIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200040000000000000002 /* SuperSearchCommandIndexTests.swift */; };
+		BEE200010000000000000001 /* SuperSearchDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200010000000000000002 /* SuperSearchDocumentTests.swift */; };
+		BEE200020000000000000001 /* SuperSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200020000000000000002 /* SuperSearchIndexTests.swift */; };
+		BEE200060000000000000001 /* SuperSearchPurgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200060000000000000002 /* SuperSearchPurgeTests.swift */; };
+		BEE200080000000000000001 /* SuperSearchQueryIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200080000000000000002 /* SuperSearchQueryIsolationTests.swift */; };
+		BEE200070000000000000001 /* SuperSearchScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200070000000000000002 /* SuperSearchScopeTests.swift */; };
+		BEE200030000000000000001 /* SuperSearchTranscriptIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE200030000000000000002 /* SuperSearchTranscriptIndexTests.swift */; };
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */; };
 		F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */; };
@@ -1417,6 +1430,7 @@
 		C7A51D100000000000000001 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryObservationReviewRegressionTests.swift; sourceTree = "<group>"; };
 		C7A51D000000000000000001 /* AgentChatSessionRegistryObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryObservationTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
+		BEE100050000000000000002 /* AgentChatTranscriptService+SearchIndexing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+SearchIndexing.swift"; sourceTree = "<group>"; };
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
@@ -1965,6 +1979,9 @@
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchPanelCaptureManager.swift; sourceTree = "<group>"; };
 		3865B0053865B0053865B005 /* GlobalSearchShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchShortcutSettingsTests.swift; sourceTree = "<group>"; };
+		BEE100040000000000000002 /* GlobalSearchTranscriptDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchTranscriptDocuments.swift; sourceTree = "<group>"; };
+		BEE100030000000000000002 /* GlobalSearchTranscriptIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchTranscriptIndexer.swift; sourceTree = "<group>"; };
+		BEE100020000000000000002 /* GlobalSearchWorkspaceMetadataIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchWorkspaceMetadataIndexer.swift; sourceTree = "<group>"; };
 		C1ADE10001A1B2C3D4E5F719 /* grok */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/grok; sourceTree = SOURCE_ROOT; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
@@ -2244,6 +2261,7 @@
 		D1F0A00600000000000000F2 /* ScreenLockObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLockObserver.swift; sourceTree = "<group>"; };
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
 		3865B0043865B0043865B004 /* SearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIndexTests.swift; sourceTree = "<group>"; };
+		BEE100010000000000000002 /* SearchIndexWriting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndexWriting.swift; sourceTree = "<group>"; };
 		C0DEF0C20000000000000002 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		5E2701020000000000000002 /* SentryEventScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryEventScrubber.swift; sourceTree = "<group>"; };
 		5E2701030000000000000002 /* SentryEventScrubberTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SentryEventScrubberTests.swift; sourceTree = "<group>"; };
@@ -2390,6 +2408,14 @@
 		C0DE70500000000000000001 /* start-cmux-profiling */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/start-cmux-profiling"; sourceTree = SOURCE_ROOT; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		C0DE70530000000000000001 /* submit-cmux-profile */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/submit-cmux-profile"; sourceTree = SOURCE_ROOT; };
+		BEE200050000000000000002 /* SuperSearchCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchCoalescingTests.swift; sourceTree = "<group>"; };
+		BEE200040000000000000002 /* SuperSearchCommandIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchCommandIndexTests.swift; sourceTree = "<group>"; };
+		BEE200010000000000000002 /* SuperSearchDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchDocumentTests.swift; sourceTree = "<group>"; };
+		BEE200020000000000000002 /* SuperSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchIndexTests.swift; sourceTree = "<group>"; };
+		BEE200060000000000000002 /* SuperSearchPurgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchPurgeTests.swift; sourceTree = "<group>"; };
+		BEE200080000000000000002 /* SuperSearchQueryIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchQueryIsolationTests.swift; sourceTree = "<group>"; };
+		BEE200070000000000000002 /* SuperSearchScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchScopeTests.swift; sourceTree = "<group>"; };
+		BEE200030000000000000002 /* SuperSearchTranscriptIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuperSearchTranscriptIndexTests.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingCodexUpdateCheckTests.swift; sourceTree = "<group>"; };
 		F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift"; sourceTree = "<group>"; };
@@ -2840,9 +2866,10 @@
 					C7A52D200000000000000001 /* AgentChatSessionRegistry+LiveAgentPID.swift */,
 					C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */,
 					C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */,
-					ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
+				ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
 				C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */,
+				BEE100050000000000000002 /* AgentChatTranscriptService+SearchIndexing.swift */,
 				C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */,
 				CDFE000000000000000000A2 /* AgentChatProseStreamer.swift */,
 			);
@@ -3343,7 +3370,11 @@
 				A5008370 /* BrowserSearchOverlay.swift */,
 				A5008372 /* BrowserFindWebViewEvaluator.swift */,
 				3865B0013865B0013865B001 /* SearchIndex.swift */,
+				BEE100010000000000000002 /* SearchIndexWriting.swift */,
 				3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */,
+				BEE100040000000000000002 /* GlobalSearchTranscriptDocuments.swift */,
+				BEE100030000000000000002 /* GlobalSearchTranscriptIndexer.swift */,
+				BEE100020000000000000002 /* GlobalSearchWorkspaceMetadataIndexer.swift */,
 				3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */,
 				3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */,
 				3865B0033865B0033865B003 /* MenubarSearchPopover.swift */,
@@ -3807,6 +3838,14 @@
 				F54100A1A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift */,
 				F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */,
 				3865B0043865B0043865B004 /* SearchIndexTests.swift */,
+				BEE200010000000000000002 /* SuperSearchDocumentTests.swift */,
+				BEE200020000000000000002 /* SuperSearchIndexTests.swift */,
+				BEE200030000000000000002 /* SuperSearchTranscriptIndexTests.swift */,
+				BEE200040000000000000002 /* SuperSearchCommandIndexTests.swift */,
+				BEE200050000000000000002 /* SuperSearchCoalescingTests.swift */,
+				BEE200060000000000000002 /* SuperSearchPurgeTests.swift */,
+				BEE200070000000000000002 /* SuperSearchScopeTests.swift */,
+				BEE200080000000000000002 /* SuperSearchQueryIsolationTests.swift */,
 				F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */,
 				F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */,
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
@@ -4526,8 +4565,9 @@
 					C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */,
 					C7A52D200000000000000002 /* AgentChatSessionRegistry+LiveAgentPID.swift in Sources */,
 					C7A52D000000000000000002 /* AgentChatSessionRegistry+ObserveScan.swift in Sources */,
-					ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
+				ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
 				ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */,
+				BEE100050000000000000001 /* AgentChatTranscriptService+SearchIndexing.swift in Sources */,
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
@@ -4851,6 +4891,9 @@
 					3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
+				BEE100040000000000000001 /* GlobalSearchTranscriptDocuments.swift in Sources */,
+				BEE100030000000000000001 /* GlobalSearchTranscriptIndexer.swift in Sources */,
+				BEE100020000000000000001 /* GlobalSearchWorkspaceMetadataIndexer.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
@@ -5036,6 +5079,7 @@
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
+				BEE100010000000000000001 /* SearchIndexWriting.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
 				5E2701020000000000000001 /* SentryEventScrubber.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
@@ -5712,6 +5756,14 @@
 						E60610300000000000000003 /* SSHPTYAttachReconnectInputFilterState.swift in Sources */,
 						B6285B71BA6F82AF8F945E00 /* SSHPTYAttachReconnectInputFilterTests.swift in Sources */,
 				F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */,
+				BEE200050000000000000001 /* SuperSearchCoalescingTests.swift in Sources */,
+				BEE200040000000000000001 /* SuperSearchCommandIndexTests.swift in Sources */,
+				BEE200010000000000000001 /* SuperSearchDocumentTests.swift in Sources */,
+				BEE200020000000000000001 /* SuperSearchIndexTests.swift in Sources */,
+				BEE200060000000000000001 /* SuperSearchPurgeTests.swift in Sources */,
+				BEE200080000000000000001 /* SuperSearchQueryIsolationTests.swift in Sources */,
+				BEE200070000000000000001 /* SuperSearchScopeTests.swift in Sources */,
+				BEE200030000000000000001 /* SuperSearchTranscriptIndexTests.swift in Sources */,
 				F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
 				C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */,

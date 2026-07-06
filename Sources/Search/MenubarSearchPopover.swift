@@ -78,7 +78,7 @@ private struct GlobalSearchPaletteView: View {
                 TextField(
                     String(
                         localized: "globalSearch.palette.placeholder",
-                        defaultValue: "Search all windows, panels, browser tabs..."
+                        defaultValue: "Search windows, panels, transcripts, commands..."
                     ),
                     text: $query
                 )
@@ -363,6 +363,12 @@ private struct GlobalSearchResultRow: Identifiable, Equatable {
             return "doc.richtext"
         case .title:
             return "rectangle.stack"
+        case .workspace:
+            return "square.grid.2x2"
+        case .transcript:
+            return "text.bubble"
+        case .command:
+            return "terminal"
         }
     }
 }
