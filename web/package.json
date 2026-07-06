@@ -80,10 +80,10 @@
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
-    "drizzle-kit": "^1.0.0-beta.23",
+    "@typescript/native-preview": "7.0.0-dev.20260616.1",
+    "drizzle-kit": "1.0.0-beta.23",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
-    "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "pagefind": "^1.5.2",
     "tailwindcss": "^4",
     "typescript": "^5"

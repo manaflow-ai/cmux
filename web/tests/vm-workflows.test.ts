@@ -1774,6 +1774,81 @@ describe("VM Effect workflows", () => {
     }
   });
 
+  dbTest("rolls back a paused resume reservation when provider resume fails", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'free', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
+    `;
+
+    const resumeError = new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "resume",
+      cause: new Error("provider resume failed"),
+    });
+    let resumeCalls = 0;
+    let openAttachCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      resume: () =>
+        Effect.suspend(() => {
+          resumeCalls += 1;
+          return Effect.fail(resumeError);
+        }),
+      openAttach: () =>
+        Effect.sync(() => {
+          openAttachCalls += 1;
+          return {
+            transport: "ssh" as const,
+            host: "vm-ssh.example.invalid",
+            port: 22,
+            username: "cmux",
+            publicKeyFingerprint: null,
+            credential: { kind: "password" as const, value: "token" },
+            identityHandle: "identity-unused",
+          };
+        }),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: () => Effect.succeed("paused" as const),
+    };
+
+    const error = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-resume-fail",
+        billingTeamId: "team-workflow-resume-fail",
+        providerVmId: "provider-vm-resume-fail",
+      }).pipe(
+        Effect.flip,
+        Effect.provide(providerLayer(provider)),
+      ),
+    );
+
+    expect(error).toBe(resumeError);
+    expect(resumeCalls).toBe(1);
+    expect(openAttachCalls).toBe(0);
+
+    const [vm] = await sql<{ status: string }[]>`
+      select status from cloud_vms where provider_vm_id = 'provider-vm-resume-fail'
+    `;
+    expect(vm?.status).toBe("paused");
+
+    const [{ resumeUsageCount }] = await sql<{ resumeUsageCount: string }[]>`
+      select count(*)::text as "resumeUsageCount"
+      from cloud_vm_usage_events
+      where provider = 'freestyle'
+        and event_type = 'vm.resumed'
+        and vm_id in (
+          select id from cloud_vms
+          where provider_vm_id = 'provider-vm-resume-fail'
+        )
+    `;
+    expect(resumeUsageCount).toBe("0");
+  });
+
   dbTest("rejects restore when the snapshot id is not owned by the user and billing team", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
