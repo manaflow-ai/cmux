@@ -23,6 +23,12 @@ Use this skill before changing billing, pricing, Stripe, Pro entitlement, checko
 - `/app-pricing` requires `cmux_app=1`.
 - `cmux_scheme` threads the native deeplink return scheme. `cmux-dev-*` schemes are honored only for localhost requests.
 
+## Repeat Dogfood
+
+- Use a private window for a fresh anonymous buyer.
+- Use `web/scripts/stripe/dev-reset.sh <email>` to un-Pro a signed-in dev account before retesting checkout.
+- The "already active" short-circuit lives in `/api/billing/checkout`.
+
 ## Test-Mode Resources
 
 - Product: `prod_UpIQRE6cj0nFjs`.
