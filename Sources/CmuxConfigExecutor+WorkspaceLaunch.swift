@@ -7,11 +7,15 @@ extension CmuxConfigExecutor {
 
     /// The trust dialog must disclose everything a workspace action does to
     /// the shells it spawns — the `setup` bootstrap, each surface `command`,
-    /// and env assignments (ZDOTDIR/BASH_ENV/PATH-style keys change what
-    /// executes) — not just the action's (arbitrary, benign-looking) name.
+    /// env assignments (ZDOTDIR/BASH_ENV/PATH-style keys change what
+    /// executes), and the cwd values commands run in — not just the action's
+    /// (arbitrary, benign-looking) name.
     static func workspaceShellDisclosure(_ command: CmuxCommandDefinition) -> String {
         guard let workspace = command.workspace else { return command.name }
         var shellLines: [String] = []
+        if let cwd = workspace.cwd {
+            shellLines.append("cwd: \(cwd)")
+        }
         if let setup = workspace.setup {
             shellLines.append(setup)
         }
@@ -34,7 +38,11 @@ extension CmuxConfigExecutor {
         case .pane(let pane):
             for surface in pane.surfaces {
                 if let command = surface.command {
-                    lines.append(command)
+                    if let cwd = surface.cwd {
+                        lines.append("cwd \(cwd): \(command)")
+                    } else {
+                        lines.append(command)
+                    }
                 }
                 if let env = surface.env {
                     lines.append(contentsOf: envDisclosureLines(env))

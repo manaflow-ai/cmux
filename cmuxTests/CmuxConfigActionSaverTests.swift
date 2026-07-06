@@ -213,5 +213,20 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             ]),
             "mytool --resume state.bin"
         )
+        // Alias basenames sanitize through their real agent kind.
+        XCTAssertEqual(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "agy", "--continue", "old-conversation", "--sandbox", "danger-full-access",
+            ]),
+            "agy --sandbox danger-full-access"
+        )
+    }
+
+    func testKnownAgentKindCoversAliasesAndArchSuffixedBuilds() {
+        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "claude"), "claude")
+        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "agy"), "antigravity")
+        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "cursor-agent"), "cursor")
+        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "grok-macos-aarch64"), "grok")
+        XCTAssertNil(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "mytool"))
     }
 }

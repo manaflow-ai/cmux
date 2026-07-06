@@ -166,10 +166,15 @@ extension AppDelegate {
             let title = typedTitle.isEmpty
                 ? String(localized: "dialog.saveWorkspaceAction.defaultName", defaultValue: "Workspace")
                 : typedTitle
+            // The recreated workspace carries the action's name: the captured
+            // customTitle would otherwise win in executeWorkspaceCommand and
+            // the launched workspace wouldn't match the menu entry.
+            var definition = snapshot.definition
+            definition.name = title
             do {
                 let result = try CmuxConfigActionSaver.saveWorkspaceAction(
                     title: title,
-                    definition: snapshot.definition,
+                    definition: definition,
                     globalConfigPath: globalConfigPath,
                     // Reserve every id the active store resolved (including
                     // project-local actions) so the saved global action can't

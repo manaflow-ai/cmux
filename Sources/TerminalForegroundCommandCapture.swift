@@ -71,11 +71,11 @@ enum TerminalForegroundCommandCapture {
         let executableName = (executable as NSString).lastPathComponent
         guard !executableName.isEmpty, !isShellProcessName(executableName) else { return nil }
         var sanitizedArgv = argv
-        if knownAgentExecutables.contains(executableName) {
+        if let agentKind = knownAgentKind(forExecutableName: executableName) {
             if let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
                 argv,
                 launcher: "",
-                fallbackKind: executableName
+                fallbackKind: agentKind
             ) {
                 sanitizedArgv = sanitized
             } else {
@@ -87,9 +87,34 @@ enum TerminalForegroundCommandCapture {
         return sanitizedArgv.map(shellQuoted).joined(separator: " ")
     }
 
-    /// Built-in agent CLIs only — `RestorableAgentKind(rawValue:)` would also
-    /// accept arbitrary custom ids and sanitize flags of unrelated commands.
+    /// Maps a foreground executable basename to the agent kind the shared
+    /// sanitizer understands. Built-in kinds match by raw value; binaries
+    /// whose basename differs from their kind (agy, cursor-agent, hermes,
+    /// arch-suffixed grok builds) map explicitly. Anything else is left
+    /// untouched — `RestorableAgentKind(rawValue:)` would also accept
+    /// arbitrary custom ids and sanitize flags of unrelated commands.
+    static func knownAgentKind(forExecutableName name: String) -> String? {
+        if knownAgentExecutables.contains(name) {
+            return name
+        }
+        if let alias = agentExecutableAliases[name] {
+            return alias
+        }
+        if name.hasPrefix("grok-") {
+            return "grok"
+        }
+        return nil
+    }
+
     private static let knownAgentExecutables = Set(RestorableAgentKind.allCases.map(\.rawValue))
+
+    private static let agentExecutableAliases: [String: String] = [
+        "agy": "antigravity",
+        "omp": "pi",
+        "acli": "rovodev",
+        "cursor-agent": "cursor",
+        "hermes": "hermes-agent",
+    ]
 
     private static let unquotedArgumentScalars: CharacterSet = {
         var allowed = CharacterSet.alphanumerics
