@@ -14,32 +14,19 @@ enum WorkspaceTodoFeature {
     /// the beta catalog section, not the whole `SettingCatalog`, so a
     /// body-path access stays cheap (see issue #5970); reactive row reads go
     /// through `SidebarTabItemSettingsSnapshot`.
-    static var isEnabled: Bool {
-        let key = BetaFeaturesCatalogSection().workspaceTodos
-        return Bool.decodeFromUserDefaults(
-            UserDefaults.standard.object(forKey: key.userDefaultsKey)
-        ) ?? key.defaultValue
-    }
+    /// The workspace-todos feature is always on (accessed via the row context
+    /// menu and status glyph); the Settings feature-flag toggle was removed.
+    static var isEnabled: Bool { true }
 
-    /// Synchronous read of the checklist presentation style for on-demand
-    /// paths (context-menu/palette "Add Checklist Item…" routing); reactive
-    /// row reads go through `SidebarTabItemSettingsSnapshot`.
-    static var checklistStyle: WorkspaceTodoChecklistStyle {
-        let key = BetaFeaturesCatalogSection().workspaceTodosChecklistStyle
-        return WorkspaceTodoChecklistStyle.decodeFromUserDefaults(
-            UserDefaults.standard.object(forKey: key.userDefaultsKey)
-        ) ?? key.defaultValue
-    }
+    /// Checklists are always presented inline (a floating popover cannot win
+    /// keyboard focus from the terminal); the popover/inline preference was
+    /// removed.
+    static var checklistStyle: WorkspaceTodoChecklistStyle { .inline }
 
-    /// Progressive disclosure: the first successful status/checklist mutation
-    /// from any entrypoint flips the feature on so the sidebar starts
-    /// rendering the glyph and checklist.
+    /// No-op now that the feature is always on (kept so existing call sites
+    /// stay unchanged).
     @MainActor
-    static func markUsed() {
-        guard !isEnabled else { return }
-        UserDefaultsSettingsClient(defaults: .standard)
-            .set(true, for: BetaFeaturesCatalogSection().workspaceTodos)
-    }
+    static func markUsed() {}
 }
 
 /// Shared todo mutations used by the context menu, command palette, and the

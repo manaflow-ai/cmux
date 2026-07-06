@@ -108,12 +108,11 @@ final class FocusGrabbingTextField: NSTextField {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-        // The checklist popover is a separate NSPopover window floating over
-        // the terminal's main window. Unless this popover window is key, the
-        // main window stays key and its terminal keeps first responder, so
-        // keystrokes fall through to the terminal. Make the popover window key
-        // first, then take first responder inside it.
-        window.makeKeyAndOrderFront(nil)
+        // Take first responder on appear. This wins keyboard focus when the
+        // field lives in the main window (like the sidebar rename field), which
+        // is why the checklist card is rendered in-window rather than a floating
+        // NSPopover (a separate window cmux keeps non-key, so keys fall to the
+        // terminal).
         window.makeFirstResponder(self)
         if selectsAllOnFocus {
             currentEditor()?.selectAll(nil)

@@ -84,11 +84,10 @@ struct SidebarWorkspaceChecklistSection: View {
 
     @State private var showsAllItems = false
     @State private var isAddingItem = false
-    @State private var pendingItemText = ""
-    @FocusState private var addFieldFocused: Bool
+    /// Bumped after each add to recreate the AppKit add field (which re-focuses
+    /// and clears itself on appear).
+    @State private var inlineAddGeneration = 0
     @State private var editingItemId: UUID?
-    @State private var editingText = ""
-    @FocusState private var editFieldFocused: Bool
 
     /// Popover presentation only applies once a summary line exists.
     private var presentsPopover: Bool {
@@ -110,7 +109,7 @@ struct SidebarWorkspaceChecklistSection: View {
             // here would fight the popover's own add field for focus.
             guard addFieldActivationToken > 0, !presentsPopover else { return }
             isAddingItem = true
-            addFieldFocused = true
+            inlineAddGeneration += 1
         }
     }
 
@@ -214,16 +213,16 @@ struct SidebarWorkspaceChecklistSection: View {
                     : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
             )
             if editingItemId == item.id {
-                TextField(
-                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    text: $editingText
+                ChecklistInputField(
+                    initialText: item.text,
+                    placeholder: String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                    fontSize: 11 * fontScale,
+                    onCommit: { commitItemEdit(item.id, text: $0) },
+                    onCancel: cancelItemEdit,
+                    selectsAllOnFocus: true,
+                    textColor: NSColor(primaryColor)
                 )
-                .textFieldStyle(.plain)
-                .font(itemFont)
-                .foregroundColor(primaryColor)
-                .focused($editFieldFocused)
-                .onSubmit { commitItemEdit(item.id) }
-                .onExitCommand(perform: cancelItemEdit)
+                .frame(height: 11 * fontScale + 4)
                 .accessibilityIdentifier("SidebarChecklistEditItemField")
             } else {
                 Text(item.text)
@@ -296,22 +295,25 @@ struct SidebarWorkspaceChecklistSection: View {
                 // it never clashes as accent-blue on a blue selected row.
                 CmuxSystemSymbolImage(magnified: "plus.circle", pointSize: 8 * fontScale)
                     .foregroundColor(secondaryColor)
-                TextField(
-                    String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
-                    text: $pendingItemText
+                // AppKit field (like the sidebar rename field): takes first
+                // responder in the main window on appear, so typing works
+                // reliably (a SwiftUI TextField / floating popover does not win
+                // focus from the terminal).
+                ChecklistInputField(
+                    initialText: "",
+                    placeholder: String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
+                    fontSize: 11 * fontScale,
+                    onCommit: { commitInlineAdd($0) },
+                    onCancel: cancelPendingItem,
+                    textColor: NSColor(primaryColor)
                 )
-                .textFieldStyle(.plain)
-                .font(itemFont)
-                .foregroundColor(primaryColor)
-                .focused($addFieldFocused)
-                .onSubmit(commitPendingItem)
-                .onExitCommand(perform: cancelPendingItem)
+                .id(inlineAddGeneration)
+                .frame(height: 11 * fontScale + 4)
                 .accessibilityIdentifier("SidebarChecklistAddItemField")
             }
         } else {
             Button {
                 isAddingItem = true
-                addFieldFocused = true
             } label: {
                 HStack(spacing: 4) {
                     CmuxSystemSymbolImage(magnified: "plus", pointSize: 7 * fontScale)
@@ -326,23 +328,18 @@ struct SidebarWorkspaceChecklistSection: View {
         }
     }
 
-    /// Enter commits the trimmed text and re-arms the field for the next item.
-    private func commitPendingItem() {
-        let text = pendingItemText
-        pendingItemText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            cancelPendingItem()
-            return
-        }
+    /// Enter (or focus-loss) commits the trimmed text and re-arms the field
+    /// (a fresh, focused, empty add field) for the next item.
+    private func commitInlineAdd(_ text: String) {
+        inlineAddGeneration += 1
+        onConsumeAddFieldActivation()
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.addItem(text)
-        addFieldFocused = true
     }
 
-    /// Esc dismisses the field without committing.
+    /// Esc dismisses the add field.
     private func cancelPendingItem() {
-        pendingItemText = ""
         isAddingItem = false
-        addFieldFocused = false
         onConsumeAddFieldActivation()
     }
 
@@ -350,13 +347,10 @@ struct SidebarWorkspaceChecklistSection: View {
 
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
-        editingText = item.text
-        editFieldFocused = true
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
-    private func commitItemEdit(_ id: UUID) {
-        let text = editingText
+    private func commitItemEdit(_ id: UUID, text: String) {
         cancelItemEdit()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
@@ -364,8 +358,6 @@ struct SidebarWorkspaceChecklistSection: View {
 
     private func cancelItemEdit() {
         editingItemId = nil
-        editingText = ""
-        editFieldFocused = false
     }
 }
 
