@@ -124,8 +124,37 @@ extension ControlCommandCoordinator {
             "description": orNull(node.description),
             "selected": .bool(node.isSelected),
             "pinned": .bool(node.isPinned),
+            // The split-layout tree (direction + ratio + nesting) the flat
+            // `panes` array can't express; `null` when unavailable. Pane leaves
+            // reference the same ids/refs as `panes`.
+            "layout": node.layout.map(systemTreeLayoutPayload) ?? .null,
             "panes": .array(node.panes.map(systemTreePanePayload)),
         ])
+    }
+
+    /// The `system.tree` workspace layout payload — the split tree in the shape
+    /// the `--layout` flag accepts (`{direction, split, children}` for a split;
+    /// a `{pane: {id, ref}}` leaf otherwise), so what cmux emits mirrors what it
+    /// ingests. Leaf `id`/`ref` join back to the flat `panes` array.
+    private func systemTreeLayoutPayload(_ node: ControlSystemTreeLayoutNode) -> JSONValue {
+        switch node {
+        case .pane(let paneID):
+            return .object([
+                "pane": .object([
+                    "id": .string(paneID.uuidString),
+                    "ref": ref(.pane, paneID),
+                ]),
+            ])
+        case .split(let orientation, let ratio, let first, let second):
+            return .object([
+                "direction": .string(orientation),
+                "split": .double(ratio),
+                "children": .array([
+                    systemTreeLayoutPayload(first),
+                    systemTreeLayoutPayload(second),
+                ]),
+            ])
+        }
     }
 
     /// The `system.tree` pane node payload.

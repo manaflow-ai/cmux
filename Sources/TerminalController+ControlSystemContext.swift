@@ -187,6 +187,11 @@ extension TerminalController: ControlSystemContext {
             )
         }
 
+        // The flat `panes` array above discards how the panes are arranged.
+        // Capture the live split tree so the wire carries direction + ratio +
+        // nesting; pane leaves reference the same UUIDs as `panes`.
+        let layout = systemTreeLayoutNode(from: workspace.bonsplitController.treeSnapshot())
+
         return ControlSystemTreeWorkspaceNode(
             workspaceID: workspace.id,
             index: index,
@@ -194,8 +199,33 @@ extension TerminalController: ControlSystemContext {
             description: workspace.customDescription,
             isSelected: selected,
             isPinned: workspace.isPinned,
-            panes: panes
+            panes: panes,
+            layout: layout
         )
+    }
+
+    /// Map Bonsplit's `ExternalTreeNode` (from `treeSnapshot()`) into the
+    /// wire-facing `ControlSystemTreeLayoutNode`. Returns `nil` only if a pane
+    /// leaf carries an unparseable id (not expected: `ExternalPaneNode.id` is a
+    /// `UUID.uuidString`), which drops just that subtree rather than the whole
+    /// layout.
+    private func systemTreeLayoutNode(from node: ExternalTreeNode) -> ControlSystemTreeLayoutNode? {
+        switch node {
+        case .pane(let paneNode):
+            guard let paneID = UUID(uuidString: paneNode.id) else { return nil }
+            return .pane(paneID: paneID)
+        case .split(let splitNode):
+            guard
+                let first = systemTreeLayoutNode(from: splitNode.first),
+                let second = systemTreeLayoutNode(from: splitNode.second)
+            else { return nil }
+            return .split(
+                orientation: splitNode.orientation,
+                ratio: splitNode.dividerPosition,
+                first: first,
+                second: second
+            )
+        }
     }
 
     // MARK: - auth.login / session / settings / feedback
