@@ -11,39 +11,20 @@ import UIKit
 ///
 /// The host creates the ``ChatConversationStore`` (with its platform event
 /// source) and hands it over; this screen owns presentation state only
-/// (expansion, drafts, attachments).
+/// (drafts, attachments).
 public struct ChatScreen: View {
     @State private var store: ChatConversationStore
-    @State private var expandedIDs: Set<String> = []
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
-    #if os(iOS)
-    /// Transcript and composer frames in window coordinates, measured via
-    /// preferences. The dismiss region is the transcript's actual visible
-    /// frame, so taps over the composer/accessory bar do not dismiss the
-    /// keyboard.
-    @State private var transcriptFrame: CGRect = .zero
-    @State private var composerFrame: CGRect = .zero
-    /// The scroll-to-bottom button's frame; excluded from the dismiss region
-    /// so tapping it scrolls instead of dismissing the keyboard.
-    @State private var scrollButtonFrame: CGRect = .zero
+    @State private var selectedBlockSelection: ChatBlockSelection?
 
-    private var transcriptDismissRegion: CGRect {
-        guard transcriptFrame != .zero else { return .zero }
-        let bottom = composerFrame == .zero ? transcriptFrame.maxY : composerFrame.minY
-        let height = max(0, bottom - transcriptFrame.minY)
-        return CGRect(
-            x: transcriptFrame.minX,
-            y: transcriptFrame.minY,
-            width: transcriptFrame.width,
-            height: height
-        )
-    }
-    #endif
-
+    private let detailBuilder = ChatBlockDetailBuilder()
     @Binding private var draft: String
+    private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
+    private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
+    private let runsStoreTask: Bool
 
     /// Creates the screen.
     ///
@@ -54,101 +35,46 @@ public struct ChatScreen: View {
     ///     escape hatch); the host owns that navigation.
     ///   - draft: Host-owned composer draft, so a dismissed cover keeps
     ///     the half-typed prompt. Pass `.constant("")` to opt out.
+    ///   - accessoryLeadingShortcuts: Host-provided fixed composer shortcut
+    ///     row items.
+    ///   - accessoryShortcuts: Host-provided composer shortcut row items.
     ///   - providesOwnChrome: When `true` (default, standalone use) the
     ///     screen sets its own navigation title, session-state header, and
     ///     Open-Terminal button. Pass `false` when embedded in a host that
     ///     supplies its own navigation chrome (the in-place workspace
     ///     toggle), so the two don't fight and drop the header.
+    ///   - runsStoreTask: Whether this screen should run the conversation
+    ///     subscription. Pass `false` when a parent keeps the store warm while
+    ///     the chat UI is not mounted.
     public init(
         store: ChatConversationStore,
         draft: Binding<String> = .constant(""),
+        accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
+        accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
+        runsStoreTask: Bool = true,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
         _draft = draft
+        self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
+        self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
+        self.runsStoreTask = runsStoreTask
         self.onOpenTerminal = onOpenTerminal
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            ChatTranscriptListView(
-                rows: store.rows,
-                expandedIDs: expandedIDs,
-                agentState: store.agentState,
-                hasMoreHistory: store.hasMoreHistory,
-                hasLoadedInitialHistory: store.hasLoadedInitialHistory,
-                initialLoadFailed: store.initialLoadFailed,
-                historyTruncatedAtHead: store.historyTruncatedAtHead,
-                actions: rowActions,
-                onReachTop: { Task { await store.loadOlder() } },
-                onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
-            )
-            .environment(\.chatMarkdownRenderer, renderer)
-            .environment(\.chatContentCache, contentCache)
-            #if os(iOS)
-            // Measure the transcript so the keyboard-dismiss tap fires only over
-            // the conversation, never the composer/accessory bar or header.
-            .chatTranscriptDismissRegion()
-            #endif
-
-            // A past/ended coding-agent session is read-only: keep the
-            // transcript history but drop the text field and control
-            // buttons (there is nothing live to send to). An active agent
-            // gets the full interactive composer.
-            if store.agentState != .ended {
-                ChatComposerView(
-                    agentState: store.agentState,
-                    agentKind: store.descriptor.agentKind,
-                    isTerminal: store.descriptor.kind == .terminal,
-                    isConnected: store.isConnected,
-                    draft: $draft,
-                    onSend: { text, attachments in
-                        Task { await store.send(text: text, attachments: attachments) }
-                    },
-                    onInterrupt: { hard in
-                        Task { await store.interrupt(hard: hard) }
-                    },
-                    onOpenTerminal: onOpenTerminal
-                )
-                #if os(iOS)
-                .reportsChatComposerFrame()
-                #endif
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .overlay(alignment: .top) {
-            if let error = store.lastErrorDescription {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.red.opacity(0.92), in: .capsule)
-                    .padding(.top, 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .accessibilityIdentifier("ChatErrorBanner")
-                    .onTapGesture { store.dismissError() }
-                    // Swipe the toast up to dismiss (it animates out via the
-                    // move(edge: .top) transition), in addition to tap and the
-                    // bounded auto-dismiss below.
-                    .gesture(
-                        DragGesture(minimumDistance: 8)
-                            .onEnded { value in
-                                if value.translation.height < -8 { store.dismissError() }
-                            }
-                    )
-                    // Bounded auto-dismiss: the task is keyed on the error
-                    // text, so a new error restarts the window, and SwiftUI
-                    // cancels the sleep when the banner leaves.
-                    .task(id: error) {
-                        try? await Task.sleep(for: .seconds(8))
-                        guard !Task.isCancelled else { return }
-                        store.dismissError()
-                    }
-            }
+        ZStack(alignment: .top) {
+            chatLayout
+            // On iOS 26 `chatLayout` underlaps the top chrome
+            // (`chatTopBarUnderlapContainer` ignores the top safe area so the
+            // native scroll-edge effect can blend transcript rows into the
+            // bar). The error toast must stay *below* the navigation bar, so it
+            // lives as a ZStack sibling that still respects the top safe area —
+            // an `.overlay` on the underlapped layout would inherit the
+            // underlap and render the banner under the bar.
+            errorBanner
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
@@ -157,23 +83,119 @@ public struct ChatScreen: View {
             providesOwnChrome: providesOwnChrome,
             onOpenTerminal: onOpenTerminal
         ))
-        #if os(iOS)
-        .onPreferenceChange(ChatTranscriptFramePreferenceKey.self) { frame in
-            transcriptFrame = frame
+        .sheet(item: $selectedBlockSelection) { selection in
+            if let detail = blockDetail(for: selection) {
+                ChatBlockDetailSheetView(
+                    detail: detail,
+                    onOpenTerminal: openTerminalAction(for: selection)
+                )
+            }
         }
-        .onPreferenceChange(ChatComposerFramePreferenceKey.self) { frame in
-            composerFrame = frame
+        .task {
+            guard runsStoreTask else { return }
+            await store.run()
         }
-        .onPreferenceChange(ChatScrollButtonFramePreferenceKey.self) { frame in
-            scrollButtonFrame = frame
-        }
-        .dismissesKeyboardOnTap(in: transcriptDismissRegion, excluding: scrollButtonFrame)
-        #endif
-        .task { await store.run() }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
         .onChange(of: store.lastErrorDescription) { announceLastError() }
         #endif
+    }
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let error = store.lastErrorDescription {
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.red.opacity(0.92), in: .capsule)
+                .padding(.top, 4)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityIdentifier("ChatErrorBanner")
+                .onTapGesture { store.dismissError() }
+                // Swipe the toast up to dismiss (it animates out via the
+                // move(edge: .top) transition), in addition to tap and the
+                // bounded auto-dismiss below.
+                .gesture(
+                    DragGesture(minimumDistance: 8)
+                        .onEnded { value in
+                            if value.translation.height < -8 { store.dismissError() }
+                        }
+                )
+                // Bounded auto-dismiss: the view is keyed on the error text,
+                // so a new error restarts the timer subscription.
+                .id(error)
+                .onReceive(Timer.publish(every: 8, on: .main, in: .common).autoconnect()) { _ in
+                    store.dismissError()
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var chatLayout: some View {
+        #if os(iOS)
+        ChatKeyboardTrackingContainer(
+            transcript: transcriptContent,
+            composer: composerContent,
+            showsComposer: store.agentState != .ended
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .chatTopBarUnderlapContainer()
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        #else
+        VStack(spacing: 0) {
+            transcriptContent
+            composerContent
+        }
+        #endif
+    }
+
+    private var transcriptContent: some View {
+        ChatTranscriptListView(
+            rows: store.rows,
+            agentState: store.agentState,
+            hasMoreHistory: store.hasMoreHistory,
+            hasLoadedInitialHistory: store.hasLoadedInitialHistory,
+            initialLoadFailed: store.initialLoadFailed,
+            historyTruncatedAtHead: store.historyTruncatedAtHead,
+            actions: rowActions,
+            onReachTop: { Task { await store.loadOlder() } },
+            onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
+        )
+        .environment(\.chatMarkdownRenderer, renderer)
+        .environment(\.chatContentCache, contentCache)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .layoutPriority(0)
+    }
+
+    @ViewBuilder
+    private var composerContent: some View {
+        // A past/ended coding-agent session is read-only: keep the transcript
+        // history but drop the text field and control buttons.
+        if store.agentState != .ended {
+            ChatComposerView(
+                agentState: store.agentState,
+                agentKind: store.descriptor.agentKind,
+                isTerminal: store.descriptor.kind == .terminal,
+                isConnected: store.isConnected,
+                accessoryLeadingShortcuts: accessoryLeadingShortcuts,
+                accessoryShortcuts: accessoryShortcuts,
+                draft: $draft,
+                onSend: { text, attachments in
+                    Task { await store.send(text: text, attachments: attachments) }
+                },
+                onInterrupt: { hard in
+                    Task { await store.interrupt(hard: hard) }
+                },
+                onOpenTerminal: onOpenTerminal
+            )
+            #if os(iOS)
+            .layoutPriority(1)
+            #endif
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 
     #if canImport(UIKit)
@@ -197,15 +219,73 @@ public struct ChatScreen: View {
     }
     #endif
 
+    private func blockDetail(for selection: ChatBlockSelection) -> ChatBlockDetail? {
+        switch selection {
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return nil }
+            return detailBuilder.detail(message: message)
+        case .terminalCommand(let id):
+            guard let block = currentTerminalBlock(id: id) else { return nil }
+            return detailBuilder.detail(block: block)
+        case .codeBlock(let messageID, let segmentIndex):
+            guard let message = currentMessage(id: messageID),
+                  case .prose(let prose) = message.kind,
+                  let segment = contentCache
+                      .proseSegments(messageID: messageID, text: prose.text)
+                      .first(where: { $0.index == segmentIndex }),
+                  case .code(let language) = segment.kind
+            else { return nil }
+            return detailBuilder.codeBlock(
+                id: "code-\(messageID)-\(segmentIndex)",
+                code: segment.content,
+                language: language
+            )
+        }
+    }
+
+    private func currentMessage(id: String) -> ChatMessage? {
+        for row in store.rows {
+            if case .message(let snapshot) = row,
+               snapshot.message.id == id {
+                return snapshot.message
+            }
+        }
+        return nil
+    }
+
+    private func currentTerminalBlock(id: Int) -> TerminalCommandBlock? {
+        for row in store.rows {
+            if case .terminalCommand(let block) = row,
+               block.id == id {
+                return block
+            }
+        }
+        return nil
+    }
+
+    private func openTerminalAction(for selection: ChatBlockSelection) -> (() -> Void)? {
+        guard selectionCanOpenTerminal(selection) else { return nil }
+        return {
+            selectedBlockSelection = nil
+            onOpenTerminal()
+        }
+    }
+
+    private func selectionCanOpenTerminal(_ selection: ChatBlockSelection) -> Bool {
+        switch selection {
+        case .terminalCommand:
+            return true
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return false }
+            if case .terminal = message.kind { return true }
+            return false
+        case .codeBlock:
+            return false
+        }
+    }
+
     private var rowActions: ChatRowActions {
         ChatRowActions(
-            toggleExpanded: { id in
-                if expandedIDs.contains(id) {
-                    expandedIDs.remove(id)
-                } else {
-                    expandedIDs.insert(id)
-                }
-            },
             answerOption: { index in
                 Task { await store.answer(optionIndex: index) }
             },
@@ -215,10 +295,32 @@ public struct ChatScreen: View {
             discardPending: { id in
                 store.discard(pendingID: id)
             },
-            openTerminal: onOpenTerminal
+            openTerminal: onOpenTerminal,
+            showMessageDetail: { message in
+                selectedBlockSelection = .message(id: message.id)
+            },
+            showTerminalCommandDetail: { block in
+                selectedBlockSelection = .terminalCommand(id: block.id)
+            },
+            showCodeBlockDetail: { messageID, segmentIndex in
+                selectedBlockSelection = .codeBlock(messageID: messageID, segmentIndex: segmentIndex)
+            }
         )
     }
 }
+
+#if os(iOS)
+private extension View {
+    @ViewBuilder
+    func chatTopBarUnderlapContainer() -> some View {
+        if #available(iOS 26.0, *) {
+            ignoresSafeArea(.container, edges: .top)
+        } else {
+            self
+        }
+    }
+}
+#endif
 
 /// Standalone navigation chrome for ``ChatScreen``: title, session-state
 /// header, and the Open-Terminal button. Suppressed when the host supplies

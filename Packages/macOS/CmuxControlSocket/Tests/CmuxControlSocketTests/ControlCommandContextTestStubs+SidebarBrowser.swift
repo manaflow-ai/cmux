@@ -27,9 +27,28 @@ extension ControlBrowserPanelContext {
 }
 
 extension ControlSidebarContext {
+    /// Test default for the worker-lane hop primitive: run the body on the
+    /// main actor (inline when the test is already there, else a synchronous
+    /// dispatch), mirroring the app's `v2MainSync` semantics.
+    nonisolated func controlSidebarOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlSidebarContext) -> T
+    ) -> T {
+        // The hop is synchronous: the calling thread blocks until `body`
+        // returns, so handing the seam into the main-actor window cannot
+        // outlive the call (the same contract as the app's `v2MainSync`).
+        // Strict checking can't see that, hence the unsafe transfer.
+        nonisolated(unsafe) let seam: any ControlSidebarContext = self
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { body(seam) }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { body(seam) }
+        }
+    }
+
     func controlSidebarTabManagerAvailable() -> Bool { false }
 
-    func controlSidebarScheduleStatusUpsert(
+    nonisolated func controlSidebarScheduleStatusUpsert(
         target: ControlSidebarTabTarget,
         key: String,
         value: String,
@@ -42,40 +61,40 @@ extension ControlSidebarContext {
         pid: Int32?
     ) {}
 
-    func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}
+    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}
 
-    func controlSidebarScheduleAgentPIDRecord(
+    nonisolated func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
         panelID: UUID?
     ) {}
 
-    func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
+    nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
 
-    func controlSidebarIsAllowedAgentLifecycleKey(
+    nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
         _ key: String,
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> Bool { false }
 
-    func controlSidebarScheduleAgentLifecycle(
+    nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?
     ) {}
 
-    func controlSidebarSetAgentHibernation(enabled: Bool) {}
+    nonisolated func controlSidebarSetAgentHibernation(enabled: Bool) {}
 
-    func controlSidebarScheduleAgentPIDClear(
+    nonisolated func controlSidebarScheduleAgentPIDClear(
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
         clearStatus: Bool
     ) {}
 
-    func controlSidebarScheduleMetadataBlockUpsert(
+    nonisolated func controlSidebarScheduleMetadataBlockUpsert(
         target: ControlSidebarTabTarget,
         key: String,
         markdown: String,
@@ -89,7 +108,7 @@ extension ControlSidebarContext {
         .tabNotFound
     }
 
-    func controlSidebarIsValidLogLevel(_ raw: String) -> Bool { false }
+    nonisolated func controlSidebarIsValidLogLevel(_ raw: String) -> Bool { false }
 
     func controlSidebarAppendLog(
         tabArg: String?,
@@ -103,19 +122,19 @@ extension ControlSidebarContext {
     func controlSidebarSetProgress(tabArg: String?, value: Double, label: String?) -> Bool { false }
     func controlSidebarClearProgress(tabArg: String?) -> Bool { false }
 
-    func controlSidebarScheduleScopedGitBranchUpdate(
+    nonisolated func controlSidebarScheduleScopedGitBranchUpdate(
         scope: ControlSidebarPanelScope,
         branch: String,
         isDirty: Bool?
     ) {}
 
     func controlSidebarUpdateGitBranch(tabArg: String?, branch: String, isDirty: Bool?) -> Bool { false }
-    func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {}
+    nonisolated func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {}
     func controlSidebarClearGitBranch(tabArg: String?) -> Bool { false }
 
-    func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool { false }
+    nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool { false }
 
-    func controlSidebarSchedulePanelPullRequestUpdate(
+    nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,
         number: Int,
         label: String,
@@ -124,9 +143,9 @@ extension ControlSidebarContext {
         branch: String?
     ) {}
 
-    func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget) {}
+    nonisolated func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget) {}
 
-    func controlSidebarSchedulePanelPullRequestAction(
+    nonisolated func controlSidebarSchedulePanelPullRequestAction(
         target: ControlSidebarPanelMutationTarget,
         action: String,
         actionTarget: String?
@@ -140,25 +159,25 @@ extension ControlSidebarContext {
         .tabNotFound
     }
 
-    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String) {}
+    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {}
 
-    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String) -> ControlSidebarPanelWriteResolution {
+    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String, displayLabel: String?) -> ControlSidebarPanelWriteResolution {
         .tabNotFound
     }
 
-    func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {}
+    nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {}
 
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution {
         .tabNotFound
     }
 
-    func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {}
+    nonisolated func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {}
 
     func controlSidebarReportTTY(tabArg: String?, panelArg: String?, ttyName: String) -> ControlSidebarPanelWriteResolution {
         .tabNotFound
     }
 
-    func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {}
+    nonisolated func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {}
 
     func controlSidebarPortsKick(tabArg: String?, panelArg: String?, reasonRawValue: String) -> ControlSidebarPanelWriteResolution {
         .tabNotFound

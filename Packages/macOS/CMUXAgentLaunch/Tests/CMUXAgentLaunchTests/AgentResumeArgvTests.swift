@@ -28,7 +28,7 @@ struct AgentResumeArgvTests {
     func builtInSpecialShapes() {
         #expect(
             AgentResumeArgv().builtInKind(kind: "codex", sessionId: "SID", executablePath: nil, arguments: ["codex"])
-                == ["codex", "resume", "SID"]
+                == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
         )
         #expect(
             AgentResumeArgv().builtInKind(kind: "amp", sessionId: "SID", executablePath: nil, arguments: ["amp"])
@@ -117,7 +117,73 @@ struct AgentResumeArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex"]
-            ) == ["/opt/bin/codex", "resume", "SID"]
+            ) == ["/opt/bin/codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+        )
+    }
+
+    @Test("Codex resume suppresses codex's blocking startup update prompt per-invocation")
+    func codexResumeSuppressesStartupUpdatePrompt() {
+        // `codex resume <id>` passes no initial prompt, so codex's TUI shows a blocking
+        // "Update available!" picker before restoring the session — a cmux relaunch that
+        // auto-restores codex panes lands them on that prompt instead of the conversation.
+        // The per-invocation `-c` override keeps cmux-driven restores non-interactive
+        // without mutating the user's ~/.codex/config.toml, and it precedes the preserved
+        // launch arguments so a user-captured explicit override still wins.
+        let overrides = ["-c", "check_for_update_on_startup=false"]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "--model", "gpt-5.4"]
+            ) == ["codex", "resume", "SID"] + overrides + ["--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codexTeams",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["cmux", "codex-teams", "--model", "gpt-5.4"]
+            ) == .resolved(["cmux", "codex-teams", "resume", "SID"] + overrides + ["--model", "gpt-5.4"])
+        )
+    }
+
+    @Test("Codex resume respects an explicit captured check_for_update_on_startup setting")
+    func codexResumeRespectsExplicitUpdateCheckSetting() {
+        // The codex sanitizer policy preserves `-c key=value` pairs, so a captured
+        // explicit setting must stay authoritative (no injected override) and a
+        // restore-of-a-restore must not stack duplicate overrides.
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c", "check_for_update_on_startup=true"]
+            ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=true"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c", "check_for_update_on_startup=false"]
+            ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c=check_for_update_on_startup=true"]
+            ) == ["codex", "resume", "SID", "-c=check_for_update_on_startup=true"]
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codexTeams",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["cmux", "codex-teams", "-c", "check_for_update_on_startup=true"]
+            ) == .resolved(["cmux", "codex-teams", "resume", "SID", "-c", "check_for_update_on_startup=true"])
         )
     }
 
@@ -155,7 +221,7 @@ struct AgentResumeArgvTests {
         #expect(
             AgentResumeArgv().launcherResolution(
                 launcher: "codexTeams", sessionId: "SID", executablePath: nil, arguments: ["cmux", "codex-teams"]
-            ) == .resolved(["cmux", "codex-teams", "resume", "SID"])
+            ) == .resolved(["cmux", "codex-teams", "resume", "SID", "-c", "check_for_update_on_startup=false"])
         )
         #expect(
             AgentResumeArgv().launcherResolution(
@@ -219,6 +285,42 @@ struct AgentResumeArgvTests {
                 parts: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "claude-teams", "--resume", "SID"],
                 quote: quote
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'claude-teams' '--resume' 'SID'"
+        )
+    }
+
+    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM, degrading to bare codex")
+    func codexWrapperShellExecutableToken() {
+        #expect(
+            AgentResumeArgv.codexWrapperShellExecutableToken
+                == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        )
+    }
+
+    @Test("Portable codex resume command wraps the POSIX rendering for any login shell")
+    func portableCodexResumeShellCommand() {
+        #expect(
+            AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: "codex resume SID")
+                == "/bin/sh -c 'codex resume SID'"
+        )
+    }
+
+    @Test("Rendered codex resume substitutes the wrapper token and wraps in /bin/sh -c")
+    func renderedPortableCodexResumeShellCommand() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        // Bare `codex` executable: token substituted, command wrapped for non-POSIX shells.
+        let substituted = "\(AgentResumeArgv.codexWrapperShellExecutableToken) 'resume' 'SID'"
+        let rendered = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: ["codex", "resume", "SID"],
+            quote: quote
+        )
+        #expect(rendered == "/bin/sh -c '" + substituted.replacingOccurrences(of: "'", with: "'\\''") + "'")
+        #expect(rendered.hasPrefix("/bin/sh -c "))
+        // No bare `codex` executable: already-portable words stay unwrapped.
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "codex-teams", "resume", "SID"],
+                quote: quote
+            ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
         )
     }
 }

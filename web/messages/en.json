@@ -1,6 +1,34 @@
 {
+  "ios": {
+    "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
+    "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
+    "title": "cmux iOS",
+    "tagline": "Your terminals, in your pocket.",
+    "subtitle": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime. Drive your coding agents, watch builds, and switch workspaces from anywhere, over your own Tailscale or local network.",
+    "ctaBeta": "Download on TestFlight",
+    "ctaDocs": "Read the iOS docs",
+    "screenshotAlt": "cmux iOS app showing a live agent terminal",
+    "features": "Features",
+    "realtimeSync": "Realtime sync",
+    "realtimeSyncDesc": ": your terminals stream to iPhone and iPad the instant they change",
+    "byoNetwork": "Bring your own network",
+    "byoNetworkDesc": ": connect over your own Tailscale or local network, with no servers in between",
+    "verticalTabs": "Vertical tabs",
+    "verticalTabsDesc": ": every workspace one tap away, just like the desktop",
+    "notifications": "Agent notifications",
+    "notificationsDesc": ": get pinged when Claude, Codex, or any agent needs your input",
+    "keyboard": "Full keyboard",
+    "keyboardDesc": ": hardware shortcuts and a terminal-grade input bar with arrows, tab, and modifiers",
+    "native": "Native and fast",
+    "nativeDesc": ": GPU-accelerated rendering on the same engine as the Mac app",
+    "howTitle": "How it works",
+    "howBody": "Pair your iPhone with your Mac from the Mobile Connect window, then attach to any workspace. The connection runs over your own Tailscale or local network, so your terminals never touch a third-party server.",
+    "galleryTitle": "Run anything in your terminal",
+    "backToMac": "cmux for Mac",
+    "galleryItemAlt": "{name} running in a cmux terminal on iPhone"
+  },
   "meta": {
-    "title": "cmux — The terminal built for multitasking",
+    "title": "cmux — The terminal built for multitasking, organization, and programmability",
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
@@ -12,13 +40,173 @@
     "toggleTheme": "Toggle theme",
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
-    "viewChangelog": "View Changelog"
+    "viewChangelog": "View Changelog",
+    "otherPlatforms": "Other platforms"
+  },
+  "dashboard": {
+    "nav": {
+      "brand": "cmux",
+      "vaultGroup": "vault",
+      "vaultOverview": "overview",
+      "vaultSessions": "sessions",
+      "vaultCliSetup": "cli setup",
+      "subrouterGroup": "subrouter",
+      "subrouterOverview": "overview"
+    },
+    "home": {
+      "title": "dashboard",
+      "description": "choose a product dashboard.",
+      "vaultName": "vault",
+      "vaultDescription": "browse synced agent sessions and manage cli access.",
+      "vaultLink": "open vault",
+      "subrouterName": "subrouter",
+      "subrouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
+      "subrouterLink": "open subrouter"
+    },
+    "subrouter": {
+      "title": "subrouter",
+      "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "comingSoonTitle": "dashboard integration is coming soon",
+      "comingSoonBody": "metrics and controls will appear here after the backend is wired."
+    },
+    "aiAccounts": {
+      "metaTitle": "AI accounts — cmux",
+      "metaDescription": "Manage team AI provider accounts for cmux.",
+      "section": "dashboard",
+      "title": "AI accounts",
+      "description": "Manage the provider accounts this team can use for cmux AI.",
+      "personalTeam": "Personal",
+      "teamSwitcherLabel": "Team",
+      "notConfiguredTitle": "AI account management isn't available yet",
+      "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
+      "loadErrorTitle": "Accounts could not load",
+      "loadErrorBody": "The account service could not be reached. Try again shortly.",
+      "accountsTitle": "Connected accounts",
+      "accountsCount": "{count, plural, one {# account} other {# accounts}}",
+      "emptyTitle": "No accounts yet",
+      "emptyBody": "Add a provider account to make it available to this team.",
+      "providerColumn": "Provider",
+      "labelColumn": "Label",
+      "createdColumn": "Created",
+      "actionsColumn": "Actions",
+      "unlabeledAccount": "Unlabeled",
+      "unknownCreatedAt": "Unknown",
+      "addAccountsTitle": "Add account",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "Anthropic API key",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "OpenAI API key",
+      "providerUnknown": "Unknown provider",
+      "labelField": "Label",
+      "labelPlaceholder": "Team default",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "API key",
+      "addClaude": "Add Claude",
+      "addAnthropic": "Add Anthropic",
+      "addCodex": "Add Codex",
+      "addOpenAi": "Add OpenAI",
+      "addSuccess": "Account added.",
+      "addError": "Account could not be saved.",
+      "deleteError": "Account could not be deleted.",
+      "jsonError": "Paste a valid JSON object.",
+      "validationError": "Check the account details and try again.",
+      "teamAccessError": "You do not have access to this team.",
+      "deletingAction": "Deleting",
+      "deleteAction": "Delete",
+      "deleteConfirmTitle": "Delete this account?",
+      "deleteConfirmBody": "This removes the provider account for the whole team. Adding it back requires the original credentials.",
+      "cancelAction": "Cancel",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
+    }
+  },
+  "vault": {
+    "overview": {
+      "eyebrow": "cmux Vault",
+      "title": "Vault overview",
+      "description": "Storage and upload activity for synced sessions.",
+      "emptyTitle": "No synced sessions yet",
+      "emptyBody": "Run the CLI sync command from a machine with local agent sessions.",
+      "totalSessions": "Total sessions",
+      "totalRawBytes": "Raw bytes",
+      "totalCompressedBytes": "Compressed bytes",
+      "latestUpload": "Latest upload",
+      "never": "Never"
+    },
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "Approve CLI access",
+      "description": "Confirm the code shown by cmux-vault to connect this device to your signed-in cmux account.",
+      "codeLabel": "User code",
+      "approveButton": "Approve access",
+      "approving": "Approving...",
+      "success": "Access approved. You can return to the terminal.",
+      "error": "Could not approve this code. Check that it has not expired."
+    },
+    "sessions": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "Synced sessions",
+      "description": "Recent coding-agent transcripts synced from your local machines.",
+      "backToOverview": "Back to overview",
+      "agent": "Agent",
+      "session": "Session",
+      "cwd": "Working directory",
+      "rawSize": "Raw size",
+      "compressedSize": "Compressed size",
+      "snapshots": "Snapshots",
+      "firstUploaded": "First upload",
+      "lastUploaded": "Last uploaded",
+      "unknownCwd": "Unknown directory",
+      "searchLabel": "Search sessions",
+      "searchPlaceholder": "Search cwd, path, or session id",
+      "tableLabel": "Vault sessions",
+      "loadingMore": "Loading more...",
+      "loadError": "Could not load more sessions.",
+      "scrollForMore": "Scroll for more sessions",
+      "noResults": "No sessions match these filters.",
+      "endOfList": "End of sessions",
+      "copySession": "Copy",
+      "copiedSession": "Copied"
+    },
+    "detail": {
+      "backToSessions": "← sessions",
+      "detailsSummary": "details",
+      "snapshotsSummary": "snapshots ({count})",
+      "cwd": "Working directory",
+      "rawSize": "Raw size",
+      "compressedSize": "Compressed size",
+      "firstUploaded": "First upload",
+      "lastUploaded": "Last upload",
+      "unknownCwd": "Unknown directory",
+      "unknownSize": "Unknown size",
+      "copyCommand": "Copy command",
+      "copiedCommand": "Copied",
+      "copySessionId": "Copy session id",
+      "copiedSessionId": "Copied",
+      "downloadLink": "Download latest transcript",
+      "downloadExpires": "This presigned link expires shortly.",
+      "downloadUnavailable": "Download is unavailable right now.",
+      "loadingMessages": "loading… {count} messages",
+      "loadedMessages": "{count} messages",
+      "streamError": "stream failed after {count} messages",
+      "transcriptTooLarge": "stopped after {count} messages (transcript too large)",
+      "emptyTranscript": "No readable transcript messages found.",
+      "roles": {
+        "user": "user",
+        "assistant": "assistant",
+        "system": "system",
+        "tool": "tool"
+      }
+    }
   },
   "nav": {
     "docs": "Docs",
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Community",
+    "pricing": "Pricing",
     "github": "GitHub"
   },
   "footer": {
@@ -28,6 +216,7 @@
     "social": "Social",
     "blog": "Blog",
     "community": "Community",
+    "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
     "privacy": "Privacy",
@@ -41,12 +230,300 @@
     "copyright": "© {year} Manaflow",
     "language": "Language",
     "assets": "Assets",
-    "openSource": "Open source"
+    "openSource": "Open source",
+    "guides": "Guides"
+  },
+  "pricing": {
+    "metaTitle": "Pricing — cmux",
+    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
+    "title": "Pricing",
+    "perMonth": "/month",
+    "perUserMonth": "/user/month",
+    "free": {
+      "name": "Free",
+      "price": "$0",
+      "cta": "Download for Mac",
+      "featuresLead": "Includes:",
+      "features": [
+        "Native macOS terminal built on Ghostty, fully open source",
+        "Run Claude Code, Codex, Gemini, and any CLI agent with your own keys",
+        "Vertical tabs, workspaces, split panes, and completion notifications",
+        "Browser panels, a scriptable socket API, and custom skills",
+        "Local session history and a one-time Cloud VM trial",
+        "Community support on Discord and GitHub"
+      ]
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$30",
+      "cta": "Get Pro",
+      "featuresLead": "Everything in Free, plus:",
+      "features": [
+        "Cloud agents on Cloud VMs in isolated remote sandboxes",
+        "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
+        "Model gateway: route across providers with usage and cost analytics",
+        "The cmux iOS app and email support"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: every session backed up to the cloud and searchable",
+        "Unlimited session history across all your machines"
+      ],
+      "hostedNetworkingFeatures": [
+        "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
+      ]
+    },
+    "team": {
+      "name": "Team",
+      "price": "$35",
+      "cta": "Get Teams",
+      "featuresLead": "Everything in Pro, plus:",
+      "features": [
+        "Unified billing: one invoice for the whole team",
+        "Centralized seat management: add and remove members anytime",
+        "Pooled Cloud VM compute hours shared across the team",
+        "Shared team rules, settings, and workspace templates",
+        "Team-wide model gateway with per-member usage and cost analytics",
+        "Centralized admin and priority email support"
+      ]
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "price": "Custom",
+      "cta": "Contact sales",
+      "featuresLead": "Everything in Team, plus:",
+      "features": [
+        "Self-hosted Cloud execution and networking, so nothing leaves your network",
+        "Self-hosted model gateway with org-wide usage and cost analytics",
+        "SSO and SAML sign-in",
+        "Centralized admin and shared team rules",
+        "Audit logs for terminal sessions, network requests, and browser activity",
+        "Committed cloud usage and volume pricing",
+        "SOC 2 and an SLA, with dedicated support"
+      ]
+    },
+    "compare": {
+      "title": "Compare plans",
+      "rows": [
+        {
+          "label": "Native macOS terminal, open source",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Local CLI agents with your own keys",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Vertical tabs, splits, notifications, socket API",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Session history",
+          "free": "Local",
+          "pro": "Unlimited",
+          "team": "Unlimited",
+          "enterprise": "Unlimited",
+          "vault": true
+        },
+        {
+          "label": "cmux Vault: cloud session backup",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Search across all your sessions",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Cloud agents on Cloud VMs",
+          "free": "1 VM trial",
+          "pro": "20 hrs/mo, then usage-based",
+          "team": "Pooled, usage-based",
+          "enterprise": "Committed usage"
+        },
+        {
+          "label": "Concurrent Cloud VMs",
+          "free": "1",
+          "pro": "Usage-based",
+          "team": "Usage-based",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Model gateway: routing and usage analytics",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS app",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Networking to reach your Mac",
+          "free": "Bring your own",
+          "pro": "Hosted",
+          "team": "Hosted",
+          "enterprise": "Self-hosted",
+          "hostedNetworking": true
+        },
+        {
+          "label": "Unified billing and seat management",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "SSO and SAML sign-in",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Self-hosted and air-gapped execution",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Centralized admin and shared team rules",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Audit logs: sessions, network, browser",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Committed usage and volume pricing",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 and an SLA",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Support",
+          "free": "Community",
+          "pro": "Email",
+          "team": "Priority",
+          "enterprise": "Dedicated"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "Cloud VM sizes",
+      "body": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size.",
+      "colSize": "Size",
+      "colUse": "Best for",
+      "colRate": "Per active hour",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "Light agents and quick tasks",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 vCPU / 16 GB",
+          "use": "Standard development",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "Heavy builds and parallel agents",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "Questions? Join our <discord>Discord</discord>, open a <github>GitHub issue</github>, or <email>email us</email>.",
+    "faq": {
+      "title": "FAQ",
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. You only pay when you run agents on Cloud VMs."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Remote Linux sandboxes where agents clone repositories, run commands, and open pull requests in the cloud, without touching your machine. They cover parallel work, background jobs, and PR review. Idle VMs suspend automatically, so you are only billed for active compute-hours."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "What is the model gateway?",
+          "a": "A hosted gateway that routes each request to a strong model across providers and gives you usage and cost analytics in one place. Bring your own provider keys. Enterprise can self-host the gateway for org-wide control."
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
+        },
+        {
+          "q": "How does billing work?",
+          "a": "Pro is $30 per month, or $240 per year (about $20 per month billed annually) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Do you have a team plan?",
+          "a": "Yes. Team is $35 per user per month: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+        }
+      ]
+    },
+    "welcomeSuccess": "Welcome to cmux Pro. Your subscription is active.",
+    "welcomeActive": "cmux Pro is already active on your account.",
+    "welcomePending": "Payment received. Pro can take a minute to activate on your account.",
+    "welcomePendingAction": "Check again",
+    "billingError": "Something went wrong starting checkout. Please try again in a moment.",
+    "billingUnavailable": "Billing is not available right now. Please try again later.",
+    "billingCancelled": "Checkout cancelled. You have not been charged.",
+    "billingInvalidPlan": "That plan is not available. Pick a plan below.",
+    "welcomeTeam": "Your cmux Team purchase is complete."
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
     "typingCodingAgents": "coding agents",
     "typingMultitasking": "multitasking",
+    "typingOrganization": "organization",
+    "typingProgrammability": "programmability",
+    "taglineStatic": "The terminal built for multitasking, organization, and programmability.",
     "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
     "features": "Features",
     "faq": "FAQ",
@@ -56,6 +533,8 @@
       "verticalTabsDesc": ": sidebar shows git branch, working directory, ports, and notification text",
       "notificationRings": "Notification rings",
       "notificationRingsDesc": ": panes light up when agents need attention",
+      "ios": "iOS companion",
+      "iosDesc": ": your terminals sync to iPhone and iPad in realtime",
       "inAppBrowser": "In-app browser",
       "inAppBrowserDesc": ": split a browser alongside your terminal with a scriptable API",
       "splitPanes": "Split panes",
@@ -74,7 +553,7 @@
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
     "faqPlatformQ": "What platforms does it support?",
-    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app.",
+    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app. <waitlist>Join the waitlist</waitlist> to hear when Linux, Windows, and Android are ready.",
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
@@ -100,7 +579,7 @@
     "faqFeatureQ": "I have a feature request or found a bug",
     "faqFeatureA": "We want to hear it. Open an <issuesLink>issue</issuesLink> or <prLink>pull request</prLink> on GitHub, or <mailLink>email us</mailLink>.",
     "faqIosQ": "Is there an iOS app?",
-    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA.",
+    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSupportQ": "How can I support cmux?",
     "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqBrowserQ": "What can the built-in browser do?",
@@ -431,7 +910,20 @@
         "p1": "cmux now has a task manager for checking how much CPU and RAM your coding agents and terminal processes are using.",
         "p2": "Open it from the CLI:",
         "p3": "Or press Cmd+Shift+P and choose Task Manager from the command palette.",
-        "p4": "Requires cmux v0.64.4+."
+        "p4": "Requires cmux v0.64.4+.",
+        "workflowTitle": "A workflow for noisy agent runs",
+        "workflowOpen": "Open Task Manager when fans spin up, a workspace gets sluggish, or an agent appears stuck.",
+        "workflowScan": "Scan the live process list for the workspace, pane, surface, agent, or browser webview using the most CPU or memory.",
+        "workflowJump": "Jump from the manager back to the matching surface so you can inspect the actual process context.",
+        "workflowAct": "Stop, restart, or split the problematic task with the same information the operating system would show, scoped to cmux.",
+        "useTitle": "When it helps",
+        "useP": "Task Manager is most useful when several Claude Code, Codex, OpenCode, or browser panes are running at once and Activity Monitor cannot tell you which workspace owns the load.",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "Does it identify coding agents?",
+        "faqAgentsBody": "Yes. cmux attributes known agent processes to the workspace and surface where they are running so the resource view matches your sidebar layout.",
+        "faqCliTitle": "Can I use it without opening the window?",
+        "faqCliBody": "Yes. Run cmux top for a terminal snapshot when you want the same information in scripts, SSH sessions, or a plain shell.",
+        "docsCta": "Read the <link>Task Manager docs</link> for the command, window entrypoint, and recommended troubleshooting flow."
       },
       "sessionRestore": {
         "title": "Session restore in cmux",
@@ -454,7 +946,17 @@
         "implementationP2": "Agent hooks write session mappings under ~/.cmuxterm. On restore, cmux rebuilds the UI first. If automatic agent resume is enabled, it launches each supported agent with that agent's native resume command and the saved session ID.",
         "limitsTitle": "What stays out of scope",
         "limitsP": "tmux, vim, shells, and unsupported tools reopen as normal terminals unless they have a cmux integration that records a safe native resume command. That keeps restore predictable and avoids replaying stale prompts or secrets.",
-        "docsCta": "Read the <link>session restore docs</link> for setup commands, supported agents, and troubleshooting."
+        "docsCta": "Read the <link>session restore docs</link> for setup commands, supported agents, and troubleshooting.",
+        "workflowTitle": "Recommended setup",
+        "workflowInstall": "Install the agent CLI you use, then run cmux hooks setup so cmux can capture native session IDs.",
+        "workflowWork": "Run agents in normal cmux terminals. The hooks record the session ID, cwd, workspace, and surface as work happens.",
+        "workflowRelaunch": "After a relaunch, cmux rebuilds the window and pane tree before starting any saved agent resume commands.",
+        "workflowVerify": "Check that the restored agent is continuing the same upstream session, then keep working in the same workspace.",
+        "faqTitle": "FAQ",
+        "faqCrashTitle": "Does this recover after a crash?",
+        "faqCrashBody": "It recovers app-owned layout and supported agent sessions from the last saved snapshot. It cannot recover arbitrary process memory that the agent or shell never exposed through a resume API.",
+        "faqTmuxTitle": "Should I still use tmux?",
+        "faqTmuxBody": "Use tmux when you need tmux semantics on a remote host. Use cmux session restore when you want app layout, browser state, and supported agent resume to come back together."
       },
       "cmuxClaudeTeams": {
         "title": "Claude Code teammate agents as native cmux panes",
@@ -482,7 +984,17 @@
         "summary": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
         "date": "March 30, 2026",
         "p1": "<code>cmux ssh user@remote</code> creates a workspace for the remote machine. Drag an image into a remote Claude Code session and it gets uploaded automatically. Browser panes route through the remote network, so localhost just works. Uses your <code>~/.ssh/config</code>, reconnects on drops.",
-        "features": "Browser panes route traffic through the remote network, so localhost:3000 reaches the remote dev server without -L flags. Coding agents on the remote box send notifications to your local sidebar. cmux claude-teams and cmux omo work over SSH, spawning teammate panes locally while computation runs remote. Drag a file into a remote terminal to upload via scp. The sidebar shows connection state and detected listening ports."
+        "features": "Browser panes route traffic through the remote network, so localhost:3000 reaches the remote dev server without -L flags. Coding agents on the remote box send notifications to your local sidebar. cmux claude-teams and cmux omo work over SSH, spawning teammate panes locally while computation runs remote. Drag a file into a remote terminal to upload via scp. The sidebar shows connection state and detected listening ports.",
+        "workflowTitle": "A remote development workflow",
+        "workflowConnect": "Connect with cmux ssh and let cmux create a dedicated workspace for the remote host.",
+        "workflowPreview": "Open a browser pane next to the terminal and use localhost URLs as if the dev server were local.",
+        "workflowNotify": "Run Claude Code, Codex, OpenCode, or another agent on the remote machine and let cmux route notifications back to your Mac.",
+        "workflowUpload": "Drag files or images into the remote terminal when the agent needs local context or test fixtures.",
+        "faqTitle": "FAQ",
+        "faqPortTitle": "Do I still need ssh -L for localhost?",
+        "faqPortBody": "Usually no. Browser panes inside the remote workspace route HTTP and WebSocket traffic through the remote machine, so local preview URLs resolve from the remote host.",
+        "faqConfigTitle": "Does it use my existing SSH config?",
+        "faqConfigBody": "Yes. cmux reads ~/.ssh/config for aliases, identity files, proxy settings, and host options, then adds cmux-specific routing and reconnect behavior."
       },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
@@ -557,7 +1069,20 @@
         "p1": "cmux now has a Vault pane in the right sidebar for old agent sessions.",
         "p2": "It indexes Codex, Claude Code, OpenCode, and Pi sessions, with full-text search across transcripts.",
         "p3": "Drag a session from Vault into a workspace to reopen it where you are working.",
-        "p4": "Requires cmux v0.64+."
+        "p4": "Requires cmux v0.64+.",
+        "workflowTitle": "A workflow for finding old agent work",
+        "workflowOpen": "Open Vault from the right sidebar when you remember the task but not the workspace or date.",
+        "workflowSearch": "Search for a filename, issue title, error message, branch name, or phrase from the agent transcript.",
+        "workflowDrag": "Drag the matching session into the active workspace so it reopens beside the code you are touching now.",
+        "workflowContinue": "Continue from the recovered context instead of asking a fresh agent to rediscover the same state.",
+        "useTitle": "When Vault beats terminal history",
+        "useP": "Shell history tells you what command started an agent. Vault searches what the agent actually discussed, changed, and reported, which is closer to how developers remember old work.",
+        "faqTitle": "FAQ",
+        "faqAgentsTitle": "Which sessions are indexed?",
+        "faqAgentsBody": "Vault indexes supported Codex, Claude Code, OpenCode, and Pi sessions when cmux can read their local session records.",
+        "faqRestoreTitle": "Is Vault the same as session restore?",
+        "faqRestoreBody": "No. Session restore brings back the current app layout after relaunch. Vault is for searching older agent sessions and reopening one on demand.",
+        "docsCta": "Read the <link>Vault docs</link> for indexed agents, search workflow, and restore limits."
       },
       "markdownViewer": {
         "title": "A better markdown viewer in cmux",
@@ -593,6 +1118,16 @@
         "fullHistoryTitle": "The full history pane",
         "fullHistoryP": "When you need more than the last item, open the full History pane: a searchable, day grouped view of everything you closed and focused, with timestamps and a Clear Closed action.",
         "docsCta": "See the <link>keyboard shortcuts</link> for the full list, including how to rebind history navigation."
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
+        "date": "June 23, 2026",
+        "p1": "People keep asking whether we'll add git worktrees to cmux. We're not going to, because we don't want to impose worktrees on everyone. cmux is <link>a primitive, not a solution</link>.",
+        "p2": "Everyone works differently. Some projects live across several git repos. Some people keep many checkouts of the same repo (my cofounder has clones named cmux0 through cmux40, for reasons I still don't understand). Some people default to SSH and remote development.",
+        "p3": "cmux is just terminals and browsers, with a CLI to drive them. You can write a few bash scripts to manage worktrees, juggle multiple checkouts, or open remote sessions, and lay out your workspace however fits your head.",
+        "p4": "cmux should bend to your workflow instead of forcing one on you. We want cmux to feel like home.",
+        "p5": "<link>cmux-home</link> is one example of what that looks like. It's a small Rust TUI that starts Claude and Codex workspaces and watches their live status, built entirely on cmux primitives. The launcher uses command templates, so you can swap in your own scripts for creating worktrees, picking a checkout, or SSHing into a VM. Fork it and make it yours."
       }
     },
     "cmuxFinder": {
@@ -654,6 +1189,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: reopen closed terminals and sessions",
       "metaDescription": "cmux keeps a history of what you closed and focused. Reopen closed terminals, browsers, workspaces, and Claude Code, Codex, and OpenCode sessions with Cmd+Shift+T, and move focus back and forward with Cmd+[ and Cmd+]."
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux won't impose worktrees on you. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make cmux feel like home."
     }
   },
   "docs": {
@@ -672,7 +1211,7 @@
       "rowPane": "A pane in a native split inside that tab.",
       "mappingPanes": "The new capability is panes inside a tab: a cmux tab used to hold a single terminal, but a tmux window with several panes is now rendered as a real cmux split layout within one tab — each remote pane is a native cmux terminal pane with the usual chrome. The bridge is two-way: splitting or closing a pane in that tab runs tmux split-window, and reordering the tabs reorders the tmux windows with swap-window.",
       "requirementsTitle": "Requirements",
-      "requirementsDesc": "A reachable SSH host (cmux reads your ~/.ssh/config) with tmux installed. Control mode (tmux -CC) is a standard tmux feature, so no special build is needed; a current tmux is recommended for the full feature set. cmux attaches over an SSH ControlMaster connection, and the remote tmux server keeps running when you detach.",
+      "requirementsDesc": "A reachable SSH host (cmux reads your ~/.ssh/config) with tmux 3.2 or newer installed. Control mode (tmux -CC) is a standard tmux feature, so no special build is needed; cmux checks the remote tmux version before attaching and fails clearly on older servers. cmux attaches over an SSH ControlMaster connection, and the remote tmux server keeps running when you detach.",
       "enableTitle": "Enable it",
       "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
       "attachTitle": "Attaching",
@@ -707,7 +1246,7 @@
       "limitationsTitle": "Limitations",
       "limitReconnect": "Transient SSH drops reconnect automatically: if the connection blips mid-session the mirror freezes and cmux retries with capped exponential backoff, re-seeding the panes when it resumes. The mirror only closes for good when the remote session itself ends, or when you close the mirror window or quit cmux — and it isn't restored on relaunch (re-attach with cmux ssh-tmux).",
       "limitPaste": "Only single-line paste/drop (such as a file or image path) is delivered as a real bracketed paste via paste-buffer -p; multi-line text is sent as plain keystrokes, so a remote app won't treat it as one paste.",
-      "limitCwd": "Live working-directory updates use control-mode subscriptions (tmux 3.2+); on older tmux the tab shows the initial folder but doesn't update on cd.",
+      "limitCwd": "Live working-directory updates use control-mode subscriptions, which is why cmux requires tmux 3.2 or newer before it opens the mirror.",
       "limitReflow": "Primary-screen scrollback isn't re-wrapped on resize — cmux leaves reflow to tmux, so older lines can stay at the previous width until the app repaints. Full-screen TUIs, which redraw on resize, are unaffected."
     },
     "layoutTitle": "cmux docs",
@@ -869,13 +1408,13 @@
       "layoutItem1": "Pinned top-level rows (workspaces and groups).",
       "layoutItem2": "Unpinned top-level rows (workspaces and groups).",
       "creatingTitle": "Creating a group",
-      "creatingIntro": "A group is created in one of two ways: a keyboard shortcut or a workspace context menu. Both insert a fresh anchor workspace above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
-      "keyboardTitle": "From the keyboard ({shortcut})",
-      "keyboardDesc": "Select two or more workspaces in the sidebar, then press {shortcut}. A fresh anchor workspace is inserted above the selection and all selected workspaces become children. The group is auto-named Group 1, Group 2, and so on — rename it anytime via the header context menu.",
+      "creatingIntro": "A group is created from a keyboard shortcut or a sidebar context menu. Empty groups insert a fresh anchor workspace as the group header. Selection-based groups insert that anchor above the selection and move the selected workspaces into the group. Once a group exists, you manage it and add workspaces to it from the group header (see Managing a group below).",
+      "keyboardTitle": "From keyboard shortcuts",
+      "keyboardDesc": "Press ⌃⌘G to create a new empty workspace group. Select two or more workspaces in the sidebar, then press {shortcut} to group the selection. Both paths create a fresh anchor workspace and auto-name the group Group 1, Group 2, and so on. Rename it anytime via the header context menu.",
       "keyboardNote": "{shortcut} collides with React Grab's default. The group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and in browser or terminal contexts. Rebind it in Settings → Keyboard if you would rather the two not share a key.",
       "keyboardSingle": "Single-tab groups are not created from the shortcut. Use the workspace context menu New Group from Workspace entry for that.",
       "contextMenuTitle": "From a workspace context menu",
-      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Group from Workspace, or New Group from Selection when multiple workspaces are selected. This uses the same auto-naming behavior as the shortcut.",
+      "contextMenuDesc": "Right-click any workspace in the sidebar and choose New Empty Workspace Group, New Group from Workspace, or New Group from Selection when multiple workspaces are selected. The blank area below the sidebar list also offers New Empty Workspace Group. These paths use the same auto-naming behavior as the shortcuts.",
       "managingTitle": "Managing a group",
       "managingIntro": "Once a group exists, its header context menu and the + button on the header let you manage the group and add workspaces to it. Neither creates a new group.",
       "headerMenuTitle": "From the group header context menu",
@@ -954,12 +1493,24 @@
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
-          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
+          "textBoxDefaultSubmitAction": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
+          "textBoxSubmitActions": "Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu.",
+          "textBoxSubmitActionId": "Stable action ID referenced by terminal.textBoxDefaultSubmitAction.",
+          "textBoxSubmitActionTitle": "Menu label for this submit action.",
+          "textBoxSubmitActionKind": "Whether this action submits plain Text Entry or expands a shell command template.",
+          "textBoxSubmitActionCommandTemplate": "Shell command template for commandTemplate actions. Include {{prompt}} to shell-quote the prompt into the command.",
+          "textBoxSubmitActionPreservePromptAfterLaunch": "When true, launch commandTemplate without the prompt and keep the prompt in the TextBox for the active agent.",
+          "textBoxSubmitActionSystemImage": "Fallback SF Symbol name shown on the submit button.",
+          "textBoxSubmitActionAssetName": "Optional app asset catalog image name shown on the submit button.",
+          "textBoxSubmitActionImagePath": "Optional PNG or image file path shown on the submit button. Tilde is expanded.",
+          "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
-          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL."
+          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
@@ -990,8 +1541,16 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
+        },
+        "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
+        "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
+        "notifications": {
+          "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
+          "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",
+          "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
+          "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1261,7 +1820,9 @@
       "examples": "Examples",
       "pythonClient": "Python client",
       "shellScript": "Shell script",
-      "buildScriptNotification": "Build script with notification"
+      "buildScriptNotification": "Build script with notification",
+      "listPanelsDesc": "List all surfaces in the current workspace.",
+      "listPaneSurfacesDesc": "List surfaces in the focused pane."
     },
     "notifications": {
       "title": "Notifications",
@@ -1713,7 +2274,9 @@
       "changelog": "Changelog",
       "dock": "Dock",
       "textBox": "TextBox (Beta)",
-      "ios": "iOS App"
+      "ios": "iOS App",
+      "vault": "Vault",
+      "taskManager": "Task Manager"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1797,6 +2360,50 @@
       "dataNot": "Your interactive terminal session, its contents and keystrokes, flows directly between your phone and your Mac over your own network, and is not relayed through or stored on cmux servers. The one exception is forwarded notification text, which transits cmux and Apple's push service to reach your phone, unless you enable Hide content (see Notifications above).",
       "enterpriseTitle": "Enterprise and self-hosted",
       "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@manaflow.com</link>."
+    },
+    "vault": {
+      "title": "Vault",
+      "metaTitle": "Vault",
+      "metaDescription": "Search old Codex, Claude Code, OpenCode, and Pi sessions in cmux Vault, then reopen a session in the workspace where you need it.",
+      "intro": "Vault is a right-sidebar pane for finding old AI coding agent sessions by transcript content instead of by terminal history.",
+      "indexesTitle": "What Vault indexes",
+      "indexesDesc": "Vault reads local session records from supported agents and makes their transcripts searchable inside cmux.",
+      "indexCodex": "Codex sessions",
+      "indexClaude": "Claude Code sessions",
+      "indexOpenCode": "OpenCode sessions",
+      "indexPi": "Pi sessions",
+      "workflowTitle": "Workflow",
+      "workflowOpen": "Open Vault from the right sidebar.",
+      "workflowSearch": "Search for a file, branch, issue title, error message, or phrase from the conversation.",
+      "workflowDrag": "Drag a matching session into the current workspace.",
+      "workflowContinue": "Resume from the recovered context beside the code or browser pane you are using now.",
+      "useTitle": "When to use Vault",
+      "useDesc": "Use Vault when you remember what an agent worked on but not which workspace, date, or shell command started it. It is built for rediscovering prior agent context, not for restoring the current app layout after relaunch.",
+      "limitsTitle": "Limits",
+      "limitsDesc": "Vault can only index session formats that cmux knows how to read on the local machine. It does not search private remote hosts unless those sessions are available to the local cmux installation.",
+      "blogCta": "Read the <link>Vault feature story</link> for a workflow-oriented overview."
+    },
+    "taskManager": {
+      "title": "Task Manager",
+      "metaTitle": "Task Manager",
+      "metaDescription": "Use cmux Task Manager or cmux top to find high CPU and RAM usage from coding agents, terminal processes, and browser panes.",
+      "intro": "Task Manager shows resource usage for cmux windows, workspaces, panes, terminal processes, coding agents, and browser webviews.",
+      "openTitle": "Open Task Manager",
+      "openDesc": "Run the CLI command from any cmux terminal:",
+      "paletteDesc": "You can also press Cmd+Shift+P and choose Task Manager from the command palette.",
+      "showsTitle": "What it shows",
+      "showsWindows": "Windows, workspaces, panes, and surfaces",
+      "showsWorkspaces": "Workspace ownership for terminal and browser activity",
+      "showsAgents": "Known coding agent processes such as Claude Code, Codex, and OpenCode",
+      "showsBrowsers": "Browser webviews and related helper processes",
+      "workflowTitle": "Troubleshooting workflow",
+      "workflowOpen": "Open Task Manager when cmux feels slow, fans spin up, or an agent appears stuck.",
+      "workflowSort": "Sort or scan for the process using the most CPU or memory.",
+      "workflowJump": "Jump back to the owning workspace or surface.",
+      "workflowFix": "Stop, restart, or split the overloaded process with the right context visible.",
+      "useTitle": "When to use it",
+      "useDesc": "Use Task Manager when Activity Monitor shows load from cmux but does not identify the responsible workspace, agent, or browser pane.",
+      "blogCta": "Read the <link>Task Manager feature story</link> for the workflow and launch context."
     }
   },
   "deeplink": {
@@ -1920,6 +2527,378 @@
   "afterSignIn": {
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
-    "button": "Return to cmux"
+    "button": "Return to cmux",
+    "switchAccountButton": "Use a different account"
+  },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro is active",
+    "title": "cmux Pro is active",
+    "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "emailLabel": "Purchase email",
+    "openCmux": "Open cmux",
+    "manageSignInMethods": "Manage sign-in methods"
+  },
+  "landing": {
+    "bestTerminal": {
+      "metaTitle": "The best terminal for Mac in 2026 — cmux",
+      "metaDescription": "An honest comparison of the best macOS terminals: cmux, Ghostty, iTerm2, Warp, Terminal.app, Alacritty, kitty, WezTerm, and tmux. Pick by workflow. cmux is built for multitasking, organization, and programmability.",
+      "title": "The best terminal for Mac",
+      "intro": "There is no single best terminal, only the best one for how you work. Below is an honest comparison of the strong macOS options. We build cmux, so we will be upfront: cmux is built for multitasking, organization, and programmability, and we will say where the others are the better call.",
+      "glance": "At a glance",
+      "thTerminal": "Terminal",
+      "thBuiltFor": "Built for",
+      "thRenderer": "Renderer",
+      "thPlatform": "Platform",
+      "cmuxBuiltFor": "Multitasking, organization, programmability (AI agents)",
+      "ghosttyBuiltFor": "A fast, clean single terminal",
+      "iterm2BuiltFor": "Maximum features and configurability",
+      "warpBuiltFor": "Built-in AI and a blocks UI",
+      "terminalAppBuiltFor": "Zero-setup default",
+      "alacrittyBuiltFor": "Minimal, fast, config-file only",
+      "kittyBuiltFor": "Fast, scriptable, feature-rich",
+      "weztermBuiltFor": "GPU terminal with a built-in multiplexer",
+      "tmuxBuiltFor": "Multiplexing inside any terminal",
+      "cmuxBody": "cmux is a native macOS terminal built on Ghostty's terminal engine, libghostty. That means the terminal grid inherits Ghostty's strengths: fast GPU rendering, excellent font and color rendering, modern terminal compatibility, and your existing Ghostty themes, fonts, colors, and cursor settings. cmux adds the layer Ghostty intentionally does not try to be: vertical workspaces, split panes, notification rings, git/port/agent context in the sidebar, a scriptable CLI and Unix socket, a programmable browser, and an iOS companion. Pick cmux when you want Ghostty-quality terminal rendering plus organization and automation for many tasks or AI coding agents.",
+      "ghosttyTitle": "Ghostty",
+      "ghosttyBody": "Ghostty is the fast, native terminal whose engine, libghostty, powers cmux. Compared with older CPU-rendered terminals and heavier Electron-style terminals, Ghostty's strengths are low-latency GPU rendering, crisp font and color handling, strong terminal compatibility, simple file-based configuration, and no cloud account requirement. If you want one clean terminal window with those rendering advantages and no workspace or automation layer, Ghostty is excellent on its own. If you want those same Ghostty rendering advantages plus workspaces, notifications, scripting, and agent orchestration, use cmux.",
+      "iterm2Title": "iTerm2",
+      "iterm2Body": "The mature, endlessly configurable macOS terminal. Deep profiles, triggers, and tmux integration. The safe default if you want maximum features and are not orchestrating many tasks at once.",
+      "warpTitle": "Warp",
+      "warpBody": "A Rust terminal with a built-in AI assistant and a blocks command UI, behind an account, and available beyond macOS. A good fit if you want AI baked into the terminal itself or need Linux and Windows too.",
+      "terminalAppTitle": "Terminal.app",
+      "terminalAppBody": "The built-in macOS terminal. Always there, zero setup. Fine for light use; most power users eventually want more.",
+      "otherTitle": "Alacritty, kitty, and WezTerm",
+      "otherBody": "Fast GPU terminals for people who like configuring everything in a file. Alacritty is deliberately minimal, kitty is feature-rich and scriptable, and WezTerm bundles its own multiplexer. All are cross-platform and a good fit if a single, highly tuned terminal is what you want.",
+      "tmuxTitle": "tmux",
+      "tmuxBody": "Not a terminal but a multiplexer you run inside one. Unbeatable for persistent sessions over SSH on remote servers. cmux can attach to remote tmux sessions when you need that.",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "n/a",
+      "pMac": "macOS",
+      "pMacLinux": "macOS, Linux",
+      "pMacLinuxWin": "macOS, Linux, Windows",
+      "pCross": "cross-platform",
+      "pUnix": "Unix"
+    },
+    "ghostty": {
+      "metaTitle": "cmux is built on Ghostty (libghostty) — cmux",
+      "metaDescription": "cmux uses libghostty, the engine behind Ghostty, for GPU-accelerated terminal rendering, then adds workspaces, vertical tabs, notifications, an iOS companion, and a socket API for multitasking and AI coding agents.",
+      "title": "cmux is built on Ghostty",
+      "intro": "cmux is not a fork of Ghostty. It embeds <link>libghostty</link>, the library at the core of the Ghostty terminal, for GPU-accelerated rendering, the same way an app uses WebKit for web views. Ghostty is a standalone terminal; cmux is a different application built on top of its rendering engine.",
+      "addsTitle": "What cmux adds on top",
+      "addsIntro": "libghostty gives cmux a fast, accurate terminal. cmux builds an application around it for multitasking, organization, and programmability:",
+      "add1": "Workspaces in a vertical sidebar, each showing its git branch, working directory, ports, and the latest line of agent output.",
+      "add2": "Notification rings when a pane needs your attention, plus an iOS companion app to check on your terminals from your phone.",
+      "add3": "Vertical tabs and split panes that scale to dozens of sessions.",
+      "add4": "A CLI and Unix socket API to script workspaces, panes, input, and an in-app browser.",
+      "whyTitle": "Why libghostty",
+      "whyBody": "Reusing libghostty means cmux inherits Ghostty's rendering quality and performance instead of reimplementing a terminal, and stays focused on the workspace, organization, and automation layer that sits above the terminal grid. Your existing <code>~/.config/ghostty/config</code> for themes, fonts, and colors is read directly."
+    },
+    "claude": {
+      "metaTitle": "A terminal for Claude Code — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running Claude Code: workspaces that organize parallel agents, notification rings when Claude needs you, Claude Code teams as native panes, an iOS companion, and a scriptable CLI.",
+      "title": "A terminal for Claude Code",
+      "intro": "cmux is a native macOS terminal built for running AI coding agents, and Claude Code is a first-class fit. cmux is just a terminal, so <code>claude</code> runs in any workspace out of the box, and the things that make running agents painful, keeping track of many at once and noticing when they need you, are what cmux is built for.",
+      "organizeTitle": "Run many Claude Code sessions, organized",
+      "organizeBody": "Open a workspace per task and run Claude Code in each. The vertical sidebar shows every workspace with its git branch, directory, ports, and the latest line of Claude's output, so a dozen parallel sessions stay legible instead of buried in tabs.",
+      "notifyTitle": "Notification rings when Claude needs you",
+      "notifyBody": "When Claude Code finishes or asks for input, the pane rings and the sidebar shows an unread badge, so you can let several agents run and come back to the one that needs a decision. Notifications fire automatically, and you can also trigger them from Claude Code hooks.",
+      "teamsTitle": "Claude Code teams as native panes",
+      "teamsBody": "cmux runs Claude Code's teammate mode with one command, and the teammates spawn as native cmux splits with their own sidebar metadata and notifications, no tmux required. See the <link>Claude Code teams docs</link>.",
+      "iosTitle": "Check on Claude from your phone",
+      "iosBody": "cmux has an iOS companion app (beta): pair your iPhone with your Mac and check on your Claude Code sessions, with optional notification forwarding, while you are away from the desk.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Every action is available through the cmux CLI and a Unix socket: create a workspace, launch Claude Code in it, send input, read the screen, and drive an in-app browser to verify changes, all from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does Claude Code work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>claude</code> runs in any workspace with no extra setup.",
+      "faqQ2": "Can I run Claude Code teams in cmux?",
+      "faqA2": "Yes. cmux runs Claude Code's teammate mode with one command and teammates spawn as native cmux splits with their own sidebar metadata and notifications, no tmux required.",
+      "faqQ3": "How do I know when Claude needs input?",
+      "faqA3": "The pane rings and the sidebar shows an unread badge when Claude Code finishes or asks for input, so you can let several agents run and come back to the one that needs you.",
+      "faqQ4": "Is cmux free to use with Claude Code?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "codex": {
+      "metaTitle": "A terminal for Codex CLI — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running OpenAI Codex CLI: workspaces that organize parallel agents, notification rings, oh-my-codex, an iOS companion, and a scriptable CLI and socket API.",
+      "title": "A terminal for Codex CLI",
+      "intro": "cmux is a native macOS terminal built for AI coding agents, and the OpenAI Codex CLI runs in it out of the box. cmux is just a terminal, so <code>codex</code> works in any workspace, with cmux adding the multitasking, organization, and programmability around it.",
+      "organizeTitle": "Organize many Codex sessions",
+      "organizeBody": "Run Codex in its own workspace per task. The vertical sidebar shows each one with its git branch, directory, ports, and latest output, so several parallel Codex runs stay organized instead of lost in tabs.",
+      "notifyTitle": "Notification rings when Codex needs you",
+      "notifyBody": "When Codex finishes or asks for input, the pane rings and the sidebar flags it unread, so you can run several at once and return to the one that needs attention. Notifications fire automatically and can also be driven from agent hooks.",
+      "omoTitle": "oh-my-codex",
+      "omoBody": "cmux ships an <code>oh-my-codex</code> integration that runs Codex in a cmux-aware environment so its activity surfaces as native cmux panes. See the <link>oh-my-codex docs</link>.",
+      "iosTitle": "Check on Codex from your phone",
+      "iosBody": "cmux has an iOS companion app (beta): pair your iPhone with your Mac to check on your Codex runs, with optional notification forwarding, while you are away from the desk.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Everything is available through the cmux CLI and a Unix socket: create a workspace, launch Codex, send input, read the screen, take screenshots, and drive an in-app browser, all from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does Codex CLI work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>codex</code> runs in any workspace with no extra setup.",
+      "faqQ2": "Can I run Codex next to other agents?",
+      "faqA2": "Yes. Open a workspace per task and run Codex, Claude Code, or OpenCode side by side. The sidebar keeps every session legible.",
+      "faqQ3": "How do I know when Codex needs input?",
+      "faqA3": "The pane rings and the sidebar shows an unread badge when Codex finishes or asks for input, so you can let it run and come back when it needs you.",
+      "faqQ4": "Is cmux free to use with Codex?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "opencode": {
+      "metaTitle": "A terminal for OpenCode — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running OpenCode: workspaces that organize parallel agents, notification rings, oh-my-opencode multi-model orchestration, an iOS companion, and a scriptable CLI.",
+      "title": "A terminal for OpenCode",
+      "intro": "cmux is a native macOS terminal built for AI coding agents, and OpenCode runs in it out of the box. cmux is just a terminal, so <code>opencode</code> works in any workspace, with cmux providing the multitasking, organization, and programmability around it.",
+      "organizeTitle": "Organize many OpenCode sessions",
+      "organizeBody": "Run OpenCode per task in its own workspace. The vertical sidebar shows each with its git branch, directory, ports, and latest output, so parallel runs stay organized.",
+      "notifyTitle": "Notification rings",
+      "notifyBody": "When OpenCode needs you, the pane rings and the sidebar marks it unread, so you can run several at once and come back to the one waiting on a decision.",
+      "omoTitle": "oh-my-opencode multi-model orchestration",
+      "omoBody": "cmux ships <code>cmux omo</code>, which runs OpenCode with the oh-my-openagent plugin so multiple models (Claude, GPT, Gemini, Grok) orchestrate as parallel agents, and each spawned agent becomes a native cmux split. See the <link>oh-my-opencode docs</link>.",
+      "iosTitle": "Check on OpenCode from your phone",
+      "iosBody": "cmux has an iOS companion app (beta): pair your iPhone with your Mac to check on your OpenCode runs, with optional notification forwarding, while you are away from the desk.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Every action is available through the cmux CLI and a Unix socket, so you can create workspaces, launch OpenCode, send input, read the screen, and drive an in-app browser from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does OpenCode work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>opencode</code> runs in any workspace with no extra setup.",
+      "faqQ2": "Can I run OpenCode next to other agents?",
+      "faqA2": "Yes. Open a workspace per task and run OpenCode, Claude Code, or Codex side by side. The sidebar keeps every session legible.",
+      "faqQ3": "How do I know when OpenCode needs input?",
+      "faqA3": "The pane rings and the sidebar shows an unread badge when OpenCode finishes or asks for input, so you can let it run and come back when it needs you.",
+      "faqQ4": "Is cmux free to use with OpenCode?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "guides": {
+      "metaTitle": "cmux guides: comparisons and terminal use cases",
+      "metaDescription": "Guides comparing cmux with other macOS terminals, how it is built on Ghostty, and how to run Claude Code, Codex, and OpenCode in cmux.",
+      "title": "Guides",
+      "intro": "Comparisons, background, and use-case guides for cmux. For product documentation, see the docs."
+    },
+    "cta": {
+      "freeOpenSource": "cmux is free and open source for macOS.",
+      "seeAlso": "See also"
+    },
+    "links": {
+      "bestTerminal": "Best terminal for Mac",
+      "builtOnGhostty": "How cmux is built on Ghostty",
+      "claude": "A terminal for Claude Code",
+      "codex": "A terminal for Codex CLI",
+      "opencode": "A terminal for OpenCode",
+      "getStarted": "Get started with cmux",
+      "configuration": "Configuration (Ghostty config)",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "Claude Code teams",
+      "notifications": "Notifications",
+      "home": "Home",
+      "agents": "A terminal for coding agents",
+      "geminiCli": "A terminal for Gemini CLI",
+      "aider": "A terminal for Aider",
+      "amp": "A terminal for Amp",
+      "cursorCli": "A terminal for Cursor CLI"
+    },
+    "agents": {
+      "metaTitle": "A terminal for coding agents — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running coding agents: Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp, and Cursor. Workspaces for parallel agents, notification rings, vertical tabs, an iOS companion, and a scriptable CLI.",
+      "title": "A terminal for coding agents",
+      "intro": "cmux is a native macOS terminal built on Ghostty for running AI coding agents. It is just a terminal, so any agent CLI runs out of the box, and the things that make running agents painful, keeping track of many at once and noticing when they need you, are what cmux is built for.",
+      "agentsTitle": "Pick your agent",
+      "agentsBody": "cmux works with every agent CLI. Each page below covers how cmux helps you run that agent: parallel workspaces, notification rings, vertical tabs, an iOS companion, and a scriptable socket.",
+      "organizeTitle": "Run many agents, organized",
+      "organizeBody": "Open a workspace per task and run any agent in each. The vertical sidebar shows every workspace with its git branch, directory, ports, and the latest line of output, so a dozen parallel agents stay legible instead of buried in tabs.",
+      "notifyTitle": "Notification rings when an agent needs you",
+      "notifyBody": "When an agent finishes or asks for input, the pane rings and the sidebar shows an unread badge, so you can let several agents run and come back to the one that needs a decision. Notifications fire automatically and you can also trigger them from agent hooks.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Every action is available through the cmux CLI and a Unix socket: create a workspace, launch an agent in it, send input, read the screen, and drive an in-app browser to verify changes, all from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Which coding agents work in cmux?",
+      "faqA1": "cmux is a standard macOS terminal, so any CLI agent works: Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp, Cursor, and anything else you run from a shell.",
+      "faqQ2": "Do I have to configure each agent?",
+      "faqA2": "No. Agents run exactly as they do in any terminal. cmux adds workspaces, notification rings, and a scriptable socket on top without changing how the agent itself runs.",
+      "faqQ3": "Can I run several agents at once?",
+      "faqA3": "Yes. Open a workspace per task, run a different agent in each, and the sidebar keeps every session legible with its branch, directory, and latest output line.",
+      "faqQ4": "Is cmux free?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "geminiCli": {
+      "metaTitle": "A terminal for Gemini CLI — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running Google's Gemini CLI: workspaces that organize parallel agents, notification rings when Gemini needs you, an iOS companion, and a scriptable CLI.",
+      "title": "A terminal for Gemini CLI",
+      "intro": "cmux is a native macOS terminal built for running AI coding agents, and Google's Gemini CLI is a first-class fit. cmux is just a terminal, so <code>gemini</code> runs in any workspace out of the box, and the things that make running agents painful, keeping track of many at once and noticing when they need you, are what cmux is built for.",
+      "organizeTitle": "Run many Gemini CLI sessions, organized",
+      "organizeBody": "Open a workspace per task and run Gemini CLI in each. The vertical sidebar shows every workspace with its git branch, directory, ports, and the latest line of Gemini's output, so a dozen parallel sessions stay legible instead of buried in tabs.",
+      "notifyTitle": "Notification rings when Gemini needs you",
+      "notifyBody": "When Gemini CLI finishes or asks for input, the pane rings and the sidebar shows an unread badge, so you can let several agents run and come back to the one that needs a decision. Notifications fire automatically, and you can also trigger them from shell hooks.",
+      "iosTitle": "Check on Gemini from your phone",
+      "iosBody": "cmux has an iOS companion app (beta): pair your iPhone with your Mac and check on your Gemini CLI sessions, with optional notification forwarding, while you are away from the desk.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Every action is available through the cmux CLI and a Unix socket: create a workspace, launch Gemini CLI in it, send input, read the screen, and drive an in-app browser to verify changes, all from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does Gemini CLI work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>gemini</code> runs in any workspace with no extra setup.",
+      "faqQ2": "Can I run Gemini CLI next to other agents?",
+      "faqA2": "Yes. Open a workspace per task and run Gemini CLI, Claude Code, or Codex side by side. The sidebar keeps every session legible.",
+      "faqQ3": "How do I know when Gemini needs input?",
+      "faqA3": "The pane rings and the sidebar shows an unread badge when Gemini CLI finishes or asks for input, so you can let it run and come back when it needs you.",
+      "faqQ4": "Is cmux free to use with Gemini CLI?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "aider": {
+      "metaTitle": "A terminal for Aider — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running Aider: workspaces that organize parallel agents, notification rings when Aider needs you, an iOS companion, and a scriptable CLI.",
+      "title": "A terminal for Aider",
+      "intro": "cmux is a native macOS terminal built for running AI coding agents, and Aider is a first-class fit. cmux is just a terminal, so <code>aider</code> runs in any workspace out of the box, and the things that make running agents painful, keeping track of many at once and noticing when they need you, are what cmux is built for.",
+      "organizeTitle": "Run many Aider sessions, organized",
+      "organizeBody": "Open a workspace per task and run Aider in each. The vertical sidebar shows every workspace with its git branch, directory, ports, and the latest line of output, so a dozen parallel sessions stay legible instead of buried in tabs. Aider commits as it works, and each workspace shows the branch it is on.",
+      "notifyTitle": "Notification rings when Aider needs you",
+      "notifyBody": "When Aider finishes a change or asks for confirmation, the pane rings and the sidebar shows an unread badge, so you can let several agents run and come back to the one that needs a decision. Notifications fire automatically, and you can also trigger them from shell hooks.",
+      "iosTitle": "Check on Aider from your phone",
+      "iosBody": "cmux has an iOS companion app (beta): pair your iPhone with your Mac and check on your Aider sessions, with optional notification forwarding, while you are away from the desk.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Every action is available through the cmux CLI and a Unix socket: create a workspace, launch Aider in it, send input, read the screen, and drive an in-app browser to verify changes, all from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does Aider work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>aider</code> runs in any workspace with no extra setup.",
+      "faqQ2": "Can I run Aider on several branches at once?",
+      "faqA2": "Yes. Open a workspace per branch and run Aider in each. The sidebar shows the git branch and directory for every workspace so parallel work stays clear.",
+      "faqQ3": "How do I know when Aider needs confirmation?",
+      "faqA3": "The pane rings and the sidebar shows an unread badge when Aider finishes or asks for input, so you can let it run and come back when it needs you.",
+      "faqQ4": "Is cmux free to use with Aider?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "amp": {
+      "metaTitle": "A terminal for Amp — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running Sourcegraph's Amp: workspaces that organize parallel agents, notification rings when Amp needs you, an iOS companion, and a scriptable CLI.",
+      "title": "A terminal for Amp",
+      "intro": "cmux is a native macOS terminal built for running AI coding agents, and Sourcegraph's Amp is a first-class fit. cmux is just a terminal, so <code>amp</code> runs in any workspace out of the box, and the things that make running agents painful, keeping track of many at once and noticing when they need you, are what cmux is built for.",
+      "organizeTitle": "Run many Amp sessions, organized",
+      "organizeBody": "Open a workspace per task and run Amp in each. The vertical sidebar shows every workspace with its git branch, directory, ports, and the latest line of Amp's output, so a dozen parallel sessions stay legible instead of buried in tabs.",
+      "notifyTitle": "Notification rings when Amp needs you",
+      "notifyBody": "When Amp finishes or asks for input, the pane rings and the sidebar shows an unread badge, so you can let several agents run and come back to the one that needs a decision. Notifications fire automatically, and you can also trigger them from shell hooks.",
+      "iosTitle": "Check on Amp from your phone",
+      "iosBody": "cmux has an iOS companion app (beta): pair your iPhone with your Mac and check on your Amp sessions, with optional notification forwarding, while you are away from the desk.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Every action is available through the cmux CLI and a Unix socket: create a workspace, launch Amp in it, send input, read the screen, and drive an in-app browser to verify changes, all from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does Amp work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>amp</code> runs in any workspace with no extra setup.",
+      "faqQ2": "Can I run Amp next to other agents?",
+      "faqA2": "Yes. Open a workspace per task and run Amp, Claude Code, or Codex side by side. The sidebar keeps every session legible.",
+      "faqQ3": "How do I know when Amp needs input?",
+      "faqA3": "The pane rings and the sidebar shows an unread badge when Amp finishes or asks for input, so you can let it run and come back when it needs you.",
+      "faqQ4": "Is cmux free to use with Amp?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    },
+    "cursorCli": {
+      "metaTitle": "A terminal for Cursor CLI — cmux",
+      "metaDescription": "cmux is a native macOS terminal built for running Cursor CLI (cursor-agent): workspaces that organize parallel agents, notification rings when the agent needs you, an iOS companion, and a scriptable CLI.",
+      "title": "A terminal for Cursor CLI",
+      "intro": "cmux is a native macOS terminal built for running AI coding agents, and Cursor CLI is a first-class fit. cmux is just a terminal, so <code>cursor-agent</code> runs in any workspace out of the box, and the things that make running agents painful, keeping track of many at once and noticing when they need you, are what cmux is built for.",
+      "organizeTitle": "Run many Cursor CLI sessions, organized",
+      "organizeBody": "Open a workspace per task and run Cursor CLI in each. The vertical sidebar shows every workspace with its git branch, directory, ports, and the latest line of output, so a dozen parallel sessions stay legible instead of buried in tabs.",
+      "notifyTitle": "Notification rings when the agent needs you",
+      "notifyBody": "When Cursor CLI finishes or asks for input, the pane rings and the sidebar shows an unread badge, so you can let several agents run and come back to the one that needs a decision. Notifications fire automatically, and you can also trigger them from shell hooks.",
+      "iosTitle": "Check on Cursor CLI from your phone",
+      "iosBody": "cmux has an iOS companion app (beta): pair your iPhone with your Mac and check on your Cursor CLI sessions, with optional notification forwarding, while you are away from the desk.",
+      "scriptTitle": "Scriptable",
+      "scriptBody": "Every action is available through the cmux CLI and a Unix socket: create a workspace, launch Cursor CLI in it, send input, read the screen, and drive an in-app browser to verify changes, all from a script.",
+      "faqTitle": "FAQ",
+      "faqQ1": "Does Cursor CLI work in cmux?",
+      "faqA1": "Yes. cmux is a standard macOS terminal, so <code>cursor-agent</code> runs in any workspace with no extra setup.",
+      "faqQ2": "Can I run Cursor CLI next to other agents?",
+      "faqA2": "Yes. Open a workspace per task and run Cursor CLI, Claude Code, or Codex side by side. The sidebar keeps every session legible.",
+      "faqQ3": "How do I know when Cursor CLI needs input?",
+      "faqA3": "The pane rings and the sidebar shows an unread badge when Cursor CLI finishes or asks for input, so you can let it run and come back when it needs you.",
+      "faqQ4": "Is cmux free to use with Cursor CLI?",
+      "faqA4": "Yes. cmux is free and open source for macOS."
+    }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Join the {platform} waitlist",
+    "titleAny": "Join the waitlist",
+    "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
+    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
+    "calloutText": "Coming to Linux, Windows, and Android.",
+    "platformsLabel": "Which platforms?",
+    "selectPlatform": "Pick at least one platform.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Join waitlist",
+    "joining": "Joining…",
+    "cancel": "Cancel",
+    "invalidEmail": "Enter a valid email address.",
+    "sendError": "Couldn't send. Please try again.",
+    "successTitle": "You're on the list",
+    "successBody": "We'll email you when the {platform} build is ready.",
+    "successBodyAny": "We'll email you when cmux is ready on your platform.",
+    "done": "Done"
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "Talk with cmux about Enterprise deployment, SSO, self-hosted Cloud VMs, audit logs, and committed usage.",
+    "section": "Enterprise",
+    "title": "Bring cmux Cloud VMs, SSO, and audit controls to your team.",
+    "body": "Tell us what you need to deploy cmux across your organization. We route Enterprise requests to the founders so security reviews, procurement, and self-hosted requirements get handled directly.",
+    "points": [
+      "Self-hosted Cloud execution and networking for code that must stay inside your environment.",
+      "SSO, SAML, audit logs, centralized admin, and shared team rules.",
+      "Committed usage, volume pricing, and support for security or procurement reviews."
+    ],
+    "formAriaLabel": "Enterprise contact form",
+    "form": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "companyName": "Company name",
+      "jobFunction": "Job function",
+      "jobTitle": "Job title",
+      "businessEmail": "Business email address",
+      "phoneNumber": "Phone number",
+      "country": "Country",
+      "companySize": "Company size",
+      "deploymentNeeds": "Deployment needs",
+      "comments": "Comments",
+      "selectPlaceholder": "Select one",
+      "jobFunctionOptions": [
+        "Engineering",
+        "Platform",
+        "Security",
+        "IT",
+        "Procurement",
+        "Executive",
+        "Other"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO or SAML",
+        "Self-hosted Cloud VMs",
+        "Self-hosted model gateway",
+        "Audit logs and compliance",
+        "Committed Cloud VM usage",
+        "Security or procurement review",
+        "Other"
+      ],
+      "privacy": "We use this information to respond to your Enterprise request and route it to the right founder. We do not sell contact information.",
+      "submit": "Submit",
+      "submitting": "Submitting...",
+      "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
+      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
   }
 }

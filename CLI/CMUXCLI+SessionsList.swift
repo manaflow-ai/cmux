@@ -86,6 +86,7 @@ extension CMUXCLI {
                     .appendingPathComponent(".codex", isDirectory: true)
                     .path
         )
+        let homeDirectory = sessionsListExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
 
         let agentSpecs = sessionsListAgentSpecs()
         let selectedSpecs: [SessionListAgentSpec]
@@ -108,11 +109,13 @@ extension CMUXCLI {
             selectedSpecs = agentSpecs
         }
 
-        let sessionFilter = sessionsListNormalized(sessionRaw)
-        let workspaceFilter = sessionsListNormalized(workspaceRaw)
-        let surfaceFilter = sessionsListNormalized(surfaceRaw)
+        let sessionFilter = sessionsListNormalized(sessionRaw)?.lowercased()
+        let workspaceFilter = sessionsListNormalizedIDRef(workspaceRaw)?.lowercased()
+        let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
         let cwdFilter = sessionsListNormalized(cwdRaw)?.lowercased()
+        let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil || cwdFilter != nil
         var codexIndexes: [String: CodexSessionListIndex] = [:]
+        let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
         var entries: [SessionListEntry] = []
         var stores: [[String: Any]] = []
 
@@ -138,10 +141,17 @@ extension CMUXCLI {
             storePayload["session_count"] = store.sessions.count
             stores.append(storePayload)
 
-            for record in store.sessions.values {
-                guard sessionFilter == nil || record.sessionId == sessionFilter else { continue }
-                guard workspaceFilter == nil || record.workspaceId == workspaceFilter else { continue }
-                guard surfaceFilter == nil || record.surfaceId == surfaceFilter else { continue }
+            for rawRecord in store.sessions.values {
+                let record = spec.name == "claude"
+                    ? sessionsListResolvedClaudeWorkflowRecord(rawRecord, lookup: claudeTranscriptLookup)
+                    : rawRecord
+                let rawSessionId = rawRecord.sessionId.lowercased()
+                let resolvedSessionId = record.sessionId.lowercased()
+                guard sessionFilter == nil || rawSessionId == sessionFilter || resolvedSessionId == sessionFilter else {
+                    continue
+                }
+                guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
+                guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
                 if let cwdFilter {
                     let cwd = (record.cwd ?? "").lowercased()
                     let launchCwd = (record.launchCommand?.workingDirectory ?? "").lowercased()
@@ -159,6 +169,9 @@ extension CMUXCLI {
                     "updated_at": sessionsListTimestamp(record.updatedAt),
                     "updated_at_unix": record.updatedAt
                 ]
+                if rawRecord.sessionId != record.sessionId {
+                    payload["hook_session_id"] = rawRecord.sessionId
+                }
                 payload["cwd"] = record.cwd ?? NSNull()
                 payload["transcript_path"] = record.transcriptPath ?? NSNull()
                 payload["pid"] = record.pid ?? NSNull()
@@ -168,13 +181,28 @@ extension CMUXCLI {
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
                 payload["launch_arguments"] = record.launchCommand?.arguments ?? []
+                payload.merge(
+                    sessionsListForkDiagnostics(
+                        agent: spec.name,
+                        record: record,
+                        claudeTranscriptLookup: claudeTranscriptLookup
+                    ),
+                    uniquingKeysWith: { _, new in new }
+                )
 
                 let workspaceActive = store.activeSessionsByWorkspace[record.workspaceId]
                 let surfaceActive = store.activeSessionsBySurface[record.surfaceId]
-                payload["active_for_workspace"] = workspaceActive?.sessionId == record.sessionId
-                payload["active_for_surface"] = surfaceActive?.sessionId == record.sessionId
+                let activeForWorkspace = workspaceActive?.sessionId == record.sessionId
+                    || workspaceActive?.sessionId == rawRecord.sessionId
+                let activeForSurface = surfaceActive?.sessionId == record.sessionId
+                    || surfaceActive?.sessionId == rawRecord.sessionId
+                payload["active_for_workspace"] = activeForWorkspace
+                payload["active_for_surface"] = activeForSurface
                 payload["active_workspace_session_id"] = workspaceActive?.sessionId ?? NSNull()
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
+                payload["is_restorable"] = record.isRestorable ?? NSNull()
+
+                var transcriptBacked = false
 
                 if spec.name == "codex" {
                     let codexHome = sessionsListExpandedPath(
@@ -186,20 +214,45 @@ extension CMUXCLI {
                     )
                     codexIndexes[codexHome] = index
                     let transcriptPath = index.transcriptPathBySessionId[record.sessionId]
+                    let savedTranscriptPath = sessionsListNormalized(record.transcriptPath)
+                    let expandedSavedTranscriptPath = savedTranscriptPath.map { sessionsListExpandedPath($0) }
                     payload["session_home"] = codexHome
                     payload["session_dir"] = URL(fileURLWithPath: codexHome, isDirectory: true)
                         .appendingPathComponent("sessions", isDirectory: true)
                         .path
                     payload["codex_indexed"] = index.indexedSessionIds.contains(record.sessionId)
-                    payload["codex_transcript_found"] = transcriptPath != nil
-                    payload["codex_transcript_path"] = transcriptPath ?? NSNull()
+                    payload["codex_transcript_found"] = transcriptPath != nil || expandedSavedTranscriptPath.map { fileManager.fileExists(atPath: $0) } == true
+                    payload["codex_transcript_path"] = transcriptPath ?? expandedSavedTranscriptPath ?? NSNull()
+                    transcriptBacked = payload["codex_transcript_found"] as? Bool == true
                 } else if let envKey = spec.configDirEnvOverride,
                           let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
                     payload["session_home"] = sessionsListExpandedPath(value)
                     payload["session_dir"] = sessionsListExpandedPath(value)
+                    if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
+                        transcriptBacked = fileManager.fileExists(atPath: sessionsListExpandedPath(transcriptPath))
+                    }
                 } else {
                     payload["session_home"] = NSNull()
                     payload["session_dir"] = NSNull()
+                    if let transcriptPath = sessionsListNormalized(record.transcriptPath) {
+                        transcriptBacked = fileManager.fileExists(atPath: sessionsListExpandedPath(transcriptPath))
+                    }
+                }
+                payload["transcript_backed"] = transcriptBacked
+                let launchBacked = record.launchCommand != nil && agentHookSessionHasDurableResumeEvidence(
+                    kind: spec.name,
+                    launchCommand: record.launchCommand
+                )
+                payload["launch_backed"] = launchBacked
+
+                let defaultVisible = activeForWorkspace
+                    || activeForSurface
+                    || record.isRestorable == true
+                    || launchBacked
+                    || transcriptBacked
+                payload["default_visible"] = defaultVisible
+                guard includeAll || hasRecordFilter || defaultVisible else {
+                    continue
                 }
 
                 entries.append((updatedAt: record.updatedAt, payload: payload))
@@ -250,6 +303,8 @@ extension CMUXCLI {
 
         Print saved agent session records from ~/.cmuxterm/*-hook-sessions.json.
         This command does not require a running cmux socket.
+        By default, broad output shows active, restorable, or transcript-backed records.
+        Pass --all to inspect every saved hook record.
 
         Options:
           --agent <name>        Filter to one agent, for example codex or claude
@@ -357,6 +412,7 @@ extension CMUXCLI {
         let surfaceId = (payload["surface_id"] as? String) ?? "-"
         let cwd = (payload["cwd"] as? String) ?? "-"
         let updatedAt = (payload["updated_at"] as? String) ?? "-"
+        let sessionHome = (payload["session_home"] as? String) ?? "-"
         let sessionDir = (payload["session_dir"] as? String) ?? "-"
         let activeWorkspace = ((payload["active_for_workspace"] as? Bool) == true) ? "yes" : "no"
         let activeSurface = ((payload["active_for_surface"] as? Bool) == true) ? "yes" : "no"
@@ -365,16 +421,25 @@ extension CMUXCLI {
             "workspace=\(workspaceId)",
             "surface=\(surfaceId)",
             "cwd=\(cwd)",
-            "session_dir=\(sessionDir)",
             "active_ws=\(activeWorkspace)",
             "active_surface=\(activeSurface)",
             "updated=\(updatedAt)"
         ]
         if agent == "codex" {
+            parts.append("session_home=\(sessionHome)")
             let indexed = ((payload["codex_indexed"] as? Bool) == true) ? "yes" : "no"
             let transcript = ((payload["codex_transcript_found"] as? Bool) == true) ? "yes" : "no"
             parts.append("codex_indexed=\(indexed)")
             parts.append("codex_transcript=\(transcript)")
+        } else {
+            parts.append("session_dir=\(sessionDir)")
+        }
+        let forkCommandAvailable = ((payload["fork_command_available"] as? Bool) == true) ? "yes" : "no"
+        parts.append("fork_command=\(forkCommandAvailable)")
+        let forkSupported = ((payload["fork_supported"] as? Bool) == true) ? "yes" : "no"
+        parts.append("fork=\(forkSupported)")
+        if let pidExists = payload["stored_pid_exists"] as? Bool {
+            parts.append("pid_exists=\(pidExists ? "yes" : "no")")
         }
         return parts.joined(separator: "  ")
     }
@@ -385,16 +450,27 @@ extension CMUXCLI {
         return formatter.string(from: Date(timeIntervalSince1970: value))
     }
 
-    private func sessionsListExpandedPath(_ value: String) -> String {
+    func sessionsListExpandedPath(_ value: String) -> String {
         NSString(string: value).expandingTildeInPath
     }
 
-    private func sessionsListNormalized(_ value: String?) -> String? {
+    func sessionsListNormalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
         return trimmed
+    }
+
+    private func sessionsListNormalizedIDRef(_ value: String?) -> String? {
+        guard let normalized = sessionsListNormalized(value) else { return nil }
+        if UUID(uuidString: normalized) != nil {
+            return normalized
+        }
+        if let uuid = sessionsListUUIDs(in: normalized).last {
+            return uuid
+        }
+        return normalized
     }
 
 }

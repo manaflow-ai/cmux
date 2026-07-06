@@ -12,8 +12,34 @@ public import Foundation
 /// no-ops once moved). The `Schedule*` methods preserve the legacy deferred
 /// mutation-bus semantics: they enqueue and return immediately, exactly as
 /// the original bodies did.
+///
+/// The telemetry family's worker-lane bodies (see
+/// `ControlCommandCoordinator.handleSidebarTelemetryV1`) run off the main
+/// actor, so the requirements they touch without a hop are `nonisolated`:
+/// the `Schedule*` enqueues (the mutation bus is lock-guarded and designed
+/// for cross-thread enqueue), the pure token/validity parsers, and the two
+/// app-internal-hop witnesses (`controlSidebarIsAllowedAgentLifecycleKey`,
+/// `controlSidebarSetAgentHibernation`). Synchronous resolution reads/writes
+/// stay `@MainActor` and are reached through the single
+/// ``controlSidebarOnMain(_:)`` hop per command.
 @MainActor
 public protocol ControlSidebarContext: AnyObject {
+    // MARK: Worker-lane main hop
+
+    /// Runs a short closure synchronously on the main actor — the worker-lane
+    /// bodies' single hop primitive (the app conformer forwards to its
+    /// `v2MainSync`, which collapses to an inline call when the caller is
+    /// already on the main thread, preserving the focus-allowance stack and
+    /// per-hop timing instrumentation).
+    ///
+    /// The body receives the seam back as its main-actor-context parameter
+    /// (the conformer passes `self`) so callers reach the `@MainActor`
+    /// witnesses without capturing the non-Sendable seam existential in a
+    /// main-actor closure formed off-main, which strict concurrency rejects.
+    nonisolated func controlSidebarOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlSidebarContext) -> T
+    ) -> T
+
     // MARK: Availability
 
     /// Whether the active `TabManager` is wired (the legacy
@@ -23,7 +49,7 @@ public protocol ControlSidebarContext: AnyObject {
     // MARK: Scheduled sidebar mutations (status / agent / blocks)
 
     /// Enqueues the `set_status`/`report_meta` upsert mutation.
-    func controlSidebarScheduleStatusUpsert(
+    nonisolated func controlSidebarScheduleStatusUpsert(
         target: ControlSidebarTabTarget,
         key: String,
         value: String,
@@ -37,10 +63,10 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
-    func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String)
+    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String)
 
     /// Enqueues the `set_agent_pid` record mutation.
-    func controlSidebarScheduleAgentPIDRecord(
+    nonisolated func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
@@ -49,18 +75,18 @@ public protocol ControlSidebarContext: AnyObject {
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
     /// (the app owns the `AgentHibernationLifecycleState` token table).
-    func controlSidebarParseAgentLifecycle(_ raw: String) -> String?
+    nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String?
 
     /// Whether a lifecycle key is allowed (built-in status keys or a
     /// registered vault agent id for the target tab).
-    func controlSidebarIsAllowedAgentLifecycleKey(
+    nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
         _ key: String,
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> Bool
 
     /// Enqueues the `set_agent_lifecycle` mutation.
-    func controlSidebarScheduleAgentLifecycle(
+    nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
@@ -68,10 +94,10 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Applies the `agent_hibernation` global toggle.
-    func controlSidebarSetAgentHibernation(enabled: Bool)
+    nonisolated func controlSidebarSetAgentHibernation(enabled: Bool)
 
     /// Enqueues the `clear_agent_pid` mutation.
-    func controlSidebarScheduleAgentPIDClear(
+    nonisolated func controlSidebarScheduleAgentPIDClear(
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
@@ -79,7 +105,7 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Enqueues the `report_meta_block` upsert mutation.
-    func controlSidebarScheduleMetadataBlockUpsert(
+    nonisolated func controlSidebarScheduleMetadataBlockUpsert(
         target: ControlSidebarTabTarget,
         key: String,
         markdown: String,
@@ -98,7 +124,7 @@ public protocol ControlSidebarContext: AnyObject {
     func controlSidebarClearMetadataBlock(tabArg: String?, key: String) -> ControlSidebarClearMetaBlockResolution
 
     /// Whether a raw log level token is valid (`SidebarLogLevel` raw values).
-    func controlSidebarIsValidLogLevel(_ raw: String) -> Bool
+    nonisolated func controlSidebarIsValidLogLevel(_ raw: String) -> Bool
 
     /// Appends a log entry (`log`); `false` when the tab can't resolve.
     func controlSidebarAppendLog(
@@ -124,7 +150,7 @@ public protocol ControlSidebarContext: AnyObject {
 
     /// Enqueues the explicit-scope `report_git_branch` update (off-main
     /// telemetry path).
-    func controlSidebarScheduleScopedGitBranchUpdate(
+    nonisolated func controlSidebarScheduleScopedGitBranchUpdate(
         scope: ControlSidebarPanelScope,
         branch: String,
         isDirty: Bool?
@@ -135,7 +161,7 @@ public protocol ControlSidebarContext: AnyObject {
     func controlSidebarUpdateGitBranch(tabArg: String?, branch: String, isDirty: Bool?) -> Bool
 
     /// Enqueues the explicit-scope `clear_git_branch` update.
-    func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope)
+    nonisolated func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope)
 
     /// Applies the fallback `clear_git_branch`; `false` when the tab can't
     /// resolve.
@@ -145,10 +171,10 @@ public protocol ControlSidebarContext: AnyObject {
 
     /// Whether a raw PR state token is valid (`SidebarPullRequestStatus` raw
     /// values).
-    func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool
+    nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool
 
     /// Enqueues the `report_pr` panel pull-request update.
-    func controlSidebarSchedulePanelPullRequestUpdate(
+    nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,
         number: Int,
         label: String,
@@ -158,10 +184,10 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Enqueues the `clear_pr` panel pull-request clear.
-    func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget)
+    nonisolated func controlSidebarSchedulePanelPullRequestClear(target: ControlSidebarPanelMutationTarget)
 
     /// Enqueues the `report_pr_action` command hint.
-    func controlSidebarSchedulePanelPullRequestAction(
+    nonisolated func controlSidebarSchedulePanelPullRequestAction(
         target: ControlSidebarPanelMutationTarget,
         action: String,
         actionTarget: String?
@@ -178,26 +204,28 @@ public protocol ControlSidebarContext: AnyObject {
     func controlSidebarClearPorts(tabArg: String?, panelArg: String?) -> ControlSidebarPanelWriteResolution
 
     /// Enqueues the explicit-scope `report_pwd` directory update.
-    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String)
+    /// `displayLabel` carries the optional human-friendly sidebar label
+    /// reported alongside the real filesystem path (`--path=`).
+    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?)
 
     /// Applies the fallback `report_pwd` directory update.
-    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String) -> ControlSidebarPanelWriteResolution
+    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String, displayLabel: String?) -> ControlSidebarPanelWriteResolution
 
     /// Runs the explicit-scope `report_shell_state` fast path (dedupe gate +
     /// enqueue).
-    func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String)
+    nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String)
 
     /// Applies the fallback `report_shell_state` update.
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution
 
     /// Enqueues the explicit-scope `report_tty` registration.
-    func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String)
+    nonisolated func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String)
 
     /// Applies the fallback `report_tty` registration.
     func controlSidebarReportTTY(tabArg: String?, panelArg: String?, ttyName: String) -> ControlSidebarPanelWriteResolution
 
     /// Enqueues the explicit-scope `ports_kick`.
-    func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String)
+    nonisolated func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String)
 
     /// Applies the fallback `ports_kick`.
     func controlSidebarPortsKick(tabArg: String?, panelArg: String?, reasonRawValue: String) -> ControlSidebarPanelWriteResolution

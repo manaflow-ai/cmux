@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxWorkspaces
 import AppKit
 import CmuxTerminal
 import Carbon.HIToolbox
@@ -8,7 +9,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import os
 
-private enum TextBoxLayout {
+enum TextBoxLayout {
     static let minLines = 1
     static let lineSpacing: CGFloat = 0
     static let textInset = NSSize(width: 1, height: 5)
@@ -190,7 +191,7 @@ private struct TextBoxInputGlassPillBackground: View {
     }
 }
 
-private struct TextBoxSendButtonStyle: ButtonStyle {
+struct TextBoxSendButtonStyle: ButtonStyle {
     let canSend: Bool
 
     func makeBody(configuration: Configuration) -> some View {
@@ -205,9 +206,9 @@ private struct TextBoxSendButtonStyle: ButtonStyle {
 
     private func backgroundColor(isPressed: Bool) -> Color {
         guard canSend else {
-            return Color.white.opacity(0.18)
+            return Color.white.opacity(0.74)
         }
-        return isPressed ? Color.white.opacity(0.68) : Color.white
+        return Color.white.opacity(isPressed ? 0.72 : 1.0)
     }
 }
 
@@ -632,7 +633,7 @@ extension SessionTextBoxInputAttachmentSnapshot {
     }
 }
 
-private enum TextBoxSubmissionFormatter {
+enum TextBoxSubmissionFormatter {
     static func parts(from attributed: NSAttributedString) -> [TextBoxSubmissionPart] {
         let raw = attributed.string as NSString
         let fullRange = NSRange(location: 0, length: attributed.length)
@@ -1075,8 +1076,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 .background(Color.black.opacity(0.82))
         } else {
             VStack(spacing: 10) {
-                Image(systemName: "doc")
-                    .cmuxFont(size: 42, weight: .regular)
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular)
                 Text(attachment.displayName)
                     .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
@@ -1094,7 +1094,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
 }
 
 @MainActor
-private enum TextBoxAttachmentPreviewOpening {
+enum TextBoxAttachmentPreviewOpening {
     static func openInPreview(_ attachment: TextBoxAttachment) {
         guard let url = attachment.localURL else { return }
         if let previewURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
@@ -1157,8 +1157,7 @@ private struct TextBoxAttachmentChip: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
-                Image(systemName: "doc")
-                    .cmuxFont(size: 12, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium)
                     .frame(
                         width: TextBoxLayout.attachmentImageSize,
                         height: TextBoxLayout.attachmentImageSize
@@ -1172,8 +1171,7 @@ private struct TextBoxAttachmentChip: View {
                 .frame(maxWidth: 118, alignment: .leading)
 
             Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .cmuxFont(size: 8, weight: .bold)
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 8, weight: .bold)
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
@@ -1231,32 +1229,6 @@ func shouldSynchronizeExternalTextToTextBox(
     inlineAttachmentCount == 0 && !hasMarkedText && plainText != externalText
 }
 
-func shouldShowTextBoxPlaceholder(
-    text: String,
-    attachmentCount: Int,
-    hasMarkedText: Bool
-) -> Bool {
-    text.isEmpty && attachmentCount == 0 && !hasMarkedText
-}
-
-func shouldEnableTextBoxSubmit(
-    text: String,
-    attachmentCount: Int,
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload
-        && !hasMarkedText
-        && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0)
-}
-
-func shouldSubmitTextBox(
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload && !hasMarkedText
-}
-
 func textBoxCommandShortcutKey(
     for event: NSEvent,
     translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
@@ -1268,245 +1240,6 @@ func textBoxCommandShortcutKey(
         return translated
     }
     return normalizedCharacters(event).lowercased()
-}
-
-enum TextBoxAgentDetection: CaseIterable {
-    case claudeCode
-    case codex
-    case opencode
-
-    private var definitionID: String {
-        switch self {
-        case .claudeCode:
-            return "claude"
-        case .codex:
-            return "codex"
-        case .opencode:
-            return "opencode"
-        }
-    }
-
-    private var identityAliases: Set<String> {
-        switch self {
-        case .claudeCode:
-            return ["claude", "claude_code", "claude-code", "claudecode", "omc"]
-        case .codex:
-            return ["codex", "omx"]
-        case .opencode:
-            return ["opencode", "open-code", "opencode-ai", "omo"]
-        }
-    }
-
-    func matches(context: String) -> Bool {
-        context
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .contains { matches(metadataLine: String($0)) }
-    }
-
-    static func supportsAgentPrefixes(context: String) -> Bool {
-        allCases.contains { $0.matches(context: context) }
-    }
-
-    static func isClaudeCode(context: String) -> Bool {
-        claudeCode.matches(context: context)
-    }
-
-    private func matches(metadataLine rawLine: String) -> Bool {
-        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty else { return false }
-
-        if let value = Self.metadataValue(line, prefix: "restoredAgent:") {
-            return matchesIdentity(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "agentPIDKey:") {
-            return matchesIdentity(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "initialCommand:") {
-            return matchesCommand(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "tmuxStartCommand:") {
-            return matchesCommand(value)
-        }
-        return false
-    }
-
-    private func matchesIdentity(_ rawValue: String) -> Bool {
-        let normalized = rawValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalized.isEmpty else { return false }
-        if identityAliases.contains(normalized) {
-            return true
-        }
-        let baseKey = normalized.split(separator: ".").first.map(String.init) ?? normalized
-        return identityAliases.contains(baseKey)
-    }
-
-    private func matchesCommand(_ command: String) -> Bool {
-        let tokens = Self.shellLikeTokens(command)
-        guard !tokens.isEmpty else { return false }
-        return Self.commandSegments(from: tokens).contains { segment in
-            matchesCommandSegment(segment, depth: 0)
-        }
-    }
-
-    private func matchesCommandSegment(_ tokens: [String], depth: Int) -> Bool {
-        guard !tokens.isEmpty else { return false }
-        let resolved = Self.resolvedCommandSegment(tokens)
-        guard let executable = resolved.arguments.first else { return false }
-        if CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-            processName: executable,
-            processPath: executable,
-            arguments: resolved.arguments,
-            environment: resolved.environment
-        )?.id == definitionID {
-            return true
-        }
-
-        guard depth < 2 else { return false }
-        return Self.shellSubcommandSegments(from: resolved.arguments).contains { segment in
-            matchesCommandSegment(segment, depth: depth + 1)
-        }
-    }
-
-    private static func metadataValue(_ line: String, prefix: String) -> String? {
-        guard line.hasPrefix(prefix) else { return nil }
-        return String(line.dropFirst(prefix.count))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func shellLikeTokens(_ command: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var quote: Character?
-        var escaping = false
-
-        func flush() {
-            guard !current.isEmpty else { return }
-            tokens.append(current)
-            current.removeAll(keepingCapacity: true)
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            if let activeQuote = quote {
-                if character == activeQuote {
-                    quote = nil
-                } else {
-                    current.append(character)
-                }
-                continue
-            }
-            if character == "\"" || character == "'" {
-                quote = character
-                continue
-            }
-            if character.isWhitespace {
-                flush()
-                continue
-            }
-            current.append(character)
-        }
-        flush()
-        return tokens
-    }
-
-    private static func commandSegments(from tokens: [String]) -> [[String]] {
-        var result: [[String]] = []
-        var current: [String] = []
-        for token in tokens {
-            if token == "&&" || token == "||" || token == ";" {
-                if !current.isEmpty {
-                    result.append(current)
-                    current = []
-                }
-            } else {
-                current.append(token)
-            }
-        }
-        if !current.isEmpty {
-            result.append(current)
-        }
-        return result
-    }
-
-    private static func resolvedCommandSegment(_ tokens: [String]) -> (arguments: [String], environment: [String: String]) {
-        var environment: [String: String] = [:]
-        var index = 0
-        let firstBasename = tokens.first.map { ($0 as NSString).lastPathComponent.lowercased() }
-
-        if firstBasename == "env" {
-            index = 1
-            while index < tokens.count {
-                let token = tokens[index]
-                if token.hasPrefix("-") {
-                    index += 1
-                    continue
-                }
-                guard let assignment = environmentAssignment(token) else { break }
-                environment[assignment.key] = assignment.value
-                index += 1
-            }
-        } else {
-            while index < tokens.count {
-                guard let assignment = environmentAssignment(tokens[index]) else { break }
-                environment[assignment.key] = assignment.value
-                index += 1
-            }
-        }
-
-        let arguments = Array(tokens.dropFirst(index))
-        return (arguments.isEmpty ? tokens : arguments, environment)
-    }
-
-    private static func shellSubcommandSegments(from arguments: [String]) -> [[String]] {
-        guard let executable = arguments.first else { return [] }
-        let basename = (executable as NSString).lastPathComponent.lowercased()
-        guard ["sh", "bash", "zsh", "fish"].contains(basename) else { return [] }
-
-        var commandStartIndex: Int?
-        for index in arguments.indices.dropFirst() {
-            let argument = arguments[index]
-            if argument == "-c" || argument == "-lc" || argument == "-cl" {
-                commandStartIndex = arguments.index(after: index)
-                break
-            }
-            if argument.hasPrefix("-"),
-               !argument.hasPrefix("--"),
-               argument.dropFirst().contains("c") {
-                commandStartIndex = arguments.index(after: index)
-                break
-            }
-        }
-
-        guard let commandStartIndex,
-              commandStartIndex < arguments.endIndex else {
-            return []
-        }
-        let commandTokens = shellLikeTokens(arguments[commandStartIndex])
-        guard !commandTokens.isEmpty else { return [] }
-        return commandSegments(from: commandTokens)
-    }
-
-    private static func environmentAssignment(_ token: String) -> (key: String, value: String)? {
-        guard let equalsIndex = token.firstIndex(of: "="),
-              equalsIndex != token.startIndex else {
-            return nil
-        }
-        let key = String(token[..<equalsIndex])
-        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return (key, String(token[token.index(after: equalsIndex)...]))
-    }
 }
 
 private struct TextBoxMentionCompletionPopoverView: View {
@@ -1751,6 +1484,13 @@ enum TextBoxSubmit {
         return [.pasteText(pastePayload), .namedKey(submitKey)]
     }
 
+    static func launchDispatchEvents(launchCommand: String) -> [DispatchEvent] {
+        [
+            .pasteText(launchCommand),
+            .namedKey(TextBoxTerminalKey.returnKey.rawValue),
+        ]
+    }
+
     static func send(
         _ text: String,
         via surface: TerminalSurface,
@@ -1768,6 +1508,14 @@ enum TextBoxSubmit {
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
         let events = dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext)
+        TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+    }
+
+    static func sendEvents(
+        _ events: [DispatchEvent],
+        via surface: TerminalSurface,
+        onComplete: ((CompletionContext) -> Void)? = nil
+    ) {
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
     }
 
@@ -2669,16 +2417,31 @@ private final class TextBoxSubmitEventRunner {
 }
 
 struct TextBoxInputContainer: View {
+    @AppStorage(TerminalTextBoxInputSettings.defaultSubmitActionKey)
+    var configuredDefaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
+    @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
+    var configuredSubmitActionsJSON = ""
+    @State var submitActionImageCache: [String: NSImage] = [:]
+    @State var cachedSubmitActionsJSON: String?
+    @State var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
+
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
+    @Binding var selectedSubmitActionID: String?
+    @Binding var pendingProviderLaunchAction: TextBoxSubmitAction?
+    @Binding var pendingProviderLaunchStartedAt: Date?
     let surface: TerminalSurface
     let terminalBackgroundColor: NSColor
     let terminalForegroundColor: NSColor
     let terminalFont: NSFont
     let maxLines: Int
     let terminalAgentContext: String
+    let shellActivityState: PanelShellActivityState
+    let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onRecordLaunchCommand: (String) -> Void
+    let onClearLaunchCommand: () -> Void
     let onEscape: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
@@ -2689,6 +2452,7 @@ struct TextBoxInputContainer: View {
     @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
+    @State var pendingProviderLaunchTimeoutTimer: Timer?
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
     private var pendingCommentCount: Int {
@@ -2730,12 +2494,13 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = shouldEnableTextBoxSubmit(
+        let baseCanSend = TextBoxSubmitAvailability.shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
         )
+        let canSend = Self.shouldEnableSubmitButton(baseCanSend: baseCanSend, pendingProviderLaunchAction: pendingProviderLaunchAction, action: effectiveSubmitAction, shouldForceTextEntrySubmit: shouldForceTextEntrySubmit, allowsCommandTemplateSubmit: allowsCommandTemplateSubmit)
 
         VStack(alignment: .leading, spacing: 6) {
             if pendingCommentCount > 0 {
@@ -2762,6 +2527,7 @@ struct TextBoxInputContainer: View {
                     onEscape: onEscape,
                     onFocusTextBox: onFocusTextBox,
                     onToggleFocus: onToggleFocus,
+                    onCycleSubmitAction: cycleSubmitAction,
                     onForwardText: forwardText(_:focusTerminalAfterSend:),
                     onForwardKey: forwardKey(_:),
                     onForwardControl: forwardControl(_:),
@@ -2775,7 +2541,7 @@ struct TextBoxInputContainer: View {
                     onTextViewDismantled: onTextViewDismantled
                 )
 
-                if shouldShowTextBoxPlaceholder(
+                if TextBoxSubmitAvailability.shouldShowPlaceholder(
                     text: text,
                     attachmentCount: attachments.count,
                     hasMarkedText: hasMarkedText
@@ -2792,7 +2558,7 @@ struct TextBoxInputContainer: View {
             .frame(height: clampedHeight)
             .frame(maxWidth: .infinity)
 
-            sendButton(canSend: canSend, foreground: foreground)
+            sendButton(canSend: canSend, presentation: submitActionPresentation)
                 .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
             }
@@ -2807,12 +2573,41 @@ struct TextBoxInputContainer: View {
         )
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .task(id: submitActionImageCacheTaskKey) {
+            await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
+        }
+        .onAppear {
+            refreshSubmitActionsCacheIfNeeded()
+            reconcilePendingProviderLaunch()
+            if pendingProviderLaunchAction != nil {
+                schedulePendingProviderLaunchTimeout()
+            }
+        }
+        .onDisappear {
+            pendingProviderLaunchTimeoutTimer?.invalidate()
+            pendingProviderLaunchTimeoutTimer = nil
+        }
+        .onChange(of: configuredSubmitActionsJSON) { _, _ in
+            refreshSubmitActionsCacheIfNeeded()
+        }
+        .onChange(of: terminalAgentContext) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: shellActivityState) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: allowsCommandTemplateSubmit) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: configuredDefaultSubmitActionID) { _, _ in
+            guard selectedSubmitActionID == nil else { return }
+            cancelPendingProviderLaunch()
+        }
     }
 
     private func addFilesButton(foreground: Color) -> some View {
         Button(action: chooseFiles) {
-            Image(systemName: "plus")
-                .cmuxFont(size: TextBoxLayout.iconSymbolSize, weight: .semibold)
+            CmuxSystemSymbolImage(magnified: "plus", pointSize: TextBoxLayout.iconSymbolSize, weight: .semibold)
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
                 .background(
                     Circle()
@@ -2848,20 +2643,6 @@ struct TextBoxInputContainer: View {
         .frame(height: TextBoxLayout.attachmentChipHeight)
     }
 
-    private func sendButton(canSend: Bool, foreground: Color) -> some View {
-        Button(action: submit) {
-            Image(systemName: "arrow.up")
-                .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
-                .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-        }
-        .buttonStyle(TextBoxSendButtonStyle(canSend: canSend))
-        .foregroundStyle(canSend ? Color.black.opacity(0.86) : foreground.opacity(0.38))
-        .help(String(localized: "textbox.send.tooltip", defaultValue: "Send"))
-        .accessibilityLabel(String(localized: "textbox.send.tooltip", defaultValue: "Send"))
-        .disabled(!canSend)
-        .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-    }
-
     @State private var showPendingCommentsPreview = false
 
     private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
@@ -2870,8 +2651,7 @@ struct TextBoxInputContainer: View {
                 showPendingCommentsPreview.toggle()
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "text.bubble")
-                        .cmuxFont(size: 11, weight: .medium)
+                    CmuxSystemSymbolImage(magnified: "text.bubble", pointSize: 11, weight: .medium)
                     Text(pendingCommentsLabel(count))
                         .cmuxFont(size: 12, weight: .medium)
                         .lineLimit(1)
@@ -2885,8 +2665,7 @@ struct TextBoxInputContainer: View {
             Button {
                 dismissPendingComments()
             } label: {
-                Image(systemName: "xmark")
-                    .cmuxFont(size: 9, weight: .bold)
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9, weight: .bold)
                     .frame(width: 16, height: 16)
                     .background(Circle().fill(foreground.opacity(0.12)))
             }
@@ -2951,22 +2730,49 @@ struct TextBoxInputContainer: View {
             )
     }
 
-    private func submit() {
+    func submit() {
         let textView = textViewReference.textView
-        guard shouldSubmitTextBox(
+        guard TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
             hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
         ) else {
             NSSound.beep()
             return
         }
-
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
         let poolWorkspaceId = surface.owningWorkspace()?.id
         let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
         guard hasTypedContent || pendingCommentCount > 0 else {
             NSSound.beep()
+            return
+        }
+        if isPendingProviderLaunchAwaitingAgent {
+            NSSound.beep()
+            return
+        }
+        let launchAction = effectiveSubmitAction
+        if Self.shouldFailClosedForCommandTemplate(
+            action: launchAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        ) {
+            NSSound.beep()
+            return
+        }
+        if let launchCommand = providerLaunchCommand(for: launchAction) {
+            startPendingProviderLaunch(launchAction)
+            onRecordLaunchCommand(launchAction.launchContextCommand() ?? launchCommand)
+            TextBoxSubmit.sendEvents(
+                TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
+                via: surface
+            ) { completionContext in
+                if !completionContext.didSubmit {
+                    clearPendingProviderLaunch()
+                    onClearLaunchCommand()
+                    NSSound.beep()
+                }
+            }
             return
         }
         // Claim the workspace's pending diff comments: this submission carries
@@ -2992,12 +2798,20 @@ struct TextBoxInputContainer: View {
             text: "",
             attachmentCount: 0
         )
-        TextBoxSubmit.send(
-            partsToSend,
+        let submitPlan = dispatchPlan(partsToSend, applying: effectiveSubmitAction)
+        if let launchContextCommand = submitPlan.launchContextCommand {
+            startPendingProviderLaunch(launchAction)
+            onRecordLaunchCommand(launchContextCommand)
+        }
+        TextBoxSubmit.sendEvents(
+            submitPlan.events,
             via: surface,
-            terminalAgentContext: terminalAgentContext
         ) { completionContext in
             guard completionContext.didSubmit else {
+                if submitPlan.launchContextCommand != nil {
+                    clearPendingProviderLaunch()
+                    onClearLaunchCommand()
+                }
                 if let poolWorkspaceId, !pendingComments.isEmpty {
                     DiffCommentSubmissionPool.shared.restorePending(
                         pendingComments,
@@ -3028,6 +2842,7 @@ struct TextBoxInputContainer: View {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
                 }
             }
+            resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: launchAction)
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
                 return nil
@@ -3035,11 +2850,20 @@ struct TextBoxInputContainer: View {
             submittedTextView?.cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(submittedAttachments)
             let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: submittedParts,
-                terminalAgentContext: terminalAgentContext,
+                terminalAgentContext: submitPlan.cleanupTerminalAgentContext,
                 completionContext: completionContext
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
+    }
+
+    private func resetPanelSubmitActionAfterSuccessfulSubmit(submittedAction: TextBoxSubmitAction) {
+        let nextID = Self.panelSubmitActionIDAfterSuccessfulSubmit(
+            currentSubmitActionID: effectiveSubmitActionID,
+            submittedAction: submittedAction
+        )
+        guard nextID != effectiveSubmitActionID else { return }
+        selectedSubmitActionID = nextID
     }
 
     private func markContentChanged() {
@@ -3318,6 +3142,7 @@ struct TextBoxInputView: NSViewRepresentable {
     let onEscape: () -> Void
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onCycleSubmitAction: () -> Void
     let onForwardText: (String, Bool) -> Void
     let onForwardKey: (TextBoxTerminalKey) -> Void
     let onForwardControl: (String) -> Void
@@ -3344,6 +3169,7 @@ struct TextBoxInputView: NSViewRepresentable {
         onEscape: @escaping () -> Void,
         onFocusTextBox: @escaping () -> Void,
         onToggleFocus: @escaping () -> Void,
+        onCycleSubmitAction: @escaping () -> Void = {},
         onForwardText: @escaping (String, Bool) -> Void,
         onForwardKey: @escaping (TextBoxTerminalKey) -> Void,
         onForwardControl: @escaping (String) -> Void,
@@ -3369,6 +3195,7 @@ struct TextBoxInputView: NSViewRepresentable {
         self.onEscape = onEscape
         self.onFocusTextBox = onFocusTextBox
         self.onToggleFocus = onToggleFocus
+        self.onCycleSubmitAction = onCycleSubmitAction
         self.onForwardText = onForwardText
         self.onForwardKey = onForwardKey
         self.onForwardControl = onForwardControl
@@ -3474,6 +3301,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onEscape = onEscape
         textView.onFocusTextBox = onFocusTextBox
         textView.onToggleFocus = onToggleFocus
+        textView.onCycleSubmitAction = onCycleSubmitAction
         textView.onForwardText = onForwardText
         textView.onForwardKey = onForwardKey
         textView.onForwardControl = onForwardControl
@@ -3655,6 +3483,7 @@ final class TextBoxInputTextView: NSTextView {
     var onEscape: () -> Void = {}
     var onFocusTextBox: () -> Void = {}
     var onToggleFocus: () -> Void = {}
+    var onCycleSubmitAction: () -> Void = {}
     var onForwardText: (String, Bool) -> Void = { _, _ in }
     var onForwardKey: (TextBoxTerminalKey) -> Void = { _ in }
     var onForwardControl: (String) -> Void = { _ in }
@@ -3673,7 +3502,7 @@ final class TextBoxInputTextView: NSTextView {
     )
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
-    private var focusedAttachmentCharacterIndex: Int?
+    var focusedAttachmentCharacterIndex: Int?
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
@@ -3690,7 +3519,7 @@ final class TextBoxInputTextView: NSTextView {
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
-    private var mentionCompletionController: TextBoxMentionCompletionController {
+    var mentionCompletionController: TextBoxMentionCompletionController {
         if let mentionCompletionControllerStorage {
             return mentionCompletionControllerStorage
         }
@@ -3702,7 +3531,7 @@ final class TextBoxInputTextView: NSTextView {
         return controller
     }
 
-    private var isAttachmentPreviewShown: Bool {
+    var isAttachmentPreviewShown: Bool {
         attachmentPreviewPopover?.isShown == true
     }
 
@@ -4211,122 +4040,6 @@ final class TextBoxInputTextView: NSTextView {
         isReportingLayoutCompletion = false
     }
 
-#if DEBUG
-    func installDebugInlineFixture(
-        _ attachment: TextBoxAttachment?,
-        beforeText: String,
-        afterText: String
-    ) {
-        let textAttributes = currentTextAttributes()
-        let attributed = NSMutableAttributedString(string: beforeText, attributes: textAttributes)
-        if let attachment {
-            attributed.append(inlineAttachmentAttributedString(for: attachment))
-        }
-        attributed.append(NSAttributedString(string: afterText, attributes: textAttributes))
-
-        textStorage?.setAttributedString(attributed)
-        normalizeTextBaselineOffsets()
-        typingAttributes = currentTextAttributes()
-        setSelectedRange(NSRange(location: attributed.length, length: 0))
-        if let textContainer {
-            layoutManager?.ensureLayout(for: textContainer)
-        }
-        recenterSingleLineTextContainer()
-        scrollRangeToVisible(NSRange(location: attributed.length, length: 0))
-        needsDisplay = true
-        enclosingScrollView?.needsDisplay = true
-        window?.viewsNeedDisplay = true
-        window?.displayIfNeeded()
-        didChangeText()
-    }
-
-    @discardableResult
-    func debugInteract(action: String) -> [String: Any] {
-        window?.makeFirstResponder(self)
-
-        switch action {
-        case "focus":
-            break
-        case "submit":
-            submitIfAllowed()
-        case "select_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex() {
-                selectAttachment(at: characterIndex)
-            }
-        case "close_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex() {
-                deleteAttachment(at: characterIndex)
-            }
-        case "preview_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex(),
-               let attachment = attachment(at: characterIndex) {
-                showAttachmentPreview(attachment, characterIndex: characterIndex)
-            }
-        case "open_preview":
-            if let focused = focusedAttachment() {
-                TextBoxAttachmentPreviewOpening.openInPreview(focused.attachment)
-            }
-        case "space":
-            if let focused = focusedAttachment() {
-                toggleAttachmentPreview(focused.attachment, characterIndex: focused.characterIndex)
-            }
-        case "left":
-            moveInsertionPointLeft()
-        case "right":
-            moveInsertionPointRight()
-        case "escape":
-            if isAttachmentPreviewShown {
-                dismissAttachmentPreview()
-            } else {
-                clearAttachmentFocus(dismissPreview: true)
-                refreshInlineAttachmentFocus()
-            }
-        default:
-            break
-        }
-
-        needsDisplay = true
-        enclosingScrollView?.needsDisplay = true
-        window?.viewsNeedDisplay = true
-        window?.displayIfNeeded()
-        return debugInteractionState()
-    }
-
-    func debugInteractionState() -> [String: Any] {
-        let selection = selectedRange()
-        let mentionQuery = mentionCompletionController.activeQuery
-        return [
-            "selected_location": selection.location,
-            "selected_length": selection.length,
-            "focused_attachment_index": focusedAttachmentCharacterIndex ?? -1,
-            "preview_shown": isAttachmentPreviewShown,
-            "attachment_count": inlineAttachments().count,
-            "plain_text": plainText(),
-            "mention_active": mentionCompletionController.isActive,
-            "mention_query": mentionQuery?.query ?? "",
-            "mention_trigger": mentionQuery.map { String($0.trigger) } ?? "",
-            "mention_loading": mentionCompletionController.isLoadingSuggestions,
-            "mention_should_show": mentionCompletionController.debugShouldShowPopover,
-            "mention_current": mentionCompletionController.debugHasCurrentSuggestions,
-            "mention_titles": mentionCompletionController.debugSuggestionTitles
-        ]
-    }
-
-    private func firstInlineAttachmentCharacterIndex() -> Int? {
-        var result: Int?
-        attributedString().enumerateAttribute(
-            .attachment,
-            in: NSRange(location: 0, length: attributedString().length),
-            options: []
-        ) { value, range, stop in
-            guard value is TextBoxInlineTextAttachment else { return }
-            result = range.location
-            stop.pointee = true
-        }
-        return result
-    }
-#endif
-
     override func mouseDown(with event: NSEvent) {
         dismissMentionCompletions()
         if let hit = inlineAttachmentHit(for: event) {
@@ -4520,6 +4233,12 @@ final class TextBoxInputTextView: NSTextView {
 
         if commandSelector == #selector(NSResponder.insertNewline(_:)) {
             submitIfAllowed()
+            return
+        }
+
+        if commandSelector == #selector(NSResponder.insertBacktab(_:)),
+           let event = NSApp.currentEvent,
+           handleConfiguredTextBoxShortcut(event) {
             return
         }
 
@@ -5072,7 +4791,7 @@ final class TextBoxInputTextView: NSTextView {
         mentionCompletionPanelHost = nil
     }
 
-    private func moveInsertionPointLeft() {
+    func moveInsertionPointLeft() {
         if moveFocusedAttachmentSelection(toTrailingEdge: false) {
             return
         }
@@ -5103,7 +4822,7 @@ final class TextBoxInputTextView: NSTextView {
         attachmentUploadInvalidationGeneration &+= 1
     }
 
-    private func submitIfAllowed() {
+    func submitIfAllowed() {
         guard !hasPendingAttachmentUploadPlaceholder() else {
             NSSound.beep()
             return
@@ -5175,9 +4894,10 @@ final class TextBoxInputTextView: NSTextView {
     func debugMentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
         mentionCompletionControlNavigationKey(for: event)
     }
+
 #endif
 
-    private func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
+    func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
               !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
               !RecorderHostButton.isActivelyRecording else {
@@ -5185,6 +4905,11 @@ final class TextBoxInputTextView: NSTextView {
         }
         if textBoxShortcut(event, matches: .focusTextBoxInput) {
             onToggleFocus()
+            return true
+        }
+        if textBoxShortcut(event, matches: .cycleTextBoxSubmitAction) {
+            guard !hasMarkedText() else { return false }
+            onCycleSubmitAction()
             return true
         }
         if textBoxShortcut(event, matches: .attachTextBoxFile) {
@@ -5220,7 +4945,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func deleteAttachment(at characterIndex: Int) {
+    func deleteAttachment(at characterIndex: Int) {
         deleteAttachmentSelection(in: NSRange(location: characterIndex, length: 1))
     }
 
@@ -5255,7 +4980,7 @@ final class TextBoxInputTextView: NSTextView {
         return true
     }
 
-    private func moveInsertionPointRight() {
+    func moveInsertionPointRight() {
         if moveFocusedAttachmentSelection(toTrailingEdge: true) {
             return
         }
@@ -5288,7 +5013,7 @@ final class TextBoxInputTextView: NSTextView {
         return NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: clampedLocation))
     }
 
-    private func selectAttachment(at characterIndex: Int) {
+    func selectAttachment(at characterIndex: Int) {
         guard attachment(at: characterIndex) != nil else {
             clearAttachmentFocus(dismissPreview: true)
             return
@@ -5301,7 +5026,7 @@ final class TextBoxInputTextView: NSTextView {
         refreshInlineAttachmentFocus()
     }
 
-    private func focusedAttachment() -> (attachment: TextBoxAttachment, characterIndex: Int)? {
+    func focusedAttachment() -> (attachment: TextBoxAttachment, characterIndex: Int)? {
         let range = selectedRange()
         if let focusedAttachmentCharacterIndex,
            range.location == focusedAttachmentCharacterIndex,
@@ -5337,7 +5062,7 @@ final class TextBoxInputTextView: NSTextView {
         return attachment(at: focusedAttachmentCharacterIndex) != nil
     }
 
-    private func attachment(at characterIndex: Int) -> TextBoxAttachment? {
+    func attachment(at characterIndex: Int) -> TextBoxAttachment? {
         guard characterIndex >= 0,
               characterIndex < attributedString().length,
               let inlineAttachment = attributedString().attribute(
@@ -5359,7 +5084,7 @@ final class TextBoxInputTextView: NSTextView {
         return true
     }
 
-    private func toggleAttachmentPreview(
+    func toggleAttachmentPreview(
         _ attachment: TextBoxAttachment,
         characterIndex: Int
     ) {
@@ -5410,7 +5135,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func showAttachmentPreview(
+    func showAttachmentPreview(
         _ attachment: TextBoxAttachment,
         characterIndex: Int
     ) {
@@ -5437,13 +5162,13 @@ final class TextBoxInputTextView: NSTextView {
         installAttachmentKeyDownMonitorIfNeeded()
     }
 
-    private func dismissAttachmentPreview() {
+    func dismissAttachmentPreview() {
         attachmentPreviewPopover?.performClose(nil)
         attachmentPreviewPopover = nil
         attachmentPreviewCharacterIndex = nil
     }
 
-    private func clearAttachmentFocus(dismissPreview shouldDismissPreview: Bool) {
+    func clearAttachmentFocus(dismissPreview shouldDismissPreview: Bool) {
         if shouldDismissPreview {
             dismissAttachmentPreview()
         }
@@ -5623,7 +5348,7 @@ final class TextBoxInputTextView: NSTextView {
 
     private static let attachmentReplacementCharacter = "\u{FFFC}"
 
-    private func currentTextAttributes(
+    func currentTextAttributes(
         font explicitFont: NSFont? = nil,
         foregroundColor explicitForegroundColor: NSColor? = nil
     ) -> [NSAttributedString.Key: Any] {
@@ -5634,7 +5359,7 @@ final class TextBoxInputTextView: NSTextView {
         ]
     }
 
-    private func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
+    func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
         let attributed = NSMutableAttributedString(
             attachment: TextBoxInlineTextAttachment(
                 attachment: attachment,

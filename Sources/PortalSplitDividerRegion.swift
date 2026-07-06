@@ -10,6 +10,8 @@ final class PortalSplitDividerRegion {
     let isVertical: Bool
     let isInHostedContent: Bool
 
+    static let dividerHitExpansion: CGFloat = 5
+
     init(
         splitView: NSSplitView,
         dividerIndex: Int,
@@ -50,6 +52,44 @@ final class PortalSplitDividerRegion {
 
     static func allLive(_ regions: [PortalSplitDividerRegion]) -> Bool {
         regions.allSatisfy(\.isLive)
+    }
+
+    var hitRectInWindow: NSRect {
+        rectInWindow
+            .insetBy(dx: -Self.dividerHitExpansion, dy: -Self.dividerHitExpansion)
+            .intersection(boundsInWindow)
+    }
+
+    static func dividerRect(in splitView: NSSplitView, dividerIndex: Int) -> NSRect? {
+        guard dividerIndex >= 0,
+              dividerIndex + 1 < splitView.arrangedSubviews.count else {
+            return nil
+        }
+
+        let first = splitView.arrangedSubviews[dividerIndex].frame
+        let second = splitView.arrangedSubviews[dividerIndex + 1].frame
+        let thickness = splitView.dividerThickness
+        if splitView.isVertical {
+            guard first.width > 1 || second.width > 1 else { return nil }
+            return NSRect(x: max(0, first.maxX), y: 0, width: thickness, height: splitView.bounds.height)
+        }
+
+        guard first.height > 1 || second.height > 1 else { return nil }
+        return NSRect(x: 0, y: max(0, first.maxY), width: splitView.bounds.width, height: thickness)
+    }
+
+    static func dividerHitRect(in splitView: NSSplitView, dividerIndex: Int) -> NSRect? {
+        guard let dividerRect = dividerRect(in: splitView, dividerIndex: dividerIndex) else { return nil }
+        return dividerRect
+            .insetBy(dx: -Self.dividerHitExpansion, dy: -Self.dividerHitExpansion)
+            .intersection(splitView.bounds)
+    }
+
+    static func dividerHitRectInWindow(in splitView: NSSplitView, dividerIndex: Int) -> NSRect? {
+        guard let hitRect = dividerHitRect(in: splitView, dividerIndex: dividerIndex) else { return nil }
+        let hitRectInWindow = splitView.convert(hitRect, to: nil)
+        guard hitRectInWindow.width > 0, hitRectInWindow.height > 0 else { return nil }
+        return hitRectInWindow
     }
 
     static func collect(
@@ -142,19 +182,7 @@ final class PortalSplitDividerRegion {
         let splitBoundsInWindow = splitView.convert(splitView.bounds, to: nil)
         let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
         for dividerIndex in 0..<dividerCount {
-            let first = splitView.arrangedSubviews[dividerIndex].frame
-            let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-            let thickness = splitView.dividerThickness
-            let dividerRect: NSRect
-            if splitView.isVertical {
-                guard first.width > 1 || second.width > 1 else { continue }
-                let x = max(0, first.maxX)
-                dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-            } else {
-                guard first.height > 1 || second.height > 1 else { continue }
-                let y = max(0, first.maxY)
-                dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-            }
+            guard let dividerRect = dividerRect(in: splitView, dividerIndex: dividerIndex) else { continue }
             let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
             guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
             result.append(PortalSplitDividerRegion(

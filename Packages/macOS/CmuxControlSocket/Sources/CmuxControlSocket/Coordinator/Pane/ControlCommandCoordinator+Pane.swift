@@ -18,11 +18,14 @@ extension ControlCommandCoordinator {
     func handlePane(_ request: ControlRequest) -> ControlCallResult? {
         switch request.method {
         case "pane.list":
-            return paneList(request.params)
+            // Worker-lane resolution read (tranche D): the nonisolated body is
+            // shared with the socket dispatcher's worker lane; from this
+            // main-actor dispatch its hop collapses inline.
+            return paneList(request.params, context: context)
         case "pane.focus":
             return paneFocus(request.params)
         case "pane.surfaces":
-            return paneSurfaces(request.params)
+            return paneSurfaces(request.params, context: context)
         case "pane.create":
             return paneCreate(request.params)
         case "pane.resize":
@@ -42,26 +45,98 @@ extension ControlCommandCoordinator {
 
     // MARK: - list
 
+    /// The per-row refs of one `pane.list` item, minted in the row's literal
+    /// order (pane, surface_refs array, selected surface).
+    private struct PaneListRowRefs: Sendable {
+        let paneRef: JSONValue
+        let surfaceRefs: [JSONValue]
+        let selectedSurfaceRef: JSONValue
+    }
+
+    /// The `pane.list` hop outcome.
+    private enum PaneListHopOutcome: Sendable {
+        case tabManagerUnavailable
+        case workspaceNotFound
+        case listed(
+            snapshot: ControlPaneListSnapshot,
+            paneRefs: [PaneListRowRefs],
+            workspaceRef: JSONValue,
+            windowRef: JSONValue
+        )
+    }
+
     /// `pane.list` — the resolved workspace's pane layout.
-    func paneList(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
+    ///
+    /// Worker-lane resolution read (tranche D of issue #5757): routing
+    /// resolution, the snapshot witness (whose `ghostty_surface_size` reads
+    /// must stay on main), and ref minting take ONE `controlResolveOnMain` hop
+    /// (which refreshes known refs first, exactly like the main-lane dispatch
+    /// preamble); the per-pane JSON row build and the reply encode run on the
+    /// calling socket-worker thread. Refs mint in the payload's literal order
+    /// (per row: pane, surface_refs, selected surface; then workspace, then
+    /// window).
+    nonisolated func paneList(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let snapshot = context?.controlPaneList(routing: routing) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        let outcome: PaneListHopOutcome = context.controlResolveOnMain { seam in
+            let routing = self.routingSelectors(params)
+            guard seam.controlPaneRoutingResolvesTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let snapshot = seam.controlPaneList(routing: routing) else {
+                return .workspaceNotFound
+            }
+            let paneRefs = snapshot.panes.map { pane in
+                PaneListRowRefs(
+                    paneRef: self.ref(.pane, pane.paneID),
+                    surfaceRefs: pane.surfaceIDs.map { self.ref(.surface, $0) },
+                    selectedSurfaceRef: self.ref(.surface, pane.selectedSurfaceID)
+                )
+            }
+            return .listed(
+                snapshot: snapshot,
+                paneRefs: paneRefs,
+                workspaceRef: self.ref(.workspace, snapshot.workspaceID),
+                windowRef: self.ref(.window, snapshot.windowID)
+            )
         }
+        switch outcome {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .workspaceNotFound:
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        case let .listed(snapshot, paneRefs, workspaceRef, windowRef):
+            return paneListPayload(
+                snapshot: snapshot,
+                paneRefs: paneRefs,
+                workspaceRef: workspaceRef,
+                windowRef: windowRef
+            )
+        }
+    }
 
+    /// The off-main `pane.list` payload build over the hop's snapshot and
+    /// pre-minted refs.
+    private nonisolated func paneListPayload(
+        snapshot: ControlPaneListSnapshot,
+        paneRefs: [PaneListRowRefs],
+        workspaceRef: JSONValue,
+        windowRef: JSONValue
+    ) -> ControlCallResult {
         let panes: [JSONValue] = snapshot.panes.enumerated().map { index, pane in
             var dict: [String: JSONValue] = [
                 "id": .string(pane.paneID.uuidString),
-                "ref": ref(.pane, pane.paneID),
+                "ref": paneRefs[index].paneRef,
                 "index": .int(Int64(index)),
                 "focused": .bool(pane.isFocused),
                 "surface_ids": .array(pane.surfaceIDs.map { .string($0.uuidString) }),
-                "surface_refs": .array(pane.surfaceIDs.map { ref(.surface, $0) }),
+                "surface_refs": .array(paneRefs[index].surfaceRefs),
                 "selected_surface_id": orNull(pane.selectedSurfaceID?.uuidString),
-                "selected_surface_ref": ref(.surface, pane.selectedSurfaceID),
+                "selected_surface_ref": paneRefs[index].selectedSurfaceRef,
                 "surface_count": .int(Int64(pane.surfaceIDs.count)),
             ]
             if let frame = pane.pixelFrame {
@@ -83,10 +158,10 @@ extension ControlCommandCoordinator {
 
         return .ok(.object([
             "workspace_id": .string(snapshot.workspaceID.uuidString),
-            "workspace_ref": ref(.workspace, snapshot.workspaceID),
+            "workspace_ref": workspaceRef,
             "panes": .array(panes),
             "window_id": orNull(snapshot.windowID?.uuidString),
-            "window_ref": ref(.window, snapshot.windowID),
+            "window_ref": windowRef,
             "container_frame": .object([
                 "width": .double(snapshot.containerWidth),
                 "height": .double(snapshot.containerHeight),
@@ -132,39 +207,77 @@ extension ControlCommandCoordinator {
 
     // MARK: - surfaces
 
+    /// The `pane.surfaces` hop outcome (refs minted in the payload's literal
+    /// order: per-row surface refs, then workspace, pane, window).
+    private enum PaneSurfacesHopOutcome: Sendable {
+        case tabManagerUnavailable
+        case paneOrWorkspaceNotFound
+        case resolved(
+            snapshot: ControlPaneSurfacesSnapshot,
+            surfaceRefs: [JSONValue],
+            workspaceRef: JSONValue,
+            paneRef: JSONValue,
+            windowRef: JSONValue
+        )
+    }
+
     /// `pane.surfaces` — the surfaces in one pane.
-    func paneSurfaces(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
+    /// Worker-lane resolution read; see ``paneList(_:context:)``. The
+    /// `pane_id` param resolves through the handle registry, so its parse
+    /// stays inside the hop too.
+    nonisolated func paneSurfaces(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let snapshot = context?.controlPaneSurfaces(
-            routing: routing,
-            paneID: uuid(params, "pane_id")
-        ) else {
+        let outcome: PaneSurfacesHopOutcome = context.controlResolveOnMain { seam in
+            let routing = self.routingSelectors(params)
+            guard seam.controlPaneRoutingResolvesTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let snapshot = seam.controlPaneSurfaces(
+                routing: routing,
+                paneID: self.uuid(params, "pane_id")
+            ) else {
+                return .paneOrWorkspaceNotFound
+            }
+            return .resolved(
+                snapshot: snapshot,
+                surfaceRefs: snapshot.surfaces.map { self.ref(.surface, $0.surfaceID) },
+                workspaceRef: self.ref(.workspace, snapshot.workspaceID),
+                paneRef: self.ref(.pane, snapshot.paneID),
+                windowRef: self.ref(.window, snapshot.windowID)
+            )
+        }
+        switch outcome {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .paneOrWorkspaceNotFound:
             return .err(code: "not_found", message: "Pane or workspace not found", data: nil)
-        }
+        case let .resolved(snapshot, surfaceRefs, workspaceRef, paneRef, windowRef):
+            let surfaces: [JSONValue] = snapshot.surfaces.enumerated().map { index, surface in
+                .object([
+                    "id": orNull(surface.surfaceID?.uuidString),
+                    "ref": surfaceRefs[index],
+                    "index": .int(Int64(index)),
+                    "title": .string(surface.title),
+                    "type": orNull(surface.typeRawValue),
+                    "selected": .bool(surface.isSelected),
+                ])
+            }
 
-        let surfaces: [JSONValue] = snapshot.surfaces.enumerated().map { index, surface in
-            .object([
-                "id": orNull(surface.surfaceID?.uuidString),
-                "ref": ref(.surface, surface.surfaceID),
-                "index": .int(Int64(index)),
-                "title": .string(surface.title),
-                "type": orNull(surface.typeRawValue),
-                "selected": .bool(surface.isSelected),
-            ])
+            return .ok(.object([
+                "workspace_id": .string(snapshot.workspaceID.uuidString),
+                "workspace_ref": workspaceRef,
+                "pane_id": .string(snapshot.paneID.uuidString),
+                "pane_ref": paneRef,
+                "surfaces": .array(surfaces),
+                "window_id": orNull(snapshot.windowID?.uuidString),
+                "window_ref": windowRef,
+            ]))
         }
-
-        return .ok(.object([
-            "workspace_id": .string(snapshot.workspaceID.uuidString),
-            "workspace_ref": ref(.workspace, snapshot.workspaceID),
-            "pane_id": .string(snapshot.paneID.uuidString),
-            "pane_ref": ref(.pane, snapshot.paneID),
-            "surfaces": .array(surfaces),
-            "window_id": orNull(snapshot.windowID?.uuidString),
-            "window_ref": ref(.window, snapshot.windowID),
-        ]))
     }
 
     // MARK: - create
@@ -187,7 +300,8 @@ extension ControlCommandCoordinator {
             requestedSourceSurfaceID: string(params, "surface_id").flatMap(UUID.init(uuidString:)),
             requestedFocus: bool(params, "focus") ?? false,
             hasInitialDividerPosition: hasNonNull(params, "initial_divider_position"),
-            initialDividerPositionRaw: double(params, "initial_divider_position")
+            initialDividerPositionRaw: double(params, "initial_divider_position"),
+            placementRaw: string(params, "placement")
         )
 
         let resolution = context?.controlPaneCreate(routing: routing, inputs: inputs)
@@ -207,12 +321,18 @@ extension ControlCommandCoordinator {
                 message: "initial_divider_position must be numeric",
                 data: nil
             )
-        case .agentSessionRejected(let typeRawValue):
+        case .invalidPlacement(let rawValue):
             return .err(
                 code: "invalid_params",
-                message: "agent-session is only supported by surface.create",
-                data: .object(["type": .string(typeRawValue)])
+                message: "placement must be one of: workspace, dock",
+                data: .object(["placement": .string(rawValue)])
             )
+        case .agentSessionRejected(let typeRawValue):
+            return .err(code: "invalid_params", message: "agent-session is only supported by surface.create", data: .object(["type": .string(typeRawValue)]))
+        case .dockUnsupportedType(let typeRawValue, let message):
+            return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
+        case .dockUnavailable(let message): return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
+        case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabledInvalidURL(let rawURL):
             return .err(code: "invalid_params", message: "Invalid URL", data: .object(["url": .string(rawURL)]))
         case .browserDisabledNoURL:
@@ -253,6 +373,21 @@ extension ControlCommandCoordinator {
                 workspaceID: workspaceID,
                 typeRawValue: typeRawValue
             )
+        case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
+            return .ok(.object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "placement": .string("dock"),
+                "pane_id": .null,
+                "pane_ref": .null,
+                "surface_id": .null,
+                "surface_ref": .null,
+                "dock_pane_id": orNull(dockPaneID?.uuidString),
+                "dock_surface_id": .string(dockSurfaceID.uuidString),
+                "type": .string(typeRawValue),
+            ]))
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

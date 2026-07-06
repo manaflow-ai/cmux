@@ -24,6 +24,7 @@ extension MobileShellComposite {
     ///   - id: The workspace to rename.
     ///   - title: The new title. Whitespace-only titles are ignored.
     public func renameWorkspace(id: MobileWorkspacePreview.ID, title: String) async {
+        guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else { return }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         var params = workspaceMutationParams(id: id)
@@ -46,6 +47,7 @@ extension MobileShellComposite {
     ///   - id: The workspace to pin or unpin.
     ///   - pinned: `true` to pin, `false` to unpin.
     public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
+        guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else { return }
         var params = workspaceMutationParams(id: id)
         params["action"] = pinned ? "pin" : "unpin"
         await sendWorkspaceMutation(
@@ -62,6 +64,7 @@ extension MobileShellComposite {
     ///   - id: The workspace to mark.
     ///   - unread: `true` to mark unread, `false` to mark read.
     public func setWorkspaceUnread(id: MobileWorkspacePreview.ID, _ unread: Bool) async {
+        guard workspaceActionCapabilities(for: id).supportsReadStateActions else { return }
         var params = workspaceMutationParams(id: id)
         params["action"] = unread ? "mark_unread" : "mark_read"
         await sendWorkspaceMutation(
@@ -79,6 +82,7 @@ extension MobileShellComposite {
     /// the last workspace, the refresh restores the row state on iOS.
     /// - Parameter id: The workspace to close.
     public func closeWorkspace(id: MobileWorkspacePreview.ID) async {
+        guard workspaceActionCapabilities(for: id).supportsCloseActions else { return }
         await sendWorkspaceMutation(
             method: "workspace.close",
             params: workspaceMutationParams(id: id),
@@ -87,13 +91,30 @@ extension MobileShellComposite {
         )
     }
 
+    private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
+        workspaces.first { $0.id == id }?.actionCapabilities ?? .none
+    }
+
     private func sendWorkspaceMutation(
         method: String,
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
         actionName: String
     ) async {
-        guard let client = remoteClient else { return }
+        // Route the mutation to the Mac that actually OWNS this workspace. The
+        // aggregated list can include rows from secondary Macs, whose connection is
+        // not `remoteClient`; sending every mutation to the foreground client would
+        // silently hit the wrong Mac (fail, or — with a colliding workspace id —
+        // mutate a foreground workspace). The foreground path is unchanged for
+        // foreground-owned (or single-Mac / anonymous) rows.
+        let target = workspaceMutationTarget(for: id)
+        guard let client = target.client else {
+            // Owner is a known non-foreground Mac with no live connection: can't
+            // deliver. Snap the row back to the authoritative state instead of
+            // misrouting to the foreground Mac.
+            await refreshWorkspaces()
+            return
+        }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: method,
@@ -102,15 +123,21 @@ extension MobileShellComposite {
             _ = try await client.sendRequest(request)
         } catch {
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            // Only the foreground connection's health drives the foreground
+            // unavailable/reconnect UI; a failed write to a secondary Mac must not
+            // tear the foreground session down.
+            if target.isForeground {
+                markMacConnectionUnavailableIfNeeded(after: error)
+            }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
-        await refreshWorkspaces()
+        // Re-sync the authoritative list for the Mac we actually mutated.
+        await refreshAfterWorkspaceMutation(target)
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
         var params: [String: Any] = [
-            "workspace_id": id.rawValue,
+            "workspace_id": remoteWorkspaceID(for: id).rawValue,
             "client_id": clientID,
         ]
         if let windowID = workspaces.first(where: { $0.id == id })?.windowID {
@@ -119,29 +146,22 @@ extension MobileShellComposite {
         return params
     }
 
-    /// Collapse or expand a workspace group on the Mac.
+    /// Collapse or expand a workspace group on THIS device only.
     ///
-    /// Fire-and-forget against the authoritative state, mirroring pin/rename: the
-    /// Mac toggles the group's `isCollapsed` and its workspace-list observer
-    /// (which watches `$workspaceGroups`) pushes `workspace.updated`, which
-    /// refreshes this list with the new collapse state. No local optimistic
-    /// mutation, so overlapping collapse/expand taps can never leave stale state.
+    /// Folder collapse is a per-device UI preference, not shared state: collapsing
+    /// a group on the phone must not collapse it on the Mac. So this records the
+    /// choice in the device-local `groupCollapseStore` and updates the in-memory
+    /// `workspaceGroups` for an immediate, authoritative render. Nothing is sent to
+    /// the Mac, and a later Mac `workspace.updated` will not override it (the
+    /// workspace-list ingest re-applies this store). The `async` signature is kept
+    /// for call-site compatibility; the work is synchronous on the main actor.
     /// - Parameters:
     ///   - id: The group to collapse or expand.
     ///   - collapsed: `true` to collapse (hide members), `false` to expand.
     public func setWorkspaceGroupCollapsed(id: MobileWorkspaceGroupPreview.ID, _ collapsed: Bool) async {
-        guard let client = remoteClient else { return }
-        do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: collapsed ? "workspace.group.collapse" : "workspace.group.expand",
-                params: [
-                    "group_id": id.rawValue,
-                    "client_id": clientID,
-                ]
-            )
-            _ = try await client.sendRequest(request)
-        } catch {
-            mobileShellLog.error("workspace group collapse failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        groupCollapseStore.set(id.rawValue, collapsed: collapsed)
+        if let index = workspaceGroups.firstIndex(where: { $0.id == id }) {
+            workspaceGroups[index].isCollapsed = collapsed
         }
     }
 }
