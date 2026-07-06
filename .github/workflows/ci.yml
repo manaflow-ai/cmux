@@ -524,6 +524,27 @@ jobs:
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
+      - name: Run remote tmux mirror active-pane seed regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7372.
+          # The full "Run unit tests" step treats "(0 unexpected)" summaries as a
+          # pass, so an assertion regression in the mirror's active-pane seeding
+          # would not fail the shard on its own. Keep this targeted only-testing
+          # invocation as a non-tolerant guard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
