@@ -54,6 +54,23 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+---
+
+## Bun Runtime
+
+cmux uses `bun build --compile` to package the computer-use MCP server as a
+standalone executable, which embeds the Bun runtime in that executable.
+
+- **License:** MIT License for Bun itself; linked runtime components carry
+  their respective licenses, including LGPL-2.0 for JavaScriptCore/WebKit.
+- **Source:** https://github.com/oven-sh/bun
+- **License notices:** https://github.com/oven-sh/bun/blob/main/LICENSE.md
+
+The upstream Bun license file identifies the linked runtime components and
+their corresponding license terms.
+
+---
+
 ## Sparkle
 
 - **License:** MIT License
