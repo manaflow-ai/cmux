@@ -244,7 +244,7 @@ extension CMUXCLI {
         let preview = try client.sendV2(
             method: "extension.preview",
             params: previewParams,
-            responseTimeout: 620
+            responseTimeout: 760
         )
         guard let token = preview["preview_token"] as? String else {
             throw CLIError(message: String(
@@ -411,6 +411,12 @@ private extension String {
             if scalar == "\n" { return allowNewlines ? "\n" : " " }
             if scalar == "\t" { return " " }
             if scalar.value < 0x20 || scalar.value == 0x7F || (0x80...0x9F).contains(scalar.value) {
+                return "\u{FFFD}"
+            }
+            // Invisible format characters can visually reorder or hide what
+            // the user approves: bidi embedding/overrides and isolates,
+            // zero-widths, BOM, and the rest of category Cf.
+            if scalar.properties.generalCategory == .format {
                 return "\u{FFFD}"
             }
             return Character(scalar)
