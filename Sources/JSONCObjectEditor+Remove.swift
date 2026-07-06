@@ -22,7 +22,7 @@ extension JSONCObjectEditor {
               let child = parentObject.property(named: childKey) else { return nil }
 
         // Eat the removed entry's leading indentation.
-        var removeStart = startOfLine(containing: child.keyStart, in: source)
+        let removeStart = startOfLine(containing: child.keyStart, in: source)
         var removeEnd = child.valueEnd
 
         // Trailing spaces, then an optional trailing comma.
