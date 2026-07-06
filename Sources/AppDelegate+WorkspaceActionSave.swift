@@ -43,7 +43,7 @@ extension AppDelegate {
         let saveItem = NSMenuItem(
             title: String(
                 localized: "menu.newWorkspace.saveWorkspaceAsLayout",
-                defaultValue: "Save as Workspace Layout…"
+                defaultValue: "Save Workspace as Layout…"
             ),
             action: #selector(saveWorkspaceAsConfigActionMenuItem(_:)),
             keyEquivalent: ""

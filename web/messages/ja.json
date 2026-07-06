@@ -1625,7 +1625,7 @@
       "workspaceActions": "ワークスペースレイアウト",
       "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",
       "workspaceActionsMenuDesc": "ワークスペースレイアウトはプラスボタンの右クリックメニューに自動的に表示されます。<newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> を <falseValue>false</falseValue> にすると非表示にでき、他のアクションで <trueValue>true</trueValue> にするとメニューに追加できます。",
-      "workspaceActionsSaveDesc": "JSON を書かずに作成することもできます。プラスボタンを右クリックして <saveLayout>ワークスペースレイアウトとして保存</saveLayout> を選ぶと、現在のワークスペースの分割、ディレクトリ、実行中のエージェント、ブラウザタブが <configPath>~/.config/cmux/cmux.json</configPath> に保存されます。これは <actions>actions</actions> ブロックのエントリとして保存されます。<customize>ワークスペースレイアウトをカスタマイズ</customize> はそのファイルをエディタで開きます。",
+      "workspaceActionsSaveDesc": "JSON を書かずに作成することもできます。プラスボタンを右クリックして <saveLayout>ワークスペースをレイアウトとして保存</saveLayout> を選ぶと、現在のワークスペースの分割、ディレクトリ、実行中のエージェント、ブラウザタブが <configPath>~/.config/cmux/cmux.json</configPath> に保存されます。これは <actions>actions</actions> ブロックのエントリとして保存されます。<customize>ワークスペースレイアウトをカスタマイズ</customize> はそのファイルをエディタで開きます。",
       "simpleCommands": "シンプルコマンド",
       "simpleCommandsDesc": "シンプルコマンドは現在フォーカスされているターミナルでシェルコマンドを実行します：",
       "simpleCommandFields": "フィールド",
