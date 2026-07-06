@@ -140,6 +140,46 @@ const MESSAGE_CATALOG = {
     openDescription: "Launch or focus an app by name on the target machine.",
     openedApp: (app) => `opened ${app}`,
     provideClickTarget: "provide either `element` or both `x` and `y`",
+    providerAccessibilityRequired:
+      "Accessibility permission is required for cmux computer use. Grant Accessibility permission to the terminal or cmux app, then retry.",
+    providerActionFailed: ({ action } = {}) =>
+      action ? `the accessibility action failed: ${action}` : "the accessibility action failed",
+    providerAppAmbiguous: ({ app } = {}) =>
+      app ? `more than one controllable app matched "${app}"` : "more than one controllable app matched the requested app",
+    providerAppIdentityChanged:
+      "the target app identity changed after the snapshot; re-run computer_state and retry",
+    providerAppNotFound: ({ app } = {}) =>
+      app ? `app not found: ${app}` : "the requested app is not currently controllable",
+    providerCoordinateGeometryMissing:
+      "coordinate input is missing snapshot geometry; re-run computer_state or computer_screenshot and retry",
+    providerElementChanged:
+      "the element changed since the latest computer_state snapshot; re-run computer_state and retry",
+    providerElementFrameMissing:
+      "the element has no usable frame; choose another element or re-run computer_state",
+    providerElementMissing:
+      "the element no longer exists; re-run computer_state and retry",
+    providerElementSnapshotRequired:
+      "element actions require a fingerprint from the latest computer_state snapshot",
+    providerFocusFailed:
+      "cmux could not focus the target app/window for input; bring it forward and retry",
+    providerOperationFailed:
+      "the macOS computer-use provider failed; re-run computer_state and retry",
+    providerProcessFailed:
+      "the macOS computer-use provider process failed; retry after checking cmux logs",
+    providerSourcesMissing:
+      "cmux computer-use provider sources were not found in this checkout",
+    providerToolchainMissing:
+      "runtime provider compilation needs the Swift compiler toolchain; install Xcode Command Line Tools or use a bundled provider",
+    providerUnknownOperation: ({ operation } = {}) =>
+      operation ? `unknown computer-use provider operation: ${operation}` : "unknown computer-use provider operation",
+    providerUnsupportedKey: ({ key } = {}) =>
+      key ? `unsupported key: ${key}` : "unsupported key",
+    providerWindowBoundsChanged:
+      "the target window moved or resized since the screenshot; re-run computer_state and retry",
+    providerWindowChanged:
+      "the target window no longer matches the snapshot; re-run computer_state and retry",
+    providerWindowIdentityRequired:
+      "stable window identity is required for coordinate input; re-run computer_state and retry",
     screenshotDescription:
       "Capture a screenshot. Pass `app` for one app's window, or omit `app` (optionally `display`) for the full desktop.",
     screenshotPixelX: "Screenshot pixel x (from the latest captured image)",
@@ -227,6 +267,46 @@ const MESSAGE_CATALOG = {
     openDescription: "対象マシン上のアプリを名前で起動またはフォーカスします。",
     openedApp: (app) => `${app} を開きました`,
     provideClickTarget: "`element` または `x` と `y` の両方を指定してください",
+    providerAccessibilityRequired:
+      "cmux computer use にはアクセシビリティ権限が必要です。ターミナルまたは cmux アプリに権限を付与してから再試行してください。",
+    providerActionFailed: ({ action } = {}) =>
+      action ? `アクセシビリティアクションに失敗しました: ${action}` : "アクセシビリティアクションに失敗しました",
+    providerAppAmbiguous: ({ app } = {}) =>
+      app ? `「${app}」に一致する操作可能なアプリが複数あります` : "要求されたアプリに一致する操作可能なアプリが複数あります",
+    providerAppIdentityChanged:
+      "スナップショット後に対象アプリの識別情報が変わりました。computer_state を再実行してから再試行してください",
+    providerAppNotFound: ({ app } = {}) =>
+      app ? `アプリが見つかりません: ${app}` : "要求されたアプリは現在操作できません",
+    providerCoordinateGeometryMissing:
+      "座標入力にスナップショットのジオメトリがありません。computer_state または computer_screenshot を再実行してから再試行してください",
+    providerElementChanged:
+      "最新の computer_state スナップショットから要素が変わりました。computer_state を再実行してから再試行してください",
+    providerElementFrameMissing:
+      "この要素には使用可能なフレームがありません。別の要素を選ぶか、computer_state を再実行してください",
+    providerElementMissing:
+      "要素が存在しなくなりました。computer_state を再実行してから再試行してください",
+    providerElementSnapshotRequired:
+      "要素操作には最新の computer_state スナップショットのフィンガープリントが必要です",
+    providerFocusFailed:
+      "cmux は入力対象のアプリまたはウィンドウをフォーカスできませんでした。前面に出してから再試行してください",
+    providerOperationFailed:
+      "macOS computer-use プロバイダーが失敗しました。computer_state を再実行してから再試行してください",
+    providerProcessFailed:
+      "macOS computer-use プロバイダープロセスが失敗しました。cmux ログを確認してから再試行してください",
+    providerSourcesMissing:
+      "このチェックアウトに cmux computer-use プロバイダーのソースが見つかりません",
+    providerToolchainMissing:
+      "実行時のプロバイダーコンパイルには Swift コンパイラツールチェーンが必要です。Xcode Command Line Tools をインストールするか、バンドル済みプロバイダーを使用してください",
+    providerUnknownOperation: ({ operation } = {}) =>
+      operation ? `不明な computer-use プロバイダー操作です: ${operation}` : "不明な computer-use プロバイダー操作です",
+    providerUnsupportedKey: ({ key } = {}) =>
+      key ? `未対応のキーです: ${key}` : "未対応のキーです",
+    providerWindowBoundsChanged:
+      "スクリーンショット後に対象ウィンドウが移動またはリサイズされました。computer_state を再実行してから再試行してください",
+    providerWindowChanged:
+      "対象ウィンドウがスナップショットと一致しなくなりました。computer_state を再実行してから再試行してください",
+    providerWindowIdentityRequired:
+      "座標入力には安定したウィンドウ識別子が必要です。computer_state を再実行してから再試行してください",
     screenshotDescription:
       "スクリーンショットをキャプチャします。アプリのウィンドウには `app` を渡し、デスクトップ全体には `app` を省略します（必要なら `display` を指定）。",
     screenshotPixelX: "最新キャプチャ画像のスクリーンショットピクセル x",
@@ -277,6 +357,38 @@ const ACTIVE_MESSAGES = MESSAGE_CATALOG[messageLocale()];
 function localizedMessage(key, ...args) {
   const entry = ACTIVE_MESSAGES[key] ?? MESSAGE_CATALOG.en[key];
   return typeof entry === "function" ? entry(...args) : entry;
+}
+
+const PROVIDER_ERROR_MESSAGES = {
+  "provider.accessibilityRequired": "providerAccessibilityRequired",
+  "provider.actionFailed": "providerActionFailed",
+  "provider.appAmbiguous": "providerAppAmbiguous",
+  "provider.appIdentityChanged": "providerAppIdentityChanged",
+  "provider.appNotFound": "providerAppNotFound",
+  "provider.coordinateGeometryMissing": "providerCoordinateGeometryMissing",
+  "provider.elementChanged": "providerElementChanged",
+  "provider.elementFrameMissing": "providerElementFrameMissing",
+  "provider.elementMissing": "providerElementMissing",
+  "provider.elementSnapshotRequired": "providerElementSnapshotRequired",
+  "provider.focusFailed": "providerFocusFailed",
+  "provider.operationFailed": "providerOperationFailed",
+  "provider.processFailed": "providerProcessFailed",
+  "provider.sourcesMissing": "providerSourcesMissing",
+  "provider.toolchainMissing": "providerToolchainMissing",
+  "provider.unknownOperation": "providerUnknownOperation",
+  "provider.unsupportedKey": "providerUnsupportedKey",
+  "provider.windowBoundsChanged": "providerWindowBoundsChanged",
+  "provider.windowChanged": "providerWindowChanged",
+  "provider.windowIdentityRequired": "providerWindowIdentityRequired",
+};
+
+class ProviderOperationError extends Error {
+  constructor(code, message, details = {}) {
+    super(message || code || "provider operation failed");
+    this.name = "ProviderOperationError";
+    this.providerCode = typeof code === "string" && code ? code : "provider.operationFailed";
+    this.providerDetails = details && typeof details === "object" ? details : {};
+  }
 }
 
 // ---- cmux-owned provider session ----
@@ -396,10 +508,16 @@ class FakeComputerUseProvider {
       { name: "QueueHoldApp", bundleIdentifier: "com.cmux.queuehold", pid: 1002 },
       { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
       { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
+      { name: "ProviderFailureApp", bundleIdentifier: "com.cmux.providerfailure", pid: 1005 },
     ];
   }
 
   async getState(app, { includeScreenshot = true } = {}) {
+    if (app === "ProviderFailureApp") {
+      throw new ProviderOperationError("provider.appNotFound", "app not found: ProviderFailureApp", {
+        app: "ProviderFailureApp",
+      });
+    }
     if (app === "SlowStateApp" || app === "QueueHoldApp") await delay(140);
     const pid = app === "QueueHoldApp" ? 1002 : app === "SlowStateApp" ? 1003 : app === "NoWindowIdentityApp" ? 1004 : 1001;
     const bundleIdentifier =
@@ -418,9 +536,42 @@ class FakeComputerUseProvider {
         `  [2] AXTextField title="Name" value="" frame={x:10,y:60,w:220,h:30}`,
       ].join("\n"),
       elements: [
-        { index: 0, path: [], bounds: { x: 0, y: 0, width: 400, height: 300 }, actions: [] },
-        { index: 1, path: [0], bounds: { x: 10, y: 10, width: 80, height: 30 }, actions: ["AXPress"] },
-        { index: 2, path: [1], bounds: { x: 10, y: 60, width: 220, height: 30 }, actions: [] },
+        {
+          index: 0,
+          path: [],
+          role: "AXWindow",
+          subrole: "",
+          title: app,
+          value: "",
+          description: "",
+          help: "",
+          bounds: { x: 0, y: 0, width: 400, height: 300 },
+          actions: [],
+        },
+        {
+          index: 1,
+          path: [0],
+          role: "AXButton",
+          subrole: "",
+          title: "OK",
+          value: "",
+          description: "",
+          help: "",
+          bounds: { x: 10, y: 10, width: 80, height: 30 },
+          actions: ["AXPress"],
+        },
+        {
+          index: 2,
+          path: [1],
+          role: "AXTextField",
+          subrole: "",
+          title: "Name",
+          value: "",
+          description: "",
+          help: "",
+          bounds: { x: 10, y: 60, width: 220, height: 30 },
+          actions: [],
+        },
       ],
       root: app === "NoWindowIdentityApp" ? "app" : "window",
       windowIndex: 0,
@@ -436,6 +587,25 @@ class FakeComputerUseProvider {
 
   async input(action) {
     if (action.app === "QueueHoldApp") await delay(40);
+    if (["click_element", "scroll", "action"].includes(action.op)) {
+      const expected = action.expectedElement;
+      const path = JSON.stringify(expected?.path ?? null);
+      const validButton =
+        path === "[0]" &&
+        expected?.role === "AXButton" &&
+        expected?.title === "OK" &&
+        Array.isArray(expected?.actions) &&
+        expected.actions.includes("AXPress");
+      const validTextField =
+        path === "[1]" &&
+        expected?.role === "AXTextField" &&
+        expected?.title === "Name" &&
+        Array.isArray(expected?.actions) &&
+        expected.actions.length === 0;
+      if (!validButton && !validTextField) {
+        throw new ProviderOperationError("provider.elementChanged", "element changed since snapshot");
+      }
+    }
     if ((action.app === "TestApp" || action.app === "NoWindowIdentityApp") && action.windowId !== 42) {
       throw new Error("missing window id");
     }
@@ -485,7 +655,10 @@ class MacComputerUseProvider {
   async compileProvider() {
     const sourcePaths = providerSourcePaths();
     if (!sourcePaths) {
-      throw new Error("cmux computer-use provider Swift sources were not found");
+      throw new ProviderOperationError(
+        "provider.sourcesMissing",
+        "cmux computer-use provider Swift sources were not found"
+      );
     }
     const dir = await mkdtemp(join(tmpdir(), "cmux-cu-provider-"));
     activeProviderDirs.add(dir);
@@ -517,14 +690,28 @@ class MacComputerUseProvider {
       stdout = providerOutput;
     } catch (error) {
       if (this.bundledBinaryPath) {
-        throw new Error(`macOS provider failed: ${error?.message ?? error}`);
+        if (error instanceof ProviderOperationError) throw error;
+        throw new ProviderOperationError("provider.processFailed", error?.message ?? String(error));
       }
-      throw new Error(
+      if (error instanceof ProviderOperationError) throw error;
+      throw new ProviderOperationError(
+        "provider.toolchainMissing",
         `macOS provider is not bundled and runtime compilation needs the Swift compiler toolchain (xcode-select --install): ${error?.message ?? error}`
       );
     }
-    const parsed = JSON.parse(stdout);
-    if (!parsed?.ok) throw new Error(parsed?.error || "provider operation failed");
+    let parsed;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch (error) {
+      throw new ProviderOperationError("provider.processFailed", error?.message ?? String(error));
+    }
+    if (!parsed?.ok) {
+      throw new ProviderOperationError(
+        parsed?.code,
+        parsed?.error || "provider operation failed",
+        parsed?.details
+      );
+    }
     return parsed;
   }
 
@@ -644,6 +831,14 @@ function finiteNumberOrNull(value) {
   return Number.isFinite(value) ? value : null;
 }
 
+function retainableString(value) {
+  return typeof value === "string" ? value : "";
+}
+
+function retainableStringArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+
 function retainableBounds(bounds) {
   if (!bounds) return null;
   const x = finiteNumberOrNull(bounds.x);
@@ -668,12 +863,24 @@ function retainableSnapshot(state) {
   const imageWidth = finiteNumberOrNull(state?.image?.width);
   const imageHeight = finiteNumberOrNull(state?.image?.height);
   const elements = (state?.elements ?? [])
-    .map((element) => ({
-      index: finiteNumberOrNull(element?.index),
-      path: Array.isArray(element?.path)
-        ? element.path.map((part) => Number(part)).filter((part) => Number.isInteger(part) && part >= 0)
-        : [],
-    }))
+    .map((element) => {
+      const retained = {
+        index: finiteNumberOrNull(element?.index),
+        path: Array.isArray(element?.path)
+          ? element.path.map((part) => Number(part)).filter((part) => Number.isInteger(part) && part >= 0)
+          : [],
+        role: retainableString(element?.role),
+        subrole: retainableString(element?.subrole),
+        title: retainableString(element?.title),
+        value: retainableString(element?.value),
+        description: retainableString(element?.description),
+        help: retainableString(element?.help),
+        actions: retainableStringArray(element?.actions),
+      };
+      const bounds = retainableBounds(element?.bounds);
+      if (bounds) retained.bounds = bounds;
+      return retained;
+    })
     .filter((element) => element.index != null);
   return {
     elements,
@@ -743,7 +950,8 @@ async function approveAppControl(app) {
 }
 
 function providerError(error) {
-  return err(error?.message ?? String(error));
+  const messageKey = PROVIDER_ERROR_MESSAGES[error?.providerCode] ?? "providerOperationFailed";
+  return err(localizedMessage(messageKey, error?.providerDetails ?? {}));
 }
 
 async function listProviderApps() {
@@ -852,6 +1060,7 @@ async function callInputTool(tool, args) {
     const element = elementFromSnapshot(snapshot, args.element_index);
     if (!element) return err(localizedMessage("stateSnapshotRequired", app));
     action.path = element.path ?? [];
+    action.expectedElement = element;
   }
 
   switch (tool) {
@@ -1288,7 +1497,7 @@ const TOOLS = [
       try {
         return ok([text(JSON.stringify(await listWindows(match), null, 2))]);
       } catch (error) {
-        return err(error?.message ?? String(error));
+        return providerError(error);
       }
     },
   },

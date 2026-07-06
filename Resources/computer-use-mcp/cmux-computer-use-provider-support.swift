@@ -10,8 +10,14 @@ func jsonOut(_ object: Any) -> Never {
     exit(0)
 }
 
+func fail(_ code: String, _ message: String, details: [String: Any] = [:]) -> Never {
+    var output: [String: Any] = ["ok": false, "code": code, "error": message]
+    if !details.isEmpty { output["details"] = details }
+    jsonOut(output)
+}
+
 func fail(_ message: String) -> Never {
-    jsonOut(["ok": false, "error": message])
+    fail("provider.operationFailed", message)
 }
 
 let maxAXStringCharacters = 512
@@ -111,7 +117,7 @@ func appInfo(_ app: NSRunningApplication) -> [String: Any] {
 
 func singleResolvedApp(_ apps: [NSRunningApplication], query: String) -> NSRunningApplication? {
     if apps.count > 1 {
-        fail("ambiguous app match: \(query)")
+        fail("provider.appAmbiguous", "ambiguous app match: \(query)", details: ["app": query])
     }
     return apps.first
 }
@@ -121,7 +127,7 @@ func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: Stri
         guard let app = NSRunningApplication(processIdentifier: targetPid) else { return nil }
         if let targetBundleIdentifier, !targetBundleIdentifier.isEmpty,
            app.bundleIdentifier != targetBundleIdentifier {
-            fail("target app identity changed for pid \(targetPid)")
+            fail("provider.appIdentityChanged", "target app identity changed for pid \(targetPid)", details: ["pid": Int(targetPid)])
         }
         return app
     }
@@ -250,14 +256,14 @@ func appRoot(_ app: NSRunningApplication, windowIndex: Int?, windowId: Int?) -> 
                     return (window, "window", index, windowId)
                 }
             }
-            fail("window no longer exists: \(windowId)")
+            fail("provider.windowChanged", "window no longer exists: \(windowId)", details: ["windowId": windowId])
         }
         let index = min(max(windowIndex ?? 0, 0), windows.count - 1)
         let window = windows[index]
         return (window, "window", index, resolvedWindowIdFor(window, pid: app.processIdentifier))
     }
     if let windowId {
-        fail("window no longer exists: \(windowId)")
+        fail("provider.windowChanged", "window no longer exists: \(windowId)", details: ["windowId": windowId])
     }
     return (root, "app", nil, nil)
 }
@@ -297,29 +303,31 @@ func ensureFrontmostForInput(_ app: NSRunningApplication) {
     if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return }
     requestActivation(app)
     guard waitForFrontmost(app, timeoutMS: 1200) else {
-        fail("target app did not become frontmost for input")
+        fail("provider.focusFailed", "target app did not become frontmost for input")
     }
 }
 
 func ensureFocusedWindow(_ app: NSRunningApplication, _ window: AXUIElement, windowId: Int?) {
     guard let windowId else { return }
-    guard resolvedWindowIdFor(window, pid: app.processIdentifier) == windowId else { fail("window no longer exists: \(windowId)") }
+    guard resolvedWindowIdFor(window, pid: app.processIdentifier) == windowId else {
+        fail("provider.windowChanged", "window no longer exists: \(windowId)", details: ["windowId": windowId])
+    }
     let appElement = AXUIElementCreateApplication(app.processIdentifier)
     _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
     _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
     usleep(50_000)
     guard waitForFrontmost(app, timeoutMS: 1200) else {
-        fail("target app did not become frontmost for input")
+        fail("provider.focusFailed", "target app did not become frontmost for input")
     }
     var focusedValue: CFTypeRef?
     guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedValue) == .success,
           let focusedValue,
           CFGetTypeID(focusedValue) == AXUIElementGetTypeID() else {
-        fail("target window did not become focused for input")
+        fail("provider.focusFailed", "target window did not become focused for input")
     }
     let focusedWindow = focusedValue as! AXUIElement
     guard resolvedWindowIdFor(focusedWindow, pid: app.processIdentifier) == windowId else {
-        fail("target window did not become focused for input")
+        fail("provider.focusFailed", "target window did not become focused for input")
     }
 }
 
@@ -345,13 +353,13 @@ func boundsNearlyEqual(_ lhs: [String: Double], _ rhs: [String: Double]) -> Bool
 }
 
 func currentWindowBounds(pid: pid_t, windowId: Int?, expected: [String: Double]?) -> [String: Double] {
-    guard let windowId else { fail("stable window identity is required for coordinate input") }
+    guard let windowId else { fail("provider.windowIdentityRequired", "stable window identity is required for coordinate input") }
     guard let window = windowInfoFor(pid: pid, windowId: windowId),
           let bounds = window["bounds"] as? [String: Double] else {
-        fail("window no longer exists: \(windowId)")
+        fail("provider.windowChanged", "window no longer exists: \(windowId)", details: ["windowId": windowId])
     }
     if let expected, !boundsNearlyEqual(bounds, expected) {
-        fail("window bounds changed since the screenshot; re-run computer_state")
+        fail("provider.windowBoundsChanged", "window bounds changed since the screenshot; re-run computer_state")
     }
     return bounds
 }
@@ -363,7 +371,7 @@ func pointFromSnapshotPixels(xKey: String, yKey: String, bounds: [String: Double
           let imageHeight = doubleInput("imageHeight"),
           imageWidth > 0,
           imageHeight > 0 else {
-        fail("coordinate input is missing snapshot geometry")
+        fail("provider.coordinateGeometryMissing", "coordinate input is missing snapshot geometry")
     }
     return CGPoint(
         x: (bounds["x"] ?? 0) + (pixelX / imageWidth) * (bounds["width"] ?? 0),
@@ -435,7 +443,9 @@ let keyCodes: [String: CGKeyCode] = [
 
 func pressKey(_ key: String) {
     let parts = key.lowercased().split(separator: "+").map(String.init)
-    guard let rawKey = parts.last, !rawKey.isEmpty else { fail("unsupported key: \(key)") }
+    guard let rawKey = parts.last, !rawKey.isEmpty else {
+        fail("provider.unsupportedKey", "unsupported key: \(key)", details: ["key": key])
+    }
     var flags = CGEventFlags()
     for part in parts.dropLast() {
         switch part {
@@ -443,14 +453,16 @@ func pressKey(_ key: String) {
         case "ctrl", "control": flags.insert(.maskControl)
         case "alt", "option": flags.insert(.maskAlternate)
         case "shift": flags.insert(.maskShift)
-        default: fail("unsupported key modifier: \(part)")
+        default: fail("provider.unsupportedKey", "unsupported key modifier: \(part)", details: ["key": part])
         }
     }
     if parts.count == 1 && rawKey.count == 1 && keyCodes[rawKey] == nil {
         typeText(rawKey)
         return
     }
-    guard let code = keyCodes[rawKey] else { fail("unsupported key: \(key)") }
+    guard let code = keyCodes[rawKey] else {
+        fail("provider.unsupportedKey", "unsupported key: \(key)", details: ["key": key])
+    }
     let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)
     down?.flags = flags
     down?.post(tap: .cghidEventTap)

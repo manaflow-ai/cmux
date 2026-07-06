@@ -695,6 +695,22 @@ if (windowsAcceptedJa.text.includes("not approved")) {
   process.exit(1);
 }
 
+const providerFailureJa = await run({
+  withElicitation: false,
+  tool: "computer_state",
+  args: { app: "ProviderFailureApp" },
+  extraEnv: { CMUX_CU_AUTO_APPROVE: "1", LC_ALL: "ja_JP.UTF-8" },
+});
+console.log(`localized provider failure -> isError=${providerFailureJa.isError} text=${providerFailureJa.text}`);
+if (
+  !providerFailureJa.isError ||
+  !providerFailureJa.text.includes("アプリが見つかりません") ||
+  providerFailureJa.text.includes("app not found")
+) {
+  console.error("FAIL: provider error codes should be localized instead of surfacing raw provider English");
+  process.exit(1);
+}
+
 const shotAccepted = await run({
   withElicitation: true,
   tool: "computer_screenshot",

@@ -28,12 +28,73 @@ let appQuery = inputObject["app"] as? String ?? ""
 let targetPid = (inputObject["targetPid"] as? NSNumber).map { pid_t($0.intValue) }
 let targetBundleIdentifier = inputObject["targetBundleIdentifier"] as? String
 guard let app = resolveApp(appQuery, targetPid: targetPid, targetBundleIdentifier: targetBundleIdentifier) else {
-    fail("app not found: \(appQuery)")
+    fail("provider.appNotFound", "app not found: \(appQuery)", details: ["app": appQuery])
+}
+
+func elementSnapshot(_ element: AXUIElement, path: [Int], index: Int? = nil) -> [String: Any] {
+    let role = stringAttr(element, kAXRoleAttribute as String)
+    let subrole = stringAttr(element, kAXSubroleAttribute as String)
+    let title = stringAttr(element, kAXTitleAttribute as String)
+    let value = stringAttr(element, kAXValueAttribute as String)
+    let description = stringAttr(element, kAXDescriptionAttribute as String)
+    let help = stringAttr(element, kAXHelpAttribute as String)
+    let actions = actionsFor(element)
+    let bounds = boundsFor(element)
+    var snapshot: [String: Any] = [
+        "path": path,
+        "role": role,
+        "subrole": subrole,
+        "title": title,
+        "value": value,
+        "description": description,
+        "help": help,
+        "actions": actions,
+    ]
+    if let index { snapshot["index"] = index }
+    if let bounds { snapshot["bounds"] = bounds }
+    return snapshot
+}
+
+func elementMatchesSnapshot(_ element: AXUIElement, expected: [String: Any]) -> Bool {
+    for (key, attr) in [
+        ("role", kAXRoleAttribute as String),
+        ("subrole", kAXSubroleAttribute as String),
+        ("title", kAXTitleAttribute as String),
+        ("value", kAXValueAttribute as String),
+        ("description", kAXDescriptionAttribute as String),
+        ("help", kAXHelpAttribute as String),
+    ] {
+        guard stringAttr(element, attr) == (expected[key] as? String ?? "") else { return false }
+    }
+    let expectedActions = Set((expected["actions"] as? [Any])?.compactMap { $0 as? String } ?? [])
+    guard Set(actionsFor(element)) == expectedActions else { return false }
+    if let expectedBounds = boundsObject(expected["bounds"]) {
+        guard let currentBounds = boundsFor(element),
+              boundsNearlyEqual(currentBounds, expectedBounds) else { return false }
+    }
+    return true
+}
+
+func elementForInput(root: AXUIElement, path: [Int], expected: [String: Any]?) -> AXUIElement {
+    guard let element = elementAtPath(root: root, path: path) else {
+        fail("provider.elementMissing", "element no longer exists")
+    }
+    guard let expected else {
+        fail("provider.elementSnapshotRequired", "element action is missing a snapshot fingerprint")
+    }
+    if let expectedPath = (expected["path"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.intValue }),
+       expectedPath != path {
+        fail("provider.elementChanged", "element changed since the latest computer_state snapshot")
+    }
+    guard elementMatchesSnapshot(element, expected: expected) else {
+        fail("provider.elementChanged", "element changed since the latest computer_state snapshot")
+    }
+    return element
 }
 
 if op == "state" {
     guard AXIsProcessTrusted() else {
-        fail("Accessibility permission is required for cmux computer use.")
+        fail("provider.accessibilityRequired", "Accessibility permission is required for cmux computer use.")
     }
     let (root, rootKind, windowIndex, windowId) = appRoot(app, windowIndex: nil, windowId: nil)
     let maxNodes = min(max((inputObject["maxNodes"] as? NSNumber)?.intValue ?? 1200, 1), 5000)
@@ -55,11 +116,7 @@ if op == "state" {
         let help = stringAttr(element, kAXHelpAttribute as String)
         let actions = actionsFor(element)
         let bounds = boundsFor(element)
-        var elementInfo: [String: Any] = [
-            "index": index,
-            "path": path,
-            "actions": actions,
-        ]
+        var elementInfo = elementSnapshot(element, path: path, index: index)
         if let bounds { elementInfo["bounds"] = bounds }
         elements.append(elementInfo)
 
@@ -107,15 +164,16 @@ if op == "state" {
 }
 
 guard AXIsProcessTrusted() else {
-    fail("Accessibility permission is required for cmux computer use.")
+    fail("provider.accessibilityRequired", "Accessibility permission is required for cmux computer use.")
 }
 let inputOperations: Set<String> = ["type_text", "press_key", "click_element", "click_point", "scroll", "drag", "action"]
 guard inputOperations.contains(op) else {
-    fail("unknown operation: \(op)")
+    fail("provider.unknownOperation", "unknown operation: \(op)", details: ["operation": op])
 }
 let requestedWindowIndex = (inputObject["windowIndex"] as? NSNumber)?.intValue
 let requestedWindowId = (inputObject["windowId"] as? NSNumber)?.intValue
 let expectedWindowBounds = boundsObject(inputObject["expectedWindowBounds"])
+let expectedElement = inputObject["expectedElement"] as? [String: Any]
 let path = pathInput()
 let (preflightRoot, _, _, preflightWindowId) = appRoot(
     app,
@@ -125,7 +183,7 @@ let (preflightRoot, _, _, preflightWindowId) = appRoot(
 
 switch op {
 case "click_element", "scroll", "action":
-    guard elementAtPath(root: preflightRoot, path: path) != nil else { fail("element no longer exists") }
+    _ = elementForInput(root: preflightRoot, path: path, expected: expectedElement)
 case "click_point":
     let bounds = currentWindowBounds(pid: app.processIdentifier, windowId: preflightWindowId, expected: expectedWindowBounds)
     _ = pointFromSnapshotPixels(xKey: "pixelX", yKey: "pixelY", bounds: bounds)
@@ -144,11 +202,13 @@ let (root, rootKind, _, resolvedWindowId) = appRoot(
     windowId: requestedWindowId
 )
 ensureFocusedWindow(app, root, windowId: rootKind == "window" ? resolvedWindowId : nil)
-let element = elementAtPath(root: root, path: path)
+let inputElement = ["click_element", "scroll", "action"].contains(op)
+    ? elementForInput(root: root, path: path, expected: expectedElement)
+    : nil
 
 switch op {
 case "click_element":
-    guard let element else { fail("element no longer exists") }
+    guard let element = inputElement else { fail("provider.elementMissing", "element no longer exists") }
     let actions = actionsFor(element)
     if let point = centerOf(element) {
         postMouse(.mouseMoved, point)
@@ -158,7 +218,7 @@ case "click_element":
        AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
         jsonOut(["ok": true, "message": "pressed"])
     }
-    guard let point = centerOf(element) else { fail("element has no clickable frame") }
+    guard let point = centerOf(element) else { fail("provider.elementFrameMissing", "element has no clickable frame") }
     clickAt(point)
     jsonOut(["ok": true, "message": "clicked"])
 case "click_point":
@@ -176,8 +236,8 @@ case "press_key":
     pressKey(inputObject["key"] as? String ?? "")
     jsonOut(["ok": true, "message": "key sent"])
 case "scroll":
-    guard let element else { fail("element no longer exists") }
-    guard let point = centerOf(element) else { fail("element has no scrollable frame") }
+    guard let element = inputElement else { fail("provider.elementMissing", "element no longer exists") }
+    guard let point = centerOf(element) else { fail("provider.elementFrameMissing", "element has no scrollable frame") }
     postMouse(.mouseMoved, point)
     let direction = inputObject["direction"] as? String ?? "down"
     let pages = max(1, (inputObject["pages"] as? NSNumber)?.intValue ?? 1)
@@ -207,12 +267,12 @@ case "drag":
     postMouse(.leftMouseUp, end)
     jsonOut(["ok": true, "message": "dragged"])
 case "action":
-    guard let element else { fail("element no longer exists") }
+    guard let element = inputElement else { fail("provider.elementMissing", "element no longer exists") }
     let action = inputObject["action"] as? String ?? ""
     if AXUIElementPerformAction(element, action as CFString) == .success {
         jsonOut(["ok": true, "message": "action sent"])
     }
-    fail("action failed: \(action)")
+    fail("provider.actionFailed", "action failed: \(action)", details: ["action": action])
 default:
-    fail("unknown operation: \(op)")
+    fail("provider.unknownOperation", "unknown operation: \(op)", details: ["operation": op])
 }

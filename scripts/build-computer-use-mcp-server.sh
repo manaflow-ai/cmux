@@ -57,7 +57,17 @@ fi
 
 BUN_BIN="${BUN_BIN:-}"
 if [[ -z "$BUN_BIN" ]]; then
-  BUN_BIN="$(command -v bun 2>/dev/null || true)"
+  for candidate in \
+    "$(command -v bun 2>/dev/null || true)" \
+    "${HOME:-}/.bun/bin/bun" \
+    "/opt/homebrew/bin/bun" \
+    "/usr/local/bin/bun"
+  do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      BUN_BIN="$candidate"
+      break
+    fi
+  done
 fi
 if [[ -z "$BUN_BIN" || ! -x "$BUN_BIN" ]]; then
   echo "error: bun is required to build the bundled cmux computer-use MCP server" >&2
