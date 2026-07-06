@@ -862,7 +862,39 @@ fn percent_encode_query(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_url;
+    use super::{new_surface, normalize_url, BrowserFrame, BrowserStatus};
+
+    fn test_frame(seq: u64) -> BrowserFrame {
+        BrowserFrame {
+            session_id: "session-test".to_string(),
+            data_b64: "AAAA".to_string(),
+            css_width: 80,
+            css_height: 48,
+            seq,
+        }
+    }
+
+    #[test]
+    fn frames_do_not_clear_failed_status() {
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16));
+        let browser = surface.as_browser().expect("browser surface");
+        browser.store_frame(test_frame(1));
+        assert_eq!(browser.status(), BrowserStatus::Live);
+
+        // Chrome keeps streaming frames of the previous page after a
+        // failed navigation; they must not mask the failure: the status
+        // stays Failed and latest_frame() hides the stale frame so the
+        // pane shows the failure text.
+        browser.mark_failed("nope".into());
+        browser.store_frame(test_frame(2));
+        assert_eq!(browser.status(), BrowserStatus::Failed("nope".into()));
+        assert_eq!(browser.latest_frame(), None);
+
+        // Clearing the error restores the retained frame.
+        browser.clear_error();
+        assert_eq!(browser.status(), BrowserStatus::Live);
+        assert_eq!(browser.latest_frame().map(|frame| frame.seq), Some(2));
+    }
 
     #[test]
     fn normalizes_browser_urls() {
