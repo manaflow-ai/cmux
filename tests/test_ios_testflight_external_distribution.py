@@ -39,6 +39,10 @@ def _group(group_id, name, is_internal, has_access_to_all_builds=False):
 
 def main():
     module = _load_module()
+    real_time = module.time.time
+    real_sleep = module.time.sleep
+    real_find_active_review_submission_on_sibling_build = module._find_active_review_submission_on_sibling_build
+    module._token = lambda: "jwt"
 
     groups = [
         _group("internal-1", "cmux beta", True),
@@ -88,6 +92,265 @@ def main():
         _check("no external beta groups" in str(exc), "missing external group fails loudly")
     else:
         _check(False, "missing external group fails loudly")
+
+    submissions = []
+
+    def fake_submit(token, build_id):
+        submissions.append((token, build_id))
+
+    module._submit_beta_review = fake_submit
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    module._beta_review_submission = lambda token, build_id: None
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(submissions == [("jwt", "build-1")], "ready-for-submission builds create a beta review submission")
+
+    submissions.clear()
+    module._beta_review_submission = lambda token, build_id: {
+        "id": "submission-1",
+        "beta_review_state": "WAITING_FOR_REVIEW",
+    }
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(not submissions, "existing beta review submissions are not duplicated")
+
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_TESTING",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    module._beta_review_submission = lambda token, build_id: None
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(not submissions, "ready-for-testing builds do not resubmit beta review")
+
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "BETA_APPROVED",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    module._beta_review_submission = lambda token, build_id: None
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(not submissions, "already-approved external builds are treated as idempotent success")
+
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    module._beta_review_submission = lambda token, build_id: {
+        "id": "submission-1",
+        "beta_review_state": "APPROVED",
+    }
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(not submissions, "approved beta review submissions are treated as idempotent success")
+
+    polls = {"count": 0}
+
+    def transient_detail(token, build_id):
+        polls["count"] += 1
+        if polls["count"] == 1:
+            return {
+                "external_build_state": "",
+                "internal_build_state": "READY_FOR_BETA_TESTING",
+            }
+        return {
+            "external_build_state": "READY_FOR_BETA_SUBMISSION",
+            "internal_build_state": "READY_FOR_BETA_TESTING",
+        }
+
+    module._build_beta_detail = transient_detail
+    module._beta_review_submission = lambda token, build_id: None
+    module.time.sleep = lambda seconds: None
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        submissions == [("jwt", "build-1")],
+        "transient empty external state retries until beta review submission is possible",
+    )
+
+    submissions.clear()
+    lookup_attempts = {"count": 0}
+
+    def flaky_beta_detail_lookup(token, build_id):
+        lookup_attempts["count"] += 1
+        if lookup_attempts["count"] == 1:
+            raise RuntimeError("build beta detail lookup HTTP 404")
+        return {
+            "external_build_state": "READY_FOR_BETA_SUBMISSION",
+            "internal_build_state": "READY_FOR_BETA_TESTING",
+        }
+
+    module._build_beta_detail = flaky_beta_detail_lookup
+    module._beta_review_submission = lambda token, build_id: None
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        submissions == [("jwt", "build-1")],
+        "transient review metadata lookup failures are retried",
+    )
+
+    submissions.clear()
+    module._beta_review_submission = lambda token, build_id: None
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: {
+        "build_id": "build-2",
+        "submission_id": "submission-2",
+        "beta_review_state": "WAITING_FOR_REVIEW",
+        "pre_release_version": "1.0.4",
+    }
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        not submissions,
+        "same-version sibling builds already in beta review are left pending without failing",
+    )
+
+    submissions.clear()
+    module._find_active_review_submission_on_sibling_build = real_find_active_review_submission_on_sibling_build
+    module._submit_beta_review = fake_submit
+    module._build_pre_release_version = lambda token, build_id: {
+        "id": "pre-release-1",
+        "version": "1.0.4",
+    }
+    module._pre_release_version_build_ids = lambda token, pre_release_version_id: ["build-1", "build-2"]
+    module._beta_review_submission = lambda token, build_id: (
+        {
+            "id": "submission-approved",
+            "beta_review_state": "APPROVED",
+        }
+        if build_id == "build-2"
+        else None
+    )
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        submissions == [("jwt", "build-1")],
+        "approved sibling submissions do not block submission of the current build",
+    )
+
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    try:
+        module._beta_review_submission = lambda token, build_id: {
+            "id": "submission-1",
+            "beta_review_state": "REJECTED",
+        }
+        module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    except RuntimeError as exc:
+        _check(
+            "unexpected betaReviewState=REJECTED" in str(exc),
+            "rejected beta review submissions fail loudly",
+        )
+    else:
+        _check(False, "rejected beta review submissions fail loudly")
+
+    submissions.clear()
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    submit_attempts = {"count": 0}
+
+    def flaky_submit_then_success(token, build_id):
+        submit_attempts["count"] += 1
+        if submit_attempts["count"] == 1:
+            raise RuntimeError("temporary ASC failure")
+        submissions.append((token, build_id))
+
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._beta_review_submission = lambda token, build_id: None
+    module._submit_beta_review = flaky_submit_then_success
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        submissions == [("jwt", "build-1")],
+        "transient submit failures are retried until submission succeeds",
+    )
+
+    submissions.clear()
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    calls = {"count": 0}
+
+    def sibling_after_submit_failure(token, build_id):
+        calls["count"] += 1
+        if calls["count"] >= 2:
+            return {
+                "build_id": "build-2",
+                "submission_id": "submission-2",
+                "beta_review_state": "WAITING_FOR_REVIEW",
+                "pre_release_version": "1.0.4",
+            }
+        return None
+
+    module._find_active_review_submission_on_sibling_build = sibling_after_submit_failure
+    module._beta_review_submission = lambda token, build_id: None
+    module._submit_beta_review = lambda token, build_id: (_ for _ in ()).throw(RuntimeError("submit failed"))
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        not submissions,
+        "submit races against a sibling review are treated as pending instead of failing",
+    )
+
+    module._submit_beta_review = lambda token, build_id: (_ for _ in ()).throw(RuntimeError("submit failed"))
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._beta_review_submission = lambda token, build_id: {
+        "id": "submission-1",
+        "beta_review_state": "WAITING_FOR_REVIEW",
+    }
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        not submissions,
+        "submit races against current-build submission treat active submission as success",
+    )
+
+    submissions.clear()
+    retryable_submit_attempts = {"count": 0}
+    retryable_recovery_attempts = {"count": 0}
+
+    def flaky_submit_after_recovery_failure(token, build_id):
+        retryable_submit_attempts["count"] += 1
+        if retryable_submit_attempts["count"] == 1:
+            raise RuntimeError("submit failed")
+        submissions.append((token, build_id))
+
+    def flaky_recovery_lookup(token, build_id):
+        retryable_recovery_attempts["count"] += 1
+        if retryable_recovery_attempts["count"] == 1:
+            raise RuntimeError("temporary beta submission lookup failure")
+        return None
+
+    module._submit_beta_review = flaky_submit_after_recovery_failure
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    module._beta_review_submission = flaky_recovery_lookup
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        submissions == [("jwt", "build-1")],
+        "transient recovery lookups after submit failure stay inside the retry loop",
+    )
+
+    module._submit_beta_review = fake_submit
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._beta_review_submission = lambda token, build_id: None
+    module.time.time = lambda: real_time() + 999
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "BETA_REJECTED",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    try:
+        module._ensure_external_review_submission("jwt", "build-1", "42", real_time() - 1, 1)
+    except RuntimeError as exc:
+        _check(
+            "unexpected externalBuildState=BETA_REJECTED" in str(exc),
+            "unexpected external state without submission fails loudly",
+        )
+    else:
+        _check(False, "unexpected external state without submission fails loudly")
+
+    module.time.time = real_time
+    module.time.sleep = real_sleep
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
