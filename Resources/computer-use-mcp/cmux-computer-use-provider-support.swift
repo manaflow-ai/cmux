@@ -145,11 +145,7 @@ func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: Stri
     if !caseInsensitiveExact.isEmpty {
         return singleResolvedApp(caseInsensitiveExact, query: trimmed)
     }
-    let fuzzy = apps.filter {
-        ($0.bundleIdentifier ?? "").lowercased().contains(lower) ||
-        ($0.localizedName ?? "").lowercased().contains(lower)
-    }
-    return singleResolvedApp(fuzzy, query: trimmed)
+    return nil
 }
 
 func windowInfoFor(pid: pid_t, windowId: Int?) -> [String: Any]? {

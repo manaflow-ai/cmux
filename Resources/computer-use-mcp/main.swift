@@ -109,19 +109,42 @@ if op == "state" {
 guard AXIsProcessTrusted() else {
     fail("Accessibility permission is required for cmux computer use.")
 }
-if op == "type_text" || op == "press_key" || op == "click_element" || op == "click_point" || op == "scroll" || op == "drag" {
-    ensureFrontmostForInput(app)
-} else {
-    _ = app.activate()
+let inputOperations: Set<String> = ["type_text", "press_key", "click_element", "click_point", "scroll", "drag", "action"]
+guard inputOperations.contains(op) else {
+    fail("unknown operation: \(op)")
 }
+let requestedWindowIndex = (inputObject["windowIndex"] as? NSNumber)?.intValue
+let requestedWindowId = (inputObject["windowId"] as? NSNumber)?.intValue
+let expectedWindowBounds = boundsObject(inputObject["expectedWindowBounds"])
+let path = pathInput()
+let (preflightRoot, _, _, preflightWindowId) = appRoot(
+    app,
+    windowIndex: requestedWindowIndex,
+    windowId: requestedWindowId
+)
+
+switch op {
+case "click_element", "scroll", "action":
+    guard elementAtPath(root: preflightRoot, path: path) != nil else { fail("element no longer exists") }
+case "click_point":
+    let bounds = currentWindowBounds(pid: app.processIdentifier, windowId: preflightWindowId, expected: expectedWindowBounds)
+    _ = pointFromSnapshotPixels(xKey: "pixelX", yKey: "pixelY", bounds: bounds)
+case "drag":
+    let bounds = currentWindowBounds(pid: app.processIdentifier, windowId: preflightWindowId, expected: expectedWindowBounds)
+    _ = pointFromSnapshotPixels(xKey: "fromPixelX", yKey: "fromPixelY", bounds: bounds)
+    _ = pointFromSnapshotPixels(xKey: "toPixelX", yKey: "toPixelY", bounds: bounds)
+default:
+    break
+}
+
+ensureFrontmostForInput(app)
 let (root, rootKind, _, resolvedWindowId) = appRoot(
     app,
-    windowIndex: (inputObject["windowIndex"] as? NSNumber)?.intValue,
-    windowId: (inputObject["windowId"] as? NSNumber)?.intValue
+    windowIndex: requestedWindowIndex,
+    windowId: requestedWindowId
 )
 ensureFocusedWindow(app, root, windowId: rootKind == "window" ? resolvedWindowId : nil)
-let element = elementAtPath(root: root, path: pathInput())
-let expectedWindowBounds = boundsObject(inputObject["expectedWindowBounds"])
+let element = elementAtPath(root: root, path: path)
 
 switch op {
 case "click_element":
