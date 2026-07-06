@@ -52,6 +52,7 @@ APP_PATH="build/Build/Products/Release/cmux.app"
 GHOSTTYKIT_CRASH_REPORT_SUBDIR="cmux/crash"
 
 # --- Pre-flight ---
+# shellcheck source=/dev/null
 source ~/.secrets/cmuxterm.env
 export SPARKLE_PRIVATE_KEY
 for tool in zig xcodebuild create-dmg xcrun codesign ditto gh; do
@@ -94,6 +95,10 @@ echo "Sparkle keys injected"
 # installer handoff wait for an agent connection that never arrives.
 ./scripts/remove-sparkle-sandbox-xpc-services.sh "$APP_PATH"
 
+# --- Strip app binaries ---
+echo "Stripping app binaries..."
+./scripts/strip-app-binaries.sh "$APP_PATH"
+
 # --- Codesign ---
 echo "Codesigning..."
 ./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
@@ -111,8 +116,12 @@ echo "App notarized"
 
 # --- Create and notarize DMG ---
 echo "Creating DMG..."
-rm -f cmux-macos.dmg
+rm -f cmux-macos.dmg cmux-macos-ulmo.dmg
 create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
+hdiutil convert cmux-macos.dmg -format ULMO -o cmux-macos-ulmo.dmg
+mv cmux-macos-ulmo.dmg cmux-macos.dmg
+codesign --force --timestamp --sign "$SIGN_HASH" cmux-macos.dmg
+ls -la cmux-macos.dmg
 echo "Notarizing DMG..."
 xcrun notarytool submit cmux-macos.dmg \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait

@@ -278,6 +278,12 @@ jobs:
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
 
+      - name: Strip app binaries
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          ./scripts/strip-app-binaries.sh build-universal/Build/Products/Release/cmux.app
+
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -452,6 +458,9 @@ jobs:
             "$APP_PATH" \
             ./
           mv ./cmux*.dmg "$DMG_RELEASE"
+          hdiutil convert "$DMG_RELEASE" -format ULMO -o "${DMG_RELEASE%.dmg}-ulmo.dmg"
+          mv "${DMG_RELEASE%.dmg}-ulmo.dmg" "$DMG_RELEASE"
+          ls -la "$DMG_RELEASE"
           /usr/bin/codesign --force --timestamp --keychain build.keychain \
             --sign "$APPLE_SIGNING_IDENTITY" \
             "$DMG_RELEASE"

@@ -275,6 +275,12 @@ jobs:
           install -m 755 /tmp/cmux-ghostty-helper-universal "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
 
+      - name: Strip app binaries
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        run: |
+          set -euo pipefail
+          ./scripts/strip-app-binaries.sh "build-universal/Build/Products/Release/cmux.app"
+
       - name: Run bundled Ghostty theme picker helper regression
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
@@ -573,6 +579,9 @@ jobs:
             fi
             mv "$created_dmg" "$dmg_release"
             rm -rf "$dmg_tmp_dir"
+            hdiutil convert "$dmg_release" -format ULMO -o "${dmg_release%.dmg}-ulmo.dmg"
+            mv "${dmg_release%.dmg}-ulmo.dmg" "$dmg_release"
+            ls -la "$dmg_release"
             /usr/bin/codesign --force --timestamp --keychain build.keychain \
               --sign "$APPLE_SIGNING_IDENTITY" \
               "$dmg_release"
