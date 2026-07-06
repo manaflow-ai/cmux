@@ -58,6 +58,7 @@ struct WorkspaceDetailView: View {
     /// mid-read. Cleared when chat mode turns off.
     @State var pinnedChatSessionID: String?
     @State var chatInputFocusToken: GhosttySurfaceInputFocusToken?
+    @State var chatShouldFocusTerminalOnExit = false
     @State var chatSessions: [ChatSessionDescriptor] = []
     @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session.
@@ -696,6 +697,7 @@ struct WorkspaceDetailView: View {
         isChatMode = false
         pinnedChatSessionID = nil
         chatInputFocusToken = nil
+        chatShouldFocusTerminalOnExit = false
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.

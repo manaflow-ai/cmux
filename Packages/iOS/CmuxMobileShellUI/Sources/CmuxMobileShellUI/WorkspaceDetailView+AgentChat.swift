@@ -358,8 +358,11 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
-        chatInputFocusToken = GhosttySurfaceView.resignActiveInput()
-        if hasActiveBrowserForCurrentWorkspace() {
+        let focusToken = GhosttySurfaceView.resignActiveInput()
+        let openedFromBrowser = hasActiveBrowserForCurrentWorkspace()
+        chatInputFocusToken = focusToken
+        chatShouldFocusTerminalOnExit = openedFromBrowser && focusToken == nil
+        if openedFromBrowser {
             store.suppressSelectedTerminalAutoFocusOnNextAttach()
         }
         closeBrowserForCurrentWorkspace()
@@ -378,9 +381,14 @@ extension WorkspaceDetailView {
         }
         pinnedChatSessionID = nil
         let token = chatInputFocusToken
+        let shouldFocusTerminal = chatShouldFocusTerminalOnExit
         chatInputFocusToken = nil
+        chatShouldFocusTerminalOnExit = false
         if let terminalID {
-            _ = GhosttySurfaceView.restoreInputFocus(token, surfaceID: terminalID)
+            let restored = GhosttySurfaceView.restoreInputFocus(token, surfaceID: terminalID)
+            if !restored, shouldFocusTerminal {
+                _ = GhosttySurfaceView.focusMountedInput(surfaceID: terminalID)
+            }
         }
     }
 

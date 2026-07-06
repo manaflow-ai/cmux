@@ -40,6 +40,22 @@ extension GhosttySurfaceView {
         return view
     }
 
+    @MainActor
+    @discardableResult
+    public static func focusMountedInput(surfaceID: String) -> Bool {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        let matchingView = registeredSurfaceViews
+            .sorted { $0.key < $1.key }
+            .compactMap(\.value.value)
+            .first { candidate in
+                candidate.hostSurfaceID == surfaceID && candidate.window != nil
+                    && !candidate.isHidden && candidate.alpha > 0.01
+            }
+        guard let matchingView else { return false }
+        matchingView.focusInput()
+        return true
+    }
+
     static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {
         UInt(bitPattern: UnsafeRawPointer(surface))
     }

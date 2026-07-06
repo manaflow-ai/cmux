@@ -677,6 +677,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var lastTerminalEventAt: Date?
     private var isAppForegroundActive = true
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
+    private var terminalSubscriptionRefreshID: UUID?
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
@@ -926,6 +927,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalEventListenerTask = nil
         self.terminalEventListenerID = nil
         self.terminalSubscriptionRefreshTask = nil
+        self.terminalSubscriptionRefreshID = nil
         self.createWorkspaceTask = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
@@ -5299,6 +5301,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hostIdentityAdoptionTask = nil
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
+        terminalSubscriptionRefreshID = nil
         createWorkspaceTask?.cancel()
         createWorkspaceTask = nil
         createWorkspaceTaskID = nil
@@ -5356,6 +5359,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
+        terminalSubscriptionRefreshID = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
     }
@@ -6288,9 +6292,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func refreshTerminalEventSubscription(reason: String, restartOnFailure: Bool = false) {
         guard let client = remoteClient, connectionState == .connected else { return }
         guard runtime?.supportsServerPushEvents ?? true else { return }
-        guard terminalSubscriptionRefreshTask == nil else { return }
+        if terminalSubscriptionRefreshTask != nil {
+            guard restartOnFailure else { return }
+            terminalSubscriptionRefreshTask?.cancel()
+            terminalSubscriptionRefreshTask = nil
+            terminalSubscriptionRefreshID = nil
+        }
+        let refreshID = UUID()
+        terminalSubscriptionRefreshID = refreshID
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
-            defer { self?.terminalSubscriptionRefreshTask = nil }
+            defer {
+                if self?.terminalSubscriptionRefreshID == refreshID {
+                    self?.terminalSubscriptionRefreshTask = nil
+                    self?.terminalSubscriptionRefreshID = nil
+                }
+            }
             guard let self else { return }
             let topics = self.terminalOutputTransport.eventTopics
             let ack: TerminalEventSubscriptionAck
@@ -6309,7 +6325,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     topics: topics
                 )
             }
-            guard self.remoteClient === client, self.connectionState == .connected else { return }
+            guard !Task.isCancelled,
+                  self.terminalSubscriptionRefreshID == refreshID,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
             guard case .subscribed(let alreadySubscribed) = ack else {
                 MobileDebugLog.anchormux("sync.refresh_failed reason=\(reason) restart=\(restartOnFailure)")
                 if restartOnFailure {
