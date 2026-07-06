@@ -80,7 +80,8 @@ final class SuperSearchCommandIndexTests: XCTestCase {
         )
         await indexer.flushNow(sessionID: "session-command-cap")
 
-        XCTAssertEqual(try await index.search("beyond-cap-token", limit: 10), [])
+        let truncatedHits = try await index.search("beyond-cap-token", limit: 10)
+        XCTAssertEqual(truncatedHits, [])
         let hits = try await index.search("capped-output", limit: 10)
         XCTAssertEqual(hits.count, 1)
     }

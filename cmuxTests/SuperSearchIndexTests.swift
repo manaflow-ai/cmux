@@ -233,10 +233,12 @@ final class SuperSearchIndexTests: XCTestCase {
         )
 
         try await index.deleteDocuments(idPrefix: "session:abc:")
-        XCTAssertEqual(try await index.search("prefixpurgetoken", limit: 10), [])
+        let prefixHits = try await index.search("prefixpurgetoken", limit: 10)
+        XCTAssertEqual(prefixHits, [])
 
         try await index.deleteWorkspace(workspaceID)
-        XCTAssertEqual(try await index.search("workspacepurgetoken", limit: 10), [])
+        let workspaceHits = try await index.search("workspacepurgetoken", limit: 10)
+        XCTAssertEqual(workspaceHits, [])
     }
 
     func testEmptyQueryAndEmptyIndexAreSafe() async throws {
@@ -244,8 +246,11 @@ final class SuperSearchIndexTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
 
         let index = try SearchIndex(databaseURL: fixture.databaseURL)
-        XCTAssertEqual(try await index.search("", limit: 10), [])
-        XCTAssertEqual(try await index.search("   ", limit: 10), [])
-        XCTAssertEqual(try await index.search("missing", limit: 10), [])
+        let emptyHits = try await index.search("", limit: 10)
+        XCTAssertEqual(emptyHits, [])
+        let whitespaceHits = try await index.search("   ", limit: 10)
+        XCTAssertEqual(whitespaceHits, [])
+        let missingHits = try await index.search("missing", limit: 10)
+        XCTAssertEqual(missingHits, [])
     }
 }

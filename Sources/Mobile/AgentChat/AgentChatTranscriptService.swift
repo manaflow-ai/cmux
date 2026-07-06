@@ -131,7 +131,6 @@ final class AgentChatTranscriptService {
     /// observe-floor scans later add live agent presence even before hooks fire.
     func start() {
         Self.liveInstance = self
-        GlobalSearchCoordinator.shared.configureTranscriptIndexing(for: self)
         // Apply resume re-binds buffered before the service was wired. The seed
         // only creates records that don't already exist, so an intent applied
         // here is preserved (the seed skips it) and one applied after flips the

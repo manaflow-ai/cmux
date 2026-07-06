@@ -147,7 +147,7 @@ enum GlobalSearchDocuments {
         )
     }
 
-    static func workspaceMetadataDocumentID(workspaceID: UUID) -> String {
+    nonisolated static func workspaceMetadataDocumentID(workspaceID: UUID) -> String {
         "workspace:\(workspaceID.uuidString):metadata"
     }
 
@@ -169,13 +169,16 @@ enum GlobalSearchDocuments {
         )
     }
 
-    static func cappedText(_ text: String, limit: Int = GlobalSearchIndexingLimits.maxIndexedTextCharacters) -> String {
+    nonisolated static func cappedText(
+        _ text: String,
+        limit: Int = GlobalSearchIndexingLimits.maxIndexedTextCharacters
+    ) -> String {
         guard text.count > limit else { return text }
         let endIndex = text.index(text.startIndex, offsetBy: limit)
         return String(text[..<endIndex])
     }
 
-    static func firstNonEmpty(_ values: String?...) -> String? {
+    nonisolated static func firstNonEmpty(_ values: String?...) -> String? {
         values
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }

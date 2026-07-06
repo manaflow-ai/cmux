@@ -79,6 +79,13 @@ actor GlobalSearchTranscriptIndexer {
         sessions[sessionID] = state
         markRecentlyUsed(sessionID)
         enforceSessionRetention()
+        if !state.dirtyOrdinals.isEmpty {
+            scheduleFlush(sessionID: sessionID)
+        }
+    }
+
+    func trackedChunkOrdinals(sessionID: String) -> [Int] {
+        sessions[sessionID]?.chunks.keys.sorted() ?? []
     }
 
     func flushNow(sessionID: String) async {
@@ -104,38 +111,52 @@ actor GlobalSearchTranscriptIndexer {
 
     private func flush(sessionID: String) async {
         flushTasks[sessionID] = nil
-        guard var state = sessions[sessionID],
+        guard let state = sessions[sessionID],
               !state.dirtyOrdinals.isEmpty else {
             return
         }
+        let dirtyOrdinals = state.dirtyOrdinals.sorted()
+        let chunkSnapshots = dirtyOrdinals.map { ordinal in
+            ChunkFlushSnapshot(ordinal: ordinal, chunk: state.chunks[ordinal])
+        }
         guard let route = await routing(state.workspaceID, state.panelID) else {
-            sessions[sessionID] = state
             return
         }
 
         let title = state.title ?? route.panelTitle
-        let dirtyOrdinals = state.dirtyOrdinals.sorted()
-        for ordinal in dirtyOrdinals {
-            guard let chunk = state.chunks[ordinal] else {
+        for snapshot in chunkSnapshots {
+            guard isSnapshotCurrent(sessionID: sessionID, snapshot: snapshot) else {
+                continue
+            }
+            guard let chunk = snapshot.chunk else {
                 try? await index.deleteDocument(
-                    id: GlobalSearchTranscriptDocuments.transcriptDocumentID(sessionID: sessionID, ordinal: ordinal)
+                    id: GlobalSearchTranscriptDocuments.transcriptDocumentID(
+                        sessionID: sessionID,
+                        ordinal: snapshot.ordinal
+                    )
                 )
                 try? await index.deleteDocument(
-                    id: GlobalSearchTranscriptDocuments.commandDocumentID(sessionID: sessionID, ordinal: ordinal)
+                    id: GlobalSearchTranscriptDocuments.commandDocumentID(
+                        sessionID: sessionID,
+                        ordinal: snapshot.ordinal
+                    )
                 )
-                state.dirtyOrdinals.remove(ordinal)
+                clearDirtyOrdinalIfUnchanged(sessionID: sessionID, snapshot: snapshot)
                 continue
             }
 
             let transcriptText = chunk.transcriptText
             if transcriptText.isEmpty {
                 try? await index.deleteDocument(
-                    id: GlobalSearchTranscriptDocuments.transcriptDocumentID(sessionID: sessionID, ordinal: ordinal)
+                    id: GlobalSearchTranscriptDocuments.transcriptDocumentID(
+                        sessionID: sessionID,
+                        ordinal: snapshot.ordinal
+                    )
                 )
             } else {
                 try? await index.upsert(GlobalSearchTranscriptDocuments.transcriptDocument(
                     sessionID: sessionID,
-                    ordinal: ordinal,
+                    ordinal: snapshot.ordinal,
                     routing: route,
                     title: title,
                     anchorSeq: chunk.firstSeq,
@@ -143,40 +164,49 @@ actor GlobalSearchTranscriptIndexer {
                 ))
             }
 
+            guard isSnapshotCurrent(sessionID: sessionID, snapshot: snapshot) else {
+                continue
+            }
             let commandText = chunk.commandText
             if commandText.isEmpty {
                 try? await index.deleteDocument(
-                    id: GlobalSearchTranscriptDocuments.commandDocumentID(sessionID: sessionID, ordinal: ordinal)
+                    id: GlobalSearchTranscriptDocuments.commandDocumentID(
+                        sessionID: sessionID,
+                        ordinal: snapshot.ordinal
+                    )
                 )
             } else {
                 try? await index.upsert(GlobalSearchTranscriptDocuments.commandDocument(
                     sessionID: sessionID,
-                    ordinal: ordinal,
+                    ordinal: snapshot.ordinal,
                     routing: route,
                     title: title,
                     anchorSeq: chunk.firstSeq,
                     text: commandText
                 ))
             }
-            state.dirtyOrdinals.remove(ordinal)
+            clearDirtyOrdinalIfUnchanged(sessionID: sessionID, snapshot: snapshot)
         }
-        sessions[sessionID] = state
     }
 
     private func enforceChunkRetention(for sessionID: String) async {
         guard var state = sessions[sessionID] else { return }
+        var evictedOrdinals: [Int] = []
         while state.chunks.count > GlobalSearchIndexingLimits.maxTranscriptChunksPerSession,
               let oldest = state.chunks.keys.min() {
             state.chunks[oldest] = nil
             state.dirtyOrdinals.remove(oldest)
-            try? await index.deleteDocument(
-                id: GlobalSearchTranscriptDocuments.transcriptDocumentID(sessionID: sessionID, ordinal: oldest)
-            )
-            try? await index.deleteDocument(
-                id: GlobalSearchTranscriptDocuments.commandDocumentID(sessionID: sessionID, ordinal: oldest)
-            )
+            evictedOrdinals.append(oldest)
         }
         sessions[sessionID] = state
+        for ordinal in evictedOrdinals {
+            try? await index.deleteDocument(
+                id: GlobalSearchTranscriptDocuments.transcriptDocumentID(sessionID: sessionID, ordinal: ordinal)
+            )
+            try? await index.deleteDocument(
+                id: GlobalSearchTranscriptDocuments.commandDocumentID(sessionID: sessionID, ordinal: ordinal)
+            )
+        }
     }
 
     private func enforceSessionRetention() {
@@ -200,6 +230,33 @@ actor GlobalSearchTranscriptIndexer {
         }
         return trimmed
     }
+
+    private func clearDirtyOrdinalIfUnchanged(sessionID: String, snapshot: ChunkFlushSnapshot) {
+        guard var currentState = sessions[sessionID] else { return }
+        let currentRevision = currentState.chunks[snapshot.ordinal]?.revision
+        switch (snapshot.revision, currentRevision) {
+        case let (.some(snapshotRevision), .some(liveRevision)) where snapshotRevision == liveRevision:
+            currentState.dirtyOrdinals.remove(snapshot.ordinal)
+        case (.none, .none):
+            currentState.dirtyOrdinals.remove(snapshot.ordinal)
+        default:
+            return
+        }
+        sessions[sessionID] = currentState
+    }
+
+    private func isSnapshotCurrent(sessionID: String, snapshot: ChunkFlushSnapshot) -> Bool {
+        guard let currentState = sessions[sessionID] else { return false }
+        let currentRevision = currentState.chunks[snapshot.ordinal]?.revision
+        switch (snapshot.revision, currentRevision) {
+        case let (.some(snapshotRevision), .some(liveRevision)):
+            return snapshotRevision == liveRevision
+        case (.none, .none):
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 private struct SessionState {
@@ -217,6 +274,7 @@ private struct SessionState {
             transcriptText: GlobalSearchTranscriptDocuments.transcriptText(for: message),
             commandText: GlobalSearchTranscriptDocuments.commandText(for: message)
         )
+        chunk.revision += 1
         chunks[ordinal] = chunk
         dirtyOrdinals.insert(ordinal)
     }
@@ -224,6 +282,7 @@ private struct SessionState {
 
 private struct TranscriptChunkState {
     var messages: [Int: IndexedMessageText] = [:]
+    var revision: Int = 0
 
     var firstSeq: Int {
         messages.keys.min() ?? 0
@@ -254,4 +313,16 @@ private struct IndexedMessageText {
     let seq: Int
     let transcriptText: String?
     let commandText: String?
+}
+
+private struct ChunkFlushSnapshot {
+    let ordinal: Int
+    let revision: Int?
+    let chunk: TranscriptChunkState?
+
+    init(ordinal: Int, chunk: TranscriptChunkState?) {
+        self.ordinal = ordinal
+        self.revision = chunk?.revision
+        self.chunk = chunk
+    }
 }

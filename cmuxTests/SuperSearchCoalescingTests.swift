@@ -41,12 +41,91 @@ final class SuperSearchCoalescingTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(await index.upsertedDocuments.count, 0)
+        let initialUpsertCount = await index.upsertedDocuments.count
+        XCTAssertEqual(initialUpsertCount, 0)
 
         await indexer.flushNow(sessionID: "session-burst")
 
         let documents = await index.upsertedDocuments
         XCTAssertLessThanOrEqual(documents.count, 8)
         XCTAssertEqual(Set(documents.map(\.id)).count, documents.count)
+    }
+
+    func testChunkRetentionEvictsOldOrdinalsAndDeletesIndexedDocuments() async throws {
+        let index = CountingSearchIndex()
+        let routing = SuperSearchTestSupport.makeRouting()
+        let indexer = GlobalSearchTranscriptIndexer(
+            index: index,
+            routing: { _, _ in routing },
+            debounce: .seconds(3600)
+        )
+
+        let retainedCount = GlobalSearchIndexingLimits.maxTranscriptChunksPerSession
+        let totalChunks = retainedCount + 2
+        for ordinal in 0..<totalChunks {
+            let base = ordinal * GlobalSearchTranscriptIndexer.messagesPerChunk
+            let messages = (0..<GlobalSearchTranscriptIndexer.messagesPerChunk).map { offset in
+                SuperSearchTestSupport.message(
+                    seq: base + offset,
+                    kind: .terminal(ChatTerminalCapture(
+                        command: "retention-command-\(ordinal)-\(offset)",
+                        output: "retention-output-\(ordinal)-\(offset)"
+                    ))
+                )
+            }
+            await indexer.ingest(
+                sessionID: "session-retention",
+                batch: SuperSearchTestSupport.batch(appended: messages)
+            )
+        }
+
+        let trackedOrdinals = await indexer.trackedChunkOrdinals(sessionID: "session-retention")
+        XCTAssertEqual(trackedOrdinals.count, retainedCount)
+        XCTAssertEqual(trackedOrdinals, Array(2..<totalChunks))
+
+        let deletedIDs = await index.deletedDocumentIDs
+        XCTAssertTrue(deletedIDs.contains(
+            GlobalSearchTranscriptDocuments.transcriptDocumentID(sessionID: "session-retention", ordinal: 0)
+        ))
+        XCTAssertTrue(deletedIDs.contains(
+            GlobalSearchTranscriptDocuments.commandDocumentID(sessionID: "session-retention", ordinal: 0)
+        ))
+        XCTAssertTrue(deletedIDs.contains(
+            GlobalSearchTranscriptDocuments.transcriptDocumentID(sessionID: "session-retention", ordinal: 1)
+        ))
+        XCTAssertTrue(deletedIDs.contains(
+            GlobalSearchTranscriptDocuments.commandDocumentID(sessionID: "session-retention", ordinal: 1)
+        ))
+    }
+
+    func testTranscriptChunkTextIsCappedAtConfiguredLimit() async throws {
+        let index = CountingSearchIndex()
+        let routing = SuperSearchTestSupport.makeRouting()
+        let indexer = GlobalSearchTranscriptIndexer(
+            index: index,
+            routing: { _, _ in routing },
+            debounce: .seconds(3600)
+        )
+
+        let oversizedText = String(
+            repeating: "t",
+            count: GlobalSearchIndexingLimits.maxTranscriptChunkCharacters + 500
+        )
+        await indexer.ingest(
+            sessionID: "session-transcript-cap",
+            batch: SuperSearchTestSupport.batch(
+                appended: [
+                    SuperSearchTestSupport.message(
+                        seq: 1,
+                        kind: .prose(ChatProse(text: oversizedText))
+                    )
+                ]
+            )
+        )
+        await indexer.flushNow(sessionID: "session-transcript-cap")
+
+        let documents = await index.upsertedDocuments
+        let transcriptDocument = try XCTUnwrap(documents.first { $0.kind == .transcript })
+        XCTAssertEqual(transcriptDocument.text.count, GlobalSearchIndexingLimits.maxTranscriptChunkCharacters)
     }
 }

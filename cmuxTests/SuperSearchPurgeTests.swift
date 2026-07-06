@@ -58,11 +58,15 @@ final class SuperSearchPurgeTests: XCTestCase {
         )
 
         try await index.deletePanel(panelID)
-        XCTAssertEqual(try await index.search("transcript-close-token", limit: 10), [])
-        XCTAssertEqual(try await index.search("command-close-token", limit: 10), [])
-        XCTAssertEqual(try await index.search("workspace-close-token", limit: 10).count, 1)
+        let transcriptHitsAfterPanelDelete = try await index.search("transcript-close-token", limit: 10)
+        XCTAssertEqual(transcriptHitsAfterPanelDelete, [])
+        let commandHitsAfterPanelDelete = try await index.search("command-close-token", limit: 10)
+        XCTAssertEqual(commandHitsAfterPanelDelete, [])
+        let workspaceHitsAfterPanelDelete = try await index.search("workspace-close-token", limit: 10)
+        XCTAssertEqual(workspaceHitsAfterPanelDelete.count, 1)
 
         try await index.deleteWorkspace(workspaceID)
-        XCTAssertEqual(try await index.search("workspace-close-token", limit: 10), [])
+        let workspaceHitsAfterWorkspaceDelete = try await index.search("workspace-close-token", limit: 10)
+        XCTAssertEqual(workspaceHitsAfterWorkspaceDelete, [])
     }
 }

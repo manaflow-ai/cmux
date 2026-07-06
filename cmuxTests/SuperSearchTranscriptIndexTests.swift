@@ -72,7 +72,8 @@ final class SuperSearchTranscriptIndexTests: XCTestCase {
         )
         await indexer.flushNow(sessionID: "session-2")
 
-        XCTAssertEqual(try await index.search("unroutable-transcript-token", limit: 10), [])
+        let hits = try await index.search("unroutable-transcript-token", limit: 10)
+        XCTAssertEqual(hits, [])
     }
 
     func testTranscriptResetDeletesPreviousSessionDocuments() async throws {
@@ -105,13 +106,15 @@ final class SuperSearchTranscriptIndexTests: XCTestCase {
             )
         )
         await indexer.flushNow(sessionID: "session-reset")
-        XCTAssertEqual(try await index.search("before-reset-token", limit: 10).count, 1)
+        let indexedHits = try await index.search("before-reset-token", limit: 10)
+        XCTAssertEqual(indexedHits.count, 1)
 
         await indexer.ingest(
             sessionID: "session-reset",
             batch: SuperSearchTestSupport.batch(didReset: true)
         )
 
-        XCTAssertEqual(try await index.search("before-reset-token", limit: 10), [])
+        let hitsAfterReset = try await index.search("before-reset-token", limit: 10)
+        XCTAssertEqual(hitsAfterReset, [])
     }
 }

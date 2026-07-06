@@ -51,6 +51,7 @@ final class SuperSearchScopeTests: XCTestCase {
         )
         await indexer.flushNow(sessionID: "session-scope")
 
-        XCTAssertEqual(try await index.search("rawscrolltoken", limit: 10), [])
+        let hits = try await index.search("rawscrolltoken", limit: 10)
+        XCTAssertEqual(hits, [])
     }
 }
