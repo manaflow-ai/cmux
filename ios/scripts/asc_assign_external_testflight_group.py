@@ -37,11 +37,17 @@ import urllib.request
 
 API_BASE = "https://api.appstoreconnect.apple.com"
 ACTIVE_EXTERNAL_BUILD_STATES = {
+    "BETA_APPROVED",
     "READY_FOR_BETA_TESTING",
     "IN_BETA_REVIEW",
     "WAITING_FOR_BETA_REVIEW",
 }
-ACTIVE_BETA_REVIEW_STATES = {
+ACTIVE_CURRENT_BUILD_BETA_REVIEW_STATES = {
+    "APPROVED",
+    "WAITING_FOR_REVIEW",
+    "IN_REVIEW",
+}
+ACTIVE_SIBLING_BETA_REVIEW_STATES = {
     "WAITING_FOR_REVIEW",
     "IN_REVIEW",
 }
@@ -354,7 +360,7 @@ def _find_active_review_submission_on_sibling_build(
         if submission is None:
             continue
         review_state = submission["beta_review_state"]
-        if review_state in ACTIVE_BETA_REVIEW_STATES:
+        if review_state in ACTIVE_SIBLING_BETA_REVIEW_STATES:
             return {
                 "build_id": sibling_build_id,
                 "submission_id": submission["id"],
@@ -363,15 +369,29 @@ def _find_active_review_submission_on_sibling_build(
             }
     return None
 
-
-def _report_pending_sibling_review(build_number: str, sibling_submission: Dict[str, str]) -> None:
-    print(
-        "asc_assign_external_testflight_group: build "
+def _pending_sibling_review_message(build_number: str, sibling_submission: Dict[str, str]) -> str:
+    return (
+        "build "
         f"{build_number} stays pending while sibling build {sibling_submission['build_id']} for "
         f"version {sibling_submission['pre_release_version'] or 'unknown'} remains in beta review "
         f"(submission {sibling_submission['submission_id']}, "
         f"state={sibling_submission['beta_review_state']})"
     )
+
+
+def _report_pending_sibling_review(build_number: str, sibling_submission: Dict[str, str]) -> None:
+    print(
+        "asc_assign_external_testflight_group: "
+        f"{_pending_sibling_review_message(build_number, sibling_submission)}"
+    )
+
+
+def _write_state(state_out: str, state: str) -> None:
+    if not state_out:
+        return
+    with open(state_out, "w", encoding="utf-8") as fh:
+        fh.write(state)
+
 
 def _ensure_external_review_submission(
     token: str,
@@ -379,7 +399,7 @@ def _ensure_external_review_submission(
     build_number: str,
     deadline: float,
     poll_seconds: int,
-) -> None:
+) -> str:
     last_submit_error = ""
     while True:
         try:
@@ -400,17 +420,17 @@ def _ensure_external_review_submission(
                 "asc_assign_external_testflight_group: build "
                 f"{build_number} external state is {external_state}"
             )
-            return
+            return "current_build_active"
 
         if submission is not None:
             review_state = submission["beta_review_state"]
-            if review_state in ACTIVE_BETA_REVIEW_STATES:
+            if review_state in ACTIVE_CURRENT_BUILD_BETA_REVIEW_STATES:
                 print(
                     "asc_assign_external_testflight_group: build "
                     f"{build_number} external state is {external_state or 'unknown'} with submission "
                     f"{submission['id']} (state={review_state or 'unknown'})"
                 )
-                return
+                return "current_build_review_pending"
             raise RuntimeError(
                 "build "
                 f"{build_number} external state is {external_state or '<empty>'} with beta app review "
@@ -430,30 +450,43 @@ def _ensure_external_review_submission(
                 continue
             if sibling_submission is not None:
                 _report_pending_sibling_review(build_number, sibling_submission)
-                return
+                return "sibling_review_pending"
             try:
                 _submit_beta_review(token, build_id)
                 last_submit_error = ""
             except RuntimeError as exc:
-                submission = _beta_review_submission(token, build_id)
-                if submission is not None:
-                    review_state = submission["beta_review_state"]
-                    if review_state in ACTIVE_BETA_REVIEW_STATES:
-                        print(
-                            "asc_assign_external_testflight_group: build "
-                            f"{build_number} external state is READY_FOR_BETA_SUBMISSION with submission "
-                            f"{submission['id']} (state={review_state or 'unknown'})"
+                try:
+                    submission = _beta_review_submission(token, build_id)
+                    if submission is not None:
+                        review_state = submission["beta_review_state"]
+                        if review_state in ACTIVE_CURRENT_BUILD_BETA_REVIEW_STATES:
+                            print(
+                                "asc_assign_external_testflight_group: build "
+                                f"{build_number} external state is READY_FOR_BETA_SUBMISSION with submission "
+                                f"{submission['id']} (state={review_state or 'unknown'})"
+                            )
+                            return "current_build_review_pending"
+                        raise RuntimeError(
+                            "build "
+                            f"{build_number} external state is READY_FOR_BETA_SUBMISSION with beta app review "
+                            f"submission {submission['id']} in unexpected betaReviewState={review_state or '<empty>'}"
                         )
-                        return
-                    raise RuntimeError(
-                        "build "
-                        f"{build_number} external state is READY_FOR_BETA_SUBMISSION with beta app review "
-                        f"submission {submission['id']} in unexpected betaReviewState={review_state or '<empty>'}"
+                    sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
+                    if sibling_submission is not None:
+                        _report_pending_sibling_review(build_number, sibling_submission)
+                        return "sibling_review_pending"
+                except RuntimeError as recovery_exc:
+                    last_submit_error = (
+                        f"{str(exc) or 'submit beta app review did not succeed yet'}; "
+                        f"recovery lookup failed: {recovery_exc}"
                     )
-                sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
-                if sibling_submission is not None:
-                    _report_pending_sibling_review(build_number, sibling_submission)
-                    return
+                    if time.time() >= deadline:
+                        raise RuntimeError(
+                            f"build {build_number} failed to submit beta app review within the timeout window"
+                        )
+                    time.sleep(max(1, poll_seconds))
+                    token = _token()
+                    continue
                 last_submit_error = str(exc) or "submit beta app review did not succeed yet"
                 if time.time() >= deadline:
                     raise RuntimeError(
@@ -465,7 +498,7 @@ def _ensure_external_review_submission(
             print(
                 f"asc_assign_external_testflight_group: submitted build {build_number} for beta app review"
             )
-            return
+            return "submitted_beta_review"
 
         if time.time() >= deadline:
             if last_submit_error:
@@ -491,6 +524,7 @@ def main() -> int:
     parser.add_argument("--group-name", default=os.environ.get("CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME", ""))
     parser.add_argument("--timeout-seconds", type=int, default=900)
     parser.add_argument("--poll-seconds", type=int, default=20)
+    parser.add_argument("--state-out", default=os.environ.get("CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE", ""))
     args = parser.parse_args()
 
     if args.group_id and args.group_name:
@@ -537,13 +571,14 @@ def main() -> int:
             f"already has access to all builds"
         )
         token = _token()
-        _ensure_external_review_submission(
+        state = _ensure_external_review_submission(
             token,
             build_id,
             args.build_number,
             time.time() + max(0, args.timeout_seconds),
             args.poll_seconds,
         )
+        _write_state(args.state_out, state)
         return 0
 
     if _group_has_build(token, target_group["id"], build_id):
@@ -552,13 +587,14 @@ def main() -> int:
             f"{_describe_group(target_group)}"
         )
         token = _token()
-        _ensure_external_review_submission(
+        state = _ensure_external_review_submission(
             token,
             build_id,
             args.build_number,
             time.time() + max(0, args.timeout_seconds),
             args.poll_seconds,
         )
+        _write_state(args.state_out, state)
         return 0
 
     token = _token()
@@ -568,13 +604,14 @@ def main() -> int:
         f"{_describe_group(target_group)}"
     )
     token = _token()
-    _ensure_external_review_submission(
+    state = _ensure_external_review_submission(
         token,
         build_id,
         args.build_number,
         time.time() + max(0, args.timeout_seconds),
         args.poll_seconds,
     )
+    _write_state(args.state_out, state)
     return 0
 
 

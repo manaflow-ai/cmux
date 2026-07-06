@@ -81,9 +81,9 @@ jobs:
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const { owner, repo } = context.repo;
 
-            // The head_sha of the most recent run on main whose *upload job*
-            // succeeded is the last uploaded beta commit. We intentionally do NOT
-            // key this off whole-workflow success: a later post-upload job (for
+            // The head_sha of the most recent CANONICAL run on main whose *upload
+            // job* succeeded is the last uploaded beta commit. We intentionally do
+            // NOT key this off whole-workflow success: a later post-upload job (for
             // example external-group assignment) may fail after the IPA has already
             // been uploaded, and re-uploading the same SHA on the next schedule
             // would create duplicate TestFlight builds for one commit. We always
@@ -96,6 +96,21 @@ jobs:
             // last_uploaded_sha and poison the next real beta's notes base (the
             // generator also fails closed to a fallback line when the base is not
             // an ancestor of HEAD).
+            //
+            // Manual marketing-version-override uploads are deliberately excluded
+            // from this canonical lane. They ship the current main SHA under an
+            // older approved MARKETING_VERSION as a one-off escape hatch, but they
+            // must NOT suppress the next scheduled auto-versioned beta for the same
+            // commit. Override runs upload a dedicated
+            // ios-testflight-build-metadata-override artifact instead of the
+            // canonical ios-testflight-build-metadata artifact, and we skip only
+            // those runs here.
+            //
+            // Backward compatibility: before this patch there was no
+            // marketing_version_override dispatch path in this workflow at all, so
+            // any older workflow_dispatch run that only has the canonical artifact
+            // is necessarily a normal immediate beta cut and SHOULD count as the
+            // last canonical upload.
             let lastUploadedSha = null;
             let lastUploadedRunId = null;
             let lastAssignmentSucceeded = false;
@@ -121,6 +136,21 @@ jobs:
                   });
                   const uploadJob = jobs.data.jobs.find((job) => job.name === 'Upload to TestFlight');
                   if (uploadJob?.conclusion === 'success') {
+                    const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                      owner,
+                      repo,
+                      run_id: run.id,
+                      per_page: 100,
+                    });
+                    const artifactNames = new Set(
+                      (artifacts.data.artifacts || []).map((artifact) => artifact.name)
+                    );
+                    if (
+                      artifactNames.has('ios-testflight-build-metadata-override') &&
+                      !artifactNames.has('ios-testflight-build-metadata')
+                    ) {
+                      continue;
+                    }
                     lastUploadedSha = run.head_sha;
                     lastUploadedRunId = String(run.id);
                     const assignJob = jobs.data.jobs.find(
@@ -134,7 +164,35 @@ jobs:
                     // Only the post-migration workflow shape can enter the
                     // assignment-only path.
                     lastAssignmentRetrySupported = !!assignJob;
-                    lastAssignmentSucceeded = assignJob?.conclusion === 'success';
+                    // A same-version sibling already in Beta App Review is a
+                    // legitimate "pending" state outside CI's control, so the
+                    // assign job returns success but uploads a dedicated pending
+                    // artifact. That lets the schedule retry assignment-only
+                    // later without turning the current main commit red.
+                    //
+                    // Fail closed for RECENT pre-migration success runs that
+                    // have NO assignment-state artifact at all. The old helper
+                    // could report success both when the build was truly
+                    // complete and when it was merely pending behind a sibling
+                    // review, so a fresh missing-state run should be retried; a
+                    // genuinely-complete build will short-circuit quickly on
+                    // the recheck.
+                    //
+                    // Do NOT fail closed forever: artifacts expire after 30
+                    // days, and an idle main branch must not fall into
+                    // permanent red assign-only retries just because historical
+                    // metadata aged out. Once the run is past the retention
+                    // horizon, treat missing state as effectively complete.
+                    const assignmentComplete =
+                      artifactNames.has('ios-testflight-assignment-state-complete');
+                    const assignmentPending =
+                      artifactNames.has('ios-testflight-assignment-state-pending');
+                    const runAgeMs = Date.now() - Date.parse(run.created_at);
+                    const assignmentArtifactRetentionMs = 30 * 24 * 60 * 60 * 1000;
+                    const assignmentStateExpired = runAgeMs > assignmentArtifactRetentionMs;
+                    lastAssignmentSucceeded =
+                      assignJob?.conclusion === 'success' &&
+                      (assignmentComplete || (!assignmentPending && assignmentStateExpired));
                     break;
                   }
                 }
@@ -428,17 +486,23 @@ jobs:
         if: success()
         env:
           FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
+          INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
         run: |
           set -euo pipefail
+          if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
+            UPLOAD_MODE="marketing_version_override"
+          else
+            UPLOAD_MODE="auto_version"
+          fi
           cat > "$RUNNER_TEMP/ios-testflight-build.json" <<EOF
-          {"head_sha":"${GITHUB_SHA}","build_number":"${FINAL_BUILD_NUMBER}"}
+          {"head_sha":"${GITHUB_SHA}","build_number":"${FINAL_BUILD_NUMBER}","upload_mode":"${UPLOAD_MODE}"}
           EOF
 
       - name: Upload build metadata artifact
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ios-testflight-build-metadata
+          name: ${{ github.event.inputs.marketing_version_override != '' && 'ios-testflight-build-metadata-override' || 'ios-testflight-build-metadata' }}
           path: ${{ runner.temp }}/ios-testflight-build.json
           retention-days: 30
 
@@ -464,6 +528,7 @@ jobs:
       SHOULD_ASSIGN_ONLY: ${{ needs.decide.outputs.should_assign_only }}
       LAST_UPLOADED_RUN_ID: ${{ needs.decide.outputs.last_uploaded_run_id }}
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
+      CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE: ${{ runner.temp }}/ios-testflight-assign-state.txt
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -479,6 +544,7 @@ jobs:
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
 
       - name: Assign uploaded build to the external beta group
+        id: assign
         run: |
           set -euo pipefail
           if [ -z "${BUILD_NUMBER:-}" ] || [ "$BUILD_NUMBER" = "unknown" ]; then
@@ -488,3 +554,16 @@ jobs:
           python3 ./ios/scripts/asc_assign_external_testflight_group.py \
             --bundle-id dev.cmux.app.beta \
             --build-number "$BUILD_NUMBER"
+          ASSIGNMENT_STATE="unknown"
+          if [ -f "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" ]; then
+            ASSIGNMENT_STATE="$(cat "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE")"
+          fi
+          echo "assignment_state=$ASSIGNMENT_STATE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload assignment-state artifact
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.assign.outputs.assignment_state == 'sibling_review_pending' && 'ios-testflight-assignment-state-pending' || 'ios-testflight-assignment-state-complete' }}
+          path: ${{ runner.temp }}/ios-testflight-assign-state.txt
+          retention-days: 30
