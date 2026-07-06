@@ -6,6 +6,7 @@ final class GlobalSearchWorkspaceMetadataIndexer {
     private let index: any SearchIndexWriting
     private var subscriptions: [UUID: AnyCancellable] = [:]
     private var indexTasks: [UUID: Task<Void, Never>] = [:]
+    private var indexTaskIDs: [UUID: UUID] = [:]
 
     init(index: any SearchIndexWriting) {
         self.index = index
@@ -75,8 +76,10 @@ final class GlobalSearchWorkspaceMetadataIndexer {
         operation: @escaping @Sendable (any SearchIndexWriting) async throws -> Void
     ) {
         let previousTask = indexTasks[workspaceID]
+        let taskID = UUID()
         let index = index
-        indexTasks[workspaceID] = Task {
+        indexTaskIDs[workspaceID] = taskID
+        let task = Task { [weak self] in
             _ = await previousTask?.result
             do {
                 try await operation(index)
@@ -85,6 +88,12 @@ final class GlobalSearchWorkspaceMetadataIndexer {
                 cmuxDebugLog("globalSearch.workspace.\(action) failed workspace=\(workspaceID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
             }
+            await MainActor.run {
+                guard let self, self.indexTaskIDs[workspaceID] == taskID else { return }
+                self.indexTasks[workspaceID] = nil
+                self.indexTaskIDs[workspaceID] = nil
+            }
         }
+        indexTasks[workspaceID] = task
     }
 }

@@ -30,4 +30,9 @@ extension AgentChatTranscriptService {
         }
         ensureSearchIndexingTailer(for: record)
     }
+
+    @discardableResult
+    func ensureSearchIndexingTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
+        ensureTailer(for: record)
+    }
 }

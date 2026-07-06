@@ -339,9 +339,10 @@ final class AgentChatTranscriptService {
     }
 
     // MARK: - Internals
-
+    /// Internal so the search-indexing extension can activate a tailer without
+    /// growing this file further or duplicating transcript resolution logic.
     @discardableResult
-    private func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
+    func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
             return existing
         }
@@ -495,10 +496,5 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)
-    }
-
-    @discardableResult
-    func ensureSearchIndexingTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
-        ensureTailer(for: record)
     }
 }

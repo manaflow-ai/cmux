@@ -72,7 +72,7 @@ struct GlobalSearchTranscriptDocuments {
         case .question(let question):
             return joined([
                 question.prompt,
-                question.options.map { joined([$0.label, $0.detail]) }.joined(separator: "\n"),
+                question.options.compactMap { joined([$0.label, $0.detail]) }.joined(separator: "\n"),
                 question.selectedOptionLabel
             ])
         case .status(let status):

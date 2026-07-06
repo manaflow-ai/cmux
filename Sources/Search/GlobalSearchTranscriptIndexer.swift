@@ -48,7 +48,8 @@ actor GlobalSearchTranscriptIndexer {
         var state = sessions[sessionID] ?? SessionState(
             title: previousState?.title,
             workspaceID: previousState?.workspaceID,
-            panelID: previousState?.panelID
+            panelID: previousState?.panelID,
+            revisionCounter: previousState?.revisionCounter ?? 0
         )
         if let title = Self.nonEmpty(batch.discoveredTitle) {
             state.title = title
@@ -263,18 +264,20 @@ private struct SessionState {
     var title: String?
     var workspaceID: String?
     var panelID: String?
+    var revisionCounter: Int = 0
     var chunks: [Int: TranscriptChunkState] = [:]
     var dirtyOrdinals: Set<Int> = []
 
     mutating func upsert(message: ChatMessage) {
         let ordinal = message.seq / GlobalSearchTranscriptIndexer.messagesPerChunk
         var chunk = chunks[ordinal] ?? TranscriptChunkState()
+        revisionCounter += 1
         chunk.messages[message.seq] = IndexedMessageText(
             seq: message.seq,
             transcriptText: GlobalSearchTranscriptDocuments.transcriptText(for: message),
             commandText: GlobalSearchTranscriptDocuments.commandText(for: message)
         )
-        chunk.revision += 1
+        chunk.revision = revisionCounter
         chunks[ordinal] = chunk
         dirtyOrdinals.insert(ordinal)
     }

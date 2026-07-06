@@ -916,6 +916,7 @@
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000F2 /* ScreenLockObserver.swift */; };
+		BEE100060000000000000001 /* SearchIndex+SuperSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE100060000000000000002 /* SearchIndex+SuperSearch.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
 		3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0043865B0043865B004 /* SearchIndexTests.swift */; };
 		BEE100010000000000000001 /* SearchIndexWriting.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE100010000000000000002 /* SearchIndexWriting.swift */; };
@@ -2259,6 +2260,7 @@
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
 		D1F0A00600000000000000F2 /* ScreenLockObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLockObserver.swift; sourceTree = "<group>"; };
+		BEE100060000000000000002 /* SearchIndex+SuperSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/SearchIndex+SuperSearch.swift"; sourceTree = "<group>"; };
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
 		3865B0043865B0043865B004 /* SearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIndexTests.swift; sourceTree = "<group>"; };
 		BEE100010000000000000002 /* SearchIndexWriting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndexWriting.swift; sourceTree = "<group>"; };
@@ -3370,6 +3372,7 @@
 				A5008370 /* BrowserSearchOverlay.swift */,
 				A5008372 /* BrowserFindWebViewEvaluator.swift */,
 				3865B0013865B0013865B001 /* SearchIndex.swift */,
+				BEE100060000000000000002 /* SearchIndex+SuperSearch.swift */,
 				BEE100010000000000000002 /* SearchIndexWriting.swift */,
 				3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */,
 				BEE100040000000000000002 /* GlobalSearchTranscriptDocuments.swift */,
@@ -5078,6 +5081,7 @@
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */,
+				BEE100060000000000000001 /* SearchIndex+SuperSearch.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
 				BEE100010000000000000001 /* SearchIndexWriting.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,

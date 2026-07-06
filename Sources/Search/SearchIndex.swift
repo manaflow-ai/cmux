@@ -113,7 +113,7 @@ enum SearchIndexError: LocalizedError {
     }
 }
 
-actor SearchIndex: SearchIndexWriting {
+actor SearchIndex {
     private static let schemaVersion = 1
 
     private var database: OpaquePointer?
@@ -197,23 +197,9 @@ actor SearchIndex: SearchIndexWriting {
         }
     }
 
-    func deleteWorkspace(_ workspaceID: UUID) throws {
-        try withStatement("DELETE FROM chunks WHERE workspace_id = ?1") { statement in
-            try bind(workspaceID.uuidString, at: 1, in: statement)
-            try stepDone(statement)
-        }
-    }
-
     func deleteDocument(id: String) throws {
         try withStatement("DELETE FROM chunks WHERE id = ?1") { statement in
             try bind(id, at: 1, in: statement)
-            try stepDone(statement)
-        }
-    }
-
-    func deleteDocuments(idPrefix: String) throws {
-        try withStatement("DELETE FROM chunks WHERE id LIKE ?1 ESCAPE '\\'") { statement in
-            try bind(Self.escapedLikePrefix(idPrefix) + "%", at: 1, in: statement)
             try stepDone(statement)
         }
     }
@@ -478,23 +464,6 @@ actor SearchIndex: SearchIndexWriting {
         return tokens.map { token in
             "\(token)*"
         }.joined(separator: " AND ")
-    }
-
-    private static func escapedLikePrefix(_ prefix: String) -> String {
-        var escaped = ""
-        for character in prefix {
-            switch character {
-            case "\\":
-                escaped.append("\\\\")
-            case "%":
-                escaped.append("\\%")
-            case "_":
-                escaped.append("\\_")
-            default:
-                escaped.append(character)
-            }
-        }
-        return escaped
     }
 
     private static func ensureParentDirectoryExists(for databaseURL: URL) throws {
