@@ -424,6 +424,122 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
 }
 
 #[test]
+fn control_socket_reports_and_broadcasts_agent_state() {
+    let mux = Mux::new(unique_session("test-agent-report"), shell_opts("sleep 30"));
+    let surface = mux.new_workspace(None, None).unwrap();
+
+    let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
+    let subscribe_stream = UnixStream::connect(&sock_path).unwrap();
+    subscribe_stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut subscribe_writer = subscribe_stream.try_clone().unwrap();
+    let mut subscribe_reader = BufReader::new(subscribe_stream);
+
+    let command_stream = UnixStream::connect(&sock_path).unwrap();
+    let mut command_writer = command_stream.try_clone().unwrap();
+    let mut command_reader = BufReader::new(command_stream);
+
+    writeln!(subscribe_writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
+    let response = wait_for(|| read_json_line(&mut subscribe_reader), Duration::from_secs(5))
+        .expect("subscribe response");
+    assert_eq!(response["ok"], true, "subscribe failed: {response}");
+
+    writeln!(
+        command_writer,
+        r#"{{"id":2,"cmd":"report-agent","surface":{},"source":"hook","agent":"codex","state":"blocked","custom_status":"needs approval","session":"session-1"}}"#,
+        surface.id
+    )
+    .unwrap();
+    let mut line = String::new();
+    command_reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "report-agent failed: {line}");
+
+    line.clear();
+    writeln!(command_writer, r#"{{"id":3,"cmd":"list-agents"}}"#).unwrap();
+    command_reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "list-agents failed: {line}");
+    let agents = response["data"]["agents"].as_array().unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0]["surface"], surface.id);
+    assert_eq!(agents[0]["agent"], "codex");
+    assert_eq!(agents[0]["state"], "blocked");
+    assert_eq!(agents[0]["source"], "hook");
+    assert_eq!(agents[0]["custom_status"], "needs approval");
+    assert_eq!(agents[0]["session"], "session-1");
+
+    let event = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut subscribe_reader) {
+                if value.get("event").and_then(|v| v.as_str()) == Some("agent-state-changed") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("no agent-state-changed event");
+    assert_eq!(event["surface"], surface.id);
+    assert_eq!(event["agent"], "codex");
+    assert_eq!(event["state"], "blocked");
+    assert_eq!(event["source"], "hook");
+    assert_eq!(event["custom_status"], "needs approval");
+
+    mux.close_surface(surface.id);
+    mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_session_report_does_not_take_hook_authority() {
+    let mux = Mux::new(unique_session("test-agent-session-only"), shell_opts("sleep 30"));
+    let surface = mux.new_workspace(None, None).unwrap();
+
+    let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
+    let stream = UnixStream::connect(&sock_path).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+
+    writeln!(
+        writer,
+        r#"{{"id":1,"cmd":"report-agent","surface":{},"source":"detection","agent":"claude","state":"working"}}"#,
+        surface.id
+    )
+    .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "detection report failed: {line}");
+
+    line.clear();
+    writeln!(
+        writer,
+        r#"{{"id":2,"cmd":"report-agent","surface":{},"source":"hook","agent":"claude","session":"session-only"}}"#,
+        surface.id
+    )
+    .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "session-only report failed: {line}");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":3,"cmd":"list-agents"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "list-agents failed: {line}");
+    let agents = response["data"]["agents"].as_array().unwrap();
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0]["surface"], surface.id);
+    assert_eq!(agents[0]["agent"], "claude");
+    assert_eq!(agents[0]["state"], "working");
+    assert_eq!(agents[0]["source"], "detection");
+    assert_eq!(agents[0]["session"], "session-only");
+
+    mux.close_surface(surface.id);
+    mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
 fn default_colors_apply_to_existing_and_future_surfaces() {
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new("test-default-colors", opts);

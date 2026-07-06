@@ -32,8 +32,8 @@ use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
 use crate::{
-    AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId, SplitDir, SurfaceId,
-    SurfaceKind, WorkspaceId,
+    AgentEntry, AgentSource, AgentState, AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId,
+    Rgb, ScreenId, SplitDir, SurfaceId, SurfaceKind, WorkspaceId,
 };
 
 pub const PROTOCOL_VERSION: u32 = 6;
@@ -206,6 +206,29 @@ enum Command {
     },
     /// Stream mux events on this connection.
     Subscribe,
+    /// Hook or detector report for a surface's agent state.
+    ReportAgent {
+        surface: SurfaceId,
+        source: AgentSource,
+        #[serde(default)]
+        agent: Option<String>,
+        #[serde(default)]
+        state: Option<AgentState>,
+        #[serde(default)]
+        custom_status: Option<String>,
+        #[serde(default)]
+        session: Option<String>,
+    },
+    /// List surfaces with known agent state.
+    ListAgents,
+    /// Broadcast a transient notification event.
+    Notify {
+        title: String,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        level: Option<String>,
+    },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
         surface: SurfaceId,
@@ -370,6 +393,23 @@ fn workspaces_json(state: &State) -> Value {
             })
         }).collect::<Vec<_>>(),
     })
+}
+
+fn agent_entry_json(entry: &AgentEntry) -> Value {
+    let mut value = json!({
+        "surface": entry.surface,
+        "agent": entry.agent,
+        "state": entry.state.as_str(),
+        "source": entry.source.as_str(),
+        "last_change": entry.last_change,
+    });
+    if let Some(custom_status) = entry.custom_status.as_ref() {
+        value["custom_status"] = json!(custom_status);
+    }
+    if let Some(session_ref) = entry.session_ref.as_ref() {
+        value["session"] = json!(session_ref);
+    }
+    value
 }
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
@@ -589,6 +629,20 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             surface.try_with_terminal(|t| t.scroll_delta(delta))?;
             Ok(json!({}))
         }
+        Command::ReportAgent { surface, source, agent, state, custom_status, session } => {
+            mux.report_agent(surface, source, agent, state, custom_status, session)?;
+            Ok(json!({}))
+        }
+        Command::ListAgents => {
+            let agents = mux.list_agents();
+            Ok(json!({
+                "agents": agents.iter().map(agent_entry_json).collect::<Vec<_>>(),
+            }))
+        }
+        Command::Notify { title, body, level } => {
+            mux.notify(title, body, level);
+            Ok(json!({}))
+        }
         Command::Subscribe => {
             let events = mux.subscribe();
             let writer = writer.clone();
@@ -613,6 +667,25 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                             json!({"event": "title-changed", "surface": id})
                         }
                         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+                        MuxEvent::AgentStateChanged(change) => {
+                            let mut value = json!({
+                                "event": "agent-state-changed",
+                                "surface": change.surface,
+                                "agent": change.agent,
+                                "state": change.state.as_str(),
+                                "source": change.source.as_str(),
+                            });
+                            if let Some(custom_status) = change.custom_status.as_ref() {
+                                value["custom_status"] = json!(custom_status);
+                            }
+                            value
+                        }
+                        MuxEvent::Notification { title, body, level } => json!({
+                            "event": "notification",
+                            "title": title,
+                            "body": body,
+                            "level": level,
+                        }),
                         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
                         MuxEvent::Empty => json!({"event": "empty"}),
                     };

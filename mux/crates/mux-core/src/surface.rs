@@ -13,10 +13,10 @@ use std::sync::{Arc, Mutex, Weak};
 use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
-use crate::{Mux, MuxEvent, SurfaceId};
-
+use crate::agent::default_agents;
 pub use crate::browser::{BrowserFrame, BrowserSource};
 use crate::browser::{BrowserRuntime, BrowserSurface};
+use crate::{Mux, MuxEvent, SurfaceId};
 
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
@@ -32,6 +32,8 @@ pub struct SurfaceOptions {
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_MUX_SOCKET).
     pub extra_env: Vec<(String, String)>,
+    /// Program names recognized as agents in surface titles.
+    pub agents: Vec<String>,
     /// Optional Chrome/Chromium binary for browser surfaces.
     pub chrome_binary: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
@@ -56,6 +58,7 @@ impl Default for SurfaceOptions {
             rows: 24,
             scrollback: 10_000,
             extra_env: Vec::new(),
+            agents: default_agents(),
             chrome_binary: None,
             cdp_url: None,
             browser_discover: true,
@@ -178,6 +181,8 @@ impl Surface {
         let mut cmd = CommandBuilder::new(&argv[0]);
         cmd.args(&argv[1..]);
         cmd.env("TERM", &opts.term);
+        cmd.env("CMUX_MUX_SURFACE", id.to_string());
+        cmd.env("CMUX_MUX_SURFACE_ID", id.to_string());
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
@@ -250,6 +255,7 @@ impl Surface {
                         Ok(n) => n,
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                    let current_title;
                     {
                         let mut term = pty.term.lock().unwrap();
                         term.vt_write(&buf[..n]);
@@ -262,10 +268,13 @@ impl Surface {
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
-                            *pty.title.lock().unwrap() = title;
+                            *pty.title.lock().unwrap() = title.clone();
+                            current_title = title;
                             if let Some(mux) = mux.upgrade() {
                                 mux.emit(MuxEvent::TitleChanged(surface.id));
                             }
+                        } else {
+                            current_title = pty.title.lock().unwrap().clone();
                         }
                         if let Some(pwd) = term.pwd() {
                             *pty.pwd.lock().unwrap() = Some(pwd);
@@ -274,6 +283,9 @@ impl Surface {
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                     if !responses.is_empty() {
                         let _ = surface.write_bytes(&responses);
+                    }
+                    if let Some(mux) = mux.upgrade() {
+                        mux.observe_agent_activity(surface.id, current_title);
                     }
                     if !pty.dirty.swap(true, Ordering::AcqRel) {
                         if let Some(mux) = mux.upgrade() {

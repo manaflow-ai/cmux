@@ -111,7 +111,7 @@ impl RemoteSession {
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
         if protocol != SUPPORTED_PROTOCOL_VERSION {
             anyhow::bail!(
-                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6 because attach-stream resize markers are authoritative; restart the cmux-mux server"
+                "unsupported cmux-mux protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION} because attach-stream resize markers are authoritative; restart the cmux-mux server"
             );
         }
         session.request(json!({"cmd": "subscribe"}))?;
