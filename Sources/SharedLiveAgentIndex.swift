@@ -44,7 +44,12 @@ final class SharedLiveAgentIndex {
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
     private let processIsRunningProvider: @MainActor (Int) -> Bool
-    private let processIsScopedToPanelProvider: @MainActor (Int, UUID, UUID) -> Bool
+    private let processMatchesCachedAgentProvider: @MainActor (
+        Int,
+        UUID,
+        UUID,
+        SessionRestorableAgentSnapshot
+    ) -> Bool
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
@@ -61,18 +66,24 @@ final class SharedLiveAgentIndex {
             let result = Darwin.kill(pid_t(processId), 0)
             return result == 0 || errno == EPERM
         },
-        processIsScopedToPanelProvider: @escaping @MainActor (Int, UUID, UUID) -> Bool = { processId, workspaceId, panelId in
+        processMatchesCachedAgentProvider: @escaping @MainActor (
+            Int,
+            UUID,
+            UUID,
+            SessionRestorableAgentSnapshot
+        ) -> Bool = { processId, workspaceId, panelId, snapshot in
             guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: processId) else {
                 return false
             }
             return process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId)
+                && CachedAgentProcessIdentityValidator().currentProcess(process, matches: snapshot)
         }
     ) {
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
         self.processIsRunningProvider = processIsRunningProvider
-        self.processIsScopedToPanelProvider = processIsScopedToPanelProvider
+        self.processMatchesCachedAgentProvider = processMatchesCachedAgentProvider
     }
 
     deinit {
@@ -99,7 +110,13 @@ final class SharedLiveAgentIndex {
             return nil
         }
         let processIDs = index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId)
-        guard cachedLiveProcessIDsAreRunning(processIDs) else {
+        guard cachedLiveProcessIDsAreRunning(processIDs),
+              cachedLiveProcessIDsMatchSnapshot(
+                  processIDs,
+                  workspaceId: workspaceId,
+                  panelId: panelId,
+                  snapshot: snapshot
+              ) else {
             return nil
         }
         if processIDs.isEmpty,
@@ -134,7 +151,12 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        guard cachedLiveProcessIDsAreScoped(processIDs, workspaceId: workspaceId, panelId: panelId) else {
+        guard cachedLiveProcessIDsMatchSnapshot(
+            processIDs,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            snapshot: snapshot
+        ) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
@@ -307,9 +329,14 @@ final class SharedLiveAgentIndex {
         return true
     }
 
-    private func cachedLiveProcessIDsAreScoped(_ processIDs: Set<Int>, workspaceId: UUID, panelId: UUID) -> Bool {
+    private func cachedLiveProcessIDsMatchSnapshot(
+        _ processIDs: Set<Int>,
+        workspaceId: UUID,
+        panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot
+    ) -> Bool {
         for processID in processIDs {
-            guard processIsScopedToPanelProvider(processID, workspaceId, panelId) else { return false }
+            guard processMatchesCachedAgentProvider(processID, workspaceId, panelId, snapshot) else { return false }
         }
         return true
     }

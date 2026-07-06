@@ -206,7 +206,7 @@ struct WorkspaceForkConversationContextMenuTests {
             processIsRunningProvider: {
                 $0 == processId
             },
-            processIsScopedToPanelProvider: { $0 == processId && $1 == liveWorkspaceId && $2 == livePanelId }
+            processMatchesCachedAgentProvider: { $0 == processId && $1 == liveWorkspaceId && $2 == livePanelId && $3.sessionId == sessionId }
         )
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: staleWorkspaceId, panelId: stalePanelId)

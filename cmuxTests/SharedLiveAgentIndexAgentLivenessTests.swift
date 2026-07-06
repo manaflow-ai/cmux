@@ -101,9 +101,13 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             processIsRunningProvider: {
                 $0 == agentPID
             },
-            processIsScopedToPanelProvider: { pid, scopedWorkspaceId, scopedPanelId in
+            processMatchesCachedAgentProvider: { pid, scopedWorkspaceId, scopedPanelId, snapshot in
                 isAgentScopedToPanel.withLock { isScoped in
-                    isScoped && pid == agentPID && scopedWorkspaceId == workspaceId && scopedPanelId == panelId
+                    isScoped
+                        && pid == agentPID
+                        && scopedWorkspaceId == workspaceId
+                        && scopedPanelId == panelId
+                        && snapshot.sessionId == sessionId
                 }
             }
         )
@@ -121,6 +125,67 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         #expect(
             !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
             "An alive agent PID that moved to another panel must not keep the old panel forkable."
+        )
+    }
+
+    @Test
+    func cachedAgentProcessIdentityRejectsInheritedScopeAndDifferentSession() {
+        let agentId = "forkable-identity-agent"
+        let sessionId = "expected-session"
+        let executable = "/usr/local/bin/\(agentId)"
+        let registration = CmuxVaultAgentRegistration(
+            id: agentId,
+            name: "Forkable Identity Agent",
+            detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --session {{sessionId}} --fork"
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom(agentId),
+            sessionId: sessionId,
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: agentId,
+                executablePath: executable,
+                arguments: [executable, "--session", sessionId],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            ),
+            registration: registration
+        )
+        let validator = CachedAgentProcessIdentityValidator()
+
+        #expect(
+            validator.currentProcess(
+                CmuxTopProcessArguments(
+                    arguments: [executable, "--session", sessionId],
+                    environment: ["CMUX_AGENT_LAUNCH_KIND": agentId]
+                ),
+                matches: snapshot
+            )
+        )
+        #expect(
+            !validator.currentProcess(
+                CmuxTopProcessArguments(
+                    arguments: ["/bin/zsh"],
+                    environment: ["CMUX_AGENT_LAUNCH_KIND": agentId]
+                ),
+                matches: snapshot
+            ),
+            "Inherited cmux agent scope is not enough when argv no longer identifies the cached agent."
+        )
+        #expect(
+            !validator.currentProcess(
+                CmuxTopProcessArguments(
+                    arguments: [executable, "--session", "different-session"],
+                    environment: ["CMUX_AGENT_LAUNCH_KIND": agentId]
+                ),
+                matches: snapshot
+            ),
+            "A reused PID running the same agent binary for another session must refresh instead of forking stale state."
         )
     }
 }
