@@ -303,7 +303,8 @@ extension TerminalController: ControlSystemContext {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
-        let trimmedDirectory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let presentedDirectory = workspace.presentedCurrentDirectory ?? ""
+        let trimmedPresentedDirectory = presentedDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return ControlExtensionSidebarWorkspace(
             workspaceID: workspace.id,
             index: index,
@@ -311,13 +312,13 @@ extension TerminalController: ControlSystemContext {
             description: workspace.customDescription,
             isSelected: selected,
             isPinned: workspace.isPinned,
-            rootPath: trimmedDirectory.isEmpty ? nil : trimmedDirectory,
+            rootPath: trimmedPresentedDirectory.isEmpty ? nil : trimmedPresentedDirectory,
             projectRootPath: workspace.extensionSidebarProjectRootPath,
             branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionStateRawValue: workspace.remoteConnectionState.rawValue,
             remotePayload: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
-            currentDirectory: workspace.currentDirectory,
+            currentDirectory: presentedDirectory,
             customColor: workspace.customColor,
             unreadCount: TerminalNotificationStore.shared.unreadCount(forTabId: workspace.id),
             latestNotificationText: latestNotificationText,
