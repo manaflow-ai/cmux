@@ -82,7 +82,10 @@ enum CmuxConfigActionSaver {
             throw SaveError.malformedConfig(globalConfigPath)
         }
 
-        let configURL = URL(fileURLWithPath: globalConfigPath)
+        // Dotfiles setups symlink ~/.config/cmux/cmux.json; an atomic write to
+        // the symlink path would replace the link with a regular file. Write
+        // to the resolved target instead (a missing leaf resolves to itself).
+        let configURL = URL(fileURLWithPath: globalConfigPath).resolvingSymlinksInPath()
         try fileManager.createDirectory(
             at: configURL.deletingLastPathComponent(),
             withIntermediateDirectories: true,
@@ -92,7 +95,7 @@ enum CmuxConfigActionSaver {
         // Saved actions can carry env values, URLs, and command lines; the
         // atomic rewrite above resets permissions to the umask default, so
         // re-tighten to owner-only every time.
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: globalConfigPath)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
         return SaveResult(actionID: actionID, configPath: globalConfigPath)
     }
 

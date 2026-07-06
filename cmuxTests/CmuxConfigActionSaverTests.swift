@@ -82,6 +82,36 @@ final class CmuxConfigActionSaverTests: XCTestCase {
         XCTAssertEqual(pane.surfaces.first?.command, "claude")
     }
 
+    func testSaveWorkspaceActionPreservesSymlinkedConfig() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-action-saver-symlink-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let realConfig = root.appendingPathComponent("dotfiles-cmux.json")
+        try "{}\n".write(to: realConfig, atomically: true, encoding: .utf8)
+        let linkPath = root.appendingPathComponent("cmux.json").path
+        try FileManager.default.createSymbolicLink(
+            atPath: linkPath,
+            withDestinationPath: realConfig.path
+        )
+
+        _ = try CmuxConfigActionSaver.saveWorkspaceAction(
+            title: "Linked",
+            definition: CmuxWorkspaceDefinition(name: "Linked"),
+            globalConfigPath: linkPath
+        )
+
+        // The link must survive and the real target must hold the action.
+        let attributes = try FileManager.default.attributesOfItem(atPath: linkPath)
+        XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeSymbolicLink)
+        let saved = try String(contentsOf: realConfig, encoding: .utf8)
+        XCTAssertTrue(saved.contains("\"linked\""))
+    }
+
     func testSaveWorkspaceActionRespectsReservedIDs() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-action-saver-reserved-\(UUID().uuidString)",
