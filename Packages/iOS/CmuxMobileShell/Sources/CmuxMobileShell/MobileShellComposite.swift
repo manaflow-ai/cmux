@@ -6378,7 +6378,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.recordTerminalEventStreamLiveness()
             self.markMacConnectionHealthy()
-            if alreadySubscribed == false {
+            if alreadySubscribed == false || (restartOnFailure && alreadySubscribed == nil) {
                 MobileDebugLog.anchormux("sync.refresh_repaired reason=\(reason)")
                 for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
                     self.requestTerminalReplay(surfaceID: surfaceID)

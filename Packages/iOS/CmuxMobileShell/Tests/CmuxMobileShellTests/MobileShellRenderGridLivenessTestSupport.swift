@@ -77,6 +77,7 @@ actor LivenessHostRouter {
     private var viewportRequestCount = 0
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
+    private var omitAlreadySubscribedFromSubscribeResponse = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
@@ -252,6 +253,10 @@ actor LivenessHostRouter {
         hasActiveSubscription = false
     }
 
+    func omitAlreadySubscribedField() {
+        omitAlreadySubscribedFromSubscribeResponse = true
+    }
+
     /// Resume every held request so parked continuations do not leak past the
     /// end of the test.
     func releaseAllHeld() {
@@ -308,11 +313,14 @@ actor LivenessHostRouter {
             }
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true
-            return try? Self.resultFrame(id: id, result: [
+            var result: [String: Any] = [
                 "stream_id": "test-stream",
                 "topics": ["workspace.updated", "terminal.render_grid"],
-                "already_subscribed": alreadySubscribed,
-            ])
+            ]
+            if !omitAlreadySubscribedFromSubscribeResponse {
+                result["already_subscribed"] = alreadySubscribed
+            }
+            return try? Self.resultFrame(id: id, result: result)
         case "mobile.terminal.replay":
             replayRequestCount += 1
             if heldReplayResponsesRemaining > 0 {

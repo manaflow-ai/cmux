@@ -16,6 +16,7 @@ struct WorkspaceSceneIDProbe: UIViewRepresentable {
 
     final class SceneProbeView: UIView {
         var onSceneIDChange: (ObjectIdentifier?) -> Void
+        private var reportedSceneID: ObjectIdentifier?
 
         init(onSceneIDChange: @escaping (ObjectIdentifier?) -> Void) {
             self.onSceneIDChange = onSceneIDChange
@@ -36,9 +37,9 @@ struct WorkspaceSceneIDProbe: UIViewRepresentable {
 
         func reportSceneID() {
             let id = window?.windowScene.map(ObjectIdentifier.init)
-            Task { @MainActor in
-                self.onSceneIDChange(id)
-            }
+            guard id != reportedSceneID else { return }
+            reportedSceneID = id
+            onSceneIDChange(id)
         }
     }
 }
