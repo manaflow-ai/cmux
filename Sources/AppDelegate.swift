@@ -1109,8 +1109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
-    private var isMainWindowFrameReconcileScheduled = false
-    private var pendingMainWindowFrameReconcileSource: String?
+    private var mainWindowFrameReconcileTask: Task<Void, Never>?
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
@@ -3640,34 +3639,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private nonisolated static func shouldPreserveAccessibleFrame(
         frame: CGRect,
-        targetDisplay: SessionDisplayGeometry,
-        minimumVisibleTopStripWidth: CGFloat = 120,
-        topStripHeight: CGFloat = 64,
-        minimumVisibleTopStripHeight: CGFloat = 24
+        targetDisplay: SessionDisplayGeometry
     ) -> Bool {
         let standardizedFrame = frame.standardized
         guard standardizedFrame.width.isFinite,
               standardizedFrame.height.isFinite,
-              standardizedFrame.width > 0,
-              standardizedFrame.height > 0,
               standardizedFrame.intersects(targetDisplay.frame) else {
             return false
         }
-
-        let stripHeight = min(topStripHeight, standardizedFrame.height)
-        let topStrip = CGRect(
-            x: standardizedFrame.minX,
-            y: standardizedFrame.maxY - stripHeight,
-            width: standardizedFrame.width,
-            height: stripHeight
+        // Single source of truth for "is a grabbable slice of the titlebar
+        // visible" — shared with the runtime constrain veto so the restore-time
+        // clamp and the sleep/wake constrain pass agree on reachability.
+        return CmuxMainWindow.isTitlebarReachable(
+            frame: standardizedFrame,
+            visibleFrame: targetDisplay.visibleFrame
         )
-        let visibleTopStrip = topStrip.intersection(targetDisplay.visibleFrame)
-        guard !visibleTopStrip.isNull else { return false }
-
-        let requiredWidth = min(minimumVisibleTopStripWidth, standardizedFrame.width)
-        let requiredHeight = min(minimumVisibleTopStripHeight, stripHeight)
-        return visibleTopStrip.width >= requiredWidth
-            && visibleTopStrip.height >= requiredHeight
     }
 
     private nonisolated static func display(
@@ -3993,34 +3979,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.scheduleMainWindowFrameReconcile(source: "didChangeScreenParameters")
+                self?.scheduleMainWindowFrameReconcile()
             }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
     }
 
     /// Coalesces bursts of `didChangeScreenParametersNotification` into a single
-    /// reconcile pass, run after a short settle delay so `NSScreen.screens`
-    /// geometry is current when read back.
-    private func scheduleMainWindowFrameReconcile(source: String) {
-        pendingMainWindowFrameReconcileSource = source
-        guard !isMainWindowFrameReconcileScheduled else { return }
-        isMainWindowFrameReconcileScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self else { return }
-            self.isMainWindowFrameReconcileScheduled = false
-            let source = self.pendingMainWindowFrameReconcileSource ?? "unknown"
-            self.pendingMainWindowFrameReconcileSource = nil
-            self.reconcileMainWindowFramesAfterScreenChange(source: source)
+    /// reconcile pass. The display list often arrives in stages during a
+    /// reconfiguration (a monitor connecting, resolution ramping, the lid
+    /// animating), so a short bounded delay lets `NSScreen` settle before we read
+    /// it back; restarting the delay on each notification collapses the burst
+    /// into one pass keyed off the last event. The pending task is cancelled on
+    /// teardown so it can never fire against a half-torn-down app.
+    private func scheduleMainWindowFrameReconcile() {
+        mainWindowFrameReconcileTask?.cancel()
+        mainWindowFrameReconcileTask = Task { @MainActor [weak self] in
+            // Bounded settle delay; cancellation (teardown / a newer event)
+            // aborts it structurally.
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, let self else { return }
+            self.mainWindowFrameReconcileTask = nil
+            self.reconcileMainWindowFramesAfterScreenChange()
         }
     }
 
     /// Re-clamps every main window whose titlebar is no longer reachable onto a
     /// currently-connected display. A no-op for windows that already fit.
-    private func reconcileMainWindowFramesAfterScreenChange(source: String) {
+    private func reconcileMainWindowFramesAfterScreenChange() {
+        // Never fight a deliberate frame the restore path or teardown is
+        // applying, and never persist a frame clamped against transient
+        // mid-teardown geometry.
+        guard !isApplyingSessionRestore, !isTerminatingApp else { return }
         let displays = currentDisplayGeometries()
         guard !displays.available.isEmpty else { return }
         for window in mainWindowsForVisibilityController() {
+            // Native-fullscreen windows are owned by AppKit's Space machinery;
+            // clamping them mid-transition fights the fullscreen teardown.
+            guard !window.styleMask.contains(.fullScreen) else { continue }
             let currentFrame = window.frame
             guard let corrected = Self.reconciledFrameAfterScreenChange(
                 frame: currentFrame,
@@ -4028,7 +4024,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else { continue }
 #if DEBUG
             cmuxDebugLog(
-                "window.reconcile source=\(source) " +
+                "window.reconcile " +
                     "from={\(debugNSRectDescription(currentFrame))} " +
                     "to={\(debugNSRectDescription(corrected))}"
             )

@@ -137,5 +137,30 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
                 + "preserved; AppKit needs to re-clamp it so the titlebar stays grabbable."
         )
     }
+
+    // Guards against re-introducing the #6305 sleep/wake drift for a window
+    // deliberately parked mostly off a side edge. Only ~90pt of the titlebar
+    // width is on-screen — comfortably grabbable — so the frame must be
+    // preserved rather than yanked back on the next constrain pass.
+    func testPreservesFrameParkedAtSideEdgeWithGrabbableTitlebar() {
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let parkedLeft = NSRect(x: -910, y: 200, width: 1000, height: 600) // 90pt on-screen
+        XCTAssertTrue(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(parkedLeft, visibleFrames: [visible])
+        )
+    }
+
+    // Guards against re-introducing the #6305 drift on a large-menu-bar / notch
+    // display: a window flush to the physical top has only a thin slice of its
+    // titlebar clearing the ~44pt menu-bar inset, but it is fully on-screen and
+    // must be preserved.
+    func testPreservesFlushTopFrameOnLargeMenuBarDisplay() {
+        // 44pt top inset (physical height 982, visible height 938).
+        let visible = NSRect(x: 0, y: 0, width: 1512, height: 938)
+        let flushTop = NSRect(x: 300, y: 382, width: 1000, height: 600) // maxY 982 == physical top
+        XCTAssertTrue(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(flushTop, visibleFrames: [visible])
+        )
+    }
 }
 #endif
