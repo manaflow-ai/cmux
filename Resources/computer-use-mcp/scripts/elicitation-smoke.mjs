@@ -604,6 +604,22 @@ if (
   process.exit(1);
 }
 
+const noScreenshotState = await run({
+  withElicitation: true,
+  tool: "computer_state",
+  args: { app: "NoScreenshotApp" },
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(`state without screenshot -> isError=${noScreenshotState.isError}`);
+if (
+  noScreenshotState.isError ||
+  !noScreenshotState.text.includes("Accessibility tree") ||
+  !noScreenshotState.text.includes("Screenshot unavailable")
+) {
+  console.error("FAIL: screenshot failure should still return the AX tree with guidance");
+  process.exit(1);
+}
+
 const cancelled = await runRawCancellationSmoke({ queued: false });
 console.log(
   `cancelled tool call -> isError=${cancelled.result.isError} followUp=${cancelled.afterCancel.isError} hiddenSnapshot=${cancelled.hiddenSnapshotClick.isError} text=${cancelled.afterCancel.text}`

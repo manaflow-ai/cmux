@@ -184,6 +184,10 @@ const MESSAGE_CATALOG = {
       "stable window identity is required for coordinate input; re-run computer_state and retry",
     screenshotDescription:
       "Capture a screenshot. Pass `app` for one app's window, or omit `app` (optionally `display`) for the full desktop.",
+    screenshotUnavailable: (reason) =>
+      reason
+        ? `Screenshot unavailable; the accessibility tree was still captured. If this is a permission issue, grant Screen Recording permission to the app or terminal running cmux computer use, then retry. Details: ${reason}`
+        : "Screenshot unavailable; the accessibility tree was still captured. If this is a permission issue, grant Screen Recording permission to the app or terminal running cmux computer use, then retry.",
     screenshotPixelX: "Screenshot pixel x (from the latest captured image)",
     screenshotPixelY: "Screenshot pixel y (from the latest captured image)",
     scrollDescription: "Scroll an element in a direction (up/down/left/right), optionally by N pages.",
@@ -311,6 +315,10 @@ const MESSAGE_CATALOG = {
       "座標入力には安定したウィンドウ識別子が必要です。computer_state を再実行してから再試行してください",
     screenshotDescription:
       "スクリーンショットをキャプチャします。アプリのウィンドウには `app` を渡し、デスクトップ全体には `app` を省略します（必要なら `display` を指定）。",
+    screenshotUnavailable: (reason) =>
+      reason
+        ? `スクリーンショットは利用できませんでしたが、アクセシビリティツリーはキャプチャしました。権限が原因の場合は、cmux computer use を実行しているアプリまたはターミナルに Screen Recording 権限を付与してから再試行してください。詳細: ${reason}`
+        : "スクリーンショットは利用できませんでしたが、アクセシビリティツリーはキャプチャしました。権限が原因の場合は、cmux computer use を実行しているアプリまたはターミナルに Screen Recording 権限を付与してから再試行してください。",
     screenshotPixelX: "最新キャプチャ画像のスクリーンショットピクセル x",
     screenshotPixelY: "最新キャプチャ画像のスクリーンショットピクセル y",
     scrollDescription: "要素を指定方向（up/down/left/right）にスクロールします。ページ数も任意で指定できます。",
@@ -401,6 +409,10 @@ function throwIfActiveToolCancelled() {
 
 function normalizeAppName(app) {
   return typeof app === "string" ? app.trim() : "";
+}
+
+function shortErrorMessage(error) {
+  return String(error?.message ?? error ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
 function usesCoordinates(args) {
@@ -515,6 +527,7 @@ class FakeComputerUseProvider {
       { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
       { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
       { name: "ProviderFailureApp", bundleIdentifier: "com.cmux.providerfailure", pid: 1005 },
+      { name: "NoScreenshotApp", bundleIdentifier: "com.cmux.noscreenshot", pid: 1006 },
       { name: "RotatingIdentityApp", bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid },
     ];
   }
@@ -532,6 +545,7 @@ class FakeComputerUseProvider {
       QueueHoldApp: { name: "QueueHoldApp", bundleIdentifier: "com.cmux.queuehold", pid: 1002 },
       SlowStateApp: { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
       NoWindowIdentityApp: { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
+      NoScreenshotApp: { name: "NoScreenshotApp", bundleIdentifier: "com.cmux.noscreenshot", pid: 1006 },
     };
     return identities[app] ?? identities.TestApp;
   }
@@ -600,7 +614,8 @@ class FakeComputerUseProvider {
         id: windowId,
         bounds: { x: 0, y: 0, width: 400, height: 300 },
       },
-      image: includeScreenshot ? fakeImage() : null,
+      image: includeScreenshot && app !== "NoScreenshotApp" ? fakeImage() : null,
+      screenshotError: app === "NoScreenshotApp" ? "simulated screenshot failure" : "",
     };
   }
 
@@ -753,8 +768,13 @@ class MacComputerUseProvider {
       ...targetInput(target),
     });
     let image = null;
+    let screenshotError = "";
     if (includeScreenshot && result.window?.id != null) {
-      image = await captureWindowScreenshot(result.window.id);
+      try {
+        image = await captureWindowScreenshot(result.window.id);
+      } catch (error) {
+        screenshotError = shortErrorMessage(error);
+      }
     }
     return {
       tree: result.tree ?? "",
@@ -765,6 +785,7 @@ class MacComputerUseProvider {
       target: result.target ?? null,
       window: result.window ?? null,
       image,
+      screenshotError,
     };
   }
 
@@ -1076,6 +1097,8 @@ async function perceive(app) {
   ];
   if (state.image) {
     content.push({ type: "image", data: state.image.data, mimeType: state.image.mimeType });
+  } else if (state.screenshotError) {
+    content.push(text(localizedMessage("screenshotUnavailable", state.screenshotError)));
   } else {
     content.push(text("(captured, no screenshot returned)"));
   }
@@ -1104,7 +1127,16 @@ async function appScreenshot(app) {
   }
   throwIfActiveToolCancelled();
   s.rememberState(normalizedApp, state, { exposeElements: false, exposeCoordinates: !!state.image });
-  return ok(state.image ? [{ type: "image", data: state.image.data, mimeType: state.image.mimeType }] : [text("(captured, no image)")]);
+  if (state.image) {
+    return ok([{ type: "image", data: state.image.data, mimeType: state.image.mimeType }]);
+  }
+  return ok([
+    text(
+      state.screenshotError
+        ? localizedMessage("screenshotUnavailable", state.screenshotError)
+        : "(captured, no image)"
+    ),
+  ]);
 }
 
 // Element and coordinate actions are snapshot-specific. Each input consumes
