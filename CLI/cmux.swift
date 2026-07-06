@@ -23486,6 +23486,7 @@ struct CMUXCLI {
             // (tool_response.localSent); fail open when an older client omits
             // the structured response.
             guard let pushMessage = claudePushNotificationMessage(parsedInput.rawObject) else {
+                telemetry.breadcrumb("claude-hook.push-notification.empty")
                 print("OK")
                 return
             }
