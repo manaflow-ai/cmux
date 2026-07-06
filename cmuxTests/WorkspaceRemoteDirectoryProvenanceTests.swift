@@ -451,7 +451,7 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(panelSnapshot.directoryIsTrustedRemoteReport == true)
         workspace.currentDirectory = remoteDirectory; workspace.disconnectRemoteConnection(clearConfiguration: true)
         #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
-        #expect(workspace.currentDirectory != remoteDirectory)
+        #expect(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id }?.agentSession?.workingDirectory != remoteDirectory)
     }
 
     @MainActor

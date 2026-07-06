@@ -81,6 +81,11 @@ extension Workspace {
         guard !panelIds.isEmpty else { return }
         let removedDirectories = Set(panelIds.compactMap { normalizedSidebarDirectory(panelDirectories[$0]) })
         for panelId in panelIds {
+            if let agentPanel = panels[panelId] as? AgentSessionPanel,
+               let workingDirectory = normalizedSidebarDirectory(agentPanel.workingDirectory),
+               removedDirectories.contains(workingDirectory) {
+                agentPanel.clearWorkingDirectory()
+            }
             panelDirectories.removeValue(forKey: panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: panelId)
             clearPanelGitBranch(panelId: panelId)
