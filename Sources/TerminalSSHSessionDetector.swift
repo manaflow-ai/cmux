@@ -169,6 +169,62 @@ extension DetectedSSHSession {
         return args
     }
 
+    // MARK: - SSH argument helpers (restored from origin/main; the refactor
+    // split TerminalSSHSessionDetector and dropped these private statics that
+    // scpArguments/sshArguments call via Self.)
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        return options.contains { optionKey($0) == loweredKey }
+    }
+
+    private static func optionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
+
+    private static func scpRemoteDestination(_ destination: String) -> String {
+        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDestination.isEmpty else { return destination }
+
+        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        let userPart: String?
+        let hostPart: String
+        if parts.count == 2 {
+            userPart = String(parts[0])
+            hostPart = String(parts[1])
+        } else {
+            userPart = nil
+            hostPart = trimmedDestination
+        }
+
+        guard shouldBracketIPv6Literal(hostPart) else {
+            return trimmedDestination
+        }
+
+        let bracketedHost = "[\(hostPart)]"
+        if let userPart {
+            return "\(userPart)@\(bracketedHost)"
+        }
+        return bracketedHost
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedHost.isEmpty &&
+            trimmedHost.contains(":") &&
+            !trimmedHost.hasPrefix("[") &&
+            !trimmedHost.hasSuffix("]")
+    }
+
     private func sshArguments(command: String) -> [String] {
         var args: [String] = ["-T"] + SSHHostConfiguredRemoteCommand().overrideArguments
         args += [
