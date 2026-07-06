@@ -9580,10 +9580,10 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
-        // The workspace-todos feature is always on (Settings toggle removed);
-        // checklists are inline-only (popover preference removed).
+        // The workspace-todos feature is always on (enablement FF removed);
+        // the popover/inline checklist style is still user-selectable.
         workspaceTodosEnabled = true
-        workspaceTodoChecklistStyle = .inline
+        workspaceTodoChecklistStyle = settings.value(for: catalog.betaFeatures.workspaceTodosChecklistStyle)
     }
 
     private static func bool(
@@ -14178,12 +14178,7 @@ struct TabItemView: View, Equatable {
                     workspaceTitle: workspaceSnapshot.title,
                     isExpanded: isChecklistExpanded,
                     addFieldActivationToken: checklistAddFieldActivationToken,
-                    // Inline-only: the floating popover cannot win keyboard
-                    // focus from the terminal (it is a separate NSPopover
-                    // window), so checklist text entry always uses the inline
-                    // expansion, which is in the main window like the rename
-                    // field. The popover/inline preference setting was removed.
-                    usesPopoverPresentation: false,
+                    usesPopoverPresentation: settings.workspaceTodoChecklistStyle == .popover,
                     isPopoverPresented: isChecklistPopoverPresented,
                     primaryColor: activeSecondaryColor(0.9),
                     secondaryColor: activeSecondaryColor(0.65),

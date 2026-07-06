@@ -18,10 +18,13 @@ enum WorkspaceTodoFeature {
     /// menu and status glyph); the Settings feature-flag toggle was removed.
     static var isEnabled: Bool { true }
 
-    /// Checklists are always presented inline (a floating popover cannot win
-    /// keyboard focus from the terminal); the popover/inline preference was
-    /// removed.
-    static var checklistStyle: WorkspaceTodoChecklistStyle { .inline }
+    /// The checklist presentation style (popover or inline), user-selectable.
+    static var checklistStyle: WorkspaceTodoChecklistStyle {
+        let key = BetaFeaturesCatalogSection().workspaceTodosChecklistStyle
+        return WorkspaceTodoChecklistStyle.decodeFromUserDefaults(
+            UserDefaults.standard.object(forKey: key.userDefaultsKey)
+        ) ?? key.defaultValue
+    }
 
     /// No-op now that the feature is always on (kept so existing call sites
     /// stay unchanged).
