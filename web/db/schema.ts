@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -143,6 +144,84 @@ export const notificationSendEvents = pgTable(
   },
   (table) => [
     index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+export const stripeCustomers = pgTable(
+  "stripe_customers",
+  {
+    id: text("id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    email: text("email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("stripe_customers_stack_user_id_unique").on(table.stackUserId),
+  ],
+);
+
+export const stripeSubscriptions = pgTable(
+  "stripe_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    customerId: text("customer_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    status: text("status").notNull(),
+    priceId: text("price_id"),
+    plan: text("plan").notNull(),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end")
+      .notNull()
+      .default(false),
+    raw: jsonb("raw").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("stripe_subscriptions_customer_id_idx").on(table.customerId),
+    index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
+  ],
+);
+
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
+  payloadHash: text("payload_hash"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const billingEmailClaims = pgTable(
+  "billing_email_claims",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: text("email").notNull(),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    plan: text("plan").notNull(),
+    claimedByUserId: text("claimed_by_user_id"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("billing_email_claims_email_idx").on(table.email),
+  ],
+);
+
+export const subrouterTenants = pgTable(
+  "subrouter_tenants",
+  {
+    teamId: text("team_id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    tenantName: text("tenant_name").notNull(),
+    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
   ],
 );
 

@@ -106,6 +106,8 @@ const agentReadableComparePages = comparePages.map((page) => ({
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
+  { path: "/pricing", title: "Pricing" },
+  { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
   {
     path: "/blog/claude-code-best-worktree-manager",

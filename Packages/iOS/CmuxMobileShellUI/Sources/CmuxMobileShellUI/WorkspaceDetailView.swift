@@ -77,9 +77,7 @@ struct WorkspaceDetailView: View {
     }
 
     var body: some View {
-        let content = Group {
-            detailSurfaceContent
-        }
+        let content = Group { detailSurfaceContent }
 
         #if os(iOS)
         content
@@ -88,9 +86,7 @@ struct WorkspaceDetailView: View {
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .task(id: chatConversationWarmKey) {
-                await runWarmChatConversation()
-            }
+            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
                 refreshCachedChatToggleAnchor()
             }

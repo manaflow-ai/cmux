@@ -6,6 +6,20 @@ import Testing
 
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
+    @Test("feature flag bool coercion accepts PostHog bool-like values")
+    func featureFlagBoolCoercionAcceptsPostHogBoolLikeValues() {
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue(true, default: false))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(false, default: true))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue(NSNumber(value: true), default: false))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(NSNumber(value: false), default: true))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue("TRUE", default: false))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(" false ", default: true))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue("not-a-bool", default: true))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue("not-a-bool", default: false))
+        #expect(CmuxFeatureFlags.coerceBoolFlagValue(nil, default: true))
+        #expect(!CmuxFeatureFlags.coerceBoolFlagValue(nil, default: false))
+    }
+
     @Test
     func dailyActivePropertiesIncludeVersionAndBuild() {
         let properties = PostHogAnalytics.dailyActiveProperties(
