@@ -1,14 +1,14 @@
 import Foundation
 
 /// Debug-only UI-test preview flags isolated from the production config surface.
-public extension UITestConfig {
+extension UITestConfig {
     /// Whether the workspace detail terminal-picker refresh preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU=1`, the root
     /// view renders a connected workspace shell already opened to a workspace
     /// with many terminals, then repeatedly refreshes terminal titles without
     /// changing terminal identity or order. DEBUG-only.
-    static var workspaceDetailRefreshingTerminalMenuPreviewEnabled: Bool {
+    public static var workspaceDetailRefreshingTerminalMenuPreviewEnabled: Bool {
         workspaceDetailRefreshingTerminalMenuPreviewEnabled(from: ProcessInfo.processInfo.environment)
     }
 

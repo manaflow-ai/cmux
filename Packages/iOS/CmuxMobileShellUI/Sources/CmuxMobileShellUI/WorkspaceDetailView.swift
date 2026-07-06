@@ -352,7 +352,7 @@ struct WorkspaceDetailView: View {
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
     var terminalPickerToolbarButton: some View {
         let rows = terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
-        let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
+        let selection = terminalPickerLiveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
 
         return Menu {
             terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
