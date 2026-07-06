@@ -91,6 +91,7 @@ import Testing
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
     #expect(topics.contains("terminal.bytes"))
     #expect(topics.contains("terminal.render_grid"))
+    #expect(topics.contains("mobile.events.pong"))
 }
 
 @MainActor
@@ -107,6 +108,7 @@ import Testing
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
     #expect(topics.contains("terminal.render_grid"))
     #expect(topics.contains("terminal.bytes") == false)
+    #expect(topics.contains("mobile.events.pong"))
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
@@ -482,6 +484,10 @@ import Testing
         await router.count(of: "mobile.events.subscribe") >= 2
     }
     #expect(reasserted, "foreground resume should reassert the existing subscription")
+    let pinged = try await pollUntil {
+        await router.count(of: "mobile.events.ping") >= 1
+    }
+    #expect(pinged, "foreground resume must prove the push stream by consuming a pong event")
     let replayed = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") >= 2
     }

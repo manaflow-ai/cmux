@@ -2351,7 +2351,7 @@ class TerminalController {
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
-            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
+            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe", "mobile.events.ping",
             "terminal.create",
             "terminal.input",
             "terminal.paste",

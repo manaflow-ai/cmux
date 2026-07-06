@@ -15,6 +15,8 @@ private let mobileShellLog = Logger(
     category: "mobile-shell"
 )
 
+let terminalEventPongTopic = "mobile.events.pong"
+
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -45,11 +47,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", terminalEventPongTopic]
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", terminalEventPongTopic]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", terminalEventPongTopic]
             }
         }
 
@@ -701,6 +703,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var isAppForegroundActive = true
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var terminalSubscriptionRefreshID: UUID?
+    var terminalEventPongContinuationsByNonce: [String: CheckedContinuation<Bool, Never>] = [:]
+    var terminalEventPongTimersByNonce: [String: any DispatchSourceTimer] = [:]
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
@@ -5391,6 +5395,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         terminalSubscriptionRefreshID = nil
+        cancelTerminalEventPongWaiters()
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
     }
@@ -6186,7 +6191,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private var terminalEventStreamID: String {
+    var terminalEventStreamID: String {
         "ios-terminal-events-\(clientID)"
     }
 
@@ -6334,6 +6339,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalSubscriptionRefreshTask?.cancel()
             terminalSubscriptionRefreshTask = nil
             terminalSubscriptionRefreshID = nil
+            cancelTerminalEventPongWaiters()
         }
         let refreshID = UUID()
         terminalSubscriptionRefreshID = refreshID
@@ -6347,9 +6353,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             let topics = self.terminalOutputTransport.eventTopics
             let ack: TerminalEventSubscriptionAck
+            let timeoutNanoseconds = self.runtime?.livenessProbeTimeoutNanoseconds
+                ?? 3_000_000_000
             if restartOnFailure {
-                let timeoutNanoseconds = self.runtime?.livenessProbeTimeoutNanoseconds
-                    ?? 3_000_000_000
                 ack = await self.probeEventSubscriptionLiveness(
                     client: client,
                     topics: topics,
@@ -6375,6 +6381,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
                 return
+            }
+            if restartOnFailure {
+                let streamDelivered = await self.verifyTerminalEventStreamDelivery(
+                    client: client,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+                guard streamDelivered else {
+                    MobileDebugLog.anchormux("sync.refresh_stream_failed reason=\(reason)")
+                    self.resyncTerminalOutput(
+                        reason: "\(reason).stream_failed",
+                        restartEventStream: true
+                    )
+                    return
+                }
             }
             self.recordTerminalEventStreamLiveness()
             self.markMacConnectionHealthy()
@@ -6444,7 +6464,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // it resets the liveness window (not just render_grid events).
                 self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
-                if event.topic == "workspace.updated" {
+                if event.topic == terminalEventPongTopic {
+                    self.handleTerminalEventPong(event)
+                } else if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
@@ -7641,6 +7663,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalEventListenerID = nil
         terminalSubscriptionStartTask?.cancel()
         terminalSubscriptionStartTask = nil
+        cancelTerminalEventPongWaiters()
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 

@@ -1,11 +1,13 @@
 import Testing
 @testable import CmuxMobileShell
 
+/// A foreground subscribe ack is only control-plane proof: if the matching
+/// pong event never reaches the listener's `AsyncStream`, the push stream is
+/// not safe to reuse and must be restarted immediately.
 @MainActor
-@Test func foregroundResumeLegacySubscribeAckReplaysMountedSurfaces() async throws {
+@Test func foregroundResumeRestartsWhenPongDoesNotReachEventStream() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
-    await router.omitAlreadySubscribedField()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
@@ -19,29 +21,27 @@ import Testing
     try await waitForReplayResponsesServed(
         1,
         router: router,
-        "the cold replay response must settle before testing legacy foreground resume"
+        "the cold replay response must settle before testing foreground stream proof"
     )
 
+    await router.setDropPongEvents(true)
     store.setAppForegroundActive(false)
     store.resumeForegroundRefresh()
-    let reasserted = try await pollUntil {
-        await router.count(of: "mobile.events.subscribe") >= 2
-    }
-    #expect(reasserted, "foreground resume should reassert the existing subscription")
+
     let pinged = try await pollUntil {
         await router.count(of: "mobile.events.ping") >= 1
     }
-    #expect(pinged, "legacy foreground resume must still prove the push stream before trusting it")
+    #expect(pinged, "foreground resume should send a push-stream ping after the subscribe ack")
+    let restarted = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") >= 2
+    }
+    #expect(
+        restarted,
+        "a foreground ping whose pong never reaches the event stream must restart the listener"
+    )
     let replayed = try await pollUntil {
         await router.count(of: "mobile.terminal.replay") >= 2
     }
-    #expect(
-        replayed,
-        "legacy hosts omit already_subscribed, so foreground resume must replay mounted surfaces to catch up missed terminal frames"
-    )
-    #expect(
-        await router.count(of: "mobile.host.status") == 1,
-        "legacy foreground catch-up must not restart the listener"
-    )
+    #expect(replayed, "foreground stream restart must replay mounted terminal surfaces")
     collector.unmount()
 }

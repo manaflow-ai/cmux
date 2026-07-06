@@ -49,7 +49,7 @@ extension GhosttySurfaceView {
             .compactMap(\.value.value)
             .first { candidate in
                 candidate.hostSurfaceID == surfaceID && candidate.window != nil
-                    && candidate.window?.windowScene.map(ObjectIdentifier.init) == sceneID
+                    && (sceneID == nil || candidate.window?.windowScene.map(ObjectIdentifier.init) == sceneID)
                     && !candidate.isHidden && candidate.alpha > 0.01
             }
         guard let matchingView else { return false }
