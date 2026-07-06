@@ -75,29 +75,49 @@ jobs:
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const { owner, repo } = context.repo;
 
-            // The head_sha of the most recent successful run of this workflow on
-            // main is the last uploaded beta commit. We always resolve it: the
-            // schedule SHA-compare uses it to skip an already-uploaded HEAD, AND
-            // the upload job uses it as the base of the "What to Test" commit range
-            // so each build's notes reflect what changed since the previous beta.
-            // branch:'main' is required: the upload job is gated on
-            // github.ref == 'refs/heads/main', so a workflow_dispatch run on a
-            // feature branch SUCCEEDS without uploading anything. Without this
-            // filter its branch SHA would become last_uploaded_sha and poison the
-            // next real beta's notes base (the generator also fails closed to a
-            // fallback line when the base is not an ancestor of HEAD).
+            // The head_sha of the most recent run on main whose *upload job*
+            // succeeded is the last uploaded beta commit. We intentionally do NOT
+            // key this off whole-workflow success: a later post-upload job (for
+            // example external-group assignment) may fail after the IPA has already
+            // been uploaded, and re-uploading the same SHA on the next schedule
+            // would create duplicate TestFlight builds for one commit. We always
+            // resolve this SHA so the schedule SHA-compare can skip an already-
+            // uploaded HEAD, AND the upload job can use it as the base of the
+            // "What to Test" commit range. branch:'main' is required: the upload
+            // job is gated on github.ref == 'refs/heads/main', so a
+            // workflow_dispatch run on a feature branch can succeed without
+            // uploading anything. Without this filter its branch SHA would become
+            // last_uploaded_sha and poison the next real beta's notes base (the
+            // generator also fails closed to a fallback line when the base is not
+            // an ancestor of HEAD).
             let lastUploadedSha = null;
             let lookupFailed = false;
             try {
-              const runs = await github.rest.actions.listWorkflowRuns({
-                owner,
-                repo,
-                workflow_id: 'ios-testflight.yml',
-                branch: 'main',
-                status: 'success',
-                per_page: 1,
-              });
-              lastUploadedSha = runs.data.workflow_runs[0]?.head_sha ?? null;
+              for (let page = 1; page <= 5 && !lastUploadedSha; page += 1) {
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: 'ios-testflight.yml',
+                  branch: 'main',
+                  per_page: 20,
+                  page,
+                });
+                for (const run of runs.data.workflow_runs) {
+                  if (run.id === context.runId || run.status !== 'completed') continue;
+                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: run.id,
+                    per_page: 100,
+                  });
+                  const uploadJob = jobs.data.jobs.find((job) => job.name === 'Upload to TestFlight');
+                  if (uploadJob?.conclusion === 'success') {
+                    lastUploadedSha = run.head_sha;
+                    break;
+                  }
+                }
+                if (runs.data.workflow_runs.length < 20) break;
+              }
             } catch (e) {
               lookupFailed = true;
               core.warning(`could not resolve last uploaded sha: ${e.message}`);
@@ -148,11 +168,15 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
+    outputs:
+      final_build_number: ${{ steps.upload.outputs.final_build_number }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
+      CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -343,3 +367,27 @@ jobs:
         if: always()
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
+
+  assign-external-group:
+    name: Assign build to external TestFlight group
+    needs: [decide, upload]
+    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    env:
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
+      CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
+      BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Assign uploaded build to the external beta group
+        run: |
+          set -euo pipefail
+          python3 ./ios/scripts/asc_assign_external_testflight_group.py \
+            --bundle-id dev.cmux.app.beta \
+            --build-number "$BUILD_NUMBER"

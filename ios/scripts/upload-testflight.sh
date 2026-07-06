@@ -190,6 +190,14 @@ EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
 fi
+# Whether this invocation should assign an uploaded external build to the
+# external beta group itself. The scheduled GitHub Actions lane disables this and
+# runs assignment in a separate post-upload job so a distribution failure cannot
+# cause duplicate uploads of the same SHA on the next schedule.
+ASSIGN_EXTERNAL_GROUP=1
+if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
+  ASSIGN_EXTERNAL_GROUP=0
+fi
 # After a successful upload, push the top ios/CHANGELOG.md entry to the build's
 # TestFlight "What to Test" so testers see what changed instead of an opaque
 # timestamp. Set to 1 by --skip-notes or CMUX_TESTFLIGHT_SKIP_NOTES=1.
@@ -934,7 +942,7 @@ fi
 # external beta group so external testers actually receive it. This is fatal: a
 # red CI/upload is preferable to claiming the external lane tracked main when the
 # build never reached the founders group.
-if [[ "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 ]]; then
+if [[ "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
     echo "error: --external requires ASC API-key auth to assign the uploaded build to an external beta group. Set ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64)." >&2
     exit 1

@@ -133,6 +133,9 @@ jobs:
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
 
+      - name: Validate external TestFlight group assignment helper
+        run: python3 tests/test_ios_testflight_external_distribution.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
