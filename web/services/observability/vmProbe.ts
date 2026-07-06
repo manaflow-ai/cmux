@@ -26,6 +26,13 @@ import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from ".
 const PROBE_STATE_KEY = "default";
 const PROBE_IDEMPOTENCY_PREFIX = "cmux-probe-";
 const PROBE_OK = "cmux-probe-ok";
+const ERROR_MESSAGE_MAX_LENGTH = 300;
+const ERROR_SECRET_PATTERNS = [
+  /Bearer\s+\S+/g,
+  /srt_[A-Za-z0-9_-]+/g,
+  /sk-[A-Za-z0-9_-]{8,}/g,
+  /eyJ[A-Za-z0-9_-]{10,}/g,
+] as const;
 
 type ProbeStepName = "create" | "status" | "exec" | "destroy";
 type ProbeStepOutcome = "ok" | "error";
@@ -775,14 +782,14 @@ function errorSummary(error: unknown): { readonly code: string; readonly message
   if (workflowError && typeof workflowError === "object") {
     const tag = (workflowError as { _tag?: unknown })._tag;
     if (typeof tag === "string") {
-      return { code: errorCodeForTag(tag), message: workflowErrorMessage(workflowError) };
+      return { code: errorCodeForTag(tag), message: sanitizeErrorMessage(workflowErrorMessage(workflowError)) };
     }
     const code = (workflowError as { code?: unknown }).code;
     if (typeof code === "string") {
-      return { code, message: errorMessage(workflowError) };
+      return { code, message: sanitizeErrorMessage(errorMessage(workflowError)) };
     }
   }
-  return { code: "vm_probe_error", message: errorMessage(error) };
+  return { code: "vm_probe_error", message: sanitizeErrorMessage(errorMessage(error)) };
 }
 
 function errorCodeForTag(tag: string): string {
@@ -834,6 +841,14 @@ function stepMs(steps: readonly VmProbeStepSummary[], step: ProbeStepName): numb
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function sanitizeErrorMessage(message: string): string {
+  let redacted = message;
+  for (const pattern of ERROR_SECRET_PATTERNS) {
+    redacted = redacted.replace(pattern, "[redacted]");
+  }
+  return redacted.slice(0, ERROR_MESSAGE_MAX_LENGTH);
 }
 
 function singleLine(value: string): string {

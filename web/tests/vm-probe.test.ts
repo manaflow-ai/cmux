@@ -64,6 +64,37 @@ describe("Cloud VM synthetic probe", () => {
     expect(harness.alerts[0]?.body).toContain("Code: vm_cloud_service_unavailable.");
   });
 
+  test("exec failure redacts provider secrets from alerts and persisted state", async () => {
+    const harness = makeHarness({
+      exec: async () => {
+        throw new VmProviderOperationError({
+          provider: "e2b",
+          operation: "exec",
+          cause: new Error("exec denied with Bearer srt_secret123token and api key sk-liveSecret123"),
+        });
+      },
+    });
+    const summary = await harness.run();
+
+    if ("skipped" in summary) throw new Error("unexpected skip");
+    expect(summary.status).toBe("failure");
+    expect(harness.alerts).toHaveLength(1);
+    const alertBody = harness.alerts[0]?.body ?? "";
+    const persistedMessage = harness.store.state?.lastErrorMessage ?? "";
+
+    expect(alertBody).toContain("Step: exec.");
+    expect(alertBody).toContain("Code: vm_cloud_service_unavailable.");
+    expect(alertBody).toContain("[redacted]");
+    expect(alertBody).not.toContain("Bearer srt_secret123token");
+    expect(alertBody).not.toContain("srt_secret123token");
+    expect(alertBody).not.toContain("sk-liveSecret123");
+    expect(harness.store.state?.lastErrorCode).toBe("vm_cloud_service_unavailable");
+    expect(persistedMessage).toContain("[redacted]");
+    expect(persistedMessage).not.toContain("Bearer srt_secret123token");
+    expect(persistedMessage).not.toContain("srt_secret123token");
+    expect(persistedMessage).not.toContain("sk-liveSecret123");
+  });
+
   test("exec failure followed by destroy failure keeps the original outage as the persisted root cause", async () => {
     const harness = makeHarness({
       exec: async () => {
