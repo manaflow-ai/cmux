@@ -6208,10 +6208,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
-            snapshot.setBool(
-                CommandPaletteContextKeys.panelHasBrowserOpenableFile,
-                workspace.browserFileURLForPanel(panelId: panelId) != nil
-            )
+            snapshot.setBool(CommandPaletteContextKeys.panelHasBrowserOpenableFile, workspace.browserFileURLForPanel(panelId: panelId) != nil)
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
                 workspace.restoredUnreadPanelIds.contains(panelId) ||
                 sidebarUnread.hasUnreadNotification(forWorkspaceId: workspace.id, surfaceId: panelId)
@@ -6858,19 +6855,7 @@ struct ContentView: View {
                 }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.openFileInBrowser",
-                title: constant(String(localized: "command.openFileInBrowser.title", defaultValue: "Open File in Browser")),
-                subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
-                keywords: ["open", "file", "browser", "html", "svg", "preview", "render"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.hasFocusedPanel)
-                        && $0.bool(CommandPaletteContextKeys.panelHasBrowserOpenableFile)
-                        && !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
-            )
-        )
+        appendOpenFileInBrowserCommandContribution(to: &contributions)
         appendMoveTabToNewWorkspaceCommandContribution(to: &contributions, panelSubtitle: panelSubtitle)
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7843,31 +7828,17 @@ struct ContentView: View {
             }
             panelContext.workspace.setPanelCustomTitle(panelId: panelContext.panelId, title: nil)
         }
-        registry.register(commandId: "palette.openFileInBrowser") {
-            guard let panelContext = focusedPanelContext,
-                  panelContext.workspace.openLocalFilePanelInBrowserToRight(panelId: panelContext.panelId) != nil else {
-                NSSound.beep()
-                return
-            }
-        }
-        registry.register(commandId: "palette.moveTabToNewWorkspace") {
-            guard moveFocusedPanelToNewWorkspace() else { NSSound.beep(); return }
-        }
+        registerOpenFileInBrowserCommandHandler(&registry)
+        registry.register(commandId: "palette.moveTabToNewWorkspace") { guard moveFocusedPanelToNewWorkspace() else { NSSound.beep(); return } }
         registry.register(commandId: "palette.toggleTabPin") {
-            guard let panelContext = focusedPanelContext else {
-                NSSound.beep()
-                return
-            }
+            guard let panelContext = focusedPanelContext else { NSSound.beep(); return }
             panelContext.workspace.setPanelPinned(
                 panelId: panelContext.panelId,
                 pinned: !panelContext.workspace.isPanelPinned(panelContext.panelId)
             )
         }
         registry.register(commandId: "palette.toggleTabUnread") {
-            guard let panelContext = focusedPanelContext else {
-                NSSound.beep()
-                return
-            }
+            guard let panelContext = focusedPanelContext else { NSSound.beep(); return }
             let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
                 panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
                 sidebarUnread.hasUnreadNotification(forWorkspaceId: panelContext.workspace.id, surfaceId: panelContext.panelId)
