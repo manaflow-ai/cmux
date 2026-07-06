@@ -2816,6 +2816,12 @@ struct ContentView: View {
             openCommandPaletteCommands()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
+            if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
+                presentSavedLayoutSavePrompt()
+            }
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -6837,6 +6843,7 @@ struct ContentView: View {
             workspaceSubtitle: workspaceSubtitle,
             panelSubtitle: panelSubtitle
         )
+        appendSavedLayoutCommandContributions(to: &contributions, workspaceSubtitle: workspaceSubtitle)
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7660,6 +7667,7 @@ struct ContentView: View {
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
         registerCloudCommandHandlers(&registry)
+        registerSavedLayoutCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -8612,6 +8620,7 @@ struct ContentView: View {
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace",
+             "palette.layout.saveCurrent",
              // Entering browser focus mode focuses the web view synchronously;
              // dismiss the palette first so its makeFirstResponder(nil) doesn't
              // clear that focus and leave focus mode active without key routing.

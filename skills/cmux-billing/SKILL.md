@@ -10,6 +10,7 @@ Use this skill before changing billing, pricing, Stripe, Pro entitlement, checko
 ## Architecture Map
 
 - `/api/billing/checkout` creates Stripe Checkout Sessions for Pro when `STRIPE_SECRET_KEY` is set. It sets `client_reference_id` to the Stack user id, auto-creates an anonymous Stack user for signed-out buyers, and falls back to the legacy Stack purchase path when Stripe is unset or `plan=team`.
+- `/api/billing/portal` resolves the current Stack user, looks up their `stripe_customers` row, and creates a Stripe customer portal session returning to `/pricing`.
 - `web/services/billing/purchase.ts` is the shared idempotent recorder used by both `/api/billing/complete` and `/api/stripe/webhook`. It attaches email to the purchaser, records `billing_email_claims` on conflict, and never cross-grants based on an unverified email.
 - `cmuxPlan` in Stack `clientReadOnlyMetadata` is the only entitlement VM code reads. `cmuxVmPlan` manual override wins.
 - `resolveProPlanStatus` ORs legacy Stack products with active `stripe_subscriptions` DB rows.

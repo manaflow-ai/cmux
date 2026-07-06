@@ -59,8 +59,17 @@ public protocol AccountFlow: AnyObject {
     /// point at a local web server.
     func openProUpgrade()
 
+    /// Re-fetches the billing plan state used by the Pro account row.
+    func refreshBillingPlan() async
+
+    /// Opens the hosted Stripe customer portal in the user's default browser.
+    func openBillingPortal()
+
     /// Whether the Pro upgrade row should render. The host backs this with
     /// a remotely toggleable feature flag; `true` when flags are
     /// unavailable only in explicit dogfood builds whose flag default is on.
     var isProUpgradeAvailable: Bool { get }
+
+    /// Whether the current account has an active Pro entitlement.
+    var isProActive: Bool { get }
 }

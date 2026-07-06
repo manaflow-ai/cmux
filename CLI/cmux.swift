@@ -3571,6 +3571,10 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "__internal_flags":
+            let response = try sendV1Command("__internal_flags", client: client)
+            print(response)
+
         case "ping":
             let response = try sendV1Command("ping", client: client)
             print(response)
@@ -4378,6 +4382,8 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+
+        case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
@@ -5925,7 +5931,7 @@ struct CMUXCLI {
         return .refs
     }
 
-    private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
+    func sendV1Command(_ command: String, client: SocketClient) throws -> String {
         let response = try client.send(command: command)
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
@@ -15900,6 +15906,8 @@ struct CMUXCLI {
               cmux workspace reconnect
               cmux workspace disconnect --workspace workspace:3
             """)
+        case "layout":
+            return Self.layoutHelpText()
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]
@@ -24650,7 +24658,7 @@ struct CMUXCLI {
             }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
-
+        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -24963,7 +24971,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -25162,7 +25170,7 @@ struct CMUXCLI {
         return " --panel=\(surfaceId)"
     }
 
-    private func resolvePreferredWorkspaceIdForClaudeHook(
+    func resolvePreferredWorkspaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
         preferCallerTTYOverFallback: Bool = false,
@@ -25210,7 +25218,7 @@ struct CMUXCLI {
     /// surface may participate in cross-surface staleness decisions — a borrowed
     /// fallback surface must not let a stale hook masquerade as another pane's.
     /// https://github.com/manaflow-ai/cmux/issues/5908
-    private func resolvePreferredSurfaceForClaudeHookDetailed(
+    func resolvePreferredSurfaceForClaudeHookDetailed(
         preferred: String?,
         fallback: String?,
         fallbackIsExplicit: Bool = false,
@@ -25449,7 +25457,7 @@ struct CMUXCLI {
         return try resolveWorkspaceId(nil, client: client)
     }
 
-    private struct ClaudeHookResolvedSurface {
+    struct ClaudeHookResolvedSurface {
         let surfaceId: String
         /// Resolved from the hook's own identity (the supplied surface value or
         /// the calling process's tty binding) rather than the focused/first-
@@ -25520,7 +25528,7 @@ struct CMUXCLI {
         })
     }
 
-    private struct CallerTerminalBinding {
+    struct CallerTerminalBinding {
         let workspaceId: String
         let surfaceId: String
     }
@@ -27443,7 +27451,7 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func notificationPayload(
+    func notificationPayload(
         title: String,
         subtitle: String,
         body: String,
@@ -32532,7 +32540,7 @@ export default CMUXSessionRestore;
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
         case "pre-tool-use", "cron-create-guard": return "PreToolUse"
-        case "post-tool-use": return "PostToolUse"
+        case "post-tool-use", "push-notification": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"

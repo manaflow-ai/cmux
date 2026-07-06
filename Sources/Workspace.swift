@@ -1917,7 +1917,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
                 focus: false
             ) {
                 _ = closePanel(panelId, force: true)
@@ -1962,7 +1962,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
                 focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
