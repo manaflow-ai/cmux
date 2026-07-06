@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
-import { getStackServerApp } from "@/app/lib/stack";
+import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { buildAlternates } from "@/i18n/seo";
 import { SiteHeader } from "../../components/site-header";
@@ -30,6 +30,10 @@ export default async function AiAccountsPage({ params, searchParams }: PageProps
   const { locale } = await params;
   const { team: teamParam } = await searchParams;
   const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
+
+  if (!isStackConfigured()) {
+    redirect("/");
+  }
   const stackUser = await getStackServerApp().getUser({ or: "return-null" }) as StackUserLike | null;
   if (!stackUser) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/ai-accounts")));
