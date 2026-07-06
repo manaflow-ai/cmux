@@ -8,13 +8,22 @@ import { z } from "zod";
 const trimEnv = (value: string | undefined): string | undefined =>
   typeof value === "string" ? value.trim() : value;
 
+const defaultSubrouterBaseUrl = (): string =>
+  process.env.VERCEL_ENV === "production"
+    ? "https://subrouter.cmux.dev"
+    : "https://subrouter-staging.cmux.dev";
+
 const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
   process.env.VERCEL_ENV === "preview";
 const allowPreviewStackPlaceholders = process.env.VERCEL_ENV === "preview";
+const isVercelNonPreviewDeployment =
+  process.env.VERCEL === "1" &&
+  typeof process.env.VERCEL_ENV === "string" &&
+  process.env.VERCEL_ENV !== "preview";
 const requireVercelNonPreviewValue = (name: string): z.ZodType<string | undefined> =>
   z.string().min(1).optional().superRefine((value, context) => {
-    if (process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "preview" && !value) {
+    if (isVercelNonPreviewDeployment && !value) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${name} is required for deployed non-preview runtimes`,
@@ -56,6 +65,9 @@ export const env = createEnv({
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
+    SUBROUTER_BASE_URL: z.string().url().optional(),
+    SUBROUTER_ADMIN_TOKEN: z.string().min(1).optional(),
+    SUBROUTER_TENANT_KEY_SECRET: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -73,6 +85,9 @@ export const env = createEnv({
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
+    SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL) ?? defaultSubrouterBaseUrl(),
+    SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
+    SUBROUTER_TENANT_KEY_SECRET: trimEnv(process.env.SUBROUTER_TENANT_KEY_SECRET),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

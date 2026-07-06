@@ -1,0 +1,165 @@
+import { and, eq } from "drizzle-orm";
+import type { Span } from "@opentelemetry/api";
+import { cloudDb } from "../../../../../db/client";
+import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../../db/schema";
+import { vaultConfig } from "../../../../../services/vault/config";
+import { withAuthedVaultApiRoute } from "../../../../../services/vault/routeHelpers";
+import { buildObjectKey, headObject } from "../../../../../services/vault/storage";
+import { getVaultStoredCompressedBytes } from "../../../../../services/vault/usage";
+import { readVaultJsonObject, validateVaultBatch } from "../../../../../services/vault/validation";
+import { setSpanAttributes } from "../../../../../services/telemetry";
+import { jsonResponse } from "../../../../../services/vms/routeHelpers";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request): Promise<Response> {
+  return withAuthedVaultApiRoute(
+    request,
+    "/api/vault/sessions/commit",
+    { "cmux.vault.operation": "sessions.commit" },
+    "/api/vault/sessions/commit POST failed",
+    { allowCookie: false },
+    async ({ user, span }) => handlePost(request, user.id, span),
+  );
+}
+
+async function handlePost(request: Request, userId: string, span: Span): Promise<Response> {
+  const body = await readVaultJsonObject(request);
+  if (!body.ok) {
+    return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+  }
+  const batch = validateVaultBatch(body.value);
+  if (!batch.ok) return jsonResponse({ error: batch.error }, 400);
+  setSpanAttributes(span, {
+    "cmux.vault.item_count": batch.value.length,
+    "cmux.vault.raw_bytes": sumBatchRawBytes(batch.value),
+    "cmux.vault.compressed_bytes": sumBatchCompressedBytes(batch.value),
+  });
+
+  const config = vaultConfig();
+  const db = cloudDb();
+  // Re-check the per-user quota at commit time so previously issued presigned
+  // URLs cannot bypass it. Snapshot dedup (onConflictDoNothing) makes this
+  // projection conservative: it may count a deduped snapshot, never undercount.
+  let projectedUserBytes = await getVaultStoredCompressedBytes(db, userId);
+  const results = [];
+  for (const item of batch.value) {
+    // Per-item so one oversized transcript cannot block the rest of the batch.
+    if (item.compressedSizeBytes > config.maxUploadBytes) {
+      results.push(itemResult(item, "error", "upload_too_large"));
+      continue;
+    }
+    if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
+      results.push(itemResult(item, "error", "quota_exceeded"));
+      continue;
+    }
+
+    const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
+    const object = await headObject(objectKey);
+    if (!object) {
+      results.push(itemResult(item, "error", "object_missing"));
+      continue;
+    }
+    // Some S3-compatible stores omit Content-Length on HEAD; only enforce the
+    // size check when the store reports one.
+    if (object.contentLength != null && object.contentLength !== item.compressedSizeBytes) {
+      results.push(itemResult(item, "error", "size_mismatch"));
+      continue;
+    }
+
+    const now = new Date();
+    const committed = await db.transaction(async (tx) => {
+      const [session] = await tx
+        .insert(vaultSessions)
+        .values({
+          userId,
+          agent: item.agent,
+          agentSessionId: item.agentSessionId,
+          relPath: item.relPath,
+          cwd: item.cwd,
+          latestSha256: item.sha256,
+          latestObjectKey: objectKey,
+          sizeBytes: item.sizeBytes,
+          compressedSizeBytes: item.compressedSizeBytes,
+          firstUploadedAt: now,
+          lastUploadedAt: now,
+          metadata: {},
+        })
+        .onConflictDoUpdate({
+          target: [vaultSessions.userId, vaultSessions.agent, vaultSessions.agentSessionId],
+          set: {
+            relPath: item.relPath,
+            cwd: item.cwd,
+            latestSha256: item.sha256,
+            latestObjectKey: objectKey,
+            sizeBytes: item.sizeBytes,
+            compressedSizeBytes: item.compressedSizeBytes,
+            lastUploadedAt: now,
+          },
+        })
+        .returning({ id: vaultSessions.id });
+
+      await tx
+        .insert(vaultSnapshots)
+        .values({
+          sessionId: session.id,
+          sha256: item.sha256,
+          objectKey,
+          sizeBytes: item.sizeBytes,
+          compressedSizeBytes: item.compressedSizeBytes,
+          uploadedAt: now,
+        })
+        .onConflictDoNothing({
+          target: [vaultSnapshots.sessionId, vaultSnapshots.sha256],
+        });
+
+      // The snapshot now accounts for these bytes, so release the upload
+      // grant that reserved them at presign time.
+      await tx.delete(vaultUploadGrants).where(eq(vaultUploadGrants.objectKey, objectKey));
+
+      return session;
+    });
+
+    projectedUserBytes += item.compressedSizeBytes;
+    results.push({
+      agent: item.agent,
+      agentSessionId: item.agentSessionId,
+      relPath: item.relPath,
+      status: "committed",
+      sessionId: committed.id,
+    });
+  }
+  setSpanAttributes(span, {
+    "cmux.vault.result_count": results.length,
+    "cmux.vault.result.committed_count": countResultStatus(results, "committed"),
+    "cmux.vault.result.error_count": countResultStatus(results, "error"),
+  });
+  return jsonResponse({ items: results });
+}
+
+function itemResult(
+  item: { agent: string; agentSessionId: string; relPath: string },
+  status: string,
+  error: string,
+) {
+  return {
+    agent: item.agent,
+    agentSessionId: item.agentSessionId,
+    relPath: item.relPath,
+    status,
+    error,
+  };
+}
+
+function sumBatchRawBytes(items: readonly { sizeBytes: number }[]): number {
+  return items.reduce((total, item) => total + item.sizeBytes, 0);
+}
+
+function sumBatchCompressedBytes(items: readonly { compressedSizeBytes: number }[]): number {
+  return items.reduce((total, item) => total + item.compressedSizeBytes, 0);
+}
+
+function countResultStatus(items: readonly { status: string }[], status: string): number {
+  return items.filter((item) => item.status === status).length;
+}
