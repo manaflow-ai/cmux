@@ -160,6 +160,50 @@ struct FleetEngineTests {
     }
 
     @Test
+    func retryReusesLiveWorkspaceInsteadOfProvisioningDuplicate() async throws {
+        let (harness, engine, fleet, task, workspaceID) = try await Self.failedTask()
+        let provisionCallsBefore = harness.actuator.provisionCalls.count
+        let commandsBefore = harness.actuator.sendAgentCommandTexts.count
+
+        #expect(engine.retryTask(id: task.id).isOK)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(harness.actuator.provisionCalls.count == provisionCallsBefore)
+        let relaunched = try #require(try engine.tasks(fleetID: fleet.id, state: .launching).get().first?.task)
+        #expect(relaunched.id == task.id)
+        #expect(relaunched.workspaceID == workspaceID)
+        #expect(harness.actuator.sendAgentCommandTexts.count == commandsBefore + 1)
+    }
+
+    @Test
+    func reprovisionAfterWorkspaceLossDropsStaleWorkspaceMapping() async throws {
+        let (harness, engine, fleet, task, oldWorkspaceID) = try await Self.failedTask()
+        harness.world.existingWorkspaces.remove(oldWorkspaceID)
+        harness.actuator.provisionResults[task.id] = .success(FleetProvisionOutcome(
+            workspaceID: "workspace-replacement",
+            surfaceID: "surface-replacement",
+            directoryPath: "/tmp/replacement",
+            branch: "fleet/task",
+            isBrandNew: true
+        ))
+
+        #expect(engine.retryTask(id: task.id).isOK)
+        await Task.yield()
+        await Task.yield()
+
+        let relaunched = try #require(try engine.tasks(fleetID: fleet.id, state: .launching).get().first?.task)
+        #expect(relaunched.id == task.id)
+        #expect(relaunched.workspaceID == "workspace-replacement")
+
+        engine.noteWorkstreamHook(workspaceID: oldWorkspaceID, sessionID: "stale", pid: nil, kind: .sessionStart, at: harness.dateBox.now)
+        #expect(try engine.tasks(fleetID: fleet.id, state: .launching).get().first?.task.id == task.id)
+
+        engine.noteWorkstreamHook(workspaceID: "workspace-replacement", sessionID: "s4", pid: nil, kind: .sessionStart, at: harness.dateBox.now)
+        #expect(try engine.tasks(fleetID: fleet.id, state: .running).get().first?.task.id == task.id)
+    }
+
+    @Test
     func schedulerCapCancelRetryOpenAndUnknownHooks() async throws {
         let harness = FleetEngineHarness()
         let engine = harness.engine()
