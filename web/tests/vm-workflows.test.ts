@@ -74,10 +74,7 @@ function workflowLayer(
   );
 }
 
-function runWithLayer<A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-  layer: Layer.Layer<any, any, any>,
-) {
+function runWithLayer(effect: any, layer: any) {
   return Effect.runPromise(pipe(effect, Effect.provide(layer)));
 }
 
