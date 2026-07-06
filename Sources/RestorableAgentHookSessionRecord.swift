@@ -13,3 +13,5 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
 }
+
+// (ci re-trigger: previous macOS CI run stuck queued ~4h; no code change)
