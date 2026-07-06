@@ -153,6 +153,29 @@ struct AuthEnvironmentTests {
             .contains(where: { $0.name == "cmux_scheme" && $0.value == "cmux-dev-preview" }) == true)
     }
 
+    @Test("billing portal follows app web origin unless billing origin is explicit")
+    func billingPortalFollowsAppWebOriginUnlessBillingOriginIsExplicit() {
+        let appOriginURL = AuthEnvironment.resolvedBillingPortalURL(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://127.0.0.1:4278",
+            ]
+        )
+        #expect(appOriginURL.scheme == "http")
+        #expect(appOriginURL.host == "localhost")
+        #expect(appOriginURL.port == 4278)
+        #expect(appOriginURL.path == "/api/billing/portal")
+
+        let overrideURL = AuthEnvironment.resolvedBillingPortalURL(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://localhost:4278",
+                "CMUX_BILLING_WWW_ORIGIN": "https://billing-preview.example",
+            ]
+        )
+        #expect(overrideURL.scheme == "https")
+        #expect(overrideURL.host == "billing-preview.example")
+        #expect(overrideURL.path == "/api/billing/portal")
+    }
+
     @Test("billing checkout default origin follows build web origin")
     func billingCheckoutDefaultOriginFollowsBuildWebOrigin() {
         let url = AuthEnvironment.resolvedBillingCheckoutURL(

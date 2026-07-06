@@ -30,6 +30,11 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
+    static func presentBillingPortal() {
+        NSWorkspace.shared.open(AuthEnvironment.billingPortalURL)
+    }
+
+    @MainActor
     private static func presentBrowserSplit(url: URL, transparentBackground: Bool) {
         // Preferred: a browser split to the right of the focused pane, so the
         // pricing screen sits beside the user's work in the same window.

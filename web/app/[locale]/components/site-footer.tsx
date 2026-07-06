@@ -27,6 +27,7 @@ export async function SiteFooter() {
       links: [
         { label: t("docs"), href: "/docs/getting-started" },
         { label: t("guides"), href: "/guides" },
+        { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
       ],
     },

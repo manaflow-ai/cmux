@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ghostty-vt-sys",
+    "crates/ghostty-vt",
+    "crates/mux-cdp",
+    "crates/mux-core",
+    "crates/mux-tui",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
+ghostty-vt = { path = "crates/ghostty-vt" }
+mux-core = { path = "crates/mux-core" }
+mux-cdp = { path = "crates/mux-cdp" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.9"
+crossterm = "0.28"
+ratatui = "0.29"
+unicode-width = "0.2"
+base64 = "0.22"
+libc = "0.2"
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+uds_windows = "1.2"
+
+[profile.release]
+lto = "thin"
+
+# Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
+# per-frame render/diff path visibly laggy. Light optimization for our
+# code, full for dependencies (ratatui/crossterm do the heavy lifting).
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

@@ -9,10 +9,9 @@ import { Modal } from "../../components/modal";
 
 // JSON structure examples, not translatable copy: keeping them out of the
 // message catalog avoids ICU parsing of the literal braces.
-const CLAUDE_JSON_PLACEHOLDER = '{"accessToken":"...","refreshToken":"...","expiresAt":1770000000000}';
 const CODEX_JSON_PLACEHOLDER = '{"accessToken":"...","refreshToken":"...","idToken":"...","accountID":"..."}';
 
-type FormKind = "claude" | "anthropic" | "codex" | "openai";
+type FormKind = "anthropic" | "codex" | "openai";
 type FormStatus = {
   readonly state: "idle" | "submitting" | "success" | "error";
   readonly message?: string;
@@ -24,7 +23,6 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
   const t = useTranslations("dashboard.aiAccounts");
   const router = useRouter();
   const [statuses, setStatuses] = useState<Record<FormKind, FormStatus>>({
-    claude: idleStatus,
     anthropic: idleStatus,
     codex: idleStatus,
     openai: idleStatus,
@@ -59,23 +57,6 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
     } catch {
       setStatus(kind, { state: "error", message: t("addError") });
     }
-  };
-
-  const submitClaude = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const parsed = parseJsonObject(String(data.get("oauthJson") ?? ""));
-    if (!parsed) {
-      setStatus("claude", { state: "error", message: t("jsonError") });
-      return;
-    }
-    const claudeAiOauth = isRecord(parsed.claudeAiOauth) ? parsed.claudeAiOauth : parsed;
-    await submitAccount("claude", form, {
-      provider: "claude",
-      label: labelValue(data),
-      claudeAiOauth,
-    });
   };
 
   const submitAnthropic = async (event: FormEvent<HTMLFormElement>) => {
@@ -119,20 +100,6 @@ export function AddAiAccountForms({ teamId }: { teamId: string }) {
 
   return (
     <div className="space-y-4">
-      <ProviderForm
-        title={t("providerClaude")}
-        labelText={t("labelField")}
-        labelPlaceholder={t("labelPlaceholder")}
-        submitLabel={t("addClaude")}
-        status={statuses.claude}
-        onSubmit={submitClaude}
-      >
-        <JsonField
-          label={t("oauthJsonField")}
-          placeholder={CLAUDE_JSON_PLACEHOLDER}
-        />
-      </ProviderForm>
-
       <ProviderForm
         title={t("providerAnthropicApiKey")}
         labelText={t("labelField")}
@@ -221,28 +188,28 @@ export function DeleteAiAccountButton({
         type="button"
         onClick={() => setConfirmOpen(true)}
         disabled={status.state === "submitting"}
-        className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:border-foreground disabled:cursor-not-allowed disabled:opacity-60"
+        className="border border-border px-3 py-1.5 text-sm transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status.state === "submitting" ? t("deletingAction") : t("deleteAction")}
       </button>
       {status.state === "error" && status.message ? (
-        <div className="mt-1 text-xs text-red-500">{status.message}</div>
+        <div className="mt-1 text-xs text-foreground">{status.message}</div>
       ) : null}
       <Modal open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <Dialog.Title className="text-left text-lg font-semibold tracking-tight">
+        <Dialog.Title className="text-left text-sm font-medium">
           {t("deleteConfirmTitle")}
         </Dialog.Title>
-        <Dialog.Description className="mt-2 text-left text-sm text-muted">
+        <Dialog.Description className="mt-2 text-left text-xs text-muted">
           {t("deleteConfirmBody")}
         </Dialog.Description>
         <div className="mt-5 flex justify-end gap-2">
-          <Dialog.Close className="rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:border-foreground">
+          <Dialog.Close className="border border-border px-3 py-1.5 text-sm transition-colors hover:bg-foreground hover:text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground">
             {t("cancelAction")}
           </Dialog.Close>
           <button
             type="button"
             onClick={deleteAccount}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            className="border border-foreground bg-foreground px-3 py-1.5 text-sm text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           >
             {t("deleteAction")}
           </button>
@@ -270,13 +237,13 @@ function ProviderForm({
   children: ReactNode;
 }) {
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border border-border p-4">
-      <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
-      <label className="mt-3 block text-xs font-medium text-muted">
+    <form onSubmit={onSubmit} className="border border-border p-3">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <label className="mt-3 block text-xs text-muted">
         {labelText}
         <input
           name="label"
-          className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-foreground"
+          className="mt-1 w-full border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-foreground"
           placeholder={labelPlaceholder}
         />
       </label>
@@ -284,15 +251,15 @@ function ProviderForm({
       <button
         type="submit"
         disabled={status.state === "submitting"}
-        className="mt-3 w-full rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-3 w-full border border-foreground bg-foreground px-3 py-1.5 text-sm text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-60"
       >
         {submitLabel}
       </button>
       {status.state === "success" && status.message ? (
-        <div className="mt-2 text-xs text-green-600">{status.message}</div>
+        <div className="mt-2 text-xs text-foreground">{status.message}</div>
       ) : null}
       {status.state === "error" && status.message ? (
-        <div className="mt-2 text-xs text-red-500">{status.message}</div>
+        <div className="mt-2 text-xs text-foreground">{status.message}</div>
       ) : null}
     </form>
   );
@@ -300,13 +267,13 @@ function ProviderForm({
 
 function JsonField({ label, placeholder }: { label: string; placeholder: string }) {
   return (
-    <label className="mt-3 block text-xs font-medium text-muted">
+    <label className="mt-3 block text-xs text-muted">
       {label}
       <textarea
         name="oauthJson"
         required
         rows={5}
-        className="mt-1 w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground outline-none transition-colors focus:border-foreground"
+        className="mt-1 w-full resize-y border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-foreground"
         placeholder={placeholder}
       />
     </label>
@@ -323,13 +290,13 @@ function SecretField({
   placeholder: string;
 }) {
   return (
-    <label className="mt-3 block text-xs font-medium text-muted">
+    <label className="mt-3 block text-xs text-muted">
       {label}
       <input
         name={name}
         type="password"
         required
-        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-foreground"
+        className="mt-1 w-full border border-border bg-background px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-foreground"
         placeholder={placeholder}
       />
     </label>

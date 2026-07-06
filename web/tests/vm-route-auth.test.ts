@@ -54,6 +54,13 @@ function callMock(fn: unknown, args: unknown[]) {
   return (fn as (...args: unknown[]) => unknown)(...args);
 }
 
+function rejectRunVmWorkflowWith(error: unknown): void {
+  (runVmWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void })
+    .mockImplementation(async () => {
+      throw error;
+    });
+}
+
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
@@ -98,7 +105,11 @@ const { DELETE } = await import("../app/api/vm/[id]/route");
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
-const { VmProviderOperationError } = await import("../services/vms/errors");
+const {
+  VmCreateCreditsInsufficientError,
+  VmCreateFailedError,
+  VmProviderOperationError,
+} = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 
@@ -251,6 +262,61 @@ describe("VM REST auth", () => {
       billingPlanId: "pro",
       maxActiveVms: 25,
     }));
+  });
+
+  test("includes original failed create cause in the idempotency failure response", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmCreateFailedError({
+        idempotencyKey: "idem-failed",
+        code: "create",
+        message: "provider unavailable",
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-failed", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({
+      error: "vm_create_failed",
+      details: {
+        idempotencyKeySet: true,
+        failureCode: "create",
+        failureMessage: "provider unavailable",
+      },
+    });
+  });
+
+  test("maps create credit exhaustion to a clean payment response", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmCreateCreditsInsufficientError({
+        itemId: "cmux-vm-create-credit",
+        billingCustomerId: "team-1",
+        amount: 1,
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-credits", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({
+      error: "vm_create_credits_insufficient",
+      amount: 1,
+      details: { amount: 1 },
+    });
   });
 
   test("uses the native client's requested Stack team for billing", async () => {
