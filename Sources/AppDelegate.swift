@@ -1109,6 +1109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
+    private var mainWindowFrameReconcileTask: Task<Void, Never>?
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
@@ -2059,6 +2060,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
+        AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
@@ -3636,38 +3638,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private nonisolated static func shouldPreserveAccessibleFrame(
-        frame: CGRect,
-        targetDisplay: SessionDisplayGeometry,
-        minimumVisibleTopStripWidth: CGFloat = 120,
-        topStripHeight: CGFloat = 64,
-        minimumVisibleTopStripHeight: CGFloat = 24
-    ) -> Bool {
-        let standardizedFrame = frame.standardized
-        guard standardizedFrame.width.isFinite,
-              standardizedFrame.height.isFinite,
-              standardizedFrame.width > 0,
-              standardizedFrame.height > 0,
-              standardizedFrame.intersects(targetDisplay.frame) else {
-            return false
-        }
-
-        let stripHeight = min(topStripHeight, standardizedFrame.height)
-        let topStrip = CGRect(
-            x: standardizedFrame.minX,
-            y: standardizedFrame.maxY - stripHeight,
-            width: standardizedFrame.width,
-            height: stripHeight
-        )
-        let visibleTopStrip = topStrip.intersection(targetDisplay.visibleFrame)
-        guard !visibleTopStrip.isNull else { return false }
-
-        let requiredWidth = min(minimumVisibleTopStripWidth, standardizedFrame.width)
-        let requiredHeight = min(minimumVisibleTopStripHeight, stripHeight)
-        return visibleTopStrip.width >= requiredWidth
-            && visibleTopStrip.height >= requiredHeight
-    }
-
     private nonisolated static func display(
         for snapshot: SessionDisplaySnapshot?,
         in displays: [SessionDisplayGeometry]
@@ -3744,46 +3714,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             height: frame.height
         )
         return clampFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
-    }
-
-    private nonisolated static func clampFrame(
-        _ frame: CGRect,
-        within visibleFrame: CGRect,
-        minWidth: CGFloat,
-        minHeight: CGFloat
-    ) -> CGRect {
-        guard visibleFrame.width.isFinite,
-              visibleFrame.height.isFinite,
-              visibleFrame.width > 0,
-              visibleFrame.height > 0 else {
-            return frame
-        }
-
-        let maxWidth = max(visibleFrame.width, 1)
-        let maxHeight = max(visibleFrame.height, 1)
-        let widthFloor = min(minWidth, maxWidth)
-        let heightFloor = min(minHeight, maxHeight)
-
-        let width = min(max(frame.width, widthFloor), maxWidth)
-        let height = min(max(frame.height, heightFloor), maxHeight)
-        let maxX = visibleFrame.maxX - width
-        let maxY = visibleFrame.maxY - height
-        let x = min(max(frame.minX, visibleFrame.minX), maxX)
-        let y = min(max(frame.minY, visibleFrame.minY), maxY)
-
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
-
-    private nonisolated static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        let intersection = lhs.intersection(rhs)
-        guard !intersection.isNull else { return 0 }
-        return max(0, intersection.width) * max(0, intersection.height)
-    }
-
-    private nonisolated static func distanceSquared(_ rect: CGRect, _ point: CGPoint) -> CGFloat {
-        let dx = rect.midX - point.x
-        let dy = rect.midY - point.y
-        return (dx * dx) + (dy * dy)
     }
 
     private nonisolated static func shouldPreserveExactFrame(
@@ -3910,6 +3840,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // Re-clamp main windows whose titlebar was stranded off-screen by a
+        // display reconfiguration (monitor connect/disconnect, resolution change,
+        // lid open/close). Non-movable windows are skipped by AppKit's automatic
+        // constraining, so `CmuxMainWindow.constrainFrameRect` never fires on this
+        // path — this observer is the reactive replacement. See
+        // `reconciledFrameAfterScreenChange`.
+        let screenParamsObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleMainWindowFrameReconcile()
+            }
+        }
+        lifecycleSnapshotObservers.append(screenParamsObserver)
+    }
+
+    /// Coalesces bursts of `didChangeScreenParametersNotification` into a single
+    /// reconcile pass. The display list often arrives in stages during a
+    /// reconfiguration (a monitor connecting, resolution ramping, the lid
+    /// animating), so a short bounded delay lets `NSScreen` settle before we read
+    /// it back; restarting the delay on each notification collapses the burst
+    /// into one pass keyed off the last event. The pending task is cancelled on
+    /// teardown so it can never fire against a half-torn-down app.
+    private func scheduleMainWindowFrameReconcile() {
+        mainWindowFrameReconcileTask?.cancel()
+        mainWindowFrameReconcileTask = Task { @MainActor [weak self] in
+            // Bounded settle delay; cancellation (teardown / a newer event)
+            // aborts it structurally.
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, let self else { return }
+            self.mainWindowFrameReconcileTask = nil
+            self.reconcileMainWindowFramesAfterScreenChange()
+        }
+    }
+
+    /// Re-clamps every main window whose titlebar is no longer reachable onto a
+    /// currently-connected display. A no-op for windows that already fit.
+    private func reconcileMainWindowFramesAfterScreenChange() {
+        // Never fight a deliberate frame the restore path or teardown is
+        // applying, and never persist a frame clamped against transient
+        // mid-teardown geometry.
+        guard !isApplyingSessionRestore, !isTerminatingApp else { return }
+        let displays = currentDisplayGeometries()
+        guard !displays.available.isEmpty else { return }
+        for window in mainWindowsForVisibilityController() {
+            // Native-fullscreen windows are owned by AppKit's Space machinery;
+            // clamping them mid-transition fights the fullscreen teardown.
+            guard !window.styleMask.contains(.fullScreen) else { continue }
+            let currentFrame = window.frame
+            guard let corrected = Self.reconciledFrameAfterScreenChange(
+                frame: currentFrame,
+                availableDisplays: displays.available
+            ) else { continue }
+#if DEBUG
+            cmuxDebugLog(
+                "window.reconcile " +
+                    "from={\(debugNSRectDescription(currentFrame))} " +
+                    "to={\(debugNSRectDescription(corrected))}"
+            )
+#endif
+            window.setFrame(corrected, display: true)
+        }
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -6142,7 +6137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+    func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
         if let scopedWindow = mainWindowForShortcutEvent(event) {
             return scopedWindow
         }
@@ -7611,7 +7606,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let configuredItems = cmuxConfigStore.newWorkspaceContextMenuItems
-        guard !configuredItems.isEmpty else { return false }
 
         let menu = NSMenu()
         for configuredItem in configuredItems {
@@ -7639,6 +7633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 menu.addItem(item)
             }
         }
+        appendSavedLayoutMenuItems(to: menu, windowId: context.windowId)
 
         while menu.items.last?.isSeparatorItem == true {
             menu.removeItem(at: menu.items.count - 1)
@@ -13199,6 +13194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handleSavedLayoutShortcut(event) { return true }
+
         if !hasFocusedAddressBarInShortcutContext,
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
@@ -14929,7 +14926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+    func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }

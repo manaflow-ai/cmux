@@ -22,6 +22,7 @@ final class HostAccountFlow: AccountFlow {
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
+    private(set) var isProActive = false
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -78,6 +79,7 @@ final class HostAccountFlow: AccountFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
+        isProActive = false
     }
 
     func refreshCurrentUser() async {
@@ -86,8 +88,40 @@ final class HostAccountFlow: AccountFlow {
         // stale the user signs in again (full browser round trip).
     }
 
+    func refreshBillingPlan() async {
+        guard coordinator.currentUser != nil else {
+            isProActive = false
+            return
+        }
+        var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let tokens = try? await coordinator.currentTokens() {
+            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
+                isProActive = false
+                return
+            }
+            let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
+            isProActive = decoded.isPro
+        } catch {
+            isProActive = false
+        }
+    }
+
     func openProUpgrade() {
         ProUpgradePresenter.present()
+    }
+
+    func openBillingPortal() {
+        ProUpgradePresenter.presentBillingPortal()
     }
 
     private static func identity(from user: CMUXAuthUser?) -> AccountIdentity? {
@@ -99,4 +133,8 @@ final class HostAccountFlow: AccountFlow {
             avatarURL: nil
         )
     }
+}
+
+private struct BillingPlanResponse: Decodable {
+    let isPro: Bool
 }

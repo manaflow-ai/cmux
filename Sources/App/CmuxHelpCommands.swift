@@ -33,6 +33,11 @@ extension cmuxApp {
                 }
                 #endif
             }
+            #if DEBUG
+            Button(String(localized: "menu.help.featureFlags", defaultValue: "Feature Flags…")) {
+                InternalFlagsPresenter.present()
+            }
+            #endif
 
             Divider()
 

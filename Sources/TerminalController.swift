@@ -242,6 +242,7 @@ class TerminalController {
     }
 
     private nonisolated static let focusIntentV1Commands: Set<String> = [
+        "__internal_flags",
         "focus_window",
         "select_workspace",
         "focus_surface",
@@ -1399,6 +1400,8 @@ class TerminalController {
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("remotes."):
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("aiAccounts."):
+            return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -1923,6 +1926,11 @@ class TerminalController {
         case "auth":
             return "OK: Authentication not required"
 
+        case "__internal_flags":
+            // UI-opening support command: presentation must run on the main actor.
+            InternalFlagsPresenter.present()
+            return "OK"
+
         case "list_windows":
             return listWindows()
 
@@ -2368,6 +2376,9 @@ class TerminalController {
             "vm.exec",
             "vm.attach_info",
             "vm.ssh_info",
+            "aiAccounts.list",
+            "aiAccounts.upload",
+            "aiAccounts.remove",
             "window.list",
             "window.current",
             "window.focus",
@@ -3694,10 +3705,8 @@ class TerminalController {
     // MARK: - V2 Workspace Methods
 
     @MainActor
-
     private func v2ExtensionSidebarRootPath(for workspace: Workspace) -> String? {
-        let trimmed = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        workspace.presentedCurrentDirectory?.nilIfEmpty
     }
 
     /// `workspace.set_auto_title`: applies an AI-generated title to a workspace
@@ -5067,13 +5076,14 @@ class TerminalController {
                 let panelId = mapped?.terminalPanel.id ?? terminalSurface.id
                 let portalState = hostedView.portalBindingGuardState()
                 let portalHostLease = terminalSurface.debugPortalHostLease()
-                let gitBranchState = workspace?.panelGitBranches[panelId]
+                let gitBranchState = workspace?.reportedPanelGitBranch(panelId: panelId)
                 let listeningPorts = (workspace?.surfaceListeningPorts[panelId] ?? []).sorted()
                 let title = workspace?.panelTitle(panelId: panelId)
                 let paneId = mapped?.paneId
                 let treeVisible = mapped?.bonsplitTabId != nil && paneId != nil
                 let ttyName = workspace?.surfaceTTYNames[panelId]
-                let currentDirectory = nonEmpty(workspace?.panelDirectories[panelId] ?? mapped?.terminalPanel.directory)
+                let currentDirectory = workspace.map { $0.effectivePanelDirectory(panelId: panelId, localFallback: nonEmpty(mapped?.terminalPanel.directory)) } ?? nonEmpty(mapped?.terminalPanel.directory)
+                let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
 
@@ -5142,7 +5152,7 @@ class TerminalController {
                     "portal_host_area": v2OrNull(portalHostLease.area.map(Double.init)),
                     "tty": v2OrNull(ttyName),
                     "current_directory": v2OrNull(currentDirectory),
-                    "requested_working_directory": v2OrNull(nonEmpty(terminalSurface.requestedWorkingDirectory)),
+                    "requested_working_directory": v2OrNull(requestedWorkingDirectory),
                     "initial_command": v2OrNull(nonEmpty(terminalSurface.debugInitialCommand())),
                     "tmux_start_command": v2OrNull(nonEmpty(terminalSurface.debugTmuxStartCommand())),
                     "git_branch": v2OrNull(nonEmpty(gitBranchState?.branch)),
@@ -13960,9 +13970,9 @@ class TerminalController {
 
     private func agentLifecycleRegistryWorkingDirectory(tab: Tab, panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { tab.panelDirectories[$0] },
-            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
-            tab.currentDirectory,
+            panelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.focusedPanelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.usesRemoteDirectoryProvenance ? tab.presentedCurrentDirectory : tab.currentDirectory,
         ]
         return candidates.compactMap(normalizedOptionValue).first
     }

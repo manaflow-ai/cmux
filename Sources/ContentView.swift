@@ -765,6 +765,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+        let activeRemoteTerminalSessionCount: Int
     }
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
@@ -780,7 +781,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<Snapshot, Never> in
+            .map { workspace -> AnyPublisher<(Snapshot, UInt64), Never> in
                 guard let workspace else {
                     return Just(
                         Snapshot(
@@ -789,38 +790,53 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil
+                            remoteDaemonStatus: nil,
+                            activeRemoteTerminalSessionCount: 0
                         )
                     )
+                    .map { ($0, UInt64(0)) }
                     .eraseToAnyPublisher()
                 }
+                let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
                 return workspace.$currentDirectory
                     .combineLatest(
                         workspace.$remoteConfiguration,
                         workspace.$remoteConnectionState,
                         workspace.$remoteConnectionDetail
                     )
-                    .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
+                    .combineLatest(
+                        workspace.$remoteDaemonStatus,
+                        workspace.$activeRemoteTerminalSessionCount
+                    )
+                    .map { values in
+                        let (
+                            previousValues,
+                            remoteDaemonStatus,
+                            activeRemoteTerminalSessionCount
+                        ) = values
                         let (
                             currentDirectory,
                             remoteConfiguration,
                             remoteConnectionState,
                             remoteConnectionDetail
-                        ) = values
+                        ) = previousValues
                         return Snapshot(
                             workspaceId: workspace.id,
-                            currentDirectory: currentDirectory,
+                            currentDirectory: workspace.isRemoteWorkspace
+                                ? workspace.presentedCurrentDirectory
+                                : currentDirectory,
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus
+                            remoteDaemonStatus: remoteDaemonStatus,
+                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                         )
                     }
+                    .combineLatest(directoryChangeRevision)
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
-            .removeDuplicates()
+            .removeDuplicates { lhs, rhs in lhs.0 == rhs.0 && lhs.1 == rhs.1 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1
@@ -2308,7 +2324,7 @@ struct ContentView: View {
 
         fileExplorerStore.showHiddenFiles = true
 
-        if tab.isRemoteWorkspace {
+        if tab.usesRemoteDirectoryProvenance {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             guard shouldSyncFileExplorerStore else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
@@ -2341,7 +2357,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
-                    rootPath: tab.currentDirectory,
+                    rootPath: tab.trustedRemoteCurrentDirectory,
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -2376,16 +2392,14 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
-        // Use focused panel's directory if available
         if let focusedPanelId = tab.focusedPanelId,
-           let panelDir = tab.panelDirectories[focusedPanelId] {
-            let trimmed = panelDir.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
+           !tab.isRemoteTerminalSurface(focusedPanelId),
+           let panelDir = tab.reportedPanelDirectory(panelId: focusedPanelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !panelDir.isEmpty {
+            return panelDir
         }
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return dir.isEmpty ? nil : dir
+        if tab.usesRemoteDirectoryProvenance { return nil }
+        return tab.presentedCurrentDirectory
     }
 
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
@@ -2616,7 +2630,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange, object: tabManager)) { notification in
-            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID, workspaceId == tabManager.selectedTabId, !tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspaceId) else { return }
+            guard tabManager.shouldRefreshTitleChrome(for: notification) else { return }
             updateTitlebarText()
         })
 
@@ -2814,6 +2828,12 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             openCommandPaletteCommands()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
+            if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
+                presentSavedLayoutSavePrompt()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
@@ -5460,8 +5480,8 @@ struct ContentView: View {
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
         // Keep workspace rows coarse and stable for predictable workspace switching queries.
-        let directories = [workspace.currentDirectory]
-        let branches = [workspace.gitBranch?.branch].compactMap { $0 }
+        let directories = [workspace.presentedCurrentDirectory].compactMap { $0 }
+        let branches = [workspace.presentedGitBranch?.branch].compactMap { $0 }
         let ports = workspace.listeningPorts
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
@@ -5474,8 +5494,8 @@ struct ContentView: View {
         for workspace: Workspace,
         panelId: UUID
     ) -> CommandPaletteSwitcherSearchMetadata {
-        let directories = [workspace.panelDirectories[panelId]].compactMap { $0 }
-        let branches = [workspace.panelGitBranches[panelId]?.branch].compactMap { $0 }
+        let directories = [workspace.reportedPanelDirectory(panelId: panelId)].compactMap { $0 }
+        let branches = [workspace.reportedPanelGitBranch(panelId: panelId)?.branch].compactMap { $0 }
         let ports = workspace.surfaceListeningPorts[panelId] ?? []
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
@@ -6832,6 +6852,7 @@ struct ContentView: View {
             workspaceSubtitle: workspaceSubtitle,
             panelSubtitle: panelSubtitle
         )
+        appendSavedLayoutCommandContributions(to: &contributions, workspaceSubtitle: workspaceSubtitle)
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7654,6 +7675,7 @@ struct ContentView: View {
         }
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
+        registerSavedLayoutCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -8606,6 +8628,7 @@ struct ContentView: View {
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace",
+             "palette.layout.saveCurrent",
              // Entering browser focus mode focuses the web view synchronously;
              // dismiss the palette first so its makeFirstResponder(nil) doesn't
              // clear that focus and leave focus mode active without key routing.
@@ -9446,10 +9469,16 @@ struct ContentView: View {
     private func focusedTerminalDirectoryURL() -> URL? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let rawDirectory: String = {
-            if let focusedPanelId = workspace.focusedPanelId,
-               let directory = workspace.panelDirectories[focusedPanelId] {
-                return directory
+            if let focusedPanelId = workspace.focusedPanelId {
+                guard workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId) else { return "" }
+                if let directory = workspace.reportedPanelDirectory(panelId: focusedPanelId) {
+                    return directory
+                }
+                if let requestedDirectory = workspace.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory {
+                    return requestedDirectory
+                }
             }
+            guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
         let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10052,7 +10081,11 @@ struct VerticalTabsSidebar: View {
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
-            customSidebarWorkspaceSnapshot(workspace, index: index, selectedId: selectedId)
+            workspace.customSidebarWorkspaceSnapshot(
+                index: index,
+                selectedId: selectedId,
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
         let snapshot = CustomSidebarContextSnapshot(
@@ -10065,72 +10098,6 @@ struct VerticalTabsSidebar: View {
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
-    /// Projects one workspace's live state into the interpreter input snapshot.
-    /// The SwiftValue assembly and optional-field omission rules live in
-    /// `CustomSidebarDataContextBuilder`; keep the projected fields in sync with
-    /// the data keys documented in `docs/custom-sidebars.md`.
-    private func customSidebarWorkspaceSnapshot(_ workspace: Workspace, index: Int, selectedId: UUID?) -> CustomSidebarWorkspaceSnapshot {
-        let focusedPanelId = workspace.focusedPanelId
-        let firstBranch = workspace.sidebarGitBranchesInDisplayOrder().first
-        let progress = workspace.progress.map {
-            CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
-        }
-        let remote = workspace.remoteDisplayTarget.map { target in
-            CustomSidebarWorkspaceSnapshot.Remote(
-                target: target,
-                stateRawValue: workspace.remoteConnectionState.rawValue,
-                isConnected: workspace.remoteConnectionState == .connected
-            )
-        }
-        return CustomSidebarWorkspaceSnapshot(
-            id: workspace.id,
-            title: workspace.customTitle ?? workspace.title,
-            isSelected: workspace.id == selectedId,
-            isPinned: workspace.isPinned,
-            index: index,
-            directory: workspace.currentDirectory,
-            listeningPorts: workspace.listeningPorts,
-            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
-            surfaces: customSidebarSurfaceSnapshots(workspace, focusedPanelId: focusedPanelId),
-            surfaceCount: workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count },
-            customDescription: workspace.customDescription,
-            customColor: workspace.customColor,
-            gitBranch: firstBranch?.branch,
-            gitIsDirty: firstBranch?.isDirty ?? false,
-            pullRequestValues: workspace.customSidebarPullRequestValues(),
-            progress: progress,
-            latestConversationMessage: workspace.latestConversationMessage,
-            latestSubmittedMessage: workspace.latestSubmittedMessage,
-            latestSubmittedAt: workspace.latestSubmittedAt,
-            remote: remote
-        )
-    }
-
-    /// Projects a workspace's surfaces (terminal/browser/etc. tabs) into the
-    /// interpreter input snapshots, enriched with per-surface directory, pin,
-    /// git, and ports where available.
-    private func customSidebarSurfaceSnapshots(_ workspace: Workspace, focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
-        var surfaces: [CustomSidebarSurfaceSnapshot] = []
-        for paneId in workspace.bonsplitController.allPaneIds {
-            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                let git = workspace.panelGitBranches[panelId]
-                surfaces.append(
-                    CustomSidebarSurfaceSnapshot(
-                        panelId: panelId,
-                        title: tab.title,
-                        isFocused: panelId == focusedPanelId,
-                        isPinned: workspace.pinnedPanelIds.contains(panelId),
-                        directory: workspace.panelDirectories[panelId],
-                        gitBranch: git?.branch,
-                        gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: workspace.surfaceListeningPorts[panelId] ?? []
-                    )
-                )
-            }
-        }
-        return surfaces
-    }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
@@ -10993,7 +10960,7 @@ struct VerticalTabsSidebar: View {
                 isFocused: liveWorkspace.focusedPanelId == panelId,
                 isPinned: liveWorkspace.isPanelPinned(panelId),
                 unreadCount: liveWorkspace.manualUnreadPanelIds.contains(panelId) ? 1 : 0,
-                workingDirectory: liveWorkspace.panelDirectories[panelId]
+                workingDirectory: liveWorkspace.reportedPanelDirectory(panelId: panelId)
             )
         }
     }
@@ -11231,7 +11198,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func extensionSidebarRootPath(for workspace: Workspace) -> String? {
-        workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        workspace.presentedCurrentDirectory?.nilIfEmpty
     }
 
     private func extensionBrowserStackSidebar(

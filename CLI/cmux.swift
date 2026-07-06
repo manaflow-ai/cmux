@@ -1548,11 +1548,17 @@ final class ClaudeHookSessionStore {
         state.sessions = state.sessions.filter { _, record in
             record.updatedAt >= cutoff
         }
-        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { _, active in
-            active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
+        state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
+            guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
+            // Self-heal cross-workspace/pane pollution: a session may only be active
+            // for its own recorded workspace (and surface, below). Stale focused/TTY
+            // misroutes from older builds could register a session as active for an
+            // unrelated tab or pane, stealing its notifications (isCurrent trusts the
+            // surface slot first) and suppressing that pane's own session.
+            return normalizeOptional(record.workspaceId) == workspaceId
         }
-        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { _, active in
-            active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
+        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
+            active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
     }
 
@@ -2958,10 +2964,10 @@ struct CMUXCLI {
         "--config", "--cwd", "--description", "--direction", "--domain",
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--kind",
-        "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
+        "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
         "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
         "--provider", "--relay-port", "--script", "--selector", "--session",
-        "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane",
+        "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
         "--turn", "--type", "--url", "--url-contains", "--value", "--window",
         "--workspace", "--checkpoint", "--checkpoint-id",
@@ -3539,6 +3545,10 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "__internal_flags":
+            let response = try sendV1Command("__internal_flags", client: client)
+            print(response)
+
         case "ping":
             let response = try sendV1Command("ping", client: client)
             print(response)
@@ -3868,6 +3878,9 @@ struct CMUXCLI {
         case "remotes", "remote":
             try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "ai-accounts":
+            try runAIAccountsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "mobile":
             let sub = commandArgs.first?.lowercased()
             let rest = Array(commandArgs.dropFirst())
@@ -4085,6 +4098,8 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+
+        case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
@@ -5632,7 +5647,7 @@ struct CMUXCLI {
         return .refs
     }
 
-    private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
+    func sendV1Command(_ command: String, client: SocketClient) throws -> String {
         let response = try client.send(command: command)
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
@@ -9765,8 +9780,7 @@ struct CMUXCLI {
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
-        let trimmedControlPathPreflight = controlPathPreflightShellFunction?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedControlPathPreflight = controlPathPreflightShellFunction?.trimmingCharacters(in: .whitespacesAndNewlines)
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -9783,22 +9797,21 @@ struct CMUXCLI {
             "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
-            "cmux_ssh_retry=0",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            // Pane-close signals are terminal lifecycle, not SSH transport lifecycle.
-            // Avoid sending an extra TERM to a child that may own the shared ControlMaster path.
+            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }; \(sshRemoteReconnectShellFunction())",
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "while :; do",
+            "  cmux_ssh_retry=0",
+            "  while :; do",
         ]
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-            scriptLines.append("  cmux_ssh_preflight_control_path")
+            scriptLines.append("    cmux_ssh_preflight_control_path")
         }
         // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
         // job control is off (the default for `/bin/sh -c …`), so ssh would
@@ -9807,38 +9820,40 @@ struct CMUXCLI {
         // own stdin (the terminal) wired into the backgrounded ssh process.
         if isShellSnippet {
             scriptLines += [
-                "  (",
-                "    \(sshCommand)",
-                "  ) <&0 &",
+                "    (",
+                "      \(sshCommand)",
+                "    ) <&0 &",
             ]
         } else {
-            scriptLines.append("  command \(sshCommand) <&0 &")
+            scriptLines.append("    command \(sshCommand) <&0 &")
         }
         let retryableStatusPattern = retryPTYAttachStatus ? "254|255" : "255"
         scriptLines += [
-            "  CMUX_SSH_CHILD_PID=$!",
-            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
-            "  wait \"$CMUX_SSH_CHILD_PID\"",
-            "  cmux_ssh_status=$?",
-            "  CMUX_SSH_CHILD_PID=",
+            "    CMUX_SSH_CHILD_PID=$!",
+            "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "    wait \"$CMUX_SSH_CHILD_PID\"",
+            "    cmux_ssh_status=$?",
+            "    CMUX_SSH_CHILD_PID=",
+            "    if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
+            "    case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
+            "    if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
+            "    cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "    cmux_ssh_note \(shellQuote(sshAutoReconnectNoteFormat())) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
+            "    if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
+            "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "  done",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
-            "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
-            "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
-            "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
-            "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
-            "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
-            "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "  cmux_ssh_session_end",
+            "  printf \(shellQuote(sshManualReconnectExitPromptFormat())) \"$cmux_ssh_status\" >&2 || true",
+            "  if IFS= read -r _cmux_dismiss_key 2>/dev/null; then",
+            "    case \"$_cmux_dismiss_key\" in",
+            "      r|R|retry|reconnect) cmux_ssh_remote_reconnect && CMUX_SSH_SESSION_ENDED=0 && continue ;;",
+            "    esac",
+            "  fi",
+            "  break",
             "done",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
-            // Hold the pane so the user can see the error instead of silently falling
-            // back to a local shell. Without this, Ghostty's PTY respawns a login shell
-            // after the startup command exits, and a dead VM looks identical to "I never
-            // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
-            "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
-            "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
-            "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
-            "fi",
             "exit $cmux_ssh_status",
         ]
         return scriptLines.joined(separator: "\n")
@@ -13804,7 +13819,7 @@ struct CMUXCLI {
         return isUUID(value) ? value : nil
     }
 
-    private func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
+    func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
         if let raw, isUUID(raw) {
             return raw
         }
@@ -13971,6 +13986,8 @@ struct CMUXCLI {
         switch command {
         case "remotes", "remote":
             return Self.remotesUsage
+        case "ai-accounts":
+            return Self.aiAccountsUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -14723,6 +14740,8 @@ struct CMUXCLI {
               cmux workspace reconnect
               cmux workspace disconnect --workspace workspace:3
             """)
+        case "layout":
+            return Self.layoutHelpText()
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]
@@ -18054,7 +18073,7 @@ struct CMUXCLI {
         return 0
     }
 
-    private func isUUID(_ value: String) -> Bool {
+    func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
     }
 
@@ -22851,7 +22870,7 @@ struct CMUXCLI {
         func callerTTYBinding() -> CallerTerminalBinding? {
             if !didResolveCallerTTYBinding {
                 didResolveCallerTTYBinding = true
-                let ttyBinding = resolveCallerTerminalBindingByTTY(
+                let ttyBinding = uniqueCallerTerminalBindingByTTY(
                     client: client,
                     includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
                 )
@@ -22911,13 +22930,18 @@ struct CMUXCLI {
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-start.unresolved")
+                print(String(localized: "common.ok", defaultValue: "OK"))
+                return
+            }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: nil,
                 fallback: surfaceArg,
@@ -23042,13 +23066,18 @@ struct CMUXCLI {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
                     preferCallerTTYOverFallback: preferCallerTTYRouting,
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
-                )
+                ) else {
+                    didSendFeedTelemetry = true
+                    telemetry.breadcrumb("claude-hook.stop.unresolved")
+                    print(String(localized: "common.ok", defaultValue: "OK"))
+                    return
+                }
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
@@ -23180,13 +23209,18 @@ struct CMUXCLI {
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
+                print(String(localized: "common.ok", defaultValue: "OK"))
+                return
+            }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -23291,13 +23325,17 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
                     preferCallerTTYOverFallback: preferCallerTTYRouting,
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
-                )
+                ) else {
+                    telemetry.breadcrumb("claude-hook.auto-name.unresolved")
+                    print(String(localized: "common.ok", defaultValue: "OK"))
+                    return
+                }
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
@@ -23331,13 +23369,18 @@ struct CMUXCLI {
             let classifiedSubtitle = summary.subtitle
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.notification.unresolved")
+                print(String(localized: "common.ok", defaultValue: "OK"))
+                return
+            }
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -23473,7 +23516,7 @@ struct CMUXCLI {
             }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
-
+        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -23608,13 +23651,18 @@ struct CMUXCLI {
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 preferCallerTTYOverFallback: preferCallerTTYRouting,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
-            )
+            ) else {
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
+                print(String(localized: "common.ok", defaultValue: "OK"))
+                return
+            }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -23786,7 +23834,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -23985,29 +24033,6 @@ struct CMUXCLI {
         return " --panel=\(surfaceId)"
     }
 
-    private func resolvePreferredWorkspaceIdForClaudeHook(
-        preferred: String?,
-        fallback: String?,
-        preferCallerTTYOverFallback: Bool = false,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
-        client: SocketClient
-    ) throws -> String {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
-        }
-        if preferCallerTTYOverFallback,
-           let callerWorkspaceId = resolveCallerWorkspaceIdForClaudeHook(
-               callerTerminalBinding: callerTerminalBinding,
-               client: client
-           ) {
-            return callerWorkspaceId
-        }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
-        }
-        return try resolveWorkspaceIdForClaudeHook(nil, client: client)
-    }
-
     private func resolvePreferredSurfaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
@@ -24033,7 +24058,7 @@ struct CMUXCLI {
     /// surface may participate in cross-surface staleness decisions — a borrowed
     /// fallback surface must not let a stale hook masquerade as another pane's.
     /// https://github.com/manaflow-ai/cmux/issues/5908
-    private func resolvePreferredSurfaceForClaudeHookDetailed(
+    func resolvePreferredSurfaceForClaudeHookDetailed(
         preferred: String?,
         fallback: String?,
         fallbackIsExplicit: Bool = false,
@@ -24108,14 +24133,6 @@ struct CMUXCLI {
             ))
         }
         return ClaudeHookResolvedSurface(surfaceId: candidate, isAuthoritative: true)
-    }
-
-    private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
     }
 
     private func shouldIgnoreClaudeHookTeardownError(_ error: Error) -> Bool {
@@ -24244,10 +24261,6 @@ struct CMUXCLI {
         return name.isEmpty ? String(path.suffix(30)) : name
     }
 
-    private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
-        try resolveWorkspaceIdAllowingFallback(raw, client: client)
-    }
-
     private func resolveSurfaceIdForClaudeHook(
         _ raw: String?,
         workspaceId: String,
@@ -24272,7 +24285,7 @@ struct CMUXCLI {
         return try resolveWorkspaceId(nil, client: client)
     }
 
-    private struct ClaudeHookResolvedSurface {
+    struct ClaudeHookResolvedSurface {
         let surfaceId: String
         /// Resolved from the hook's own identity (the supplied surface value or
         /// the calling process's tty binding) rather than the focused/first-
@@ -24329,7 +24342,7 @@ struct CMUXCLI {
         )
     }
 
-    private func claudeHookSurfaceIsListed(
+    func claudeHookSurfaceIsListed(
         _ candidate: String,
         workspaceId: String,
         client: SocketClient
@@ -24343,7 +24356,7 @@ struct CMUXCLI {
         })
     }
 
-    private struct CallerTerminalBinding {
+    struct CallerTerminalBinding {
         let workspaceId: String
         let surfaceId: String
     }
@@ -24374,7 +24387,7 @@ struct CMUXCLI {
         if let callerTerminalBinding {
             binding = callerTerminalBinding()
         } else {
-            binding = resolveCallerTerminalBindingByTTY(client: client)
+            binding = uniqueCallerTerminalBindingByTTY(client: client)
         }
         guard binding?.workspaceId == workspaceId else {
             return nil
@@ -24481,7 +24494,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func resolveCallerTTYName(includeAmbientTTY: Bool = true) -> String? {
+    func resolveCallerTTYName(includeAmbientTTY: Bool = true) -> String? {
         let env = ProcessInfo.processInfo.environment
         for key in includeAmbientTTY ? ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"] : ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"] {
             if let ttyName = normalizedTTYName(env[key]) {
@@ -24497,7 +24510,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func normalizedTTYName(_ raw: String?) -> String? {
+    func normalizedTTYName(_ raw: String?) -> String? {
         guard let trimmed = normalizedHandleValue(raw == "not a tty" ? nil : raw) else {
             return nil
         }
@@ -24508,7 +24521,7 @@ struct CMUXCLI {
         return trimmed
     }
 
-    private func normalizedHandleValue(_ raw: String?) -> String? {
+    func normalizedHandleValue(_ raw: String?) -> String? {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else {
             return nil
@@ -26266,7 +26279,7 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func notificationPayload(
+    func notificationPayload(
         title: String,
         subtitle: String,
         body: String,
@@ -31355,7 +31368,7 @@ export default CMUXSessionRestore;
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
         case "pre-tool-use", "cron-create-guard": return "PreToolUse"
-        case "post-tool-use": return "PostToolUse"
+        case "post-tool-use", "push-notification": return "PostToolUse"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"
@@ -34248,6 +34261,7 @@ export default CMUXSessionRestore;
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
+          ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows

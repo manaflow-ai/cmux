@@ -1,4 +1,3 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
@@ -6,8 +5,12 @@ import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
+import { getStackServerApp, isStackConfigured } from "../../lib/stack";
+import { resolveProPlanStatus } from "../../../services/billing/pro";
 import { buildAlternates } from "../../../i18n/seo";
 import {
+  CurrentPlanBadge,
+  DisabledButton,
   FeatureList,
   PlanCard,
   PricingCompareTable,
@@ -27,6 +30,9 @@ import {
 // flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
 // link is the safe fallback.
 const ENTERPRISE_CTA_URL = "/enterprise";
+const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
+
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
@@ -42,8 +48,14 @@ export async function generateMetadata({
   };
 }
 
-export default function PricingPage() {
-  const t = useTranslations("pricing");
+export default async function PricingPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "pricing" });
+  const snapshot = await currentPlanSnapshot();
 
   const freeFeatures = t.raw("free.features") as string[];
   const proBaseFeatures = t.raw("pro.features") as string[];
@@ -61,7 +73,7 @@ export default function PricingPage() {
   const faqItems = visibleFaqItems(t.raw("faq.items") as FaqItem[]);
 
   const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+    "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
   return (
     <div className="min-h-screen">
@@ -96,10 +108,24 @@ export default function PricingPage() {
             name={t("pro.name")}
             price={t("pro.price")}
             period={t("perMonth")}
+            badge={
+              snapshot.isPro ? (
+                <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
+              ) : null
+            }
           >
-            <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_CONFIRMATION_HREF}>
-              {t("pro.cta")}
-            </ProCtaLink>
+            {snapshot.isPro ? (
+              <div className="space-y-2">
+                <DisabledButton>{t("currentPlan")}</DisabledButton>
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
+              </div>
+            ) : (
+              <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_CONFIRMATION_HREF}>
+                {t("pro.cta")}
+              </ProCtaLink>
+            )}
             <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
             <FeatureList items={proFeatures} />
           </PlanCard>
@@ -156,14 +182,18 @@ export default function PricingPage() {
                 </PrimaryLink>
               ),
               pro: (
-                <ProCtaLink
-                  checkoutHref={PRO_CHECKOUT_URL}
-                  fallbackHref={DOWNLOAD_CONFIRMATION_HREF}
-                  size="compact"
-                  location="pricing_compare_header"
-                >
-                  {t("pro.cta")}
-                </ProCtaLink>
+                snapshot.isPro ? (
+                  <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+                ) : (
+                  <ProCtaLink
+                    checkoutHref={PRO_CHECKOUT_URL}
+                    fallbackHref={DOWNLOAD_CONFIRMATION_HREF}
+                    size="compact"
+                    location="pricing_compare_header"
+                  >
+                    {t("pro.cta")}
+                  </ProCtaLink>
+                )
               ),
               team: (
                 <PrimaryLink href={TEAM_CHECKOUT_URL} size="compact">
@@ -238,4 +268,18 @@ export default function PricingPage() {
       </main>
     </div>
   );
+}
+
+async function currentPlanSnapshot(): Promise<{ isPro: boolean }> {
+  if (!isStackConfigured()) {
+    return { isPro: false };
+  }
+
+  const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
+  if (!user) {
+    return { isPro: false };
+  }
+
+  const status = await resolveProPlanStatus(user);
+  return { isPro: status.isPro };
 }

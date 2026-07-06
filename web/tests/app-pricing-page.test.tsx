@@ -28,10 +28,36 @@ mock.module("next/headers", () => ({
   draftMode: async () => ({ isEnabled: false }),
 }));
 
+let stackConfigured = false;
+let currentUser: unknown = null;
+
+const proUser = {
+  id: "user-pro",
+  isAnonymous: false,
+  primaryEmail: "pro@example.com",
+  clientReadOnlyMetadata: { cmuxPlan: "pro" },
+  listProducts: mock(async () =>
+    Object.assign(
+      [
+        {
+          id: "pro",
+          quantity: 1,
+          subscription: {
+            cancelAtPeriodEnd: false,
+            currentPeriodEnd: null,
+          },
+        },
+      ],
+      { nextCursor: null },
+    ),
+  ),
+  update: mock(async () => undefined),
+};
+
 mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({ getUser: async () => null }),
-  isStackConfigured: () => false,
-  stackServerApp: null,
+  getStackServerApp: () => ({ getUser: async () => currentUser }),
+  isStackConfigured: () => stackConfigured,
+  stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
 }));
 
 const { default: AppPricingPage } = await import("../app/app-pricing/page");
@@ -40,6 +66,10 @@ describe("app pricing page", () => {
   beforeEach(() => {
     redirect.mockClear();
     process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
+    stackConfigured = false;
+    currentUser = null;
+    proUser.listProducts.mockClear();
+    proUser.update.mockClear();
   });
 
   test("redirects to public pricing outside the cmux app", async () => {
@@ -63,6 +93,24 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+    expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("renders Manage billing for active Pro users", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('href="/api/billing/portal"');
+    expect(html).toContain("Manage billing");
+    expect(html).toContain("Current plan");
   });
 
   for (const [name, params, message] of [
