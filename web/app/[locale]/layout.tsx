@@ -11,11 +11,12 @@ import { routing } from "../../i18n/routing";
 import { buildAlternates } from "../../i18n/seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
-import { SiteFooter } from "./components/site-footer";
 import { ThemeBootstrapScript } from "./theme-bootstrap-script";
 import { darkThemeColor, lightThemeColor } from "./theme-colors";
 import { DOWNLOAD_URL } from "../lib/download";
 import "../globals.css";
+
+type MessageTree = Record<string, unknown>;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,6 +29,39 @@ const geistMono = Geist_Mono({
 });
 
 const themeBootstrapScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark");document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.content=light?"${lightThemeColor}":"${darkThemeColor}"})}catch(e){}})()`;
+
+function isMessageTree(value: unknown): value is MessageTree {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function pruneClientMessages(messages: MessageTree): MessageTree {
+  const pruned: MessageTree = { ...messages };
+  const landing = isMessageTree(messages.landing)
+    ? { ...messages.landing }
+    : undefined;
+  if (landing && isMessageTree(landing.compare)) {
+    const compare = { ...landing.compare };
+    delete compare.pages;
+    landing.compare = compare;
+    pruned.landing = landing;
+  }
+
+  const blog = isMessageTree(messages.blog) ? { ...messages.blog } : undefined;
+  if (blog && isMessageTree(blog.posts)) {
+    blog.posts = Object.fromEntries(
+      Object.entries(blog.posts).map(([key, value]) => {
+        if (!isMessageTree(value)) {
+          return [key, value];
+        }
+        const { title, date, summary } = value;
+        return [key, { title, date, summary }];
+      }),
+    );
+    pruned.blog = blog;
+  }
+
+  return pruned;
+}
 
 export async function generateMetadata({
   params,
@@ -90,7 +124,7 @@ export default async function LocaleLayout({
 
   setRequestLocale(locale);
 
-  const messages = await getMessages();
+  const messages = pruneClientMessages(await getMessages());
 
   const dir = locale === "ar" ? "rtl" : "ltr";
 
@@ -125,7 +159,6 @@ export default async function LocaleLayout({
         <NextIntlClientProvider messages={messages}>
           <Providers>
             {children}
-            <SiteFooter />
             <DevPanel />
           </Providers>
         </NextIntlClientProvider>

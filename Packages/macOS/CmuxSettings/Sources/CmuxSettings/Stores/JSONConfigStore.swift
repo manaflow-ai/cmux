@@ -19,11 +19,12 @@ import Foundation
 /// `JSONSerialization` with sorted, pretty-printed output; comment-preserving
 /// edits are a follow-up.
 ///
-/// Observation uses a single ``CmuxFileWatch/FileWatcher`` owned by the store
-/// and fans out file-change events to per-subscriber `AsyncStream<Void>`
-/// signals. One file event causes exactly one cache invalidation and one
-/// notification per active subscriber, regardless of how many keys are being
-/// observed. Each subscriber dedups on its own typed value so only real
+/// Observation uses a primary ``CmuxFileWatch/FileWatcher`` on the configured
+/// path and, when that path resolves elsewhere, a secondary watcher on the
+/// resolved target. Both fan out file-change events to per-subscriber
+/// `AsyncStream<Void>` signals. A single filesystem change may fire both
+/// watchers; cache invalidation is idempotent, subscriber signals are
+/// coalesced, and each subscriber dedups on its own typed value so only real
 /// changes propagate.
 ///
 /// ```swift
@@ -40,11 +41,20 @@ public actor JSONConfigStore {
 
     private let sanitizer: JSONCSanitizer
     private let watcher: FileWatcher
+    private var targetWatcher: FileWatcher?
+    private var watchedTargetPath: String?
 
     private var cachedRoot: [String: Any] = [:]
     private var cacheValid = false
+    // Resolution identity the cache was loaded under. A cmux.json symlink can be
+    // retargeted at any time without a watcher event having been processed (or
+    // with no subscriber at all, since drains spawn on first subscribe), so
+    // cacheValid alone must never authorize reusing a root that was read from a
+    // different resolved file.
+    private var cachedRootResolvedPath: String?
     private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var watcherTask: Task<Void, Never>?
+    private var targetWatcherTask: Task<Void, Never>?
 
     /// Creates a store backed by a JSON file at the given location.
     ///
@@ -59,11 +69,21 @@ public actor JSONConfigStore {
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
+        // The primary watcher observes the configured path, including symlink
+        // replacement/retarget events in its parent directory. A secondary
+        // target watcher observes edits that land in the resolved target's own
+        // directory, which the configured-path watch cannot see.
         self.watcher = FileWatcher(path: fileURL.path)
+        let resolved = Self.resolvedWriteURL(for: fileURL)
+        if resolved.path != fileURL.path {
+            self.targetWatcher = FileWatcher(path: resolved.path)
+            self.watchedTargetPath = resolved.path
+        }
     }
 
     deinit {
         watcherTask?.cancel()
+        targetWatcherTask?.cancel()
     }
 
     /// Returns the current value for the key.
@@ -174,13 +194,19 @@ public actor JSONConfigStore {
         }
     }
 
-    /// Spawns the watcher-consumer task on the first subscribe. The task
-    /// drains the ``CmuxFileWatch/FileWatcher`` events and fans out to every
-    /// registered subscriber after invalidating the cache.
+    /// Spawns watcher-consumer tasks on the first subscribe. Each task drains a
+    /// ``CmuxFileWatch/FileWatcher`` and fans out to every registered
+    /// subscriber after invalidating the cache.
     private func ensureWatcherTask() {
         guard watcherTask == nil else { return }
-        let watcher = self.watcher
-        watcherTask = Task { [weak self] in
+        watcherTask = drainTask(for: watcher)
+        if let targetWatcher {
+            targetWatcherTask = drainTask(for: targetWatcher)
+        }
+    }
+
+    private func drainTask(for watcher: FileWatcher) -> Task<Void, Never> {
+        Task { [weak self] in
             for await _ in watcher.events {
                 if Task.isCancelled { break }
                 guard let self else { break }
@@ -191,16 +217,47 @@ public actor JSONConfigStore {
 
     private func handleFileChange() {
         cacheValid = false
+        refreshTargetWatcher()
         for continuation in subscribers.values {
             continuation.yield(())
         }
     }
 
+    /// Keeps the secondary watcher following a retargeted configured symlink.
+    ///
+    /// Without this refresh, edits in the new target's own directory go
+    /// unobserved after a dotfiles tool swaps the configured link. Cancelling the
+    /// old drain task releases the previous watcher; `FileWatcher` tears down
+    /// its dispatch sources on deinit.
+    private func refreshTargetWatcher() {
+        let resolved = Self.resolvedWriteURL(for: fileURL)
+        let desired: String? = resolved.path == fileURL.path ? nil : resolved.path
+        guard desired != watchedTargetPath else { return }
+
+        targetWatcherTask?.cancel()
+        targetWatcherTask = nil
+        targetWatcher = nil
+        watchedTargetPath = desired
+
+        guard let desired else { return }
+        let replacement = FileWatcher(path: desired)
+        targetWatcher = replacement
+        if watcherTask != nil {
+            targetWatcherTask = drainTask(for: replacement)
+        }
+    }
+
     private func loadedRoot() -> [String: Any] {
-        if cacheValid { return cachedRoot }
-        cachedRoot = (try? readFromDisk()) ?? [:]
+        let resolvedURL = Self.resolvedWriteURL(for: fileURL)
+        if cacheIsCurrent(for: resolvedURL.path) { return cachedRoot }
+        cachedRoot = (try? readFromDisk(at: resolvedURL)) ?? [:]
         cacheValid = true
+        cachedRootResolvedPath = resolvedURL.path
         return cachedRoot
+    }
+
+    private func cacheIsCurrent(for resolvedPath: String) -> Bool {
+        cacheValid && cachedRootResolvedPath == resolvedPath
     }
 
     /// Reads and decodes the config root from disk. A missing or empty file
@@ -209,9 +266,13 @@ public actor JSONConfigStore {
     /// ``snapshotValue(for:)`` can call it without hopping onto the actor; it
     /// only touches the `nonisolated` `fileURL` and the `Sendable` `sanitizer`.
     private nonisolated func readFromDisk() throws -> [String: Any] {
+        try readFromDisk(at: fileURL)
+    }
+
+    private nonisolated func readFromDisk(at url: URL) throws -> [String: Any] {
         let data: Data
         do {
-            data = try Data(contentsOf: fileURL)
+            data = try Data(contentsOf: url)
         } catch let error as NSError where error.domain == NSCocoaErrorDomain
             && error.code == NSFileReadNoSuchFileError {
             return [:]
@@ -223,6 +284,35 @@ public actor JSONConfigStore {
             throw JSONConfigStoreReadError.notADictionary
         }
         return dictionary
+    }
+
+    /// Resolves the location a write should target for `url`.
+    ///
+    /// When `url` is a symlink — e.g. a `cmux.json` symlinked into a dotfiles
+    /// repo — an atomic write (`options: [.atomic]`) does a temp-file
+    /// `rename()` onto the link path, which *replaces the symlink with a
+    /// regular file* and silently breaks the dotfiles setup. Following the link
+    /// to its target means the atomic replace lands on the target file, leaving
+    /// the symlink intact. Non-symlink and missing paths are returned
+    /// unchanged, so plain files (and first-time creation) still write in place.
+    ///
+    /// Mirrors `ConfigSource.configWriteURL(for:)`, which already does this for
+    /// the ghostty-format config surface; the JSON store had not been given the
+    /// same treatment.
+    private static func resolvedWriteURL(
+        for url: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return url
+        }
+        let destinationURL: URL
+        if destination.hasPrefix("/") {
+            destinationURL = URL(fileURLWithPath: destination)
+        } else {
+            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
+        }
+        return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     /// Computes the mutation, writes it to disk, and **only then** commits to
@@ -237,22 +327,33 @@ public actor JSONConfigStore {
     /// JSON, malformed JSONC, top-level non-object), the write is refused
     /// — overwriting a corrupt file would silently destroy whatever real
     /// content the user has in it. The error from
-    /// ``readFromDisk()`` is propagated to the caller.
+    /// ``readFromDisk(at:)`` is propagated to the caller.
+    ///
+    /// The root must never come from a cache loaded under a different resolved
+    /// target, since that would overwrite the new target's contents with the old
+    /// target's data. A single mutation reads and writes through one resolution
+    /// snapshot, so a concurrent retarget serializes against the write instead
+    /// of splitting the operation across two targets.
     private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
-        var root = cacheValid ? cachedRoot : try readFromDisk()
+        // Write through a symlink to its target rather than at the link path:
+        // an atomic write is a temp-file + `rename()`, which would replace the
+        // link itself with a regular file and break a dotfiles-managed config.
+        let writeURL = Self.resolvedWriteURL(for: fileURL)
+        var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
         mutate(&root)
 
-        let parent = fileURL.deletingLastPathComponent()
+        let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(
             withJSONObject: root,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         )
-        try data.write(to: fileURL, options: [.atomic])
+        try data.write(to: writeURL, options: [.atomic])
 
         // Only commit to cache after the file write succeeded.
         cachedRoot = root
         cacheValid = true
+        cachedRootResolvedPath = writeURL.path
 
         // Notify subscribers of our own write directly rather than
         // relying on the file watcher to observe it. Atomic writes
