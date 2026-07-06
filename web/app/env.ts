@@ -8,6 +8,11 @@ import { z } from "zod";
 const trimEnv = (value: string | undefined): string | undefined =>
   typeof value === "string" ? value.trim() : value;
 
+const defaultSubrouterBaseUrl = (): string =>
+  process.env.VERCEL_ENV === "production"
+    ? "https://subrouter.cmux.dev"
+    : "https://subrouter-staging.cmux.dev";
+
 const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
   process.env.VERCEL_ENV === "preview";
@@ -71,6 +76,9 @@ export const env = createEnv({
     // /api/enterprise/contact route falls back to the waitlist webhook, then
     // skips Slack if neither is set.
     SLACK_ENTERPRISE_WEBHOOK_URL: z.string().url().optional(),
+    SUBROUTER_BASE_URL: z.string().url().optional(),
+    SUBROUTER_ADMIN_TOKEN: z.string().min(1).optional(),
+    SUBROUTER_TENANT_KEY_SECRET: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -94,6 +102,9 @@ export const env = createEnv({
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
+    SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL) ?? defaultSubrouterBaseUrl(),
+    SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
+    SUBROUTER_TENANT_KEY_SECRET: trimEnv(process.env.SUBROUTER_TENANT_KEY_SECRET),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"
