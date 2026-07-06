@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -75,6 +76,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             sampledAt: Date(timeIntervalSince1970: 42),
             includesProcessDetails: true
         )
+        let isAgentScopedToPanel = OSAllocatedUnfairLock(initialState: true)
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 SharedLiveAgentIndexLoader(
@@ -98,6 +100,11 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             },
             processIsRunningProvider: {
                 $0 == agentPID
+            },
+            processIsScopedToPanelProvider: { pid, scopedWorkspaceId, scopedPanelId in
+                isAgentScopedToPanel.withLock { isScoped in
+                    isScoped && pid == agentPID && scopedWorkspaceId == workspaceId && scopedPanelId == panelId
+                }
             }
         )
 
@@ -107,6 +114,12 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
         #expect(
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId
+        )
+
+        isAgentScopedToPanel.withLock { $0 = false }
+        #expect(
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            "An alive agent PID that moved to another panel must not keep the old panel forkable."
         )
     }
 }

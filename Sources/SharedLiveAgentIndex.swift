@@ -44,6 +44,7 @@ final class SharedLiveAgentIndex {
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
     private let processIsRunningProvider: @MainActor (Int) -> Bool
+    private let processIsScopedToPanelProvider: @MainActor (Int, UUID, UUID) -> Bool
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
@@ -59,12 +60,19 @@ final class SharedLiveAgentIndex {
             guard processId > 0, processId <= Int(Int32.max) else { return false }
             let result = Darwin.kill(pid_t(processId), 0)
             return result == 0 || errno == EPERM
+        },
+        processIsScopedToPanelProvider: @escaping @MainActor (Int, UUID, UUID) -> Bool = { processId, workspaceId, panelId in
+            guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: processId) else {
+                return false
+            }
+            return process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId)
         }
     ) {
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
         self.processIsRunningProvider = processIsRunningProvider
+        self.processIsScopedToPanelProvider = processIsScopedToPanelProvider
     }
 
     deinit {
@@ -123,6 +131,10 @@ final class SharedLiveAgentIndex {
         }
         let processIDs = index.processIDs(workspaceId: workspaceId, panelId: panelId)
         guard cachedLiveProcessIDsAreRunning(processIDs) else {
+            requestForkAvailabilityRefresh(validating: panelKey)
+            return false
+        }
+        guard cachedLiveProcessIDsAreScoped(processIDs, workspaceId: workspaceId, panelId: panelId) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
@@ -291,6 +303,13 @@ final class SharedLiveAgentIndex {
     private func cachedLiveProcessIDsAreRunning(_ processIDs: Set<Int>) -> Bool {
         for processID in processIDs {
             guard processIsRunningProvider(processID) else { return false }
+        }
+        return true
+    }
+
+    private func cachedLiveProcessIDsAreScoped(_ processIDs: Set<Int>, workspaceId: UUID, panelId: UUID) -> Bool {
+        for processID in processIDs {
+            guard processIsScopedToPanelProvider(processID, workspaceId, panelId) else { return false }
         }
         return true
     }

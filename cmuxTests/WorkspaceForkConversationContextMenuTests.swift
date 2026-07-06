@@ -205,7 +205,8 @@ struct WorkspaceForkConversationContextMenuTests {
             },
             processIsRunningProvider: {
                 $0 == processId
-            }
+            },
+            processIsScopedToPanelProvider: { $0 == processId && $1 == liveWorkspaceId && $2 == livePanelId }
         )
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: staleWorkspaceId, panelId: stalePanelId)
@@ -241,7 +242,7 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         }
 
-        await sharedIndex.refreshForkAvailabilityNow()
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: staleWorkspaceId,
