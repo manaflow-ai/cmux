@@ -121,7 +121,9 @@ Options:
                             MARKETING_VERSION. With ASC API-key auth, the script
                             also assigns the processed build to the selected
                             external beta group (single external group by
-                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME).
+                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME)
+                            and auto-submits a new MARKETING_VERSION for Beta App
+                            Review when Apple reports READY_FOR_BETA_SUBMISSION.
                             Also set via
                             CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
@@ -939,12 +941,13 @@ fi
 
 # --external means "ship to founders", not merely "make this build externally
 # eligible in principle". After upload, assign the processed build to the app's
-# external beta group so external testers actually receive it. This is fatal: a
-# red CI/upload is preferable to claiming the external lane tracked main when the
-# build never reached the founders group.
+# external beta group so external testers actually receive it, and create the
+# Beta App Review submission when Apple requires one for a new
+# MARKETING_VERSION. This is fatal: a red CI/upload is preferable to claiming
+# the external lane tracked main when the build never reached the founders lane.
 if [[ "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to assign the build automatically." >&2
+    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
     exit 0
   fi
   echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2

@@ -32,9 +32,9 @@ on:
     # successful run (SHA compare, not a wall-clock window), so an iOS-affecting
     # change reaches the TestFlight beta lane within ~2h of landing on main, and
     # a failed or missed run retries the not-yet-uploaded commit instead of
-    # permanently stranding it. These uploads are external-eligible too, so the
-    # first build of a new MARKETING_VERSION may wait on Apple Beta App Review
-    # before founders can install it.
+    # permanently stranding it. These uploads are external-eligible too, and the
+    # post-upload external-distribution job auto-submits the first build of a new
+    # MARKETING_VERSION for Apple Beta App Review.
     #
     # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
     # shared concurrency group (which cancels superseded pending runs into red
@@ -358,8 +358,10 @@ jobs:
         run: |
           set -euo pipefail
           # --auto-version: every beta stamps the next-release marketing version.
-          # --external: publish the same main-tracking build to the external lane
-          # once Apple allows that MARKETING_VERSION.
+          # --external: publish the same main-tracking build to the external lane.
+          # The post-upload job assigns the build to the external group and, when
+          # Apple reports READY_FOR_BETA_SUBMISSION for a new MARKETING_VERSION,
+          # auto-submits it for Beta App Review.
           # --notes-from-range: auto-generate audience-appropriate "What to
           # Test" notes from the commits since the previous beta (skipped if we
           # have no base SHA yet).
@@ -390,7 +392,7 @@ jobs:
             echo "- lane: \`beta\` (bundle id \`dev.cmux.app.beta\`, external-eligible)"
             echo "- signing: manual (CI-imported iOS distribution cert + beta profile)"
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
-            echo "- audience: internal testers immediately, external testers after Apple Beta App Review for a new MARKETING_VERSION"
+            echo "- audience: internal testers immediately, external testers automatically after external-group assignment; new MARKETING_VERSIONs are auto-submitted for Apple Beta App Review"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata

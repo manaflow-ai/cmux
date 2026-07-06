@@ -5,6 +5,9 @@
 but testers do not receive it until the build is added to an external beta group.
 This helper resolves the app from its bundle id, waits for the uploaded build to
 appear, selects the external beta group, and attaches the build to that group.
+When Apple reports the build as `READY_FOR_BETA_SUBMISSION` (the first external
+build of a MARKETING_VERSION), it also creates the beta app review submission so
+external testers can actually receive that version once review clears.
 
 Group selection:
 - `--group-id` / `CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID` wins.
@@ -177,6 +180,37 @@ def _find_build(token: str, app_id: str, build_number: str) -> Optional[Tuple[st
     return data[0]["id"], str(attrs.get("processingState") or "")
 
 
+def _build_beta_detail(token: str, build_id: str) -> Dict[str, str]:
+    status, body = _request(
+        token,
+        "GET",
+        f"/v1/builds/{build_id}/buildBetaDetail",
+    )
+    if status != 200:
+        raise RuntimeError(f"build beta detail lookup HTTP {status} (code={_asc_error_code(body)})")
+    attrs = (body.get("data") or {}).get("attributes") or {}
+    return {
+        "external_build_state": str(attrs.get("externalBuildState") or ""),
+        "internal_build_state": str(attrs.get("internalBuildState") or ""),
+    }
+
+
+def _beta_review_submission(token: str, build_id: str) -> Optional[Dict[str, str]]:
+    status, body = _request(
+        token,
+        "GET",
+        f"/v1/betaAppReviewSubmissions?filter[build]={build_id}"
+        "&fields[betaAppReviewSubmissions]=betaReviewState&limit=1",
+    )
+    if status != 200:
+        raise RuntimeError(f"beta app review submission lookup HTTP {status} (code={_asc_error_code(body)})")
+    data = body.get("data", [])
+    if not data:
+        return None
+    attrs = data[0].get("attributes") or {}
+    return {"id": data[0]["id"], "beta_review_state": str(attrs.get("betaReviewState") or "")}
+
+
 def _list_beta_groups(token: str, app_id: str) -> List[Dict]:
     raw = _paged_get(
         token,
@@ -253,6 +287,66 @@ def _assign_build(token: str, group_id: str, build_id: str) -> None:
         raise RuntimeError(f"assign build HTTP {status} (code={_asc_error_code(body)})")
 
 
+def _submit_beta_review(token: str, build_id: str) -> None:
+    payload = {
+        "data": {
+            "type": "betaAppReviewSubmissions",
+            "relationships": {
+                "build": {
+                    "data": {
+                        "type": "builds",
+                        "id": build_id,
+                    }
+                }
+            },
+        }
+    }
+    status, body = _request(token, "POST", "/v1/betaAppReviewSubmissions", payload)
+    if status not in (200, 201):
+        raise RuntimeError(f"submit beta app review HTTP {status} (code={_asc_error_code(body)})")
+
+
+def _ensure_external_review_submission(token: str, build_id: str, build_number: str) -> None:
+    detail = _build_beta_detail(token, build_id)
+    external_state = detail["external_build_state"]
+    if external_state == "READY_FOR_BETA_SUBMISSION":
+        submission = _beta_review_submission(token, build_id)
+        if submission is not None:
+            print(
+                "asc_assign_external_testflight_group: build "
+                f"{build_number} already has beta app review submission {submission['id']} "
+                f"(state={submission['beta_review_state'] or 'unknown'})"
+            )
+            return
+        _submit_beta_review(token, build_id)
+        print(
+            f"asc_assign_external_testflight_group: submitted build {build_number} for beta app review"
+        )
+        return
+
+    if external_state in ("READY_FOR_BETA_TESTING", "IN_BETA_REVIEW", "WAITING_FOR_BETA_REVIEW"):
+        print(
+            "asc_assign_external_testflight_group: build "
+            f"{build_number} external state is {external_state}"
+        )
+        return
+
+    submission = _beta_review_submission(token, build_id)
+    if submission is not None:
+        print(
+            "asc_assign_external_testflight_group: build "
+            f"{build_number} external state is {external_state or 'unknown'} with submission "
+            f"{submission['id']} (state={submission['beta_review_state'] or 'unknown'})"
+        )
+        return
+
+    raise RuntimeError(
+        "build "
+        f"{build_number} is in unexpected externalBuildState={external_state or '<empty>'} "
+        "with no beta app review submission"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle-id", required=True)
@@ -306,6 +400,8 @@ def main() -> int:
             f"asc_assign_external_testflight_group: group {_describe_group(target_group)} "
             f"already has access to all builds"
         )
+        token = _token()
+        _ensure_external_review_submission(token, build_id, args.build_number)
         return 0
 
     if _group_has_build(token, target_group["id"], build_id):
@@ -313,6 +409,8 @@ def main() -> int:
             f"asc_assign_external_testflight_group: build {args.build_number} already assigned to "
             f"{_describe_group(target_group)}"
         )
+        token = _token()
+        _ensure_external_review_submission(token, build_id, args.build_number)
         return 0
 
     token = _token()
@@ -321,6 +419,8 @@ def main() -> int:
         f"asc_assign_external_testflight_group: assigned build {args.build_number} to "
         f"{_describe_group(target_group)}"
     )
+    token = _token()
+    _ensure_external_review_submission(token, build_id, args.build_number)
     return 0
 
 

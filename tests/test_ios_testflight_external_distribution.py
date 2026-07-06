@@ -89,6 +89,50 @@ def main():
     else:
         _check(False, "missing external group fails loudly")
 
+    submissions = []
+
+    def fake_submit(token, build_id):
+        submissions.append((token, build_id))
+
+    module._submit_beta_review = fake_submit
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    module._beta_review_submission = lambda token, build_id: None
+    module._ensure_external_review_submission("jwt", "build-1", "42")
+    _check(submissions == [("jwt", "build-1")], "ready-for-submission builds create a beta review submission")
+
+    submissions.clear()
+    module._beta_review_submission = lambda token, build_id: {
+        "id": "submission-1",
+        "beta_review_state": "WAITING_FOR_REVIEW",
+    }
+    module._ensure_external_review_submission("jwt", "build-1", "42")
+    _check(not submissions, "existing beta review submissions are not duplicated")
+
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_TESTING",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    module._beta_review_submission = lambda token, build_id: None
+    module._ensure_external_review_submission("jwt", "build-1", "42")
+    _check(not submissions, "ready-for-testing builds do not resubmit beta review")
+
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "BETA_REJECTED",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
+    try:
+        module._ensure_external_review_submission("jwt", "build-1", "42")
+    except RuntimeError as exc:
+        _check(
+            "unexpected externalBuildState=BETA_REJECTED" in str(exc),
+            "unexpected external state without submission fails loudly",
+        )
+    else:
+        _check(False, "unexpected external state without submission fails loudly")
+
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
         sys.exit(1)
