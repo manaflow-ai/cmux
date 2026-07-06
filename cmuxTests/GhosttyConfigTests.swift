@@ -1460,6 +1460,23 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertEqual(colors.borderHex, "#24252D")
     }
+
+    func testResolvedChromeColorsUseConfiguredPaneBorderColor() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            paneBorderColorHex: "#33AAFF"
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
+    }
 }
 
 final class WindowChromeSeparatorColorTests: XCTestCase {
@@ -1618,6 +1635,28 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.activeTabBackgroundHex, "#191A23")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#13141C")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+    }
+
+    func testBonsplitChromeColorsUseConfiguredPaneBorderColor() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            renderingMode: .windowHostBackdrop,
+            paneBorderColorHex: "#33AAFF"
+        )
+
+        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
     }
 }
 
@@ -4347,11 +4386,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
-        try withTempConfig("background = #101010\n") { path in
-            XCTAssertFalse(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
-            )
+    func testShouldApplyManagedDefaultAppearanceAppliesWithExplicitTerminalColorDirective() throws {
+        // A lone color key must not suppress the managed default theme (#7161).
+        try withTempConfig("background = black\n") { path in
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path]))
         }
     }
 
