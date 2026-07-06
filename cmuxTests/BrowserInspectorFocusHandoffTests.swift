@@ -33,7 +33,6 @@ final class BrowserInspectorFocusHandoffTests: XCTestCase {
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
         window.makeKeyAndOrderFront(nil)
         contentView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true, zPriority: 1)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
 

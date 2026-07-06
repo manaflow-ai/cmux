@@ -6789,11 +6789,12 @@ extension BrowserPanel {
     }
 
     private static func windowContainsBrowserSlotView(_ root: NSView) -> Bool {
-        if root is WindowBrowserSlotView {
-            return true
-        }
-        for subview in root.subviews where windowContainsBrowserSlotView(subview) {
-            return true
+        var stack = [root]
+        while let view = stack.popLast() {
+            if view is WindowBrowserSlotView {
+                return true
+            }
+            stack.append(contentsOf: view.subviews)
         }
         return false
     }
