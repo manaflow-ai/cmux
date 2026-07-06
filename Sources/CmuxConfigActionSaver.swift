@@ -63,13 +63,8 @@ enum CmuxConfigActionSaver {
             source = emptyConfigTemplate
         }
 
-        // A user-authored non-object "actions" value would be silently
-        // replaced by the JSONC upsert below — refuse instead of losing data.
-        if let sanitized = try? JSONCParser.preprocess(data: Data(source.utf8)),
-           let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
-           let existingActions = root["actions"],
-           !(existingActions is [String: Any]) {
-            throw SaveError.malformedConfig(globalConfigPath)
+        if fileManager.fileExists(atPath: globalConfigPath) {
+            try validateEditableConfig(source, globalConfigPath: globalConfigPath)
         }
 
         let actionID = uniqueActionID(
@@ -91,9 +86,57 @@ enum CmuxConfigActionSaver {
             throw SaveError.malformedConfig(globalConfigPath)
         }
 
-        // Dotfiles setups symlink ~/.config/cmux/cmux.json; an atomic write to
-        // the symlink path would replace the link with a regular file. Write
-        // to the resolved target instead (a missing leaf resolves to itself).
+        try writeOwnerOnlyConfig(updated, globalConfigPath: globalConfigPath, fileManager: fileManager)
+        return SaveResult(actionID: actionID, configPath: globalConfigPath)
+    }
+
+    /// Removes `actions.<actionID>` from the config file, preserving comments
+    /// and formatting. Only global-config actions are deletable this way.
+    static func deleteAction(
+        id actionID: String,
+        globalConfigPath: String,
+        fileManager: FileManager = .default
+    ) throws {
+        guard fileManager.fileExists(atPath: globalConfigPath),
+              let data = fileManager.contents(atPath: globalConfigPath),
+              let source = String(data: data, encoding: .utf8) else {
+            throw SaveError.unreadableConfig(globalConfigPath)
+        }
+        try validateEditableConfig(source, globalConfigPath: globalConfigPath)
+        guard let updated = JSONCObjectEditor.removeNestedObjectProperty(
+            parentKey: "actions",
+            childKey: actionID,
+            in: source
+        ) else {
+            throw SaveError.malformedConfig(globalConfigPath)
+        }
+        try writeOwnerOnlyConfig(updated, globalConfigPath: globalConfigPath, fileManager: fileManager)
+    }
+
+    /// Fail closed before editing: a config that doesn't fully parse, or
+    /// whose `actions` value isn't an object, must never be structurally
+    /// edited — the JSONC editors could otherwise replace user-authored
+    /// (broken) content.
+    private static func validateEditableConfig(_ source: String, globalConfigPath: String) throws {
+        guard let sanitized = try? JSONCParser.preprocess(data: Data(source.utf8)),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any] else {
+            throw SaveError.malformedConfig(globalConfigPath)
+        }
+        if let existingActions = root["actions"], !(existingActions is [String: Any]) {
+            throw SaveError.malformedConfig(globalConfigPath)
+        }
+    }
+
+    /// Shared config writer: resolves dotfiles symlinks (an atomic write to
+    /// the link path would replace the link with a regular file), creates a
+    /// 0600 temp in the target directory, and rename(2)s it into place so the
+    /// content — commands, URLs, env values — is owner-only from its very
+    /// first byte, with no umask-permission window.
+    private static func writeOwnerOnlyConfig(
+        _ content: String,
+        globalConfigPath: String,
+        fileManager: FileManager
+    ) throws {
         let configURL = URL(fileURLWithPath: globalConfigPath).resolvingSymlinksInPath()
         let directoryURL = configURL.deletingLastPathComponent()
         try fileManager.createDirectory(
@@ -101,14 +144,10 @@ enum CmuxConfigActionSaver {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        // Saved actions can carry URLs and command lines: the replacement file
-        // must be owner-only from its very first byte, so create a 0600 temp
-        // in the same directory and rename(2) it into place — never a
-        // umask-permission window.
         let tempURL = directoryURL.appendingPathComponent(".cmux.json.tmp-\(UUID().uuidString)")
         guard fileManager.createFile(
             atPath: tempURL.path,
-            contents: Data(updated.utf8),
+            contents: Data(content.utf8),
             attributes: [.posixPermissions: 0o600]
         ) else {
             throw SaveError.unreadableConfig(globalConfigPath)
@@ -124,7 +163,6 @@ enum CmuxConfigActionSaver {
         }
         // Also heal pre-existing loose permissions on the target.
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
-        return SaveResult(actionID: actionID, configPath: globalConfigPath)
     }
 
     static func encodeActionValueJSON(_ definition: CmuxConfigActionDefinition) throws -> String {

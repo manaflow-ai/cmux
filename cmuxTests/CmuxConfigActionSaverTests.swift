@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,40 +7,40 @@ import XCTest
 @testable import cmux
 #endif
 
-/// "Save Workspace as Action" persistence (JSONC upsert into cmux.json) and
-/// the foreground-command capture that feeds saved terminal surfaces.
-final class CmuxConfigActionSaverTests: XCTestCase {
+/// "Save Workspace as Action" persistence (JSONC upsert/removal into
+/// cmux.json) and the foreground-command capture that feeds saved terminal
+/// surfaces.
+struct CmuxConfigActionSaverTests {
+
+    private func temporaryRoot(_ label: String) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-action-saver-\(label)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
 
     // MARK: - Slugs and ids
 
-    func testSlugForTitle() {
-        XCTAssertEqual(CmuxConfigActionSaver.slug(forTitle: "My Dev Setup!"), "my-dev-setup")
-        XCTAssertEqual(CmuxConfigActionSaver.slug(forTitle: "  --  "), "workspace")
-        XCTAssertEqual(CmuxConfigActionSaver.slug(forTitle: "日本語 Dev"), "日本語-dev")
+    @Test func slugForTitle() {
+        #expect(CmuxConfigActionSaver.slug(forTitle: "My Dev Setup!") == "my-dev-setup")
+        #expect(CmuxConfigActionSaver.slug(forTitle: "  --  ") == "workspace")
+        #expect(CmuxConfigActionSaver.slug(forTitle: "日本語 Dev") == "日本語-dev")
     }
 
-    func testUniqueActionID() {
-        XCTAssertEqual(
-            CmuxConfigActionSaver.uniqueActionID(forTitle: "Dev", existingIDs: []),
-            "dev"
-        )
-        XCTAssertEqual(
-            CmuxConfigActionSaver.uniqueActionID(forTitle: "Dev", existingIDs: ["dev", "dev-2"]),
-            "dev-3"
+    @Test func uniqueActionID() {
+        #expect(CmuxConfigActionSaver.uniqueActionID(forTitle: "Dev", existingIDs: []) == "dev")
+        #expect(
+            CmuxConfigActionSaver.uniqueActionID(forTitle: "Dev", existingIDs: ["dev", "dev-2"]) == "dev-3"
         )
     }
 
     // MARK: - Saving
 
-    func testSaveWorkspaceActionPreservesCommentsAndDecodes() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-action-saver-tests-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
-        }
+    @Test func savePreservesCommentsAndDecodes() throws {
+        let root = try temporaryRoot("comments")
+        defer { try? FileManager.default.removeItem(at: root) }
         let configPath = root.appendingPathComponent("cmux.json").path
         let existing = """
         {
@@ -64,55 +65,63 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             definition: definition,
             globalConfigPath: configPath
         )
-        XCTAssertEqual(result.actionID, "dev-2", "id should be uniquified against the existing 'dev'")
+        #expect(result.actionID == "dev-2", "id should be uniquified against the existing 'dev'")
 
         let saved = try String(contentsOfFile: configPath, encoding: .utf8)
-        XCTAssertTrue(saved.contains("// build actions"))
-        XCTAssertTrue(saved.contains("// keep me"))
+        #expect(saved.contains("// build actions"))
+        #expect(saved.contains("// keep me"))
 
         let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
         let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
-        let inline = try XCTUnwrap(config.actions["dev-2"]?.action?.inlineWorkspace)
-        XCTAssertEqual(inline.definition.name, "Dev")
-        XCTAssertEqual(inline.definition.setup, "make deps")
-        XCTAssertEqual(config.actions["dev-2"]?.title, "Dev")
+        let inline = try #require(config.actions["dev-2"]?.action?.inlineWorkspace)
+        #expect(inline.definition.name == "Dev")
+        #expect(inline.definition.setup == "make deps")
+        #expect(config.actions["dev-2"]?.title == "Dev")
         guard case .pane(let pane)? = inline.definition.layout else {
-            return XCTFail("Expected pane layout")
+            Issue.record("Expected pane layout")
+            return
         }
-        XCTAssertEqual(pane.surfaces.first?.command, "claude")
+        #expect(pane.surfaces.first?.command == "claude")
     }
 
-    func testSaveWorkspaceActionRejectsNonObjectActionsBlock() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-action-saver-nonobject-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
-        }
+    @Test func saveRejectsNonObjectActionsBlock() throws {
+        let root = try temporaryRoot("nonobject")
+        defer { try? FileManager.default.removeItem(at: root) }
         let configPath = root.appendingPathComponent("cmux.json").path
         let original = "{\n  \"actions\": [\"not\", \"an\", \"object\"]\n}\n"
         try original.write(toFile: configPath, atomically: true, encoding: .utf8)
 
-        XCTAssertThrowsError(try CmuxConfigActionSaver.saveWorkspaceAction(
-            title: "Nope",
-            definition: CmuxWorkspaceDefinition(name: "Nope"),
-            globalConfigPath: configPath
-        ))
-        // The user's (malformed) content must survive untouched.
-        XCTAssertEqual(try String(contentsOfFile: configPath, encoding: .utf8), original)
+        #expect(throws: (any Error).self) {
+            try CmuxConfigActionSaver.saveWorkspaceAction(
+                title: "Nope",
+                definition: CmuxWorkspaceDefinition(name: "Nope"),
+                globalConfigPath: configPath
+            )
+        }
+        #expect(try String(contentsOfFile: configPath, encoding: .utf8) == original)
     }
 
-    func testSaveWorkspaceActionPreservesSymlinkedConfig() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-action-saver-symlink-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
+    @Test func saveRejectsUnparseableConfig() throws {
+        let root = try temporaryRoot("unparseable")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        let original = "{ \"actions\": tru }\n"
+        try original.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        #expect(throws: (any Error).self) {
+            try CmuxConfigActionSaver.saveWorkspaceAction(
+                title: "Nope",
+                definition: CmuxWorkspaceDefinition(name: "Nope"),
+                globalConfigPath: configPath
+            )
         }
+        // Broken user content must survive byte-identical.
+        #expect(try String(contentsOfFile: configPath, encoding: .utf8) == original)
+    }
+
+    @Test func savePreservesSymlinkedConfig() throws {
+        let root = try temporaryRoot("symlink")
+        defer { try? FileManager.default.removeItem(at: root) }
         let realConfig = root.appendingPathComponent("dotfiles-cmux.json")
         try "{}\n".write(to: realConfig, atomically: true, encoding: .utf8)
         let linkPath = root.appendingPathComponent("cmux.json").path
@@ -127,21 +136,15 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             globalConfigPath: linkPath
         )
 
-        // The link must survive and the real target must hold the action.
         let attributes = try FileManager.default.attributesOfItem(atPath: linkPath)
-        XCTAssertEqual(attributes[.type] as? FileAttributeType, .typeSymbolicLink)
+        #expect(attributes[.type] as? FileAttributeType == .typeSymbolicLink)
         let saved = try String(contentsOf: realConfig, encoding: .utf8)
-        XCTAssertTrue(saved.contains("\"linked\""))
+        #expect(saved.contains("\"linked\""))
     }
 
-    func testSaveWorkspaceActionRespectsReservedIDs() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-action-saver-reserved-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
-        }
+    @Test func saveRespectsReservedIDs() throws {
+        let root = try temporaryRoot("reserved")
+        defer { try? FileManager.default.removeItem(at: root) }
         let configPath = root.appendingPathComponent("cmux.json").path
 
         let result = try CmuxConfigActionSaver.saveWorkspaceAction(
@@ -150,17 +153,12 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             globalConfigPath: configPath,
             reservedActionIDs: ["dev"]
         )
-        XCTAssertEqual(result.actionID, "dev-2", "id reserved by the active store must not be reused")
+        #expect(result.actionID == "dev-2", "id reserved by the active store must not be reused")
     }
 
-    func testSaveWorkspaceActionCreatesFileFromTemplate() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-action-saver-template-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
-        }
+    @Test func saveCreatesFileFromTemplateOwnerOnly() throws {
+        let root = try temporaryRoot("template")
+        defer { try? FileManager.default.removeItem(at: root) }
         let configPath = root.appendingPathComponent("nested/cmux.json").path
 
         let result = try CmuxConfigActionSaver.saveWorkspaceAction(
@@ -168,49 +166,188 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             definition: CmuxWorkspaceDefinition(name: "Fresh"),
             globalConfigPath: configPath
         )
-        XCTAssertEqual(result.actionID, "fresh")
+        #expect(result.actionID == "fresh")
 
         let saved = try String(contentsOfFile: configPath, encoding: .utf8)
-        XCTAssertTrue(saved.contains("$schema"))
+        #expect(saved.contains("$schema"))
         let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
         let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
-        XCTAssertNotNil(config.actions["fresh"]?.action?.inlineWorkspace)
+        #expect(config.actions["fresh"]?.action?.inlineWorkspace != nil)
 
-        // Saved actions can carry secrets; the file must be owner-only.
-        let permissions = try XCTUnwrap(
+        let permissions = try #require(
             FileManager.default.attributesOfItem(atPath: configPath)[.posixPermissions] as? NSNumber
         )
-        XCTAssertEqual(permissions.intValue & 0o777, 0o600)
+        #expect(permissions.intValue & 0o777 == 0o600)
+    }
+
+    // MARK: - Deleting
+
+    @Test func deleteRemovesActionAndPreservesComments() throws {
+        let root = try temporaryRoot("delete")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        let existing = """
+        {
+          // build actions
+          "actions": {
+            "keep": { "type": "command", "command": "make" }, // keep me
+            "gone": {
+              "type": "workspace",
+              "workspace": { "name": "Gone" }
+            }
+          },
+          "commands": []
+        }
+        """
+        try existing.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        try CmuxConfigActionSaver.deleteAction(id: "gone", globalConfigPath: configPath)
+
+        let saved = try String(contentsOfFile: configPath, encoding: .utf8)
+        #expect(saved.contains("// build actions"))
+        #expect(saved.contains("// keep me"))
+        #expect(!saved.contains("\"gone\""))
+        let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
+        let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+        #expect(config.actions.count == 1)
+        #expect(config.actions["keep"] != nil)
+    }
+
+    @Test func deleteFirstOfTwoActionsKeepsValidJSON() throws {
+        let root = try temporaryRoot("delete-first")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "a" },
+            "second": { "type": "command", "command": "b" }
+          }
+        }
+        """.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        try CmuxConfigActionSaver.deleteAction(id: "first", globalConfigPath: configPath)
+
+        let saved = try String(contentsOfFile: configPath, encoding: .utf8)
+        let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
+        let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+        #expect(Array(config.actions.keys) == ["second"])
+    }
+
+    @Test func deleteLastActionRemovesSeparatorComma() throws {
+        let root = try temporaryRoot("delete-last")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "https://example.com" }, // url note
+            "last": { "type": "command", "command": "b" }
+          }
+        }
+        """.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        try CmuxConfigActionSaver.deleteAction(id: "last", globalConfigPath: configPath)
+
+        let saved = try String(contentsOfFile: configPath, encoding: .utf8)
+        #expect(saved.contains("// url note"))
+        let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
+        let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+        #expect(Array(config.actions.keys) == ["first"])
+    }
+
+    @Test func deleteSoleActionLeavesEmptyObject() throws {
+        let root = try temporaryRoot("delete-sole")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        try """
+        {
+          "actions": {
+            "only": { "type": "command", "command": "a" }
+          }
+        }
+        """.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        try CmuxConfigActionSaver.deleteAction(id: "only", globalConfigPath: configPath)
+
+        let saved = try String(contentsOfFile: configPath, encoding: .utf8)
+        let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
+        let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+        #expect(config.actions.isEmpty)
+    }
+
+    @Test func deleteMissingActionThrowsAndPreservesFile() throws {
+        let root = try temporaryRoot("delete-missing")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configPath = root.appendingPathComponent("cmux.json").path
+        let original = "{\n  \"actions\": {}\n}\n"
+        try original.write(toFile: configPath, atomically: true, encoding: .utf8)
+
+        #expect(throws: (any Error).self) {
+            try CmuxConfigActionSaver.deleteAction(id: "ghost", globalConfigPath: configPath)
+        }
+        #expect(try String(contentsOfFile: configPath, encoding: .utf8) == original)
     }
 
     // MARK: - Foreground command capture
 
-    func testCommandLineFromArgvPreservesInvocationFormAndQuotes() {
-        // argv[0] is what the user typed — bare, relative, or absolute — and
-        // must survive verbatim so replay from the saved cwd works.
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: ["htop"]),
-            "htop"
+    @Test func commandLinePreservesInvocationFormAndQuotes() {
+        #expect(TerminalForegroundCommandCapture.commandLine(fromArgv: ["htop"]) == "htop")
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: ["./gradlew", "test"]) == "./gradlew test"
         )
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: ["./gradlew", "test"]),
-            "./gradlew test"
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/usr/bin/npm", "run", "dev server"])
+                == "/usr/bin/npm run 'dev server'"
         )
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/usr/bin/npm", "run", "dev server"]),
-            "/usr/bin/npm run 'dev server'"
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/Apps/My Tool.app/Contents/MacOS/my tool", "--flag"])
+                == "'/Apps/My Tool.app/Contents/MacOS/my tool' --flag"
         )
-        // Spaced executables are quoted so they can't read as shell syntax.
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/Apps/My Tool.app/Contents/MacOS/my tool", "--flag"]),
-            "'/Apps/My Tool.app/Contents/MacOS/my tool' --flag"
-        )
-        XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: ["-zsh"]))
-        XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: ["/bin/zsh"]))
-        XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: []))
+        #expect(TerminalForegroundCommandCapture.commandLine(fromArgv: ["-zsh"]) == nil)
+        #expect(TerminalForegroundCommandCapture.commandLine(fromArgv: ["/bin/zsh"]) == nil)
+        #expect(TerminalForegroundCommandCapture.commandLine(fromArgv: []) == nil)
     }
 
-    func testSnapshotDisclosuresListEveryPersistedCommandURLAndEnvKey() {
+    @Test func commandLineStripsAgentResumeArtifacts() {
+        // Agent detection works on the basename; the invocation form is kept.
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "/opt/homebrew/bin/claude", "--resume", "abc-123", "--dangerously-skip-permissions",
+            ]) == "/opt/homebrew/bin/claude --dangerously-skip-permissions"
+        )
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "codex", "resume", "0199d9c1", "--yolo",
+            ]) == "codex --yolo"
+        )
+        // Unknown executables keep their flags untouched.
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "mytool", "--resume", "state.bin",
+            ]) == "mytool --resume state.bin"
+        )
+        // Alias basenames sanitize through their real agent kind.
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "agy", "--continue", "old-conversation", "--sandbox", "danger-full-access",
+            ]) == "agy --sandbox danger-full-access"
+        )
+    }
+
+    @Test func knownAgentKindCoversAliasesAndArchSuffixedBuilds() {
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "claude") == "claude")
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "agy") == "antigravity")
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "cursor-agent") == "cursor")
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "grok-macos-aarch64") == "grok")
+        // Registry-owned kinds are omitted from allCases but must still match.
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "pi") == "pi")
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "grok") == "grok")
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "antigravity") == "antigravity")
+        #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "mytool") == nil)
+    }
+
+    @Test func snapshotDisclosuresListEveryPersistedCommandURLAndEnvKey() {
         let snapshot = WorkspaceConfigActionSnapshot(
             definition: CmuxWorkspaceDefinition(
                 name: "W",
@@ -231,58 +368,16 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             ),
             skippedPanelCount: 0
         )
-        XCTAssertEqual(snapshot.capturedCommands, ["claude", "curl -H 'Authorization: Bearer x'"])
-        XCTAssertEqual(snapshot.capturedURLs, ["https://example.com/callback?code=abc"])
-        XCTAssertEqual(snapshot.capturedEnvironmentKeys, ["API_TOKEN", "RUST_LOG"])
+        #expect(snapshot.capturedCommands == ["claude", "curl -H 'Authorization: Bearer x'"])
+        #expect(snapshot.capturedURLs == ["https://example.com/callback?code=abc"])
+        #expect(snapshot.capturedEnvironmentKeys == ["API_TOKEN", "RUST_LOG"])
 
         let plain = WorkspaceConfigActionSnapshot(
             definition: CmuxWorkspaceDefinition(name: "P"),
             skippedPanelCount: 0
         )
-        XCTAssertEqual(plain.capturedCommands, [])
-        XCTAssertEqual(plain.capturedURLs, [])
-        XCTAssertEqual(plain.capturedEnvironmentKeys, [])
-    }
-
-    func testCommandLineFromArgvStripsAgentResumeArtifacts() {
-        // Agent detection works on the basename; the invocation form is kept.
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: [
-                "/opt/homebrew/bin/claude", "--resume", "abc-123", "--dangerously-skip-permissions",
-            ]),
-            "/opt/homebrew/bin/claude --dangerously-skip-permissions"
-        )
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: [
-                "codex", "resume", "0199d9c1", "--yolo",
-            ]),
-            "codex --yolo"
-        )
-        // Unknown executables keep their flags untouched.
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: [
-                "mytool", "--resume", "state.bin",
-            ]),
-            "mytool --resume state.bin"
-        )
-        // Alias basenames sanitize through their real agent kind.
-        XCTAssertEqual(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: [
-                "agy", "--continue", "old-conversation", "--sandbox", "danger-full-access",
-            ]),
-            "agy --sandbox danger-full-access"
-        )
-    }
-
-    func testKnownAgentKindCoversAliasesAndArchSuffixedBuilds() {
-        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "claude"), "claude")
-        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "agy"), "antigravity")
-        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "cursor-agent"), "cursor")
-        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "grok-macos-aarch64"), "grok")
-        // Registry-owned kinds are omitted from allCases but must still match.
-        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "pi"), "pi")
-        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "grok"), "grok")
-        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "antigravity"), "antigravity")
-        XCTAssertNil(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "mytool"))
+        #expect(plain.capturedCommands == [])
+        #expect(plain.capturedURLs == [])
+        #expect(plain.capturedEnvironmentKeys == [])
     }
 }

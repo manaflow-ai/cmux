@@ -57,6 +57,28 @@ extension AppDelegate {
                     globalConfigPath: cmuxConfigStore.globalConfigPath
                 )
                 menu.addItem(item)
+                // Hold ⌥ to turn a deletable saved action into its delete
+                // affordance, native alternate-item style.
+                if isDeletableGlobalAction(menuAction.action, cmuxConfigStore: cmuxConfigStore) {
+                    let deleteFormat = String(
+                        localized: "menu.newWorkspace.deleteActionAlternate",
+                        defaultValue: "Delete “%@”"
+                    )
+                    let alternate = NSMenuItem(
+                        title: String(format: deleteFormat, menuAction.action.title),
+                        action: #selector(deleteWorkspaceConfigActionMenuItem(_:)),
+                        keyEquivalent: ""
+                    )
+                    alternate.target = self
+                    alternate.isAlternate = true
+                    alternate.keyEquivalentModifierMask = [.option]
+                    alternate.representedObject = WorkspaceActionDeleteBox(
+                        windowId: context.windowId,
+                        actionID: menuAction.action.id,
+                        actionTitle: menuAction.action.title
+                    )
+                    menu.addItem(alternate)
+                }
             }
         }
 
@@ -64,7 +86,11 @@ extension AppDelegate {
             menu.removeItem(at: menu.items.count - 1)
         }
 
-        appendWorkspaceActionAffordances(to: menu, windowId: context.windowId)
+        appendWorkspaceActionAffordances(
+            to: menu,
+            windowId: context.windowId,
+            cmuxConfigStore: cmuxConfigStore
+        )
 
         NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
         return true
