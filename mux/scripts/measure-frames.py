@@ -59,6 +59,32 @@ def frame_size(data: str) -> int:
         return len(data)
 
 
+class LineReader:
+    """Buffered line reader over a timeout socket. readline() returns None on
+    timeout instead of raising: socket.makefile() readers are permanently
+    unusable after one timeout (OSError: cannot read from timed out object),
+    so retry loops need raw recv buffering."""
+
+    def __init__(self, sock: socket.socket) -> None:
+        self._sock = sock
+        self._buf = bytearray()
+
+    def readline(self) -> str | None:
+        while True:
+            nl = self._buf.find(b"\n")
+            if nl >= 0:
+                line = self._buf[: nl + 1].decode("utf-8")
+                del self._buf[: nl + 1]
+                return line
+            try:
+                chunk = self._sock.recv(65536)
+            except (socket.timeout, TimeoutError):
+                return None
+            if not chunk:
+                return ""
+            self._buf.extend(chunk)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--socket", default=default_socket(), help="mux unix socket path")
@@ -85,16 +111,15 @@ def main() -> int:
         attach = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         attach.connect(args.socket)
         attach.settimeout(0.5)
-        reader = attach.makefile("r", encoding="utf-8")
+        reader = LineReader(attach)
         send_line(attach, {"id": 1, "cmd": "attach-surface", "surface": surface})
         got_state = False
         got_response = False
         initial_seq = None
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline and not (got_state and got_response):
-            try:
-                line = reader.readline()
-            except (socket.timeout, TimeoutError):
+            line = reader.readline()
+            if line is None:
                 continue
             if not line:
                 raise RuntimeError("attach socket closed during handshake")
@@ -125,24 +150,30 @@ def main() -> int:
         wheel_sent_at = None
         wheel_after_seq = initial_seq
         wheel_latency = None
+        dims = (None, None)
 
         while time.monotonic() < end:
             now = time.monotonic()
-            if wheel_sent_at is None and now - start >= min(args.seconds / 2.0, 2.0):
-                rpc.request(
-                    {
-                        "cmd": "browser-wheel",
-                        "surface": surface,
-                        "x_px": 10,
-                        "y_px": 10,
-                        "delta_y_px": 120,
-                    }
-                )
+            # Poke repeatedly until frames flow: the first interaction is what
+            # un-throttles a hidden external-Chrome tab via the stall nudge.
+            need_poke = wheel_sent_at is None or (not frame_times and now - wheel_sent_at >= 2.0)
+            if need_poke and now - start >= min(args.seconds / 2.0, 2.0):
+                try:
+                    rpc.request(
+                        {
+                            "cmd": "browser-wheel",
+                            "surface": surface,
+                            "x_px": 10,
+                            "y_px": 10,
+                            "delta_y_px": 120,
+                        }
+                    )
+                except RuntimeError:
+                    pass  # still starting; retry on the next poke cycle
                 wheel_sent_at = time.monotonic()
                 wheel_after_seq = last_seq
-            try:
-                line = reader.readline()
-            except socket.timeout:
+            line = reader.readline()
+            if line is None:
                 continue
             if not line:
                 break
@@ -154,6 +185,7 @@ def main() -> int:
             last_seq = seq
             frame_times.append(received)
             sizes.append(frame_size(value.get("data", "")))
+            dims = (value.get("width"), value.get("height"))
             if last_frame_time is not None:
                 gaps.append(received - last_frame_time)
             last_frame_time = received
@@ -164,6 +196,8 @@ def main() -> int:
         fps = len(frame_times) / elapsed
         print(f"surface: {surface}")
         print(f"seconds: {elapsed:.2f}")
+        if frame_times and dims != (None, None):
+            print(f"frame_dims: {dims[0]}x{dims[1]}")
         print(f"frames: {len(frame_times)}")
         print(f"fps: {fps:.2f}")
         if sizes:
