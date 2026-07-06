@@ -65,9 +65,7 @@
     },
     "subrouter": {
       "title": "subrouter",
-      "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "comingSoonTitle": "ダッシュボード統合は準備中です",
-      "comingSoonBody": "バックエンドの接続後、メトリクスとコントロールがここに表示されます。"
+      "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
     },
     "aiAccounts": {
       "metaTitle": "AIアカウント — cmux",
