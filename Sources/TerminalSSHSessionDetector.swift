@@ -178,8 +178,8 @@ struct DetectedSSHSession: Equatable {
     }
 
     private func sshArguments(command: String) -> [String] {
-        var args: [String] = [
-            "-T",
+        var args: [String] = ["-T"] + SSHHostConfiguredRemoteCommand().overrideArguments
+        args += [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
