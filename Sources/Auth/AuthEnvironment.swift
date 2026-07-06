@@ -128,6 +128,45 @@ enum AuthEnvironment {
         return canonicalizedLoopbackURL(URL(string: defaultVMAPIOrigin)!)
     }
 
+    /// Base URL for the cmux-owned coderouter control plane (`/api/coderouter`).
+    ///
+    /// Resolution order mirrors ``vmAPIBaseURL``:
+    ///   1. process env `CMUX_CODEROUTER_BASE_URL`.
+    ///   2. DEBUG-only `~/.cmux-dev.env` line `CMUX_CODEROUTER_BASE_URL=...`.
+    ///   3. cmux web origin (`http://localhost:$CMUX_PORT` in Debug, cmux.com in Release).
+    static var coderouterBaseURL: URL {
+        if let overridden = ProcessInfo.processInfo.environment["CMUX_CODEROUTER_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        if let override = devOverride(key: "CMUX_CODEROUTER_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return canonicalizedLoopbackURL(URL(string: defaultCoderouterOrigin)!)
+    }
+
+    /// Base URL exported to routed agents for coderouter's gateway data plane.
+    ///
+    /// This is separate from ``coderouterBaseURL``: app control calls go through
+    /// `/api/coderouter/*`, while spawned agents receive this gateway origin plus
+    /// the family path suffix (for Phase 2, `/anthropic`).
+    static var coderouterGatewayBaseURL: URL {
+        if let overridden = ProcessInfo.processInfo.environment["CMUX_CODEROUTER_GATEWAY_BASE_URL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return canonicalizedLoopbackURL(url)
+        }
+        if let override = devOverride(key: "CMUX_CODEROUTER_GATEWAY_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        return canonicalizedLoopbackURL(URL(string: defaultCoderouterGatewayOrigin)!)
+    }
+
     /// Look up `key=value` in `~/.cmux-dev.env` for the DEBUG build. Returns nil in Release.
     /// Kept tiny on purpose — this is a "drop a file, restart the app, it picks up" override,
     /// not a real config system.
@@ -199,6 +238,22 @@ enum AuthEnvironment {
         return "http://localhost:\(cmuxPort)"
         #else
         return "https://cmux.com"
+        #endif
+    }
+
+    private static var defaultCoderouterOrigin: String {
+        #if DEBUG
+        return "http://localhost:\(cmuxPort)"
+        #else
+        return "https://cmux.com"
+        #endif
+    }
+
+    private static var defaultCoderouterGatewayOrigin: String {
+        #if DEBUG
+        return "http://localhost:\(cmuxPort)"
+        #else
+        return "https://coderouter.cmux.dev"
         #endif
     }
 

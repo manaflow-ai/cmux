@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxSettings
 
 nonisolated enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
@@ -444,13 +445,28 @@ enum AgentResumeCommandBuilder {
         kind: RestorableAgentKind,
         environment: [String: String]?
     ) -> [String] {
-        guard let environment, !environment.isEmpty else {
+        var selectedEnvironment: [String: String] = [:]
+        if let environment, !environment.isEmpty {
+            selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
+        }
+        let integrations = AgentIntegrationSettingsStore(defaults: .standard)
+        if kind == .claude, integrations.routesClaudeThroughCoderouter {
+            let overrides = CoderouterEnvironmentPolicy.environment(
+                kind: kind.rawValue,
+                enabled: true,
+                secret: integrations.coderouterGatewayKey(),
+                gatewayBaseURL: AuthEnvironment.coderouterGatewayBaseURL.absoluteString
+            )
+            for (key, value) in overrides {
+                selectedEnvironment[key] = value
+            }
+        }
+        guard !selectedEnvironment.isEmpty else {
             return []
         }
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: kind.rawValue)
         for key in selectedEnvironment.keys.sorted() {
             guard let value = selectedEnvironment[key] else { continue }
             environmentParts.append("\(key)=\(value)")

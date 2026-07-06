@@ -175,6 +175,7 @@ struct cmuxApp: App {
                 coordinator: authComposition.coordinator,
                 browserSignIn: authComposition.browserSignIn
             ),
+            coderouterFlow: HostCoderouterFlow(coordinator: authComposition.coordinator),
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")

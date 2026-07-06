@@ -6108,12 +6108,39 @@ final class Workspace: Identifiable, ObservableObject {
         base: [String: String],
         remoteStartupCommand: String?
     ) -> [String: String] {
+        let integrations = AgentIntegrationSettingsStore(defaults: .standard)
+        let routeClaudeThroughCoderouter = integrations.routesClaudeThroughCoderouter
         guard remoteStartupCommand != nil,
               let remoteEnvironment = remoteConfiguration?.sshTerminalStartupEnvironment else {
-            return base
+            guard routeClaudeThroughCoderouter else { return base }
+            return coderouterMergedStartupEnvironment(base: base, integrations: integrations)
         }
         var environment = base
         for (key, value) in remoteEnvironment {
+            environment[key] = value
+        }
+        guard routeClaudeThroughCoderouter else { return environment }
+        return coderouterMergedStartupEnvironment(base: environment, integrations: integrations)
+    }
+
+    private func coderouterMergedStartupEnvironment(
+        base: [String: String],
+        integrations: AgentIntegrationSettingsStore
+    ) -> [String: String] {
+        guard let kind = base["CMUX_AGENT_LAUNCH_KIND"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !kind.isEmpty else {
+            return base
+        }
+        let overrides = CoderouterEnvironmentPolicy.environment(
+            kind: kind,
+            enabled: true,
+            secret: integrations.coderouterGatewayKey(),
+            gatewayBaseURL: AuthEnvironment.coderouterGatewayBaseURL.absoluteString
+        )
+        guard !overrides.isEmpty else { return base }
+        var environment = base
+        for (key, value) in overrides {
             environment[key] = value
         }
         return environment

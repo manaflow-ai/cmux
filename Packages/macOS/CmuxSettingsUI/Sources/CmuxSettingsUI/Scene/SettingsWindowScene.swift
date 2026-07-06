@@ -87,6 +87,7 @@ public struct SettingsWindowRoot: View {
     private var catalog: SettingCatalog { runtime.catalog }
     private var hostActions: SettingsHostActions { runtime.hostActions }
     private var accountFlow: AccountFlow? { runtime.accountFlow }
+    private var coderouterFlow: CoderouterFlow? { runtime.coderouterFlow }
 
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value
@@ -435,6 +436,14 @@ public struct SettingsWindowRoot: View {
             accountFlow: accountFlow
         )
         .id(anchorID(for: .account))
+
+        CoderouterSection(
+            defaultsStore: defaultsStore,
+            secretStore: secretStore,
+            catalog: catalog,
+            coderouterFlow: coderouterFlow
+        )
+        .id(anchorID(for: .coderouter))
 
         AppSection(
             defaultsStore: defaultsStore,

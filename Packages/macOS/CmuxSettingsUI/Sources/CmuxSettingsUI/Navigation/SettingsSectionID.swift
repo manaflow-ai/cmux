@@ -11,6 +11,7 @@ import Foundation
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    case coderouter
     case app
     case terminal
     case textBox
@@ -37,6 +38,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var title: String {
         switch self {
         case .account: return "Account"
+        case .coderouter: return String(localized: "settings.section.coderouter", defaultValue: "AI Gateway")
         case .app: return "App"
         case .terminal: return "Terminal"
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
@@ -60,6 +62,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var symbolName: String {
         switch self {
         case .account: return "person.crop.circle"
+        case .coderouter: return "arrow.triangle.branch"
         case .app: return "gearshape"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
@@ -85,6 +88,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
+        case .coderouter: return "ai gateway coderouter route claude code anthropic key subscription"
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"

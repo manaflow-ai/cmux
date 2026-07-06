@@ -18,6 +18,7 @@ public struct AgentIntegrationSettingsStore: AgentIntegrationSettingsReading {
     // UserDefaults is documented thread-safe and the reference is immutable.
     private nonisolated(unsafe) let defaults: UserDefaults
     private let keys = IntegrationsCatalogSection()
+    private let automationKeys = AutomationCatalogSection()
 
     /// Creates a store reading the given defaults suite.
     public init(defaults: UserDefaults) {
@@ -60,5 +61,30 @@ public struct AgentIntegrationSettingsStore: AgentIntegrationSettingsReading {
 
     public var suppressesSubagentNotifications: Bool {
         keys.suppressSubagentNotifications.value(in: defaults)
+    }
+
+    public var routesClaudeThroughCoderouter: Bool {
+        keys.routeClaudeThroughCoderouter.value(in: defaults)
+    }
+
+    /// Synchronously reads the stored coderouter gateway key from the same
+    /// `0600` secret file written by ``SecretFileStore``.
+    ///
+    /// Spawn setup is synchronous, so this mirrors
+    /// ``SocketControlPasswordStore``'s file-read shape instead of awaiting the
+    /// actor-backed Settings store.
+    public func coderouterGatewayKey(fileManager: FileManager = .default) -> String? {
+        let controlDirectory = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: fileManager)?
+            .deletingLastPathComponent()
+            ?? CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
+        let secretURL = SecretFileStore(baseDirectory: controlDirectory)
+            .fileURL(for: automationKeys.coderouterGatewayKey)
+        guard fileManager.fileExists(atPath: secretURL.path),
+              let data = try? Data(contentsOf: secretURL),
+              let raw = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let value = raw.trimmingCharacters(in: .newlines)
+        return value.isEmpty ? nil : value
     }
 }

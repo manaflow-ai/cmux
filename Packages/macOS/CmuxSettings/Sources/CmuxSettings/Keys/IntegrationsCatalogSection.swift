@@ -71,5 +71,11 @@ public struct IntegrationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    public let routeClaudeThroughCoderouter = DefaultsKey<Bool>(
+        id: "integrations.routeClaudeThroughCoderouter",
+        defaultValue: false,
+        userDefaultsKey: "cmux.settings.integrations.routeClaudeThroughCoderouter"
+    )
+
     public init() {}
 }

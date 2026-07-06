@@ -13,6 +13,11 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         fileName: "socket-control-password"
     )
 
+    public let coderouterGatewayKey = SecretFileKey(
+        id: "automation.coderouterGatewayKey",
+        fileName: "coderouter-gateway-key"
+    )
+
     public let claudeCodeIntegration = DefaultsKey<Bool>(
         id: "automation.claudeCodeIntegration",
         defaultValue: true,
