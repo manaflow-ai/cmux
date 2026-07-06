@@ -1705,6 +1705,10 @@ function cancelToolRequest(requestId) {
     } catch {
       // best effort: a canceled input action leaves unknown state.
     }
+  } else {
+    rejectOutboundForToken(token);
+    activeToolCalls.delete(key);
+    canceledRequestIds.delete(key);
   }
 }
 

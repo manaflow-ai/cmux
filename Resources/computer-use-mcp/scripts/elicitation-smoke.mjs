@@ -147,6 +147,83 @@ async function runQueueBoundSmoke() {
   return results;
 }
 
+async function runQueuedCancellationCapacitySmoke() {
+  const child = spawn(process.execPath, [serverPath], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: fakeEnv({ CMUX_CU_AUTO_APPROVE: "1" }),
+  });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  const pending = new Map();
+  const lines = createInterface({ input: child.stdout });
+  const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+  const request = (id, method, params, timeoutMs = 1000) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method} timed out`));
+      }, timeoutMs);
+      pending.set(id, { resolve, reject, timer });
+      send({ id, method, params });
+    });
+  const notify = (method, params) => send({ method, params });
+  lines.on("line", (line) => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    const entry = pending.get(message.id);
+    if (!entry) return;
+    pending.delete(message.id);
+    clearTimeout(entry.timer);
+    entry.resolve(message);
+  });
+  child.on("exit", () => {
+    for (const [id, entry] of pending) {
+      pending.delete(id);
+      clearTimeout(entry.timer);
+      entry.reject(new Error("server exited"));
+    }
+  });
+  try {
+    await request("init", "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+    const active = request(
+      "capacity-active",
+      "tools/call",
+      { name: "computer_state", arguments: { app: "QueueHoldApp" } },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+    const queued = Array.from({ length: 7 }, (_, index) => {
+      const id = `capacity-queued-${index}`;
+      const call = request(
+        id,
+        "tools/call",
+        { name: "computer_target", arguments: {} },
+        1000
+      )
+        .then((message) => summarizeResult(message.result))
+        .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+      notify("notifications/cancelled", { requestId: id, reason: "capacity smoke" });
+      return call;
+    });
+    const afterCancel = request(
+      "capacity-after-cancel",
+      "tools/call",
+      { name: "computer_target", arguments: {} },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+    return { active: await active, queued: await Promise.all(queued), afterCancel: await afterCancel };
+  } finally {
+    child.kill();
+  }
+}
+
 async function runProviderClosedStdinSmoke() {
   const tmp = await mkdtemp(join(tmpdir(), "cmux-cu-provider-stdin-"));
   try {
@@ -748,6 +825,21 @@ const queueRejected = queueBounded.filter((result) => result.isError && result.t
 console.log(`queue bound -> first=${queueBounded[0].isError} rejected=${queueRejected}`);
 if (queueBounded[0].isError || queueRejected === 0) {
   console.error("FAIL: concurrent tool calls should be bounded with a clear error");
+  process.exit(1);
+}
+
+const queuedCapacity = await runQueuedCancellationCapacitySmoke();
+const queuedCapacityCancelled = queuedCapacity.queued.filter((result) => result.isError).length;
+console.log(
+  `queued cancellation capacity -> active=${queuedCapacity.active.isError} cancelled=${queuedCapacityCancelled} after=${queuedCapacity.afterCancel.isError}`
+);
+if (
+  queuedCapacity.active.isError ||
+  queuedCapacityCancelled !== 7 ||
+  queuedCapacity.afterCancel.isError ||
+  queuedCapacity.afterCancel.text.includes("too many")
+) {
+  console.error("FAIL: canceled queued calls should immediately release queue capacity");
   process.exit(1);
 }
 
