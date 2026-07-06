@@ -17,6 +17,37 @@ export type SubrouterTenantAccess = {
   readonly tenantKey: string;
 };
 
+export async function getTenantForTeam(
+  db: CloudDb,
+  teamId: string,
+  options: {
+    readonly env?: SubrouterRuntimeEnv;
+    readonly tenantKeySecret?: string;
+  } = {},
+): Promise<SubrouterTenantAccess | null> {
+  const config = subrouterRuntimeConfig(options.env);
+  const tenantKeySecret = options.tenantKeySecret ?? config?.tenantKeySecret;
+  if (!tenantKeySecret) {
+    throw new SubrouterNotConfiguredError();
+  }
+
+  const [existing] = await db
+    .select({
+      tenantId: subrouterTenants.tenantId,
+      encryptedTenantKey: subrouterTenants.encryptedTenantKey,
+    })
+    .from(subrouterTenants)
+    .where(eq(subrouterTenants.teamId, teamId))
+    .limit(1);
+
+  if (!existing) return null;
+
+  return {
+    tenantId: existing.tenantId,
+    tenantKey: decryptTenantKey(existing.encryptedTenantKey, tenantKeySecret),
+  };
+}
+
 export async function getOrCreateTenantForTeam(
   db: CloudDb,
   teamId: string,
@@ -60,11 +91,12 @@ export async function getOrCreateTenantForTeam(
       };
     }
 
+    encryptTenantKey("subrouter-tenant-key-secret-probe", tenantKeySecret);
     const tenant = await client.createTenant({ name: normalizedTeamName });
-    const encryptedTenantKey = encryptTenantKey(tenant.key, tenantKeySecret);
-    const now = new Date();
 
     try {
+      const encryptedTenantKey = encryptTenantKey(tenant.key, tenantKeySecret);
+      const now = new Date();
       await tx.insert(subrouterTenants).values({
         teamId,
         tenantId: tenant.id,
@@ -74,13 +106,7 @@ export async function getOrCreateTenantForTeam(
         updatedAt: now,
       });
     } catch (err) {
-      // The upstream tenant was already provisioned; revoke it (best effort)
-      // so a failed insert does not leave an orphaned tenant behind.
-      try {
-        await client.revokeTenant(tenant.id);
-      } catch {
-        // Ignore revoke failures: the original insert error is the actionable one.
-      }
+      await revokeTenantBestEffort(client, tenant.id);
       throw err;
     }
 
@@ -89,4 +115,14 @@ export async function getOrCreateTenantForTeam(
       tenantKey: tenant.key,
     };
   });
+}
+
+async function revokeTenantBestEffort(client: SubrouterClient, tenantId: string): Promise<void> {
+  // The upstream tenant was already provisioned; revoke it (best effort)
+  // so a failed local persistence step does not leave an orphaned tenant behind.
+  try {
+    await client.revokeTenant(tenantId);
+  } catch {
+    // Ignore revoke failures: the original persistence/encryption error is actionable.
+  }
 }

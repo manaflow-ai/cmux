@@ -19,7 +19,7 @@ import {
   serviceUnavailableResponse,
   subrouterErrorResponse,
 } from "../../../../../services/subrouter/routeHelpers";
-import { getOrCreateTenantForTeam } from "../../../../../services/subrouter/tenants";
+import { getTenantForTeam } from "../../../../../services/subrouter/tenants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,15 +57,16 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   });
 
   try {
-    const tenant = await getOrCreateTenantForTeam(
+    const tenant = await getTenantForTeam(
       cloudDb(),
       team.teamId,
-      team.teamName,
       {
-        client,
         tenantKeySecret: config.tenantKeySecret,
       },
     );
+    if (!tenant) {
+      return jsonResponse({ ok: true, teamId: team.teamId });
+    }
     await client.deleteAccount(tenant.tenantKey, normalizedAccountId);
     return jsonResponse({ ok: true, teamId: team.teamId });
   } catch (err) {

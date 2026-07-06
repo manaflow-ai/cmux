@@ -22,7 +22,10 @@ import {
   serviceUnavailableResponse,
   subrouterErrorResponse,
 } from "../../../../services/subrouter/routeHelpers";
-import { getOrCreateTenantForTeam } from "../../../../services/subrouter/tenants";
+import {
+  getTenantForTeam,
+  getOrCreateTenantForTeam,
+} from "../../../../services/subrouter/tenants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,15 +38,16 @@ export async function GET(request: Request): Promise<Response> {
   if (!context.ok) return context.response;
 
   try {
-    const tenant = await getOrCreateTenantForTeam(
+    const tenant = await getTenantForTeam(
       cloudDb(),
       context.team.teamId,
-      context.team.teamName,
       {
-        client: context.client,
         tenantKeySecret: context.config.tenantKeySecret,
       },
     );
+    if (!tenant) {
+      return jsonResponse({ teamId: context.team.teamId, accounts: [] });
+    }
     const accounts = await context.client.listAccounts(tenant.tenantKey);
     return jsonResponse({ teamId: context.team.teamId, accounts });
   } catch (err) {

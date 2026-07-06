@@ -21,6 +21,7 @@ mock.module("../db/client", () => ({
   closeCloudDbForTests: async () => {},
 }));
 
+const { encryptTenantKey } = await import("../services/subrouter/crypto");
 const accountsRoute = await import("../app/api/subrouter/accounts/route");
 const accountRoute = await import("../app/api/subrouter/accounts/[accountId]/route");
 
@@ -185,7 +186,21 @@ describe("subrouter accounts route", () => {
     expect(upstream.lastCreateAccountUrl?.searchParams.get("validate")).toBe("1");
   });
 
-  test("lists sanitized accounts through a lazily provisioned tenant", async () => {
+  test("returns an empty account list without provisioning when no tenant mapping exists", async () => {
+    const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(body)).toEqual({ teamId: "team-a", accounts: [] });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+    expect(upstream.adminCreates).toBe(0);
+    expect(upstream.tenantListCalls).toBe(0);
+    expect(fakeDb.insertCalls).toBe(0);
+    expect(fakeDb.rows).toHaveLength(0);
+  });
+
+  test("lists sanitized accounts through an existing tenant", async () => {
+    seedTenantMapping(fakeDb);
     upstream.accounts = [{
       id: "acct-1",
       kind: "claude",
@@ -203,11 +218,12 @@ describe("subrouter accounts route", () => {
     expect(response.status).toBe(200);
     expect(json.teamId).toBe("team-a");
     expect(json.accounts).toEqual(upstream.accounts);
-    expect(upstream.adminCreates).toBe(1);
+    expect(upstream.adminCreates).toBe(0);
     expect(upstream.tenantListCalls).toBe(1);
   });
 
   test("strips unknown upstream account fields before returning to the browser", async () => {
+    seedTenantMapping(fakeDb);
     upstream.accounts = [{
       id: "acct-leaky",
       kind: "claude",
@@ -254,6 +270,8 @@ describe("subrouter accounts route", () => {
       label: "OpenAI",
       apiKey: "sk-test-openai",
     });
+    expect(upstream.adminCreates).toBe(1);
+    expect(fakeDb.rows).toHaveLength(1);
   });
 
   test("allows bearer-authenticated account uploads without an Origin", async () => {
@@ -274,6 +292,7 @@ describe("subrouter accounts route", () => {
   });
 
   test("delete proxies to the tenant account endpoint", async () => {
+    seedTenantMapping(fakeDb);
     const response = await accountRoute.DELETE(
       request("/api/subrouter/accounts/acct-1?teamId=team-a", { method: "DELETE" }),
       { params: Promise.resolve({ accountId: "acct-1" }) },
@@ -283,6 +302,20 @@ describe("subrouter accounts route", () => {
     expect(response.status).toBe(200);
     expect(JSON.parse(body)).toEqual({ ok: true, teamId: "team-a" });
     expect(upstream.deletedAccountIds).toEqual(["acct-1"]);
+  });
+
+  test("delete is a no-op when no tenant mapping exists", async () => {
+    const response = await accountRoute.DELETE(
+      request("/api/subrouter/accounts/acct-1?teamId=team-a", { method: "DELETE" }),
+      { params: Promise.resolve({ accountId: "acct-1" }) },
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(body)).toEqual({ ok: true, teamId: "team-a" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+    expect(fakeDb.insertCalls).toBe(0);
+    expect(fakeDb.rows).toHaveLength(0);
   });
 
   test("blocks cross-site cookie-authenticated account deletes before proxying", async () => {
@@ -320,6 +353,7 @@ describe("subrouter accounts route", () => {
   });
 
   test("allows same-origin cookie-authenticated account deletes", async () => {
+    seedTenantMapping(fakeDb);
     const response = await accountRoute.DELETE(
       request("/api/subrouter/accounts/acct-1?teamId=team-a", {
         auth: "cookie",
@@ -336,6 +370,7 @@ describe("subrouter accounts route", () => {
   });
 
   test("allows bearer-authenticated account deletes without an Origin", async () => {
+    seedTenantMapping(fakeDb);
     const response = await accountRoute.DELETE(
       request("/api/subrouter/accounts/acct-1?teamId=team-a", { method: "DELETE" }),
       { params: Promise.resolve({ accountId: "acct-1" }) },
@@ -347,10 +382,14 @@ describe("subrouter accounts route", () => {
     expect(upstream.deletedAccountIds).toEqual(["acct-1"]);
   });
 
-  test("concurrent first calls create only one tenant and never expose tenant keys", async () => {
+  test("concurrent first account uploads create only one tenant and never expose tenant keys", async () => {
+    const accountBody = JSON.stringify({
+      provider: "openai-apikey",
+      apiKey: "sk-test-openai",
+    });
     const responses = await Promise.all([
-      accountsRoute.GET(request("/api/subrouter/accounts")),
-      accountsRoute.GET(request("/api/subrouter/accounts")),
+      accountsRoute.POST(request("/api/subrouter/accounts", { method: "POST", body: accountBody })),
+      accountsRoute.POST(request("/api/subrouter/accounts", { method: "POST", body: accountBody })),
     ]);
     const bodies = await Promise.all(responses.map(textWithoutTenantKeys));
 
@@ -463,6 +502,15 @@ function createMockSubrouter() {
   return state;
 }
 
+function seedTenantMapping(db: ReturnType<typeof createFakeRouteDb>) {
+  db.rows.push({
+    teamId: "team-a",
+    tenantId: "tenant-team-a",
+    tenantName: "Team A",
+    encryptedTenantKey: encryptTenantKey("srt_1234567890abcdef1234567890abcdef", secret),
+  });
+}
+
 function createFakeRouteDb() {
   const rows: Array<{
     teamId: string;
@@ -472,8 +520,16 @@ function createFakeRouteDb() {
   }> = [];
   let tail = Promise.resolve();
 
-  return {
+  const db = {
     rows,
+    insertCalls: 0,
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => rows.slice(0, 1),
+        }),
+      }),
+    }),
     transaction: async <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => {
       const run = tail.then(async () => {
         const tx = {
@@ -487,6 +543,7 @@ function createFakeRouteDb() {
           }),
           insert: () => ({
             values: async (row: (typeof rows)[number]) => {
+              db.insertCalls += 1;
               rows.push(row);
             },
           }),
@@ -497,6 +554,7 @@ function createFakeRouteDb() {
       return await run;
     },
   };
+  return db;
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
