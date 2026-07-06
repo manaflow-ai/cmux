@@ -128,15 +128,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the same FIFO-before-dispose ordering discipline.
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
-    private var pendingSurfaceFreeCount = 0
+    var pendingSurfaceFreeCount = 0
     var renderPipelineRecoveryPaused = false
     private var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
     private static let outputApplyTimeout: CFTimeInterval = 2.0
     private static let visibleSnapshotTimeout: CFTimeInterval = 0.6
     private static let copyableTextTimeout: CFTimeInterval = 2.0
-    private static let surfaceFreeBacklogWarningThreshold = 1
-    private static let surfaceFreeBacklogRecoveryLimit = 2
+    static let surfaceFreeBacklogWarningThreshold = 1
+    static let surfaceFreeBacklogRecoveryLimit = 2
     private var nextSurfaceOperationID: UInt64 = 0
     private var pendingOutputApply: PendingSurfaceOperation?
     private var pendingGeometryApply: PendingSurfaceOperation?
@@ -418,26 +418,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
-    }
-
-    @discardableResult
-    func simulateRenderRecoveryWithStuckPriorFreeForTesting() -> Bool {
-        pendingSurfaceFreeCount = max(pendingSurfaceFreeCount, Self.surfaceFreeBacklogWarningThreshold)
-        return recoverRenderPipeline(
-            reason: "test_stuck_prior_free",
-            stalledMs: Int(Self.renderPipelineStallDeadline * 1000),
-            replay: .delegateWhenNoCaller
-        )
-    }
-
-    @discardableResult
-    func simulateRenderRecoveryAtSurfaceFreeLimitForTesting() -> Bool {
-        pendingSurfaceFreeCount = max(pendingSurfaceFreeCount, Self.surfaceFreeBacklogRecoveryLimit)
-        return recoverRenderPipeline(
-            reason: "test_surface_free_limit",
-            stalledMs: Int(Self.renderPipelineStallDeadline * 1000),
-            replay: .delegateWhenNoCaller
-        )
     }
 
     #endif
@@ -2484,7 +2464,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func recoverRenderPipeline(
+    func recoverRenderPipeline(
         reason: String,
         stalledMs: Int,
         replay: RenderPipelineRecoveryReplay
@@ -4006,7 +3986,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     }
 }
 
-nonisolated private enum RenderPipelineRecoveryReplay {
+nonisolated enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }

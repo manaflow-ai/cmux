@@ -179,6 +179,32 @@ private final class ViewportSpacingHarness {
             return self.topGap <= cell + 1 && self.bottomGap <= 1
         }
     }
+
+    @discardableResult
+    func recoverWithStuckPriorFree() -> Bool {
+        view.pendingSurfaceFreeCount = max(
+            view.pendingSurfaceFreeCount,
+            GhosttySurfaceView.surfaceFreeBacklogWarningThreshold
+        )
+        return view.recoverRenderPipeline(
+            reason: "test_stuck_prior_free",
+            stalledMs: 2_000,
+            replay: .delegateWhenNoCaller
+        )
+    }
+
+    @discardableResult
+    func recoverAtSurfaceFreeLimit() -> Bool {
+        view.pendingSurfaceFreeCount = max(
+            view.pendingSurfaceFreeCount,
+            GhosttySurfaceView.surfaceFreeBacklogRecoveryLimit
+        )
+        return view.recoverRenderPipeline(
+            reason: "test_surface_free_limit",
+            stalledMs: 2_000,
+            replay: .delegateWhenNoCaller
+        )
+    }
 }
 
 @MainActor
@@ -458,7 +484,7 @@ struct TerminalViewportSpacingTests {
         harness.echo(initial)
         #expect(await harness.waitForFill())
 
-        #expect(harness.view.simulateRenderRecoveryWithStuckPriorFreeForTesting())
+        #expect(harness.recoverWithStuckPriorFree())
         #expect(harness.delegate.renderPipelineResetCount == 1)
 
         let geometryApplied = await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: initial.rows)
@@ -479,7 +505,7 @@ struct TerminalViewportSpacingTests {
         harness.echo(initial)
         #expect(await harness.waitForFill())
 
-        #expect(harness.view.simulateRenderRecoveryAtSurfaceFreeLimitForTesting())
+        #expect(harness.recoverAtSurfaceFreeLimit())
         #expect(harness.delegate.renderPipelineResetCount == 0)
 
         let outputApplied = await harness.view.processOutputAndWait(Data("paused-output\r\n".utf8))
@@ -510,7 +536,7 @@ struct TerminalViewportSpacingTests {
         #expect(preRecoveryOutput, "initial output must reach the surface before recovery")
         #expect(harness.view.isUsingSnapshotFallbackForTesting() == false)
 
-        #expect(harness.view.simulateRenderRecoveryWithStuckPriorFreeForTesting())
+        #expect(harness.recoverWithStuckPriorFree())
         #expect(harness.view.isUsingSnapshotFallbackForTesting())
         #expect(
             await harness.pump(timeout: 1, until: {
