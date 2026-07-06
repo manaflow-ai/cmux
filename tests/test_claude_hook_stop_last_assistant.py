@@ -255,9 +255,11 @@ def main() -> int:
         notify = notify_commands[-1]
         # Stop notifications carry the agent-notification gating meta as a 4th
         # pipe segment; no background_tasks/session_crons in the payload => p=0.
+        # Claude's Stop hook tags the meta with its agent id (a=claude) so
+        # descriptive-notification routing can identify the source agent.
         expected_payload = (
             f"notify_target_async {workspace_id} {surface_id} "
-            "Claude Code|Completed in fun|2|c=turn-complete;p=0"
+            "Claude Code|Completed in fun|2|c=turn-complete;p=0;a=claude"
         )
         if notify != expected_payload:
             print("FAIL: expected stop notification to use final assistant text")
