@@ -2776,7 +2776,7 @@
           "faqQ1": "Da li cmux zamjenjuje VS Code?",
           "faqA1": "Ne uvijek. cmux zamjenjuje terminal supervision sloj kada želite lokalnu, programabilnu površinu za više agenata. VS Code može i dalje biti bolji za svoj uži posao.",
           "faqQ2": "Može li cmux raditi uz VS Code?",
-          "faqA2": "Code - OSS repozitorij je MIT licenciran. Microsoft Visual Studio Code je distribucija Code - OSS-a s Microsoft-specifičnim prilagođavanjima pod Microsoft proizvodnom licencom.",
+          "faqA2": "Da. cmux može raditi uz VS Code dok nadgleda CLI agente, shellove, testove i browser paneove u lokalnom terminal workspaceu.",
           "faqQ3": "Kada izabrati cmux?",
           "faqA3": "Izaberite cmux kada je problem nadzor više agenata, notifikacije, unread navigacija, browser automation i programabilan terminalski workflow na macOS-u."
         },

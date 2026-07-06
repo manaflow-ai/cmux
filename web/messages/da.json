@@ -1437,7 +1437,7 @@
       "browserTitle": "Browserruder",
       "browserDesc": "Browserruder i et eksternt arbejdsområde dirigerer al HTTP- og WebSocket-trafik gennem fjernmaskinens netværk. Skriv localhost:3000, og du ser på udviklerserveren, der kører på fjernboksen. Ingen -L flag, ingen manuel port forwarding. Hvert fjernarbejdsområde får en isoleret cookie-butik, så sessioner er scoped pr-forbindelse.",
       "dragDropTitle": "Træk og slip",
-      "dragDropDesc": "Træk et billede eller en fil til en fjernterminal, og cmux uploader det via scp gennem den eksisterende SSH-forbindelse. cmux registrerer SSH-processen i forgrunden af ​​TTY og dirigerer uploaden gennem ControlMaster-multipleksing.",
+      "dragDropDesc": "Træk et billede eller en fil til en fjernterminal, og cmux uploader det via scp gennem den eksisterende SSH-forbindelse. cmux registrerer SSH-processen i forgrunden af TTY og dirigerer uploaden gennem ControlMaster-multipleksing.",
       "notificationsTitle": "Meddelelser",
       "notificationsDesc": "Processer på den eksterne maskine kan køre cmux-kommandoer, der udføres på din lokale instans. Når en kodningsagent ringer til cmux notify på fjernboksen, vises beskeden i din lokale sidebjælke. Den blå ring lyser på arbejdsområdefanen. Cmd+Shift+U springer til det. Meddelelsesspam fra ustabile forbindelser undertrykkes med en nedkøling pr. vært.",
       "agentsTitle": "Kodningsmidler over SSH",
@@ -2784,7 +2784,7 @@
             },
             {
               "title": "Notifikationer bliver tilstand",
-              "body": "Den ærlige sammenligning er ikke, at kun cmux forstår agenter. Herdr sporer også agentstaten. cmux adskiller sig med Mac-native ruderinge, sidebar ulæst tilstand, Cmd+Shift+U, Cmd+Control+U og browserautomatisering ved siden af ​​terminalen."
+              "body": "Den ærlige sammenligning er ikke, at kun cmux forstår agenter. Herdr sporer også agentstaten. cmux adskiller sig med Mac-native ruderinge, sidebar ulæst tilstand, Cmd+Shift+U, Cmd+Control+U og browserautomatisering ved siden af terminalen."
             },
             {
               "title": "Workflowet er programmerbart",
@@ -3025,7 +3025,7 @@
           "faqQ1": "Erstatter cmux VS Code?",
           "faqA1": "Ikke nødvendigvis. VS Code er stadig nyttig til sin hovedrolle; cmux tilføjer et kontrolplan til lokale agenter og terminaler.",
           "faqQ2": "Kan jeg bruge VS Code sammen med cmux?",
-          "faqA2": "Code - OSS-repositoriet er MIT-licenseret. Microsoft Visual Studio Code er en distribution af Code - OSS med Microsoft-specifikke tilpasninger under Microsofts produktlicens.",
+          "faqA2": "Ja. cmux kan køre ved siden af VS Code, mens det overvåger CLI-agenter, shells, tests og browserpaneler i et lokalt terminal-workspace.",
           "faqQ3": "Hvornår skal jeg vælge cmux?",
           "faqA3": "Vælg cmux, når problemet er at følge mange agentsessioner, ikke bare at have en stærk terminal eller editor."
         },

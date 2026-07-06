@@ -3012,7 +3012,7 @@
           "faqQ1": "هل يستبدل cmux VS Code?",
           "faqA1": "ليس دائما. يستبدل cmux طبقة terminal supervision عندما تريد سطحا محليا قابلا للبرمجة لعدة وكلاء. قد يبقى VS Code أفضل لوظيفته الأضيق.",
           "faqQ2": "هل يمكن استخدام cmux مع VS Code?",
-          "faqA2": "مستودع Code - OSS مرخص MIT. Microsoft Visual Studio Code هو توزيعة من Code - OSS مع تخصيصات خاصة بمايكروسوفت تحت رخصة منتج Microsoft.",
+          "faqA2": "نعم. يمكن أن يعمل cmux بجانب VS Code بينما يراقب وكلاء CLI و shells والاختبارات و browser panes في terminal workspace محلي.",
           "faqQ3": "متى أختار cmux؟",
           "faqA3": "اختر cmux عندما تكون المشكلة مراقبة عدة وكلاء، والإشعارات، و Cmd+Shift+U، و Cmd+Control+U، و browser automation، و workflow طرفية قابل للبرمجة على macOS."
         },

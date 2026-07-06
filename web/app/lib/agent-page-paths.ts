@@ -288,7 +288,7 @@ export function buildLlmsText(origin: string): string {
     "",
     ...comparePages.map(
       (page) =>
-        `- [${comparePageLlmsTitle(page.key)}](${origin}${comparePath(page.slug)}): ${llmsCompareDescriptions[page.slug]}`,
+        `- [${comparePageTitles[page.key]}](${origin}${comparePath(page.slug)}): ${llmsCompareDescriptions[page.slug]}`,
     ),
     "",
     "## Page variants",
@@ -307,28 +307,6 @@ export function buildLlmsText(origin: string): string {
   ];
 
   return lines.join("\n");
-}
-
-function comparePageLlmsTitle(key: ComparePageKey): string {
-  switch (key) {
-    case "bestTerminalForAgents":
-      return "Best terminals and agent workspaces for AI coding agents";
-    case "multipleClaudeAgents":
-      return "How to run multiple Claude Code agents in parallel";
-    default:
-      return compareTitleFromKey(key);
-  }
-}
-
-function compareTitleFromKey(key: Exclude<ComparePageKey, "bestTerminalForAgents" | "multipleClaudeAgents">): string {
-  const value = key.slice("cmuxVs".length);
-  const spaced = value
-    .replace(/Iterm2/, "iTerm2")
-    .replace(/Vscode/, "VS Code")
-    .replace(/Opencode/, "OpenCode")
-    .replace(/Wezterm/, "WezTerm")
-    .replace(/Tmux/, "tmux");
-  return `cmux vs ${spaced}`;
 }
 
 function normalizeRequestedPath(rawPath: string): string | null {

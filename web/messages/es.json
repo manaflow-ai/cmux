@@ -2535,12 +2535,12 @@
               "body": "Puedes ejecutar Claude Code para una tarea, Codex para otra, OpenCode para una tercera y comandos de shell normales al lado. cmux mantiene la capa de supervisión en tu espacio de trabajo de terminal y navegador, fuera de la app de Devin y del workflow en la nube."
             },
             {
-              "title": "Rendimiento nativo con concurrencia",
+              "title": "El trabajo local se mantiene rápido e inspeccionable",
               "body": "Para muchas tareas, el bucle más productivo sigue siendo local: editar, ejecutar, inspeccionar, preguntar a otro agente, abrir el navegador y hacer push cuando el diff está listo. cmux mantiene ese bucle en tu Mac en vez de convertir cada tarea en una sesión gestionada de Devin Cloud."
             },
             {
-              "title": "La programabilidad mantiene los flujos inspeccionables",
-              "body": "La CLI y la API de socket exponen paneles, workspaces, lecturas de pantalla, capturas, automatización de navegador, hooks y comandos personalizados para scriptar el flujo exacto."
+              "title": "Rendimiento nativo de Mac con concurrencia",
+              "body": "El trabajo paralelo con agentes ya consume recursos antes de contar la UI. cmux usa Swift/AppKit y libghostty para que la superficie de terminal se mantenga ligera mientras los procesos locales hacen el trabajo."
             },
             {
               "title": "La programabilidad mantiene los flujos inspeccionables",
