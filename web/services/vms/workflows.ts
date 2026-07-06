@@ -386,6 +386,22 @@ function preflightResumeIfSuspended(
       }
       return;
     }
+    if (status === "running") {
+      // Freestyle's SSH gateway can resume a VM entirely outside the control
+      // plane; if the durable row still says paused, record the observed
+      // running state so active-limit reconciliation can see the VM.
+      if (vm.status === "paused") {
+        const recorded = yield* repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: "running",
+        });
+        if (!recorded) {
+          return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+        }
+      }
+      return;
+    }
     if (status !== "paused") return;
 
     yield* resumeUntilRunning(providers, vm, providerVmId);
