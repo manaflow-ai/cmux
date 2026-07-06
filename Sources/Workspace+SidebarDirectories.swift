@@ -77,6 +77,31 @@ extension Workspace {
         return terminalPanel(for: panelId) != nil
     }
 
+    func clearDemotedRemoteDirectoryState(panelIds: Set<UUID>) {
+        guard !panelIds.isEmpty else { return }
+        let removedDirectories = Set(panelIds.compactMap { normalizedSidebarDirectory(panelDirectories[$0]) })
+        for panelId in panelIds {
+            panelDirectories.removeValue(forKey: panelId)
+            panelDirectoryDisplayLabels.removeValue(forKey: panelId)
+            clearPanelGitBranch(panelId: panelId)
+        }
+        guard let current = normalizedSidebarDirectory(currentDirectory),
+              removedDirectories.contains(current) else { return }
+        currentDirectory = demotedRemoteDirectoryReplacement(excluding: panelIds)
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func demotedRemoteDirectoryReplacement(excluding excludedPanelIds: Set<UUID>) -> String? {
+        for panelId in sidebarOrderedPanelIds() where !excludedPanelIds.contains(panelId) {
+            if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) { return directory }
+            if allowsLocalDirectoryFallback(panelId: panelId),
+               let directory = normalizedSidebarDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory) {
+                return directory
+            }
+        }
+        return nil
+    }
+
     func currentDirectoryChangeRevisionPublisher() -> AnyPublisher<UInt64, Never> {
         NotificationCenter.default
             .publisher(for: .workspaceCurrentDirectoryDidChange)

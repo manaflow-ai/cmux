@@ -155,6 +155,8 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == remoteDirectory)
         #expect(workspace.trustedRemoteCurrentDirectory == remoteDirectory)
         #expect(workspace.currentDirectory == localDirectory)
+        workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "stale-main", isDirty: false); workspace.markRemoteTerminalSessionEnded(surfaceId: remotePanelId, relayPort: 64007)
+        #expect(workspace.reportedPanelGitBranch(panelId: remotePanelId) == nil)
     }
 
     @MainActor
@@ -445,10 +447,11 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: agentPanel.id, directory: remoteDirectory)
         #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
         #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
-        let panelSnapshot = try #require(
-            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id }
-        )
+        let panelSnapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id })
         #expect(panelSnapshot.directoryIsTrustedRemoteReport == true)
+        workspace.currentDirectory = remoteDirectory; workspace.disconnectRemoteConnection(clearConfiguration: true)
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
+        #expect(workspace.currentDirectory != remoteDirectory)
     }
 
     @MainActor
