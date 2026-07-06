@@ -71,6 +71,7 @@ public final class ControlCommandCoordinator {
         if let result = handleAppFocus(request) { return result }
         if let result = handleFeed(request) { return result }
         if let result = handleNotification(request) { return result }
+        if let result = handleLayout(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
