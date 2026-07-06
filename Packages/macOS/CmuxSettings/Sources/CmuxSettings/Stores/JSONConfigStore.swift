@@ -46,6 +46,12 @@ public actor JSONConfigStore {
 
     private var cachedRoot: [String: Any] = [:]
     private var cacheValid = false
+    // Resolution identity the cache was loaded under. A cmux.json symlink can be
+    // retargeted at any time without a watcher event having been processed (or
+    // with no subscriber at all, since drains spawn on first subscribe), so
+    // cacheValid alone must never authorize reusing a root that was read from a
+    // different resolved file.
+    private var cachedRootResolvedPath: String?
     private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var watcherTask: Task<Void, Never>?
     private var targetWatcherTask: Task<Void, Never>?
@@ -242,10 +248,16 @@ public actor JSONConfigStore {
     }
 
     private func loadedRoot() -> [String: Any] {
-        if cacheValid { return cachedRoot }
+        let resolvedPath = Self.resolvedWriteURL(for: fileURL).path
+        if cacheIsCurrent(for: resolvedPath) { return cachedRoot }
         cachedRoot = (try? readFromDisk()) ?? [:]
         cacheValid = true
+        cachedRootResolvedPath = resolvedPath
         return cachedRoot
+    }
+
+    private func cacheIsCurrent(for resolvedPath: String) -> Bool {
+        cacheValid && cachedRootResolvedPath == resolvedPath
     }
 
     /// Reads and decodes the config root from disk. A missing or empty file
@@ -312,14 +324,18 @@ public actor JSONConfigStore {
     /// — overwriting a corrupt file would silently destroy whatever real
     /// content the user has in it. The error from
     /// ``readFromDisk()`` is propagated to the caller.
+    ///
+    /// The root must never come from a cache loaded under a different resolved
+    /// target, since that would overwrite the new target's contents with the old
+    /// target's data.
     private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
-        var root = cacheValid ? cachedRoot : try readFromDisk()
-        mutate(&root)
-
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
+        var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk()
+        mutate(&root)
+
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(
@@ -331,6 +347,7 @@ public actor JSONConfigStore {
         // Only commit to cache after the file write succeeded.
         cachedRoot = root
         cacheValid = true
+        cachedRootResolvedPath = writeURL.path
 
         // Notify subscribers of our own write directly rather than
         // relying on the file watcher to observe it. Atomic writes
