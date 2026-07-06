@@ -8,8 +8,11 @@ import Testing
 #endif
 
 /// Regression tests for remote-tmux mirror detach behavior. They use cached,
-/// unstarted control connections so the controller exercises the real mirror
-/// lifecycle without spawning ssh or tmux.
+/// unstarted control connections so no ssh/tmux ever attaches anywhere. The
+/// last-mirror teardown does fire-and-forget the production `ssh -O exit` at
+/// cmux's own (nonexistent here) ControlPath socket — a local-only no-op that
+/// exits immediately; a test seam to suppress it is exactly the production
+/// test-scaffolding cmux policy forbids.
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorLifecycleTests {
