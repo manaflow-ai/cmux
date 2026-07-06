@@ -2518,8 +2518,8 @@
   },
   "afterSignIn": {
     "title": "cmux にサインインしました",
-    "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
-    "button": "cmux に戻る",
+    "body": "このアカウントで続行するか、cmux に戻る前に別のアカウントを選択してください。",
+    "button": "このアカウントで続行",
     "switchAccountButton": "別のアカウントを使用"
   },
   "billingSuccess": {

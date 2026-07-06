@@ -1684,8 +1684,8 @@
   },
   "afterSignIn": {
     "title": "Prijavljeni ste u cmux",
-    "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
-    "button": "Vrati se u cmux",
+    "body": "Nastavite s ovim računom ili odaberite drugi račun prije povratka u cmux.",
+    "button": "Nastavi s ovim računom",
     "switchAccountButton": "Koristi drugi račun"
   },
   "landing": {

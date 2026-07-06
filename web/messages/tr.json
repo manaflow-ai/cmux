@@ -1684,8 +1684,8 @@
   },
   "afterSignIn": {
     "title": "cmux oturumu açıldı",
-    "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
-    "button": "cmux’a dön",
+    "body": "Bu hesapla devam edin veya cmux’a dönmeden önce farklı bir hesap seçin.",
+    "button": "Bu hesapla devam et",
     "switchAccountButton": "Farklı bir hesap kullan"
   },
   "landing": {

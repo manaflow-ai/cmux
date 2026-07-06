@@ -269,7 +269,7 @@ ${autoOpenScript}
       },
     }
   );
-  if (autoOpen) {
+  if (autoOpen || switchAccountHref !== null) {
     response.cookies.set(NATIVE_HANDOFF_COOKIE, "", {
       httpOnly: true,
       maxAge: 0,
@@ -346,9 +346,11 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     ) {
       if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-        const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
+        const accountSwitchHref = switchAccountHref(request);
+        const autoOpen =
+          accountSwitchHref === null && verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen, switchAccountHref(request));
+          return nativeReturnResponse(href, localizedMessages, autoOpen, accountSwitchHref);
         }
       }
       return NextResponse.redirect(new URL("/", request.url));

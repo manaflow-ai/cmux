@@ -1684,8 +1684,8 @@
   },
   "afterSignIn": {
     "title": "Bei cmux angemeldet",
-    "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
-    "button": "Zurück zu cmux",
+    "body": "Fahre mit diesem Konto fort oder wähle ein anderes Konto aus, bevor du zu cmux zurückkehrst.",
+    "button": "Mit diesem Konto fortfahren",
     "switchAccountButton": "Anderes Konto verwenden"
   },
   "landing": {

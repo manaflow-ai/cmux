@@ -46,7 +46,7 @@ function signInRequest(nativeReturnTo: string, handoffNonce: string): NextReques
 }
 
 function returnHref(html: string): string {
-  const match = html.match(/<a class="primary" href="([^"]+)">Return to cmux<\/a>/);
+  const match = html.match(/<a class="primary" href="([^"]+)">Continue with this account<\/a>/);
   expect(match).toBeTruthy();
   return match![1].replaceAll("&amp;", "&");
 }
@@ -77,7 +77,8 @@ describe("after sign-in native handoff", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     const html = await response.text();
     expect(html).toContain("Signed in to cmux");
-    expect(html).toContain("Return to cmux");
+    expect(html).toContain("Continue with this account");
+    expect(html).toContain("Use a different account");
     expect(html).not.toContain("window.location.replace");
     expect(html).not.toContain("window.clearTimeout");
     expect(html).not.toContain("document.querySelectorAll(\"a\")");
@@ -121,7 +122,7 @@ describe("after sign-in native handoff", () => {
     expect(response.status).toBe(200);
     const html = await response.text();
     expect(html).toContain("Signed in to cmux");
-    expect(html).toContain("Return to cmux");
+    expect(html).toContain("Continue with this account");
     expect(html).not.toContain("window.location.replace");
     expect(returnHref(html)).toContain("cmux://auth-callback");
   });
@@ -137,7 +138,7 @@ describe("after sign-in native handoff", () => {
 
     expect(response.status).toBe(200);
     const html = await response.text();
-    expect(html).toContain("Return to cmux");
+    expect(html).toContain("Continue with this account");
     expect(html).not.toContain("Use a different account");
   });
 
