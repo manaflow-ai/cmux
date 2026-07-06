@@ -619,7 +619,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             panelId: panelId
         ))
 
-        for key in ["surface_id", "tab_id"] {
+        for key in ["surface_id", "terminal_id", "tab_id"] {
             for method in ["surface.resume.set", "surface.resume.get", "surface.resume.clear"] {
                 var params: [String: Any] = [
                     "window_id": windowId.uuidString,
