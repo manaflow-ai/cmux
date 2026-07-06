@@ -215,8 +215,17 @@ func listWindows(match: String?) -> [[String: Any]] {
     return windows
 }
 
-func resolvedWindowIdFor(_ window: AXUIElement, pid _: pid_t) -> Int? {
-    windowNumberFor(window)
+func resolvedWindowIdFor(_ window: AXUIElement, pid: pid_t) -> Int? {
+    if let windowNumber = windowNumberFor(window) { return windowNumber }
+    guard let axBounds = boundsFor(window) else { return nil }
+    let matches = visibleWindowEntries(pid: pid).compactMap { entry -> Int? in
+        guard let bounds = windowEntryBounds(entry),
+              boundsNearlyEqual(bounds, axBounds) else {
+            return nil
+        }
+        return (entry[kCGWindowNumber as String] as? NSNumber)?.intValue
+    }
+    return matches.count == 1 ? matches[0] : nil
 }
 
 func appRoot(_ app: NSRunningApplication, windowIndex: Int?, windowId: Int?) -> (AXUIElement, String, Int?, Int?) {
