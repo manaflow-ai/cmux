@@ -2,9 +2,9 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34495	CLI/cmux.swift
-12570	Sources/AppDelegate.swift
+12574	Sources/AppDelegate.swift
 12359	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10223	Sources/GhosttyTerminalView.swift
+10229	Sources/GhosttyTerminalView.swift
 10165	Sources/Workspace.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8919	Sources/ContentView.swift
@@ -133,11 +133,11 @@
 688	cmuxTests/TerminalNotificationQueueTests.swift
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 679	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionStrings.swift
+679	cmuxTests/SessionPersistenceResumeBindingTests.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 676	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 673	cmuxTests/FeedCoordinatorTests.swift
 672	Sources/GotoSplitUITestRecorder.swift
-671	cmuxTests/SessionPersistenceResumeBindingTests.swift
 668	cmuxTests/SettingsWindowPresenterTests.swift
 665	Sources/AppleScriptSupport.swift
 664	Sources/KeyboardShortcutContext.swift

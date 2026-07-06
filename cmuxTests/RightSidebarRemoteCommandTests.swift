@@ -286,7 +286,7 @@ extension TerminalControllerSocketSecurityTests {
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .getState,
             target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-        ) == .state(.init(visible: false, modeRawValue: "sessions")))
+        ) == .state(.init(visible: false, mode: .sessions)))
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .getState,

@@ -4342,7 +4342,7 @@ extension SessionPersistenceTests {
     // The emitted guard must therefore avoid brace grouping entirely while keeping the
     // same `(cd || test) && cmd` semantics via a left-associative AND-OR list.
     func testWorkingDirectoryPrefixUsesNoPosixBraceGroupingForFishLoginShell() {
-        let prefixed = TerminalStartupWorkingDirectoryPrefix.prefix(
+        let prefixed = TerminalStartupWorkingDirectoryPrefix().prefix(
             "claude --resume abc",
             workingDirectory: "/tmp/fish repo"
         )
@@ -4368,7 +4368,7 @@ extension SessionPersistenceTests {
         XCTAssertFalse(binding.command.contains("{ "), binding.command)
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/fish repo"
             )

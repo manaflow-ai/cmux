@@ -4441,6 +4441,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func allMainWindowTabManagersForDebug() -> [TabManager] {
         environment.mainWindowRouter.allMainWindowTabManagersForDebug()
     }
+#if !DEBUG
+    private func debugWindowToken(_: NSWindow?) -> String { "" }
+#endif
+
 #if DEBUG
     func debugManagerToken(_ manager: TabManager?) -> String {
         guard let manager else { return "nil" }
