@@ -51,7 +51,9 @@
       "vaultSessions": "セッション",
       "vaultCliSetup": "CLI設定",
       "subrouterGroup": "subrouter",
-      "subrouterOverview": "概要"
+      "subrouterOverview": "概要",
+      "accountGroup": "アカウント",
+      "billing": "請求"
     },
     "home": {
       "title": "ダッシュボード",
@@ -66,6 +68,48 @@
     "subrouter": {
       "title": "subrouter",
       "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    },
+    "billing": {
+      "eyebrow": "アカウント",
+      "title": "請求",
+      "description": "cmuxプランを確認し、サブスクリプション請求を管理します。",
+      "banners": {
+        "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
+        "resumed": "プランは再開され、通常どおり更新されます。",
+        "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
+        "error": "請求を更新できませんでした。しばらくしてから再試行してください。"
+      },
+      "free": {
+        "name": "Free",
+        "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。"
+      },
+      "pro": {
+        "name": "cmux Pro",
+        "activeBody": "プランは{date}に更新されます。",
+        "pendingBody": "プランは{date}に終了する予定です。"
+      },
+      "legacy": {
+        "body": "cmux Proは従来のStackサブスクリプションで提供されています。このプランはStripeセルフサービス請求の対象外で管理されています。"
+      },
+      "details": {
+        "renewsOn": "更新日",
+        "endsOn": "終了日",
+        "price": "料金"
+      },
+      "dates": {
+        "unknown": "不明"
+      },
+      "cancel": {
+        "body": "Proアクセスは{date}まで有効です。請求期間の終了時にキャンセルすることを確認するには、チェックボックスを選択してください。",
+        "checkbox": "現在の請求期間の終了時にプランが終了することを理解しました。"
+      },
+      "actions": {
+        "viewPricing": "料金を見る",
+        "manageBilling": "請求を管理",
+        "cancelSummary": "プランをキャンセル",
+        "confirmCancel": "キャンセルを確定",
+        "resume": "プランを再開"
+      }
     },
     "aiAccounts": {
       "metaTitle": "AIアカウント — cmux",
