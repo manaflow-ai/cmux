@@ -15,6 +15,7 @@ import {
   VmRepository,
   VmRepositoryLive,
   type CloudVmRow,
+  type ExpiredIdentityLease,
   type VmRepositoryShape,
 } from "../services/vms/repository";
 import {
@@ -31,6 +32,7 @@ import {
   execVm,
   openAttachEndpoint,
   openSshEndpoint,
+  reconcileExpiredLeases,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -709,6 +711,124 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("reconcileExpiredLeases revokes expired identity leases", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000116",
+      providerVmId: "provider-vm-reconcile",
+      status: "running",
+    });
+    const expiredIdentityLeases: ExpiredIdentityLease[] = [
+      { id: "lease-1", provider: "freestyle", providerIdentityHandle: "identity-1" },
+      { id: "lease-2", provider: "freestyle", providerIdentityHandle: "identity-2" },
+    ];
+    const revoked: Array<{ provider: string; identityHandle: string }> = [];
+    const markedRevoked: string[][] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      expiredIdentityLeases,
+      markLeasesRevoked: (ids) =>
+        Effect.sync(() => {
+          markedRevoked.push([...ids]);
+        }),
+    });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (provider, identityHandle) =>
+        Effect.sync(() => {
+          revoked.push({ provider, identityHandle });
+        }),
+    };
+
+    const summary = await Effect.runPromise(
+      reconcileExpiredLeases().pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(summary).toEqual({ scanned: 2, revoked: 2, failed: 0 });
+    expect(revoked).toEqual([
+      { provider: "freestyle", identityHandle: "identity-1" },
+      { provider: "freestyle", identityHandle: "identity-2" },
+    ]);
+    expect(markedRevoked).toEqual([["lease-1", "lease-2"]]);
+  });
+
+  test("reconcileExpiredLeases isolates per-lease revoke failures", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000117",
+      providerVmId: "provider-vm-reconcile-failure",
+      status: "running",
+    });
+    const expiredIdentityLeases: ExpiredIdentityLease[] = [
+      { id: "lease-fails", provider: "freestyle", providerIdentityHandle: "identity-fails" },
+      { id: "lease-succeeds", provider: "freestyle", providerIdentityHandle: "identity-succeeds" },
+    ];
+    const attempts: Array<{ provider: string; identityHandle: string }> = [];
+    const markedRevoked: string[][] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      expiredIdentityLeases,
+      markLeasesRevoked: (ids) =>
+        Effect.sync(() => {
+          markedRevoked.push([...ids]);
+        }),
+    });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: (provider, identityHandle) =>
+        Effect.suspend(() => {
+          attempts.push({ provider, identityHandle });
+          if (identityHandle === "identity-fails") {
+            return Effect.fail(providerOperationError("revokeSSHIdentity", "provider revoke unavailable"));
+          }
+          return Effect.void;
+        }),
+    };
+
+    const summary = await Effect.runPromise(
+      reconcileExpiredLeases().pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(summary).toEqual({ scanned: 2, revoked: 1, failed: 1 });
+    expect(attempts).toEqual([
+      { provider: "freestyle", identityHandle: "identity-fails" },
+      { provider: "freestyle", identityHandle: "identity-succeeds" },
+    ]);
+    expect(markedRevoked).toEqual([["lease-succeeds"]]);
+  });
+
+  test("openSshEndpoint records provider token id in SSH lease metadata", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000118",
+      userId: "user-workflow-ssh-token-id",
+      providerVmId: "provider-vm-ssh-token-id",
+      status: "running",
+    });
+    const leases: RecordedLease[] = [];
+    const endpoint = {
+      ...testSshEndpoint(),
+      username: "provider-vm-ssh-token-id+cmux",
+      providerTokenId: "provider-token-ssh-1",
+    };
+    const repo = testWorkflowRepo({ vm, leases });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openSSH: () => Effect.succeed(endpoint),
+    };
+
+    const result = await Effect.runPromise(
+      openSshEndpoint({
+        userId: "user-workflow-ssh-token-id",
+        providerVmId: "provider-vm-ssh-token-id",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual(endpoint);
+    expect(leases).toHaveLength(1);
+    expect(leases[0]?.metadata).toMatchObject({
+      credentialKind: "password",
+      providerTokenId: "provider-token-ssh-1",
+    });
+  });
+
   test("openAttachEndpoint recovers when the VM suspends between preflight and minting", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000112",
@@ -941,6 +1061,7 @@ describe("VM Effect workflows", () => {
       markDestroyed: () => Effect.void,
       recordLease: () => Effect.void,
       activeIdentityLeases: () => Effect.succeed([]),
+      expiredIdentityLeases: () => Effect.succeed([]),
       markLeasesRevoked: () => Effect.void,
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => {
@@ -2310,6 +2431,8 @@ function testWorkflowRepo(input: {
   readonly usageEvents?: RecordedUsageEvent[];
   readonly leases?: RecordedLease[];
   readonly observedStatuses?: ObservedStatusUpdate[];
+  readonly expiredIdentityLeases?: ExpiredIdentityLease[];
+  readonly markLeasesRevoked?: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
   ) => Effect.Effect<boolean, VmDatabaseError>;
@@ -2342,7 +2465,9 @@ function testWorkflowRepo(input: {
         input.leases?.push(lease);
       }),
     activeIdentityLeases: () => Effect.succeed([]),
-    markLeasesRevoked: () => Effect.void,
+    expiredIdentityLeases: () => Effect.succeed(input.expiredIdentityLeases ?? []),
+    markLeasesRevoked: (ids) =>
+      input.markLeasesRevoked ? input.markLeasesRevoked(ids) : Effect.void,
     recordUsageEvent: (event) =>
       Effect.sync(() => {
         input.usageEvents?.push(event);

@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["pdx1"]
+  "regions": ["pdx1"],
+  "crons": [
+    {
+      "path": "/api/cron/vm-lease-sweep",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

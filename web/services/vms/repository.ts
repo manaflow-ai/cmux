@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -11,6 +11,11 @@ export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
+export type ExpiredIdentityLease = {
+  readonly id: string;
+  readonly provider: ProviderId;
+  readonly providerIdentityHandle: string;
+};
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -79,6 +84,7 @@ export type VmRepositoryShape = {
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<void, VmDatabaseError>;
   readonly activeIdentityLeases: (vmId: string) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
+  readonly expiredIdentityLeases: () => Effect.Effect<ExpiredIdentityLease[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {
     readonly userId: string;
@@ -448,6 +454,35 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             isNull(cloudVmLeases.revokedAt),
           ),
         );
+    }),
+
+  expiredIdentityLeases: () =>
+    dbEffect("expiredIdentityLeases", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select({
+          id: cloudVmLeases.id,
+          provider: cloudVms.provider,
+          providerIdentityHandle: cloudVmLeases.providerIdentityHandle,
+        })
+        .from(cloudVmLeases)
+        .innerJoin(cloudVms, eq(cloudVmLeases.vmId, cloudVms.id))
+        .where(
+          and(
+            isNotNull(cloudVmLeases.providerIdentityHandle),
+            isNull(cloudVmLeases.revokedAt),
+            lt(cloudVmLeases.expiresAt, new Date()),
+          ),
+        );
+      return rows.flatMap((row) => {
+        const providerIdentityHandle = row.providerIdentityHandle;
+        if (!providerIdentityHandle) return [];
+        return [{
+          id: row.id,
+          provider: row.provider,
+          providerIdentityHandle,
+        }];
+      });
     }),
 
   markLeasesRevoked: (ids) =>

@@ -33,6 +33,11 @@ export type SSHEndpoint = {
    * minting a replacement identity, so unreferenced tokens don't pile up on the provider side.
    */
   identityHandle: string;
+  /**
+   * Opaque provider token id recorded with the lease for audit/debugging. Revocation remains
+   * identity-scoped through `identityHandle`.
+   */
+  providerTokenId?: string;
 };
 
 export type WebSocketPtyEndpoint = {
