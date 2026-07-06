@@ -14,6 +14,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }> = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
     { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9 },
+    { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/blog", lastModified: "2026-06-23", changeFrequency: "weekly" as const, priority: 0.8 },
     { path: "/blog/cmux-home", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },

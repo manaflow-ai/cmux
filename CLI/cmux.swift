@@ -28301,7 +28301,7 @@ struct CMUXCLI {
                     eventName: event.agentEvent
                 ))
                 result[event.agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -28339,7 +28339,7 @@ struct CMUXCLI {
                     eventName: agentEvent
                 ))
                 result[agentEvent] = entries
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -28888,62 +28888,6 @@ export default CMUXSessionRestore;
         print("Removed OpenCode cmux plugin from \(pluginURL.path)")
     }
 
-    private func installRovoDevHooks(_ def: AgentHookDef) throws {
-        let fm = FileManager.default
-        let configDir = def.resolvedConfigDir()
-        let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
-            || ProcessInfo.processInfo.arguments.contains("-y")
-
-        var isDirectory = ObjCBool(false)
-        if !fm.fileExists(atPath: configDir, isDirectory: &isDirectory) {
-            try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
-        } else if !isDirectory.boolValue {
-            throw CLIError(message: "\(configDir) exists but is not a directory. Move it aside before installing \(def.displayName) hooks.")
-        }
-
-        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: true)
-        if oldString == newString {
-            print("\(def.displayName) hooks already up to date at \(filePath)")
-            return
-        }
-
-        if !skipConfirm {
-            Self.printInstallPreview(
-                path: filePath,
-                oldContent: oldString,
-                newContent: newString,
-                fallbackContent: newString
-            )
-            print("\nProceed? [y/N] ", terminator: "")
-            guard readLine()?.lowercased().hasPrefix("y") == true else {
-                print("Aborted.")
-                return
-            }
-        }
-        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
-        print("\(def.displayName) hooks installed at \(filePath)")
-    }
-
-    private func uninstallRovoDevHooks(_ def: AgentHookDef) throws {
-        let fm = FileManager.default
-        let configDir = def.resolvedConfigDir()
-        let filePath = "\(configDir)/\(def.configFile)"
-        guard fm.fileExists(atPath: filePath) else {
-            print("No \(def.configFile) found at \(filePath)")
-            return
-        }
-        let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
-        let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
-        guard oldString != newString else {
-            print("Removed 0 cmux hook(s) from \(filePath)")
-            return
-        }
-        try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
-        print("Removed Rovo Dev cmux hooks from \(filePath)")
-    }
-
     func readAgentHookConfig(filePath: String, displayName: String) throws -> String {
         let fm = FileManager.default
         guard fm.fileExists(atPath: filePath) else { return "" }
@@ -28952,23 +28896,6 @@ export default CMUXSessionRestore;
         } catch {
             throw CLIError(message: "\(filePath) exists but could not be read. Fix permissions or remove it before installing \(displayName) hooks.")
         }
-    }
-
-    private func rovoDevHooksContent(
-        existing: String,
-        def: AgentHookDef,
-        shouldInstall: Bool
-    ) throws -> String {
-        let events = def.events.map { event in
-            RovoDevHookConfig.Event(
-                name: event.agentEvent,
-                command: hookCommand(for: def, event: event)
-            )
-        }
-        if shouldInstall {
-            return RovoDevHookConfig.installing(events: events, in: existing)
-        }
-        return RovoDevHookConfig.uninstalling(from: existing)
     }
 
     private static let antigravityHookGroupName = "cmux"
@@ -29175,6 +29102,10 @@ export default CMUXSessionRestore;
             try installAntigravityHooks(def)
             return
         }
+        if case .tomlArrayTable = def.format {
+            try installKimiHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -29282,7 +29213,7 @@ export default CMUXSessionRestore;
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -29310,7 +29241,7 @@ export default CMUXSessionRestore;
                     }
                 }
                 hooks[event] = groups
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }
@@ -29536,6 +29467,10 @@ export default CMUXSessionRestore;
             try uninstallAntigravityHooks(def)
             return
         }
+        if case .tomlArrayTable = def.format {
+            try uninstallKimiHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -29600,7 +29535,7 @@ export default CMUXSessionRestore;
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML, .tomlArrayTable:
                 break
             }
         }

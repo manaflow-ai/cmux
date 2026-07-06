@@ -544,6 +544,9 @@ struct cmuxApp: App {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
+                    Button("Pro Badge Style…") {
+                        ProBadgeDebugWindowController.shared.show()
+                    }
                     Button(
                         String(
                             localized: "debug.menu.bonsplitTabBarDebug",
@@ -1468,6 +1471,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.fileExplorerStyleDebug",
     "cmux.folderDragIcon",
     "cmux.pdfPreviewChromeDebug",
+    "cmux.proBadgeDebug",
     "cmux.recentlyClosedHistory",
     "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",

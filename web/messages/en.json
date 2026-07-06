@@ -24,8 +24,8 @@
     "howTitle": "How it works",
     "howBody": "Pair your iPhone with your Mac from the Mobile Connect window, then attach to any workspace. The connection runs over your own Tailscale or local network, so your terminals never touch a third-party server.",
     "galleryTitle": "Run anything in your terminal",
-    "galleryItemAlt": "{name} running in a cmux terminal on iPhone",
-    "backToMac": "cmux for Mac"
+    "backToMac": "cmux for Mac",
+    "galleryItemAlt": "{name} running in a cmux terminal on iPhone"
   },
   "meta": {
     "title": "cmux — The terminal built for multitasking, organization, and programmability",
@@ -68,6 +68,56 @@
       "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
       "comingSoonTitle": "dashboard integration is coming soon",
       "comingSoonBody": "metrics and controls will appear here after the backend is wired."
+    },
+    "aiAccounts": {
+      "metaTitle": "AI accounts — cmux",
+      "metaDescription": "Manage team AI provider accounts for cmux.",
+      "section": "dashboard",
+      "title": "AI accounts",
+      "description": "Manage the provider accounts this team can use for cmux AI.",
+      "personalTeam": "Personal",
+      "teamSwitcherLabel": "Team",
+      "notConfiguredTitle": "AI account management isn't available yet",
+      "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
+      "loadErrorTitle": "Accounts could not load",
+      "loadErrorBody": "The account service could not be reached. Try again shortly.",
+      "accountsTitle": "Connected accounts",
+      "accountsCount": "{count, plural, one {# account} other {# accounts}}",
+      "emptyTitle": "No accounts yet",
+      "emptyBody": "Add a provider account to make it available to this team.",
+      "providerColumn": "Provider",
+      "labelColumn": "Label",
+      "createdColumn": "Created",
+      "actionsColumn": "Actions",
+      "unlabeledAccount": "Unlabeled",
+      "unknownCreatedAt": "Unknown",
+      "addAccountsTitle": "Add account",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "Anthropic API key",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "OpenAI API key",
+      "providerUnknown": "Unknown provider",
+      "labelField": "Label",
+      "labelPlaceholder": "Team default",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "API key",
+      "addClaude": "Add Claude",
+      "addAnthropic": "Add Anthropic",
+      "addCodex": "Add Codex",
+      "addOpenAi": "Add OpenAI",
+      "addSuccess": "Account added.",
+      "addError": "Account could not be saved.",
+      "deleteError": "Account could not be deleted.",
+      "jsonError": "Paste a valid JSON object.",
+      "validationError": "Check the account details and try again.",
+      "teamAccessError": "You do not have access to this team.",
+      "deletingAction": "Deleting",
+      "deleteAction": "Delete",
+      "deleteConfirmTitle": "Delete this account?",
+      "deleteConfirmBody": "This removes the provider account for the whole team. Adding it back requires the original credentials.",
+      "cancelAction": "Cancel",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
     }
   },
   "vault": {
@@ -156,6 +206,7 @@
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Community",
+    "pricing": "Pricing",
     "github": "GitHub"
   },
   "footer": {
@@ -165,6 +216,7 @@
     "social": "Social",
     "blog": "Blog",
     "community": "Community",
+    "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
     "privacy": "Privacy",
@@ -180,6 +232,290 @@
     "assets": "Assets",
     "openSource": "Open source",
     "guides": "Guides"
+  },
+  "pricing": {
+    "metaTitle": "Pricing — cmux",
+    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
+    "title": "Pricing",
+    "perMonth": "/month",
+    "perUserMonth": "/user/month",
+    "free": {
+      "name": "Free",
+      "price": "$0",
+      "cta": "Download for Mac",
+      "featuresLead": "Includes:",
+      "features": [
+        "Native macOS terminal built on Ghostty, fully open source",
+        "Run Claude Code, Codex, Gemini, and any CLI agent with your own keys",
+        "Vertical tabs, workspaces, split panes, and completion notifications",
+        "Browser panels, a scriptable socket API, and custom skills",
+        "Local session history and a one-time Cloud VM trial",
+        "Community support on Discord and GitHub"
+      ]
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$30",
+      "cta": "Get Pro",
+      "featuresLead": "Everything in Free, plus:",
+      "features": [
+        "Cloud agents on Cloud VMs in isolated remote sandboxes",
+        "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
+        "Model gateway: route across providers with usage and cost analytics",
+        "The cmux iOS app and email support"
+      ],
+      "vaultFeatures": [
+        "cmux Vault: every session backed up to the cloud and searchable",
+        "Unlimited session history across all your machines"
+      ],
+      "hostedNetworkingFeatures": [
+        "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
+      ]
+    },
+    "team": {
+      "name": "Team",
+      "price": "$35",
+      "cta": "Get Teams",
+      "featuresLead": "Everything in Pro, plus:",
+      "features": [
+        "Unified billing: one invoice for the whole team",
+        "Centralized seat management: add and remove members anytime",
+        "Pooled Cloud VM compute hours shared across the team",
+        "Shared team rules, settings, and workspace templates",
+        "Team-wide model gateway with per-member usage and cost analytics",
+        "Centralized admin and priority email support"
+      ]
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "price": "Custom",
+      "cta": "Contact sales",
+      "featuresLead": "Everything in Team, plus:",
+      "features": [
+        "Self-hosted Cloud execution and networking, so nothing leaves your network",
+        "Self-hosted model gateway with org-wide usage and cost analytics",
+        "SSO and SAML sign-in",
+        "Centralized admin and shared team rules",
+        "Audit logs for terminal sessions, network requests, and browser activity",
+        "Committed cloud usage and volume pricing",
+        "SOC 2 and an SLA, with dedicated support"
+      ]
+    },
+    "compare": {
+      "title": "Compare plans",
+      "rows": [
+        {
+          "label": "Native macOS terminal, open source",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Local CLI agents with your own keys",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Vertical tabs, splits, notifications, socket API",
+          "free": "true",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Session history",
+          "free": "Local",
+          "pro": "Unlimited",
+          "team": "Unlimited",
+          "enterprise": "Unlimited",
+          "vault": true
+        },
+        {
+          "label": "cmux Vault: cloud session backup",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Search across all your sessions",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true",
+          "vault": true
+        },
+        {
+          "label": "Cloud agents on Cloud VMs",
+          "free": "1 VM trial",
+          "pro": "20 hrs/mo, then usage-based",
+          "team": "Pooled, usage-based",
+          "enterprise": "Committed usage"
+        },
+        {
+          "label": "Concurrent Cloud VMs",
+          "free": "1",
+          "pro": "Usage-based",
+          "team": "Usage-based",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Model gateway: routing and usage analytics",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS app",
+          "free": "false",
+          "pro": "true",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Networking to reach your Mac",
+          "free": "Bring your own",
+          "pro": "Hosted",
+          "team": "Hosted",
+          "enterprise": "Self-hosted",
+          "hostedNetworking": true
+        },
+        {
+          "label": "Unified billing and seat management",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "SSO and SAML sign-in",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Self-hosted and air-gapped execution",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Centralized admin and shared team rules",
+          "free": "false",
+          "pro": "false",
+          "team": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Audit logs: sessions, network, browser",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Committed usage and volume pricing",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 and an SLA",
+          "free": "false",
+          "pro": "false",
+          "team": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Support",
+          "free": "Community",
+          "pro": "Email",
+          "team": "Priority",
+          "enterprise": "Dedicated"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "Cloud VM sizes",
+      "body": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size.",
+      "colSize": "Size",
+      "colUse": "Best for",
+      "colRate": "Per active hour",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "Light agents and quick tasks",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 vCPU / 16 GB",
+          "use": "Standard development",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "Heavy builds and parallel agents",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "Questions? Join our <discord>Discord</discord>, open a <github>GitHub issue</github>, or <email>email us</email>.",
+    "faq": {
+      "title": "FAQ",
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. You only pay when you run agents on Cloud VMs."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Remote Linux sandboxes where agents clone repositories, run commands, and open pull requests in the cloud, without touching your machine. They cover parallel work, background jobs, and PR review. Idle VMs suspend automatically, so you are only billed for active compute-hours."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search.",
+          "vault": true
+        },
+        {
+          "q": "What is the model gateway?",
+          "a": "A hosted gateway that routes each request to a strong model across providers and gives you usage and cost analytics in one place. Bring your own provider keys. Enterprise can self-host the gateway for org-wide control."
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
+        },
+        {
+          "q": "How does billing work?",
+          "a": "Pro is $30 per month, or $240 per year (about $20 per month billed annually) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Do you have a team plan?",
+          "a": "Yes. Team is $35 per user per month: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+        }
+      ]
+    },
+    "welcomeSuccess": "Welcome to cmux Pro. Your subscription is active.",
+    "welcomeActive": "cmux Pro is already active on your account.",
+    "welcomePending": "Payment received. Pro can take a minute to activate on your account.",
+    "welcomePendingAction": "Check again",
+    "billingError": "Something went wrong starting checkout. Please try again in a moment.",
+    "billingUnavailable": "Billing is not available right now. Please try again later.",
+    "billingCancelled": "Checkout cancelled. You have not been charged.",
+    "billingInvalidPlan": "That plan is not available. Pick a plan below.",
+    "welcomeTeam": "Your cmux Team purchase is complete."
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
@@ -248,58 +584,6 @@
     "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqBrowserQ": "What can the built-in browser do?",
     "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>."
-  },
-  "dashboard": {
-    "aiAccounts": {
-      "metaTitle": "AI accounts — cmux",
-      "metaDescription": "Manage team AI provider accounts for cmux.",
-      "section": "dashboard",
-      "title": "AI accounts",
-      "description": "Manage the provider accounts this team can use for cmux AI.",
-      "personalTeam": "Personal",
-      "teamSwitcherLabel": "Team",
-      "notConfiguredTitle": "AI account management isn't available yet",
-      "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
-      "loadErrorTitle": "Accounts could not load",
-      "loadErrorBody": "The account service could not be reached. Try again shortly.",
-      "accountsTitle": "Connected accounts",
-      "accountsCount": "{count, plural, one {# account} other {# accounts}}",
-      "emptyTitle": "No accounts yet",
-      "emptyBody": "Add a provider account to make it available to this team.",
-      "providerColumn": "Provider",
-      "labelColumn": "Label",
-      "createdColumn": "Created",
-      "actionsColumn": "Actions",
-      "unlabeledAccount": "Unlabeled",
-      "unknownCreatedAt": "Unknown",
-      "addAccountsTitle": "Add account",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Anthropic API key",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "OpenAI API key",
-      "providerUnknown": "Unknown provider",
-      "labelField": "Label",
-      "labelPlaceholder": "Team default",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "API key",
-      "addClaude": "Add Claude",
-      "addAnthropic": "Add Anthropic",
-      "addCodex": "Add Codex",
-      "addOpenAi": "Add OpenAI",
-      "addSuccess": "Account added.",
-      "addError": "Account could not be saved.",
-      "deleteError": "Account could not be deleted.",
-      "jsonError": "Paste a valid JSON object.",
-      "validationError": "Check the account details and try again.",
-      "teamAccessError": "You do not have access to this team.",
-      "deletingAction": "Deleting",
-      "deleteAction": "Delete",
-      "deleteConfirmTitle": "Delete this account?",
-      "deleteConfirmBody": "This removes the provider account for the whole team. Adding it back requires the original credentials.",
-      "cancelAction": "Cancel",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
-    }
   },
   "community": {
     "title": "Community",
@@ -662,6 +946,7 @@
         "implementationP2": "Agent hooks write session mappings under ~/.cmuxterm. On restore, cmux rebuilds the UI first. If automatic agent resume is enabled, it launches each supported agent with that agent's native resume command and the saved session ID.",
         "limitsTitle": "What stays out of scope",
         "limitsP": "tmux, vim, shells, and unsupported tools reopen as normal terminals unless they have a cmux integration that records a safe native resume command. That keeps restore predictable and avoids replaying stale prompts or secrets.",
+        "docsCta": "Read the <link>session restore docs</link> for setup commands, supported agents, and troubleshooting.",
         "workflowTitle": "Recommended setup",
         "workflowInstall": "Install the agent CLI you use, then run cmux hooks setup so cmux can capture native session IDs.",
         "workflowWork": "Run agents in normal cmux terminals. The hooks record the session ID, cwd, workspace, and surface as work happens.",
@@ -671,8 +956,7 @@
         "faqCrashTitle": "Does this recover after a crash?",
         "faqCrashBody": "It recovers app-owned layout and supported agent sessions from the last saved snapshot. It cannot recover arbitrary process memory that the agent or shell never exposed through a resume API.",
         "faqTmuxTitle": "Should I still use tmux?",
-        "faqTmuxBody": "Use tmux when you need tmux semantics on a remote host. Use cmux session restore when you want app layout, browser state, and supported agent resume to come back together.",
-        "docsCta": "Read the <link>session restore docs</link> for setup commands, supported agents, and troubleshooting."
+        "faqTmuxBody": "Use tmux when you need tmux semantics on a remote host. Use cmux session restore when you want app layout, browser state, and supported agent resume to come back together."
       },
       "cmuxClaudeTeams": {
         "title": "Claude Code teammate agents as native cmux panes",
@@ -700,6 +984,7 @@
         "summary": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
         "date": "March 30, 2026",
         "p1": "<code>cmux ssh user@remote</code> creates a workspace for the remote machine. Drag an image into a remote Claude Code session and it gets uploaded automatically. Browser panes route through the remote network, so localhost just works. Uses your <code>~/.ssh/config</code>, reconnects on drops.",
+        "features": "Browser panes route traffic through the remote network, so localhost:3000 reaches the remote dev server without -L flags. Coding agents on the remote box send notifications to your local sidebar. cmux claude-teams and cmux omo work over SSH, spawning teammate panes locally while computation runs remote. Drag a file into a remote terminal to upload via scp. The sidebar shows connection state and detected listening ports.",
         "workflowTitle": "A remote development workflow",
         "workflowConnect": "Connect with cmux ssh and let cmux create a dedicated workspace for the remote host.",
         "workflowPreview": "Open a browser pane next to the terminal and use localhost URLs as if the dev server were local.",
@@ -1097,50 +1382,6 @@
       "underHoodItemResume": "On restore, cmux rebuilds windows and panes first. If automatic agent resume is enabled, it launches a one-shot shell command that runs the agent's native resume command with the saved session ID.",
       "underHoodMore": "The regular <configLink>configuration docs</configLink> cover cmux.json. Session restore keeps app layout separate from Ghostty terminal rendering settings."
     },
-    "vault": {
-      "title": "Vault",
-      "metaTitle": "Vault",
-      "metaDescription": "Search old Codex, Claude Code, OpenCode, and Pi sessions in cmux Vault, then reopen a session in the workspace where you need it.",
-      "intro": "Vault is a right-sidebar pane for finding old AI coding agent sessions by transcript content instead of by terminal history.",
-      "indexesTitle": "What Vault indexes",
-      "indexesDesc": "Vault reads local session records from supported agents and makes their transcripts searchable inside cmux.",
-      "indexCodex": "Codex sessions",
-      "indexClaude": "Claude Code sessions",
-      "indexOpenCode": "OpenCode sessions",
-      "indexPi": "Pi sessions",
-      "workflowTitle": "Workflow",
-      "workflowOpen": "Open Vault from the right sidebar.",
-      "workflowSearch": "Search for a file, branch, issue title, error message, or phrase from the conversation.",
-      "workflowDrag": "Drag a matching session into the current workspace.",
-      "workflowContinue": "Resume from the recovered context beside the code or browser pane you are using now.",
-      "useTitle": "When to use Vault",
-      "useDesc": "Use Vault when you remember what an agent worked on but not which workspace, date, or shell command started it. It is built for rediscovering prior agent context, not for restoring the current app layout after relaunch.",
-      "limitsTitle": "Limits",
-      "limitsDesc": "Vault can only index session formats that cmux knows how to read on the local machine. It does not search private remote hosts unless those sessions are available to the local cmux installation.",
-      "blogCta": "Read the <link>Vault feature story</link> for a workflow-oriented overview."
-    },
-    "taskManager": {
-      "title": "Task Manager",
-      "metaTitle": "Task Manager",
-      "metaDescription": "Use cmux Task Manager or cmux top to find high CPU and RAM usage from coding agents, terminal processes, and browser panes.",
-      "intro": "Task Manager shows resource usage for cmux windows, workspaces, panes, terminal processes, coding agents, and browser webviews.",
-      "openTitle": "Open Task Manager",
-      "openDesc": "Run the CLI command from any cmux terminal:",
-      "paletteDesc": "You can also press Cmd+Shift+P and choose Task Manager from the command palette.",
-      "showsTitle": "What it shows",
-      "showsWindows": "Windows, workspaces, panes, and surfaces",
-      "showsWorkspaces": "Workspace ownership for terminal and browser activity",
-      "showsAgents": "Known coding agent processes such as Claude Code, Codex, and OpenCode",
-      "showsBrowsers": "Browser webviews and related helper processes",
-      "workflowTitle": "Troubleshooting workflow",
-      "workflowOpen": "Open Task Manager when cmux feels slow, fans spin up, or an agent appears stuck.",
-      "workflowSort": "Sort or scan for the process using the most CPU or memory.",
-      "workflowJump": "Jump back to the owning workspace or surface.",
-      "workflowFix": "Stop, restart, or split the overloaded process with the right context visible.",
-      "useTitle": "When to use it",
-      "useDesc": "Use Task Manager when Activity Monitor shows load from cmux but does not identify the responsible workspace, agent, or browser pane.",
-      "blogCta": "Read the <link>Task Manager feature story</link> for the workflow and launch context."
-    },
     "concepts": {
       "title": "Concepts",
       "metaTitle": "Concepts",
@@ -1280,8 +1521,6 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
-        "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
-        "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
@@ -1313,12 +1552,6 @@
           "textBoxSubmitActionAssetName": "Optional app asset catalog image name shown on the submit button.",
           "textBoxSubmitActionImagePath": "Optional PNG or image file path shown on the submit button. Tilde is expanded.",
           "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
-        },
-        "notifications": {
-          "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
-          "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",
-          "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
-          "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
@@ -1357,6 +1590,14 @@
         "shortcuts": {
           "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
+        },
+        "paneBorderColor": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits.",
+        "activePaneBorderColor": "Optional border color drawn around the focused cmux pane in split workspaces.",
+        "notifications": {
+          "suppressOnlyFocusedSurface": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw.",
+          "agentPermissionPrompt": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent.",
+          "agentTurnComplete": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it.",
+          "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1586,8 +1827,7 @@
       "closeWorkspaceDesc": "Close a workspace.",
       "splitCommands": "Split commands",
       "newSplitDesc": "Create a new split pane. Directions: left, right, up, down.",
-      "listPanelsDesc": "List all surfaces in the current workspace.",
-      "listPaneSurfacesDesc": "List surfaces in the focused pane.",
+      "listSurfacesDesc": "List all surfaces in the current workspace.",
       "focusSurfaceDesc": "Focus a specific surface.",
       "inputCommands": "Input commands",
       "sendDesc": "Send text input to the focused terminal.",
@@ -1627,7 +1867,9 @@
       "examples": "Examples",
       "pythonClient": "Python client",
       "shellScript": "Shell script",
-      "buildScriptNotification": "Build script with notification"
+      "buildScriptNotification": "Build script with notification",
+      "listPanelsDesc": "List all surfaces in the current workspace.",
+      "listPaneSurfacesDesc": "List surfaces in the focused pane."
     },
     "notifications": {
       "title": "Notifications",
@@ -2064,8 +2306,6 @@
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
-      "vault": "Vault",
-      "taskManager": "Task Manager",
       "customCommands": "Custom Commands",
       "keyboardShortcuts": "Keyboard Shortcuts",
       "apiReference": "CLI Reference",
@@ -2082,7 +2322,9 @@
       "changelog": "Changelog",
       "dock": "Dock",
       "textBox": "TextBox (Beta)",
-      "ios": "iOS App"
+      "ios": "iOS App",
+      "vault": "Vault",
+      "taskManager": "Task Manager"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2166,6 +2408,50 @@
       "dataNot": "Your interactive terminal session, its contents and keystrokes, flows directly between your phone and your Mac over your own network, and is not relayed through or stored on cmux servers. The one exception is forwarded notification text, which transits cmux and Apple's push service to reach your phone, unless you enable Hide content (see Notifications above).",
       "enterpriseTitle": "Enterprise and self-hosted",
       "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@manaflow.com</link>."
+    },
+    "vault": {
+      "title": "Vault",
+      "metaTitle": "Vault",
+      "metaDescription": "Search old Codex, Claude Code, OpenCode, and Pi sessions in cmux Vault, then reopen a session in the workspace where you need it.",
+      "intro": "Vault is a right-sidebar pane for finding old AI coding agent sessions by transcript content instead of by terminal history.",
+      "indexesTitle": "What Vault indexes",
+      "indexesDesc": "Vault reads local session records from supported agents and makes their transcripts searchable inside cmux.",
+      "indexCodex": "Codex sessions",
+      "indexClaude": "Claude Code sessions",
+      "indexOpenCode": "OpenCode sessions",
+      "indexPi": "Pi sessions",
+      "workflowTitle": "Workflow",
+      "workflowOpen": "Open Vault from the right sidebar.",
+      "workflowSearch": "Search for a file, branch, issue title, error message, or phrase from the conversation.",
+      "workflowDrag": "Drag a matching session into the current workspace.",
+      "workflowContinue": "Resume from the recovered context beside the code or browser pane you are using now.",
+      "useTitle": "When to use Vault",
+      "useDesc": "Use Vault when you remember what an agent worked on but not which workspace, date, or shell command started it. It is built for rediscovering prior agent context, not for restoring the current app layout after relaunch.",
+      "limitsTitle": "Limits",
+      "limitsDesc": "Vault can only index session formats that cmux knows how to read on the local machine. It does not search private remote hosts unless those sessions are available to the local cmux installation.",
+      "blogCta": "Read the <link>Vault feature story</link> for a workflow-oriented overview."
+    },
+    "taskManager": {
+      "title": "Task Manager",
+      "metaTitle": "Task Manager",
+      "metaDescription": "Use cmux Task Manager or cmux top to find high CPU and RAM usage from coding agents, terminal processes, and browser panes.",
+      "intro": "Task Manager shows resource usage for cmux windows, workspaces, panes, terminal processes, coding agents, and browser webviews.",
+      "openTitle": "Open Task Manager",
+      "openDesc": "Run the CLI command from any cmux terminal:",
+      "paletteDesc": "You can also press Cmd+Shift+P and choose Task Manager from the command palette.",
+      "showsTitle": "What it shows",
+      "showsWindows": "Windows, workspaces, panes, and surfaces",
+      "showsWorkspaces": "Workspace ownership for terminal and browser activity",
+      "showsAgents": "Known coding agent processes such as Claude Code, Codex, and OpenCode",
+      "showsBrowsers": "Browser webviews and related helper processes",
+      "workflowTitle": "Troubleshooting workflow",
+      "workflowOpen": "Open Task Manager when cmux feels slow, fans spin up, or an agent appears stuck.",
+      "workflowSort": "Sort or scan for the process using the most CPU or memory.",
+      "workflowJump": "Jump back to the owning workspace or surface.",
+      "workflowFix": "Stop, restart, or split the overloaded process with the right context visible.",
+      "useTitle": "When to use it",
+      "useDesc": "Use Task Manager when Activity Monitor shows load from cmux but does not identify the responsible workspace, agent, or browser pane.",
+      "blogCta": "Read the <link>Task Manager feature story</link> for the workflow and launch context."
     }
   },
   "deeplink": {
@@ -2209,33 +2495,6 @@
     "metaDescription": "Your cmux download is starting. Explore the docs, join the Discord, and follow cmux on X.",
     "heading": "Thanks for downloading cmux!",
     "subtext": "Click <link>here</link> if your download hasn't started."
-  },
-  "platforms": {
-    "macos": "macOS",
-    "ios": "iOS",
-    "linux": "Linux",
-    "android": "Android",
-    "windows": "Windows"
-  },
-  "waitlist": {
-    "title": "Join the {platform} waitlist",
-    "titleAny": "Join the waitlist",
-    "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
-    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
-    "calloutText": "Coming to Linux, Windows, and Android.",
-    "platformsLabel": "Which platforms?",
-    "selectPlatform": "Pick at least one platform.",
-    "emailLabel": "Email",
-    "emailPlaceholder": "you@example.com",
-    "join": "Join waitlist",
-    "joining": "Joining…",
-    "cancel": "Cancel",
-    "invalidEmail": "Enter a valid email address.",
-    "sendError": "Couldn't send. Please try again.",
-    "successTitle": "You're on the list",
-    "successBody": "We'll email you when the {platform} build is ready.",
-    "successBodyAny": "We'll email you when cmux is ready on your platform.",
-    "done": "Done"
   },
   "legal": {
     "privacyPolicy": "Privacy Policy",
@@ -2318,6 +2577,14 @@
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux",
     "switchAccountButton": "Use a different account"
+  },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro is active",
+    "title": "cmux Pro is active",
+    "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "emailLabel": "Purchase email",
+    "openCmux": "Open cmux",
+    "manageSignInMethods": "Manage sign-in methods"
   },
   "landing": {
     "bestTerminal": {
@@ -2595,6 +2862,91 @@
       "faqA3": "The pane rings and the sidebar shows an unread badge when Cursor CLI finishes or asks for input, so you can let it run and come back when it needs you.",
       "faqQ4": "Is cmux free to use with Cursor CLI?",
       "faqA4": "Yes. cmux is free and open source for macOS."
+    }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Join the {platform} waitlist",
+    "titleAny": "Join the waitlist",
+    "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
+    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
+    "calloutText": "Coming to Linux, Windows, and Android.",
+    "platformsLabel": "Which platforms?",
+    "selectPlatform": "Pick at least one platform.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Join waitlist",
+    "joining": "Joining…",
+    "cancel": "Cancel",
+    "invalidEmail": "Enter a valid email address.",
+    "sendError": "Couldn't send. Please try again.",
+    "successTitle": "You're on the list",
+    "successBody": "We'll email you when the {platform} build is ready.",
+    "successBodyAny": "We'll email you when cmux is ready on your platform.",
+    "done": "Done"
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "Talk with cmux about Enterprise deployment, SSO, self-hosted Cloud VMs, audit logs, and committed usage.",
+    "section": "Enterprise",
+    "title": "Bring cmux Cloud VMs, SSO, and audit controls to your team.",
+    "body": "Tell us what you need to deploy cmux across your organization. We route Enterprise requests to the founders so security reviews, procurement, and self-hosted requirements get handled directly.",
+    "points": [
+      "Self-hosted Cloud execution and networking for code that must stay inside your environment.",
+      "SSO, SAML, audit logs, centralized admin, and shared team rules.",
+      "Committed usage, volume pricing, and support for security or procurement reviews."
+    ],
+    "formAriaLabel": "Enterprise contact form",
+    "form": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "companyName": "Company name",
+      "jobFunction": "Job function",
+      "jobTitle": "Job title",
+      "businessEmail": "Business email address",
+      "phoneNumber": "Phone number",
+      "country": "Country",
+      "companySize": "Company size",
+      "deploymentNeeds": "Deployment needs",
+      "comments": "Comments",
+      "selectPlaceholder": "Select one",
+      "jobFunctionOptions": [
+        "Engineering",
+        "Platform",
+        "Security",
+        "IT",
+        "Procurement",
+        "Executive",
+        "Other"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO or SAML",
+        "Self-hosted Cloud VMs",
+        "Self-hosted model gateway",
+        "Audit logs and compliance",
+        "Committed Cloud VM usage",
+        "Security or procurement review",
+        "Other"
+      ],
+      "privacy": "We use this information to respond to your Enterprise request and route it to the right founder. We do not sell contact information.",
+      "submit": "Submit",
+      "submitting": "Submitting...",
+      "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
+      "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   }
 }
