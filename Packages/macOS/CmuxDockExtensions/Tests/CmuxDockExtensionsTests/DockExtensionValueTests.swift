@@ -68,3 +68,29 @@ struct DockExtensionConsentFingerprintTests {
         #expect(base != manifest().consentFingerprint(pinnedSha: nil))
     }
 }
+
+@Suite("DockExtensionFingerprint platform gating")
+struct DockExtensionFingerprintPlatformTests {
+    private func manifest(panePlatforms: [String]?) -> DockExtensionManifest {
+        DockExtensionManifest(
+            manifestVersion: 1,
+            id: "x",
+            name: "X",
+            version: "1",
+            panes: [DockExtensionPane(
+                id: "main", title: "Main", command: ["run"], platforms: panePlatforms
+            )]
+        )
+    }
+
+    @Test func platformListChangesFingerprint() {
+        // A pane flipped from linux-only to macOS must demand re-consent: it
+        // was hidden from the consent sheet when originally approved.
+        let hidden = manifest(panePlatforms: ["linux"]).consentFingerprint(pinnedSha: "abc")
+        let exposed = manifest(panePlatforms: ["macos"]).consentFingerprint(pinnedSha: "abc")
+        let all = manifest(panePlatforms: nil).consentFingerprint(pinnedSha: "abc")
+        #expect(hidden != exposed)
+        #expect(hidden != all)
+        #expect(exposed != all)
+    }
+}

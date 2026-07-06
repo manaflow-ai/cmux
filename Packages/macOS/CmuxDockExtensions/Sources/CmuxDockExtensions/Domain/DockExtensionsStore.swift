@@ -137,10 +137,20 @@ public final class DockExtensionsStore {
         guard case .github = existing.record.source else {
             throw DockExtensionError.invalidSource(existing.record.source.description)
         }
-        return try await previewInstall(
+        let preview = try await previewInstall(
             input: existing.record.source.description,
             ref: existing.record.ref
         )
+        // An update must stay an update: if the repo's manifest changed its id,
+        // confirming would install a SECOND extension and leave the old record
+        // behind. Refuse instead of silently forking.
+        guard preview.manifest.id == id else {
+            discard(preview)
+            throw DockExtensionError.manifestInvalid([
+                "the repository's manifest id changed from \"\(id)\" to \"\(preview.manifest.id)\"; uninstall \"\(id)\" and install the new id instead",
+            ])
+        }
+        return preview
     }
 
     /// Deletes a preview's staged checkout after the user cancels consent.
@@ -203,8 +213,17 @@ public final class DockExtensionsStore {
         defer { busyExtensionIds.remove(id) }
         try await repository.remove(id: id)
         if !existing.isLinked {
-            let checkout = directories.checkoutDirectory(id: id)
-            try? FileManager.default.removeItem(at: checkout)
+            // Containment check: the id comes from the decoded lockfile, which
+            // other tooling can write. A malformed id (e.g. "../x") must never
+            // turn this delete into a traversal outside the managed checkouts
+            // directory — refuse the file deletion, keep the record removal.
+            let checkoutsRoot = directories.checkoutDirectory(id: "x")
+                .deletingLastPathComponent().standardizedFileURL
+            let checkout = directories.checkoutDirectory(id: id).standardizedFileURL
+            if DockExtensionManifest.isValidExtensionId(id),
+               checkout.path.hasPrefix(checkoutsRoot.path + "/") {
+                try? FileManager.default.removeItem(at: checkout)
+            }
         }
         await reload()
     }
@@ -485,6 +504,15 @@ public final class DockExtensionsStore {
         case .local(let path):
             return URL(fileURLWithPath: path, isDirectory: true)
         case .github:
+            // A malformed lockfile id (other tooling writes this file) must
+            // never resolve to a path outside the managed checkouts directory;
+            // route it to a never-existing child so the projection reports the
+            // record as unavailable instead of reading a traversal target.
+            guard DockExtensionManifest.isValidExtensionId(record.id) else {
+                return directories
+                    .checkoutDirectory(id: "invalid")
+                    .appendingPathComponent("invalid-record-id", isDirectory: true)
+            }
             return applySubdirectory(
                 record.source.subdirectory,
                 to: directories.checkoutDirectory(id: record.id)

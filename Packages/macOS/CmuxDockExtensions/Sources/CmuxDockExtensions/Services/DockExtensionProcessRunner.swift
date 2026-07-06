@@ -133,8 +133,12 @@ public struct DockExtensionProcessRunner: Sendable {
     }
 
     private static func readCapped(_ url: URL) -> String {
-        guard let data = try? Data(contentsOf: url) else { return "" }
-        let capped = data.count > outputByteLimit ? data.prefix(outputByteLimit) : data
-        return String(decoding: capped, as: UTF8.self)
+        // Bounded read: a chatty child can write far more than the cap to the
+        // temp file during its run; never allocate the whole file just to
+        // truncate it afterwards.
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: outputByteLimit) else { return "" }
+        return String(decoding: data, as: UTF8.self)
     }
 }
