@@ -453,10 +453,11 @@ final class RemoteTmuxController {
         return Self.unmirroredSessions(sessions, mirroredSessionIds: Set(mirrors.compactMap(\.connection.sessionId)), mirroredNames: Set(mirrors.map(\.sessionName)), mirroredNamesWithoutId: namesWithoutId)
     }
 
-    /// Mirrors each session into `manager` (idempotent per host+session); one
-    /// session failing must not abort the rest of the host mirror.
+    /// Mirrors each not-yet-mirrored session into `manager` (one failure must not
+    /// abort the rest). Applies ``unmirroredSessions(_:host:)`` stable-id de-dup
+    /// itself so every bulk entrypoint survives a rename race with raw input.
     func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager) {
-        for session in sessions {
+        for session in unmirroredSessions(sessions, host: host) {
             do {
                 try mirrorSession(host: host, sessionName: session.name, into: manager)
             } catch {
