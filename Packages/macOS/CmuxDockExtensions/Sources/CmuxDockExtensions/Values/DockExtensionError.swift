@@ -43,6 +43,10 @@ public enum DockExtensionError: Error, Equatable, LocalizedError {
     case stagingFailed(detail: String)
     /// The app-side host bridge is unavailable (startup teardown races).
     case hostUnavailable
+    /// Another install/update/uninstall for this extension is already running.
+    case operationInProgress(id: String)
+    /// The bounded set of unconfirmed consent previews is full.
+    case tooManyPendingPreviews
 
     public var errorDescription: String? {
         switch self {
@@ -145,6 +149,16 @@ public enum DockExtensionError: Error, Equatable, LocalizedError {
             return String(
                 localized: "dockExtensions.error.hostUnavailable",
                 defaultValue: "cmux is not ready to open extension panes yet. Try again."
+            )
+        case .operationInProgress(let id):
+            return String(
+                localized: "dockExtensions.error.operationInProgress",
+                defaultValue: "Another operation on extension \"\(id)\" is still running. Wait for it to finish."
+            )
+        case .tooManyPendingPreviews:
+            return String(
+                localized: "dockExtensions.error.tooManyPendingPreviews",
+                defaultValue: "Too many pending install previews. Confirm or discard one first."
             )
         }
     }

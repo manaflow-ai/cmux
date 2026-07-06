@@ -180,7 +180,11 @@ public final class DockExtensionsStore {
         guard let staging = preview.stagingDirectory else {
             throw DockExtensionError.stagingFailed(detail: "preview has no staged checkout")
         }
-        guard busyExtensionIds.insert(id).inserted else { return }
+        guard busyExtensionIds.insert(id).inserted else {
+            // Callers (socket install, GUI coordinator) must see the truth: a
+            // silent return here reported skipped installs as successes.
+            throw DockExtensionError.operationInProgress(id: id)
+        }
         defer { busyExtensionIds.remove(id) }
 
         do {
@@ -220,7 +224,9 @@ public final class DockExtensionsStore {
         guard let existing = installedExtension(id: id) else {
             throw DockExtensionError.notInstalled(id: id)
         }
-        guard busyExtensionIds.insert(id).inserted else { return }
+        guard busyExtensionIds.insert(id).inserted else {
+            throw DockExtensionError.operationInProgress(id: id)
+        }
         defer { busyExtensionIds.remove(id) }
         try await repository.remove(id: id)
         if !existing.isLinked {
