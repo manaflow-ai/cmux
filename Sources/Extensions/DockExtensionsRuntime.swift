@@ -170,9 +170,11 @@ final class DockExtensionsRuntime {
 
     private func expireStaleSocketPreviews() {
         let cutoff = Date().addingTimeInterval(-Self.socketPreviewLifetime)
-        for (token, grant) in socketPreviewGrants where grant.createdAt < cutoff {
-            socketPreviewGrants.removeValue(forKey: token)
-            store.discard(grant.preview)
+        let expiredTokens = socketPreviewGrants.filter { $0.value.createdAt < cutoff }.map(\.key)
+        for token in expiredTokens {
+            if let grant = socketPreviewGrants.removeValue(forKey: token) {
+                store.discard(grant.preview)
+            }
         }
     }
 
