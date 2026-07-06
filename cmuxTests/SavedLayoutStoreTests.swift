@@ -80,6 +80,27 @@ struct SavedLayoutStoreTests {
         }
     }
 
+    @Test func deletingCorruptFileRecoversToEmptyState() throws {
+        let context = try TemporarySavedLayoutContext()
+        defer { context.cleanup() }
+        let store = SavedLayoutStore(fileURL: context.fileURL)
+        #expect(try store.list().isEmpty)
+
+        try FileManager.default.createDirectory(at: context.directoryURL, withIntermediateDirectories: true)
+        try "{ not json".write(to: context.fileURL, atomically: true, encoding: .utf8)
+        do {
+            _ = try store.list()
+            Issue.record("Expected corrupt file to fail")
+        } catch SavedLayoutStoreError.corruptFile {
+            #expect(true)
+        }
+
+        try FileManager.default.removeItem(at: context.fileURL)
+        #expect(try store.list().isEmpty)
+        try store.save(Self.layout(named: "Recovered"), overwrite: false)
+        #expect(try store.list().map(\.name) == ["Recovered"])
+    }
+
     @Test func externalFileEditIsPickedUpByMTimeCache() throws {
         let context = try TemporarySavedLayoutContext()
         defer { context.cleanup() }

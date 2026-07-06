@@ -88,6 +88,16 @@ final class SavedLayoutStore {
     }
 
     private func load() throws -> LayoutsFile {
+        // Nonexistence always resets to the default empty state, including
+        // after a corrupt file was deleted; check it before the corrupt
+        // short-circuit so removal is a valid recovery path.
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            let empty = LayoutsFile(layouts: [])
+            Self.sharedCacheByPath[cacheKey] = CachedLayoutsFile(modificationDate: nil, file: empty)
+            corruptFileDescription = nil
+            return empty
+        }
+
         let modificationDate = self.modificationDate()
         if let corruptFileDescription,
            Self.sharedCacheByPath[cacheKey]?.modificationDate == modificationDate {
@@ -97,13 +107,6 @@ final class SavedLayoutStore {
         if let cached = Self.sharedCacheByPath[cacheKey],
            cached.modificationDate == modificationDate {
             return cached.file
-        }
-
-        guard fileManager.fileExists(atPath: fileURL.path) else {
-            let empty = LayoutsFile(layouts: [])
-            Self.sharedCacheByPath[cacheKey] = CachedLayoutsFile(modificationDate: nil, file: empty)
-            corruptFileDescription = nil
-            return empty
         }
 
         do {
