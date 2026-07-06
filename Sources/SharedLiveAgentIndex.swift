@@ -17,7 +17,6 @@ final class SharedLiveAgentIndex {
     private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
-    private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let minEventReloadInterval: TimeInterval = 2.0
@@ -49,7 +48,6 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
-        deferredReloadTask?.cancel()
         directoryWatchSource?.cancel()
     }
 
@@ -155,8 +153,6 @@ final class SharedLiveAgentIndex {
     }
 
     private func startReload() {
-        deferredReloadTask?.cancel()
-        deferredReloadTask = nil
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.reload(forcePublish: true)
@@ -248,19 +244,7 @@ final class SharedLiveAgentIndex {
             changePending = true
             return
         }
-        let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
-        if elapsed >= Self.minEventReloadInterval {
-            startReload()
-        } else if deferredReloadTask == nil {
-            let wait = Self.minEventReloadInterval - elapsed
-            deferredReloadTask = Task { @MainActor [weak self] in
-                // Bounded, cancellable delay to honor the reload floor after hook-store events.
-                try? await Task.sleep(for: .seconds(wait))
-                guard !Task.isCancelled, let self else { return }
-                self.deferredReloadTask = nil
-                self.handleHookStoreChange()
-            }
-        }
+        startReload()
     }
 
     private func ensureWatchingHookStoreDirectory() {

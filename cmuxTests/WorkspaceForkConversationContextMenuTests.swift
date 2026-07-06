@@ -185,7 +185,7 @@ struct WorkspaceForkConversationContextMenuTests {
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let snapshot = processSnapshotLock.withLock { $0 }
-                SharedLiveAgentIndexLoader(
+                return SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
                     fileManager: .default,
                     registry: registry,
