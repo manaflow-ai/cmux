@@ -65,12 +65,10 @@ extension RestorableAgentSessionIndex {
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
-            fileManager: fileManager,
-            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey
+            fileManager: fileManager
         )
 
         guard !registry.registrations.isEmpty else { return resolved }
@@ -133,7 +131,7 @@ extension RestorableAgentSessionIndex {
             resolved[key] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
-                processIDs: scopedProcessIDsByPanelKey[key] ?? [],
+                processIDs: [process.pid],
                 sessionIDSource: sessionIDResolution.source
             )
         }
@@ -223,8 +221,7 @@ extension RestorableAgentSessionIndex {
     private static func processDetectedOpenCodeSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        fileManager: FileManager,
-        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>]
+        fileManager: FileManager
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
@@ -232,6 +229,7 @@ extension RestorableAgentSessionIndex {
         var openCodeProcesses: [
             (
                 panelKey: PanelKey,
+                processID: Int,
                 observed: VaultObservedAgentProcess,
                 environment: [String: String],
                 workingDirectory: String?,
@@ -259,6 +257,7 @@ extension RestorableAgentSessionIndex {
             let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
             openCodeProcesses.append((
                 panelKey: panelKey,
+                processID: process.pid,
                 observed: observed,
                 environment: processArguments.environment,
                 workingDirectory: cwd,
@@ -321,7 +320,7 @@ extension RestorableAgentSessionIndex {
             resolved[process.panelKey] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
-                processIDs: scopedProcessIDsByPanelKey[process.panelKey] ?? [],
+                processIDs: [process.processID],
                 sessionIDSource: .explicit
             )
         }
@@ -899,21 +898,6 @@ private extension CmuxVaultAgentSessionIDSource {
             }
             return nil
         }
-    }
-}
-
-private extension CmuxTopProcessSnapshot {
-    func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
-        var processIDsByPanelKey: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
-        for process in cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID else {
-                continue
-            }
-            let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-            processIDsByPanelKey[key, default: []].insert(process.pid)
-        }
-        return processIDsByPanelKey
     }
 }
 
