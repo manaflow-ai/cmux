@@ -351,6 +351,67 @@ extension Workspace {
         recomputeListeningPorts()
     }
 
+    /// Retire a panel's stale structured-agent "Running" status once the shell
+    /// returns to its prompt.
+    ///
+    /// Structured agents (claude_code, codex, …) run as the shell's foreground
+    /// process, so the integration only reports `promptIdle` after the agent
+    /// process has exited. Hooks normally clear the status/lifecycle on
+    /// Stop/SessionEnd, but abnormal exits (SIGKILL, crash, the 1s SessionEnd
+    /// hook timeout, a SessionEnd with no session_id, nested-subagent
+    /// suppression) can leave the sidebar pill stuck on "Running". This is the
+    /// app-side safety net the hooks lack: when the prompt returns, clear any
+    /// structured runtime for this panel whose tracked process is no longer
+    /// alive (or that never recorded a PID to probe).
+    @discardableResult
+    func reconcileStuckAgentStatusOnPromptIdle(panelId: UUID) -> Bool {
+        let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
+        let structuredPIDStatusKeys = Set(
+            pidKeys
+                .filter { isStructuredAgentHookPIDKey($0) }
+                .map { agentStatusKey(forAgentPIDKey: $0) }
+        )
+
+        var didChange = false
+        for key in pidKeys where isStructuredAgentHookPIDKey(key) {
+            if let pid = agentPIDs[key], Self.isAgentProcessAlive(pid) {
+                continue
+            }
+            if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+
+        // Structured lifecycle/status set without an owning PID key (the
+        // set_agent_pid hook never recorded a PID, so there is nothing to
+        // probe). promptIdle alone is enough to retire it.
+        let orphanLifecycleKeys = (agentLifecycleStatesByPanelId[panelId].map { Array($0.keys) } ?? [])
+            .filter { Self.structuredAgentHookStatusKeys.contains($0) && !structuredPIDStatusKeys.contains($0) }
+        for key in orphanLifecycleKeys {
+            if clearAgentLifecycle(key: key, panelId: panelId) {
+                didChange = true
+            }
+            if !hasAgentRuntime(forStatusKey: key),
+               statusEntries.removeValue(forKey: key) != nil {
+                didChange = true
+            }
+        }
+
+        if didChange {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    private static func isAgentProcessAlive(_ pid: pid_t) -> Bool {
+        guard pid > 0 else { return false }
+        if kill(pid, 0) == 0 {
+            return true
+        }
+        // EPERM means the process exists but is owned by another user.
+        return errno == EPERM
+    }
+
     @discardableResult
     private func discardAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) -> Bool {
         guard let runtimeState else { return false }

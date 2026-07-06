@@ -4730,6 +4730,9 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
+        if state == .promptIdle {
+            reconcileStuckAgentStatusOnPromptIdle(panelId: panelId)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
