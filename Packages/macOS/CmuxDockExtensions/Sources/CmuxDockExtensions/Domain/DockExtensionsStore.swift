@@ -36,6 +36,10 @@ public final class DockExtensionsStore {
     /// Staging directories belonging to previews awaiting consent; excluded
     /// from stale-staging cleanup.
     private var activeStagingPaths: Set<String> = []
+    /// Monotonic reload ticket: `reload()` is reentrant across its awaits, so
+    /// only the newest reload may publish its projection — an older reload
+    /// finishing late must never overwrite fresher installed state.
+    private var reloadGeneration = 0
 
     /// Creates the store. Constructed once at the app's composition root.
     public init(
@@ -67,13 +71,15 @@ public final class DockExtensionsStore {
 
     /// Re-reads the lockfile and re-projects every record against disk.
     public func reload() async {
+        reloadGeneration += 1
+        let generation = reloadGeneration
         isLoading = true
-        defer { isLoading = false }
+        defer { if generation == reloadGeneration { isLoading = false } }
         let lockFile: DockExtensionsLockFile
         do {
             lockFile = try await repository.load()
-            loadError = nil
         } catch {
+            guard generation == reloadGeneration else { return }
             loadError = error.localizedDescription
             installed = []
             return
@@ -81,9 +87,14 @@ public final class DockExtensionsStore {
         let records = lockFile.extensions
         let directories = self.directories
         let loader = self.manifestLoader
-        installed = await Task.detached(priority: .userInitiated) {
+        let projected = await Task.detached(priority: .userInitiated) {
             Self.project(records: records, directories: directories, loader: loader)
         }.value
+        // A newer reload started while this one was suspended: its snapshot is
+        // fresher (it observed later lockfile state), so drop this one.
+        guard generation == reloadGeneration else { return }
+        loadError = nil
+        installed = projected
         cleanUpStaleStaging()
     }
 
