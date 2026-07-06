@@ -568,32 +568,11 @@ class GhosttyApp {
                     target: target
                 )
 
-                // A configured custom upload command (host-matched) replaces the
-                // built-in scp transport and types its own output. Falls through
-                // to the built-in path below when no rule matches the host.
-                let handledByCustomUpload = TerminalCustomUploadRunner().handleIfMatched(
+                let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
                     plan: plan,
                     operation: operation,
-                    cleanup: { urls in
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(urls)
-                    },
-                    completion: { result in
-                        MainActor.assumeIsolated {
-                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                for: operation
-                            )
-                        }
-                        switch result {
-                        case .success(let text):
-                            completeClipboardRequest(with: text)
-                        case .failure:
-                            NSSound.beep()
-#if DEBUG
-                            cmuxDebugLog("terminal.remotePasteUpload.customFailed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
-#endif
-                            completeClipboardRequest(with: "")
-                        }
-                    }
+                    callbackContext: callbackContext,
+                    completeClipboardRequest: completeClipboardRequest
                 )
 
                 if !handledByCustomUpload {
@@ -7668,23 +7647,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    /// Inserts upload result text into the terminal: a mirrored remote pane needs
-    /// the tmux paste buffer (so the text arrives as a real bracketed paste),
-    /// otherwise the local surface's text/paste path is used (bracketed paste,
-    /// instant insertion — matching upstream Ghostty). Shared by the custom-upload
-    /// completion and the built-in `insertText` path.
-    private func deliverUploadResultText(_ text: String) {
-        guard let surface = terminalSurface else { return }
-        let handledByMirror = MainActor.assumeIsolated {
-            AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
-                surfaceId: surface.id,
-                text: text
-            ) ?? false
-        }
-        if handledByMirror { return }
-        surface.sendText(text)
-    }
-
     private func executeImageTransferPlan(
         _ plan: TerminalImageTransferPlan,
         operation: TerminalImageTransferOperation? = nil,
@@ -7706,30 +7668,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
-        // A configured custom upload command (host-matched) replaces the built-in
-        // scp transport and types its own output (mirror-aware). Falls through to
-        // the built-in path below when no rule matches the host.
-        if let operation {
-            let handledByCustomUpload = TerminalCustomUploadRunner().handleIfMatched(
-                plan: plan,
-                operation: operation,
-                cleanup: { urls in
-                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(urls)
-                },
-                completion: { [weak self] result in
-                    self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
-                    switch result {
-                    case .success(let text):
-                        self?.deliverUploadResultText(text)
-                    case .failure:
-                        NSSound.beep()
-#if DEBUG
-                        cmuxDebugLog("terminal.remoteDropUpload.customFailed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
-#endif
-                    }
-                }
-            )
-            if handledByCustomUpload { return true }
+        if let operation, handleCustomDropUploadIfMatched(plan: plan, operation: operation) {
+            return true
         }
 
         TerminalImageTransferPlanner.execute(
