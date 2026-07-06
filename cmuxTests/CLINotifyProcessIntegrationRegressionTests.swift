@@ -3971,6 +3971,170 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    func testSSHPTYAttachWaitTreatsTransientBridgeStatusFailureAsRetryable() throws {
+        let cases = [
+            (
+                name: "retry",
+                finalRetry: false,
+                expectedMethods: ["workspace.remote.pty_bridge"]
+            ),
+            (
+                name: "final",
+                finalRetry: true,
+                expectedMethods: ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"]
+            ),
+        ]
+
+        for testCase in cases {
+            let cliPath = try bundledCLIPath()
+            let socketPath = makeSocketPath("sshptystatus\(testCase.name)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let bridge = try bindLoopbackTCP()
+            let state = MockSocketServerState()
+            let workspaceId = "22222222-2222-2222-2222-222222222222"
+            let surfaceId = "33333333-3333-3333-3333-333333333333"
+            let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+            let token = "bridge-token"
+
+            defer {
+                Darwin.close(listenerFD)
+                Darwin.close(bridge.fd)
+                unlink(socketPath)
+            }
+
+            let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                let params = payload["params"] as? [String: Any] ?? [:]
+                switch method {
+                case "workspace.remote.pty_bridge":
+                    XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                    XCTAssertEqual(params["session_id"] as? String, sessionId)
+                    XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                    XCTAssertEqual(params["wait_for_ready"] as? Bool, true)
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "host": "127.0.0.1",
+                            "port": bridge.port,
+                            "token": token,
+                            "session_id": sessionId,
+                            "attachment_id": surfaceId,
+                        ]
+                    )
+                case "workspace.remote.pty_attach_end":
+                    XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                    XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                    XCTAssertEqual(params["session_id"] as? String, sessionId)
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                            "session_id": sessionId,
+                            "cleared_remote_pty_session": true,
+                        ]
+                    )
+                default:
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                    )
+                }
+            }
+            let bridgeHandled = startBridgeErrorServer(
+                listenerFD: bridge.fd,
+                message: "Remote daemon transport needs re-bootstrap after proxy failure"
+            )
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            if testCase.finalRetry {
+                environment["CMUX_SSH_ATTACH_FINAL_RETRY"] = "1"
+            }
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "ssh-pty-attach",
+                    "--wait",
+                    "--workspace", workspaceId,
+                    "--session-id", sessionId,
+                    "--attachment-id", surfaceId,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [socketHandled, bridgeHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 255, result.stderr)
+            XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+            XCTAssertTrue(
+                result.stderr.contains("ssh-pty-attach: remote daemon transport is re-bootstrapping after proxy failure"),
+                result.stderr
+            )
+            let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+            XCTAssertEqual(methods, testCase.expectedMethods)
+        }
+    }
+
+    func testSSHPTYAttachStartupMarksConfiguredLimitExhaustionAsFinalRetry() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-final-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let attemptFile = root.appendingPathComponent("ssh-attach-attempts.txt")
+        let finalRetryLog = root.appendingPathComponent("ssh-attach-final-retry.log")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "printf '%s\\n' \"${CMUX_SSH_ATTACH_FINAL_RETRY:-missing}\" >> \"${CMUX_TEST_FINAL_RETRY_LOG}\"",
+            "exit 255",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+
+        let startupCommand = SSHPTYAttachStartupCommandBuilder.command(sessionID: "ssh-final-retry")
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_FINAL_RETRY_LOG"] = finalRetryLog.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 255, result.stderr)
+        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        let finalRetryValues = ((try? String(contentsOf: finalRetryLog, encoding: .utf8)) ?? "")
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(finalRetryValues, ["0", "0", "1"])
+    }
+
     func testSSHPTYAttachBridgeEOFWhileSessionRunsExitsWithoutSSHRetryStatus() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyeof")

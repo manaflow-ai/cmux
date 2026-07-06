@@ -11094,7 +11094,9 @@ struct CMUXCLI {
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_retry=0",
             "while :; do",
-            "  \(command)",
+            "  cmux_ssh_attach_final_retry=0",
+            "  if [ \"$cmux_ssh_attach_reconnect_limit\" -gt 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_final_retry=1; fi",
+            "  CMUX_SSH_ATTACH_FINAL_RETRY=\"$cmux_ssh_attach_final_retry\" \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
             "  if [ \"$cmux_ssh_attach_reconnect_limit\" -gt 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
@@ -11211,7 +11213,7 @@ struct CMUXCLI {
         } catch {
             let message = userFacingRemotePTYErrorMessage(error)
             let retryable = waitForReady && retryableSSHPTYAttachBridgeStartupFailureMessage(message)
-            if retryable {
+            if retryable && sshPTYAttachRetryShouldPreserveLocalSurface() {
                 clearLocalSurfaceOnFailedAttach = false
             }
             throw CLIError(
@@ -11242,11 +11244,14 @@ struct CMUXCLI {
             ], options: [])
             handshakeData.append(0x0A)
             try Self.writeAll(fd: fd, data: handshakeData)
-            attachmentToken = try readSSHPTYBridgeReady(fd: fd)
+            attachmentToken = try readSSHPTYBridgeReady(fd: fd, waitForReady: waitForReady)
             bridgeReachedReady = true
         } catch {
             if let connectedFD {
                 Darwin.close(connectedFD)
+            }
+            if (error as? CLIError)?.exitCode == 255 && sshPTYAttachRetryShouldPreserveLocalSurface() {
+                clearLocalSurfaceOnFailedAttach = false
             }
             throw error
         }
@@ -11521,7 +11526,11 @@ struct CMUXCLI {
             lowered.contains("remote daemon transport is re-bootstrapping after proxy failure")
     }
 
-    private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
+    private func sshPTYAttachRetryShouldPreserveLocalSurface() -> Bool {
+        ProcessInfo.processInfo.environment["CMUX_SSH_ATTACH_FINAL_RETRY"] != "1"
+    }
+
+    private func readSSHPTYBridgeReady(fd: Int32, waitForReady: Bool) throws -> String {
         let maxStatusBytes = 4096
         var line = Data()
         var byte = [UInt8](repeating: 0, count: 1)
@@ -11542,10 +11551,15 @@ struct CMUXCLI {
                         return ((payload["attachment_token"] as? String)?
                             .trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
                     case "error":
-                        let message = ((payload["message"] as? String)?
+                        let rawMessage = ((payload["message"] as? String)?
                             .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
                             ?? "remote PTY attach failed"
-                        throw CLIError(message: "ssh-pty-attach: \(message)")
+                        let message = userFacingRemotePTYErrorMessage(rawMessage)
+                        let retryable = waitForReady && retryableSSHPTYAttachBridgeStartupFailureMessage(message)
+                        throw CLIError(
+                            message: "ssh-pty-attach: \(retryable ? message : rawMessage)",
+                            exitCode: retryable ? 255 : 1
+                        )
                     default:
                         throw CLIError(message: "ssh-pty-attach: invalid bridge status")
                     }
