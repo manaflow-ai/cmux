@@ -7,7 +7,7 @@
 //! notifications will hook in later.
 
 use ghostty_vt::{Cell as VtCell, ColorSpec, RenderState, Rgb};
-use mux_core::{Rect, SurfaceKind};
+use mux_core::{BrowserStatus, Rect, SurfaceKind};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
@@ -94,10 +94,6 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let active_tab = pane.active_tab;
     let pane_id = area.pane;
     let hover = app.hover;
-    let tab_drag = app.tab_drag();
-    let drop_index = tab_drag
-        .and_then(|drag| drag.target)
-        .and_then(|(target_pane, index)| (target_pane == pane_id).then_some(index));
 
     let screen = frame.area();
     if bar.width < 2 || bar.y >= screen.height {
@@ -203,29 +199,16 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             break;
         }
         let is_active = i == active_tab;
-        let mut style = if is_active { active_style } else { base };
-        if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
-            style = style.add_modifier(Modifier::DIM);
-        }
+        let style = if is_active { active_style } else { base };
         buf.set_stringn(x, bar.y, label, w as usize, style);
         if tab_cfg.solid_background && is_active {
             buf[(x, bar.y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
-        }
-        if drop_index == Some(i) && x < max_x {
-            buf[(x, bar.y)]
-                .set_symbol("▌")
-                .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
         }
         hits.push((
             Rect { x, y: bar.y, width: w, height: 1 },
             Hit::Tab { pane: pane_id, index: i },
         ));
         x += w;
-    }
-    if drop_index == Some(tabs.len()) && x < max_x {
-        buf[(x, bar.y)]
-            .set_symbol("▌")
-            .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
     }
     if overflow && x + arrow_w <= max_x {
         let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
@@ -256,13 +239,10 @@ fn draw_content(
     let surface = app.session.surface(area.surface)?;
     surface.take_dirty();
     if surface.kind() == SurfaceKind::Browser {
+        super::omnibar::draw(app, frame, area);
         draw_browser_content(app, frame, area, &surface);
         return None;
     }
-
-    let selection: Option<Selection> =
-        app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
-    let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
 
     let rs = app
         .render_states
@@ -273,6 +253,8 @@ fn draw_content(
     }
     rs.set_clean();
 
+    let selection: Option<Selection> =
+        app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
     let theme = app.config.theme;
 
     let screen = frame.area();
@@ -291,8 +273,7 @@ fn draw_content(
                 break;
             }
             let x = rect.x + col as u16;
-            let selected = selection
-                .is_some_and(|s| s.contains_viewport(col as u16, row as u16, selection_offset));
+            let selected = selection.is_some_and(|s| s.contains(col as u16, row as u16));
             apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(&theme));
         }
         // Pane narrower than the rect (during resize races): blank the rest.
@@ -340,7 +321,15 @@ fn draw_browser_content(
         }
     }
 
-    let message = if surface.browser_url().is_none() {
+    let message = if matches!(surface.browser_status(), Some(BrowserStatus::Failed(_))) {
+        let error = match surface.browser_status() {
+            Some(BrowserStatus::Failed(error)) => error,
+            _ => String::new(),
+        };
+        Some(format!("browser failed: {error}"))
+    } else if matches!(surface.browser_status(), Some(BrowserStatus::Starting)) {
+        Some("starting browser...".to_string())
+    } else if surface.browser_url().is_none() {
         Some("browser panes are not supported over attach yet".to_string())
     } else if !app.graphics_supported {
         Some("terminal has no kitty graphics support".to_string())

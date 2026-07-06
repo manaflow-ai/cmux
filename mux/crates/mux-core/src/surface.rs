@@ -16,8 +16,16 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
 
-pub use crate::browser::{BrowserFrame, BrowserSource};
-use crate::browser::{BrowserRuntime, BrowserSurface};
+use crate::browser::BrowserSurface;
+pub use crate::browser::{
+    BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
+};
+
+/// Per-tap buffer for PTY attach streams, in PTY read chunks (a chunk is
+/// at most 64 KiB, so one stalled tap holds at most ~16 MiB before it is
+/// detached). Large enough that a client briefly busy encoding output
+/// never trips it; only a consumer that stopped draining does.
+const PTY_ATTACH_TAP_CAPACITY: usize = 256;
 
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
@@ -43,8 +51,14 @@ pub struct SurfaceOptions {
     pub browser_discover_ports: Vec<u16>,
     /// Optional Chrome user data directory for launched browser runtime.
     pub browser_user_data_dir: Option<String>,
+    /// Session component for the default launched Chrome profile path.
+    pub browser_session_name: String,
     /// Use a temporary launched Chrome profile and delete it on shutdown.
     pub browser_ephemeral: bool,
+    /// Maximum browser capture size before downscaling, in megapixels.
+    pub browser_max_capture_megapixels: f64,
+    /// Optional fixed browser capture scale, where 1.0 captures at pane pixels.
+    pub browser_capture_scale: Option<f64>,
 }
 
 impl Default for SurfaceOptions {
@@ -59,10 +73,13 @@ impl Default for SurfaceOptions {
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
-            browser_discover: true,
+            browser_discover: false,
             browser_discover_ports: vec![9222],
             browser_user_data_dir: None,
+            browser_session_name: "default".to_string(),
             browser_ephemeral: false,
+            browser_max_capture_megapixels: 2.0,
+            browser_capture_scale: None,
         }
     }
 }
@@ -150,7 +167,13 @@ pub struct PtySurface {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    taps: Mutex<Vec<std::sync::mpsc::Sender<AttachFrame>>>,
+    ///
+    /// Taps are bounded: broadcast uses `try_send`, and a tap whose
+    /// buffer is full (a stalled or slow attach client) is dropped
+    /// rather than buffering PTY output without limit. Dropping the
+    /// sender disconnects the attach stream, and the forwarder reports
+    /// `detached` to its client, which can re-attach for a fresh replay.
+    taps: Mutex<Vec<std::sync::mpsc::SyncSender<AttachFrame>>>,
 }
 
 impl std::fmt::Debug for Surface {
@@ -258,8 +281,11 @@ impl Surface {
                         {
                             let mut taps = pty.taps.lock().unwrap();
                             if !taps.is_empty() {
+                                // A full buffer means the attach client
+                                // stopped draining; detach it instead of
+                                // queueing PTY output without bound.
                                 let frame = AttachFrame::Output(buf[..n].to_vec());
-                                taps.retain(|tap| tap.send(frame.clone()).is_ok());
+                                taps.retain(|tap| tap.try_send(frame.clone()).is_ok());
                             }
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
@@ -300,17 +326,6 @@ impl Surface {
         Ok(surface)
     }
 
-    pub(crate) fn spawn_browser(
-        id: SurfaceId,
-        url: String,
-        runtime: Arc<BrowserRuntime>,
-        mux: Weak<Mux>,
-        size: (u16, u16),
-        cell_pixels: (u16, u16),
-    ) -> anyhow::Result<Arc<Surface>> {
-        crate::browser::spawn(id, url, runtime, mux, size, cell_pixels)
-    }
-
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -318,7 +333,7 @@ impl Surface {
         }
     }
 
-    fn as_browser(&self) -> Option<&BrowserSurface> {
+    pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {
         match self {
             Surface::Pty(_) => None,
             Surface::Browser(surface) => Some(surface),
@@ -391,7 +406,11 @@ impl Surface {
     pub fn resize(&self, cols: u16, rows: u16) -> bool {
         match self {
             Surface::Pty(pty) => pty.resize(cols, rows),
-            Surface::Browser(browser) => browser.resize(cols, rows),
+            Surface::Browser(browser) => {
+                let before = browser.size();
+                browser.resize(cols, rows);
+                browser.size() != before
+            }
         }
     }
 
@@ -440,7 +459,7 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::sync_channel(PTY_ATTACH_TAP_CAPACITY);
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         let replay = term.vt_replay()?;
@@ -467,7 +486,22 @@ impl Surface {
     }
 
     pub fn browser_source(&self) -> Option<BrowserSource> {
-        self.as_browser().map(BrowserSurface::source)
+        self.as_browser().and_then(BrowserSurface::source)
+    }
+
+    pub fn browser_status(&self) -> Option<BrowserStatus> {
+        self.as_browser().map(BrowserSurface::status)
+    }
+
+    pub fn browser_frames_stalled(&self) -> Option<bool> {
+        self.as_browser().map(BrowserSurface::frames_stalled)
+    }
+
+    pub fn attach_frames(&self) -> anyhow::Result<(BrowserAttachState, BrowserFrameStream)> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        Ok(browser.attach_frames())
     }
 
     pub fn browser_insert_text(&self, text: &str) -> anyhow::Result<()> {
@@ -519,6 +553,34 @@ impl Surface {
         };
         browser.navigate(url)
     }
+
+    pub fn browser_back(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.back()
+    }
+
+    pub fn browser_forward(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.forward()
+    }
+
+    pub fn browser_reload(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.reload()
+    }
+
+    pub fn browser_activate(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.activate()
+    }
 }
 
 impl PtySurface {
@@ -549,7 +611,7 @@ impl PtySurface {
         let mut taps = self.taps.lock().unwrap();
         if !taps.is_empty() {
             taps.retain(|tap| {
-                tap.send(AttachFrame::Resized { cols, rows, replay: replay.clone() }).is_ok()
+                tap.try_send(AttachFrame::Resized { cols, rows, replay: replay.clone() }).is_ok()
             });
         }
         true

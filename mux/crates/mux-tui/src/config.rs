@@ -22,26 +22,20 @@
 //!     "agents": ["claude", "codex", "opencode", "pi"]
 //!   },
 //!   "sidebar": {
-//!     "width": 22,
-//!     "max_width": 0
+//!     "width": 22
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 //!     "cdp_url": "http://127.0.0.1:9222",
-//!     "discover": true,
+//!     "discover": false,
 //!     "discover_ports": [9222],
 //!     "user_data_dir": "/Users/me/Library/Application Support/cmux-mux/chrome-profile",
-//!     "ephemeral": false
+//!     "ephemeral": false,
+//!     "max_capture_megapixels": 2.0,
+//!     "capture_scale": null
 //!   },
 //!   "scrollbar": {
 //!     "position": "column"
-//!   },
-//!   "keys": {
-//!     "prefix": "ctrl+b",
-//!     "alt_shortcuts": true,
-//!     "new-tab": ["t", "alt+t"],
-//!     "next-tab": "tab",
-//!     "prev-tab": "backtab"
 //!   }
 //! }
 //! ```
@@ -52,12 +46,23 @@
 //! (`selection-background`/`selection-foreground`), then the built-in
 //! default.
 
+use std::collections::HashMap;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mux_core::platform;
 use ratatui::style::Color;
-use serde::Deserialize;
-use serde_json::Value;
-use std::collections::HashMap;
+use serde::{Deserialize, Deserializer};
+
+/// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
+/// input deserialize to `Some(None)` rather than the `None` an absent key
+/// also produces, so callers can tell "not set" from "set to null".
+fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,18 +77,21 @@ struct RawConfig {
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
-    /// Key bindings: `"prefix"` plus one entry per action. Values may be
-    /// a chord string, an array of chord strings, `"none"`, or
-    /// `"alt_shortcuts": false`.
+    /// Key bindings: `"prefix"` plus one entry per action, e.g.
+    /// `{"prefix": "ctrl+b", "new-tab": "c", "split-right": "%"}`.
     #[serde(default)]
-    keys: HashMap<String, Value>,
+    keys: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawTheme {
     selection_background: Option<ColorValue>,
-    selection_foreground: Option<ColorValue>,
+    /// Distinguishes an absent key (keep the Ghostty-seeded value) from an
+    /// explicit `null` (clear it back to "no override"), which `Option`
+    /// alone cannot: serde maps both to `None`.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    selection_foreground: Option<Option<ColorValue>>,
     sidebar_rail: Option<ColorValue>,
     sidebar_active_bg: Option<ColorValue>,
     tab_rail: Option<ColorValue>,
@@ -106,7 +114,6 @@ struct RawTabs {
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
     width: Option<u16>,
-    max_width: Option<u16>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -118,6 +125,8 @@ struct RawBrowser {
     discover_ports: Option<Vec<u16>>,
     user_data_dir: Option<String>,
     ephemeral: Option<bool>,
+    max_capture_megapixels: Option<f64>,
+    capture_scale: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -224,12 +233,11 @@ impl Default for Tabs {
 #[derive(Debug, Clone, Copy)]
 pub struct Sidebar {
     pub width: u16,
-    pub max_width: u16,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { width: 22, max_width: 0 }
+        Sidebar { width: 22 }
     }
 }
 
@@ -241,6 +249,8 @@ pub struct Browser {
     pub discover_ports: Vec<u16>,
     pub user_data_dir: Option<String>,
     pub ephemeral: bool,
+    pub max_capture_megapixels: f64,
+    pub capture_scale: Option<f64>,
 }
 
 impl Default for Browser {
@@ -248,10 +258,12 @@ impl Default for Browser {
         Browser {
             chrome_binary: None,
             cdp_url: None,
-            discover: true,
+            discover: false,
             discover_ports: vec![9222],
             user_data_dir: None,
             ephemeral: false,
+            max_capture_megapixels: 2.0,
+            capture_scale: None,
         }
     }
 }
@@ -261,18 +273,13 @@ impl Default for Browser {
 pub enum Action {
     NewTab,
     NewBrowserTab,
-    NewPaneSmart,
     NextTab,
     PrevTab,
     SplitRight,
     SplitDown,
     CloseTab,
-    ClosePane,
     RenameTab,
-    RenameScreen,
     RenameWorkspace,
-    CloseScreen,
-    PrevScreen,
     NextScreen,
     NewScreen,
     NextWorkspace,
@@ -282,10 +289,12 @@ pub enum Action {
     FocusRight,
     FocusUp,
     FocusDown,
-    ResizeGrow,
-    ResizeShrink,
     ScrollUp,
     ScrollDown,
+    BrowserBack,
+    BrowserForward,
+    BrowserReload,
+    BrowserEditUrl,
     Detach,
 }
 
@@ -293,19 +302,14 @@ impl Action {
     fn config_key(&self) -> &'static str {
         match self {
             Action::NewTab => "new-tab",
-            Action::NewBrowserTab => "new_browser_tab",
-            Action::NewPaneSmart => "new-pane-smart",
+            Action::NewBrowserTab => "new-browser-tab",
             Action::NextTab => "next-tab",
             Action::PrevTab => "prev-tab",
             Action::SplitRight => "split-right",
             Action::SplitDown => "split-down",
             Action::CloseTab => "close-tab",
-            Action::ClosePane => "close-pane",
             Action::RenameTab => "rename-tab",
-            Action::RenameScreen => "rename-screen",
             Action::RenameWorkspace => "rename-workspace",
-            Action::CloseScreen => "close-screen",
-            Action::PrevScreen => "prev-screen",
             Action::NextScreen => "next-screen",
             Action::NewScreen => "new-screen",
             Action::NextWorkspace => "next-workspace",
@@ -315,10 +319,12 @@ impl Action {
             Action::FocusRight => "focus-right",
             Action::FocusUp => "focus-up",
             Action::FocusDown => "focus-down",
-            Action::ResizeGrow => "resize-grow",
-            Action::ResizeShrink => "resize-shrink",
             Action::ScrollUp => "scroll-up",
             Action::ScrollDown => "scroll-down",
+            Action::BrowserBack => "browser-back",
+            Action::BrowserForward => "browser-forward",
+            Action::BrowserReload => "browser-reload",
+            Action::BrowserEditUrl => "browser-edit-url",
             Action::Detach => "detach",
         }
     }
@@ -338,8 +344,9 @@ impl Chord {
         let mods_match = if matches!(self.code, KeyCode::Char(_)) {
             key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
         } else {
-            key.modifiers & (KeyModifiers::CONTROL | KeyModifiers::ALT)
-                == self.mods & (KeyModifiers::CONTROL | KeyModifiers::ALT)
+            const TRACKED: KeyModifiers =
+                KeyModifiers::CONTROL.union(KeyModifiers::ALT).union(KeyModifiers::SHIFT);
+            key.modifiers & TRACKED == self.mods & TRACKED
         };
         self.code == key.code && mods_match
     }
@@ -355,51 +362,37 @@ pub struct Keys {
 impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
-        let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
         Keys {
             prefix: Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL },
             bindings: vec![
-                bind(KeyCode::Char('t'), Action::NewTab),
-                alt(KeyCode::Char('t'), Action::NewTab),
+                bind(KeyCode::Char('c'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
-                alt(KeyCode::Char('n'), Action::NewPaneSmart),
-                bind(KeyCode::Tab, Action::NextTab),
-                bind(KeyCode::BackTab, Action::PrevTab),
+                bind(KeyCode::Char('n'), Action::NextTab),
+                bind(KeyCode::Char('p'), Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
                 bind(KeyCode::Char('x'), Action::CloseTab),
-                bind(KeyCode::Char('X'), Action::ClosePane),
-                bind(KeyCode::Char(','), Action::RenameScreen),
+                bind(KeyCode::Char(','), Action::RenameTab),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
-                bind(KeyCode::Char('&'), Action::CloseScreen),
-                bind(KeyCode::Char('p'), Action::PrevScreen),
-                alt(KeyCode::Char('['), Action::PrevScreen),
-                bind(KeyCode::Char('n'), Action::NextScreen),
-                alt(KeyCode::Char(']'), Action::NextScreen),
-                bind(KeyCode::Char('c'), Action::NewScreen),
+                bind(KeyCode::Tab, Action::NextScreen),
+                bind(KeyCode::Char('S'), Action::NewScreen),
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
-                alt(KeyCode::Char('h'), Action::FocusLeft),
-                alt(KeyCode::Left, Action::FocusLeft),
                 bind(KeyCode::Char('l'), Action::FocusRight),
                 bind(KeyCode::Right, Action::FocusRight),
-                alt(KeyCode::Char('l'), Action::FocusRight),
-                alt(KeyCode::Right, Action::FocusRight),
                 bind(KeyCode::Char('k'), Action::FocusUp),
                 bind(KeyCode::Up, Action::FocusUp),
-                alt(KeyCode::Char('k'), Action::FocusUp),
-                alt(KeyCode::Up, Action::FocusUp),
                 bind(KeyCode::Char('j'), Action::FocusDown),
                 bind(KeyCode::Down, Action::FocusDown),
-                alt(KeyCode::Char('j'), Action::FocusDown),
-                alt(KeyCode::Down, Action::FocusDown),
-                alt(KeyCode::Char('='), Action::ResizeGrow),
-                alt(KeyCode::Char('-'), Action::ResizeShrink),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                bind(KeyCode::Char('<'), Action::BrowserBack),
+                bind(KeyCode::Char('>'), Action::BrowserForward),
+                bind(KeyCode::Char('r'), Action::BrowserReload),
+                bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
         }
@@ -412,100 +405,58 @@ impl Keys {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
     }
 
-    /// The modeless action bound to a key event. Only Alt-modified
-    /// chords are modeless; non-Alt chords remain prefix-only.
-    pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
-        self.bindings
-            .iter()
-            .find(|(chord, _)| chord.mods.contains(KeyModifiers::ALT) && chord.matches(key))
-            .map(|(_, a)| *a)
-    }
-
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
-    fn apply(&mut self, raw: &HashMap<String, Value>) {
-        if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
-            self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
-        }
+    fn apply(&mut self, raw: &HashMap<String, String>) {
         for (name, value) in raw {
-            if name == "alt_shortcuts" {
+            let Some(chord) = parse_chord(value) else {
+                eprintln!("cmux-mux: ignoring unparseable key binding {name} = {value:?}");
                 continue;
-            }
+            };
             if name == "prefix" {
-                let Some(value) = value.as_str() else {
-                    eprintln!("cmux-mux: ignoring non-string prefix binding {value:?}");
-                    continue;
-                };
-                let Some(chord) = parse_chord(value) else {
-                    eprintln!("cmux-mux: ignoring unparseable key binding prefix = {value:?}");
-                    continue;
-                };
                 self.prefix = chord;
                 continue;
             }
-            match all_actions().iter().find(|a| {
-                a.config_key() == name || (**a == Action::RenameTab && name == "rename-pane")
+            let all = [
+                Action::NewTab,
+                Action::NewBrowserTab,
+                Action::NextTab,
+                Action::PrevTab,
+                Action::SplitRight,
+                Action::SplitDown,
+                Action::CloseTab,
+                Action::RenameTab,
+                Action::RenameWorkspace,
+                Action::NextScreen,
+                Action::NewScreen,
+                Action::NextWorkspace,
+                Action::NewWorkspace,
+                Action::ToggleSidebar,
+                Action::FocusLeft,
+                Action::FocusRight,
+                Action::FocusUp,
+                Action::FocusDown,
+                Action::ScrollUp,
+                Action::ScrollDown,
+                Action::BrowserBack,
+                Action::BrowserForward,
+                Action::BrowserReload,
+                Action::BrowserEditUrl,
+                Action::Detach,
+            ];
+            match all.iter().find(|a| {
+                a.config_key() == name
+                    || (**a == Action::RenameTab && name == "rename-pane")
+                    || (**a == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
                 Some(action) => {
-                    self.bindings.retain(|(_, a)| a != action);
-                    for raw_chord in key_values(value) {
-                        if raw_chord.eq_ignore_ascii_case("none") {
-                            continue;
-                        }
-                        let Some(chord) = parse_chord(raw_chord) else {
-                            eprintln!(
-                                "cmux-mux: ignoring unparseable key binding {name} = {raw_chord:?}"
-                            );
-                            continue;
-                        };
-                        self.bindings.push((chord, *action));
-                    }
+                    self.bindings.retain(|(existing, a)| a != action && *existing != chord);
+                    self.bindings.push((chord, *action));
                 }
                 None => eprintln!("cmux-mux: ignoring unknown key action {name:?}"),
             }
         }
     }
-}
-
-fn key_values(value: &Value) -> Vec<&str> {
-    match value {
-        Value::String(s) => vec![s.as_str()],
-        Value::Array(values) => values.iter().filter_map(Value::as_str).collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn all_actions() -> &'static [Action] {
-    &[
-        Action::NewTab,
-        Action::NewBrowserTab,
-        Action::NewPaneSmart,
-        Action::NextTab,
-        Action::PrevTab,
-        Action::SplitRight,
-        Action::SplitDown,
-        Action::CloseTab,
-        Action::ClosePane,
-        Action::RenameTab,
-        Action::RenameScreen,
-        Action::RenameWorkspace,
-        Action::CloseScreen,
-        Action::PrevScreen,
-        Action::NextScreen,
-        Action::NewScreen,
-        Action::NextWorkspace,
-        Action::NewWorkspace,
-        Action::ToggleSidebar,
-        Action::FocusLeft,
-        Action::FocusRight,
-        Action::FocusUp,
-        Action::FocusDown,
-        Action::ResizeGrow,
-        Action::ResizeShrink,
-        Action::ScrollUp,
-        Action::ScrollDown,
-        Action::Detach,
-    ]
 }
 
 /// Parse "c", "%", "ctrl+b", "alt+enter", "tab", "pageup", ...
@@ -519,7 +470,6 @@ fn parse_chord(s: &str) -> Option<Chord> {
             "alt" | "option" => mods |= KeyModifiers::ALT,
             "shift" => mods |= KeyModifiers::SHIFT,
             "tab" => code = Some(KeyCode::Tab),
-            "backtab" => code = Some(KeyCode::BackTab),
             "enter" | "return" => code = Some(KeyCode::Enter),
             "esc" | "escape" => code = Some(KeyCode::Esc),
             "space" => code = Some(KeyCode::Char(' ')),
@@ -542,12 +492,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
             }
         }
     }
-    let mut code = code?;
-    if code == KeyCode::Tab && mods.contains(KeyModifiers::SHIFT) {
-        code = KeyCode::BackTab;
-        mods.remove(KeyModifiers::SHIFT);
-    }
-    Some(Chord { code, mods })
+    Some(Chord { code: code?, mods })
 }
 
 /// Full resolved configuration.
@@ -578,8 +523,14 @@ pub fn load() -> Config {
     if let Some(c) = t.selection_background.as_ref().and_then(ColorValue::to_color) {
         config.theme.selection_bg = c;
     }
-    if let Some(c) = t.selection_foreground.as_ref().and_then(ColorValue::to_color) {
-        config.theme.selection_fg = Some(c);
+    match t.selection_foreground.as_ref() {
+        None => {}
+        Some(None) => config.theme.selection_fg = None,
+        Some(Some(c)) => {
+            if let Some(color) = c.to_color() {
+                config.theme.selection_fg = Some(color);
+            }
+        }
     }
     if let Some(c) = t.sidebar_rail.as_ref().and_then(ColorValue::to_color) {
         config.theme.sidebar_rail = c;
@@ -617,9 +568,6 @@ pub fn load() -> Config {
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
-    if let Some(w) = raw.sidebar.max_width {
-        config.sidebar.max_width = w;
-    }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
     if let Some(discover) = raw.browser.discover {
@@ -631,6 +579,24 @@ pub fn load() -> Config {
     config.browser.user_data_dir = raw.browser.user_data_dir.filter(|s| !s.trim().is_empty());
     if let Some(ephemeral) = raw.browser.ephemeral {
         config.browser.ephemeral = ephemeral;
+    }
+    if let Some(megapixels) = raw.browser.max_capture_megapixels {
+        if megapixels.is_finite() && megapixels > 0.0 {
+            config.browser.max_capture_megapixels = megapixels;
+        } else {
+            eprintln!(
+                "cmux-mux: ignoring browser.max_capture_megapixels={megapixels:?}; expected > 0"
+            );
+        }
+    }
+    if let Some(scale) = raw.browser.capture_scale {
+        if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
+            config.browser.capture_scale = Some(scale);
+        } else {
+            eprintln!(
+                "cmux-mux: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
+            );
+        }
     }
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
@@ -725,6 +691,11 @@ fn ghostty_selection_colors() -> Option<(Option<Color>, Option<Color>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// `CMUX_MUX_CONFIG` is process-global state; tests that set it must not
+    /// run concurrently with each other.
+    static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn parses_hex_and_indexed_colors() {
@@ -755,24 +726,8 @@ mod tests {
     }
 
     #[test]
-    fn default_key_table_has_no_duplicate_chords_or_reserved_alt_words() {
-        let keys = Keys::default();
-        for (i, (left, _)) in keys.bindings.iter().enumerate() {
-            assert!(
-                !keys.bindings.iter().skip(i + 1).any(|(right, _)| left == right),
-                "duplicate default chord: {left:?}"
-            );
-        }
-        for c in ['b', 'f', 'd', '.'] {
-            assert_eq!(
-                keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
-                None
-            );
-        }
-    }
-
-    #[test]
     fn config_overrides_defaults() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("mux-config-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("mux.json");
@@ -786,14 +741,9 @@ mod tests {
                     "tab_bg": 44
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
-                "sidebar": {"width": 30, "max_width": 38},
+                "sidebar": {"width": 30},
                 "scrollbar": {"position": "border"},
-                "keys": {
-                    "alt_shortcuts": false,
-                    "rename-pane": "r",
-                    "focus-left": ["left", "alt+h"],
-                    "next-tab": "none"
-                }
+                "keys": {"rename-pane": "r"}
             }"##,
         )
         .unwrap();
@@ -808,22 +758,87 @@ mod tests {
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
-        assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::RenameTab)
         );
-        assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
-        assert_eq!(
-            config.keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)),
-            None
-        );
-        assert_eq!(
-            config.keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
-            Some(Action::FocusLeft)
-        );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
+    }
+
+    #[test]
+    fn chord_matches_requires_shift_for_non_char_codes() {
+        let shift_left = Chord { code: KeyCode::Left, mods: KeyModifiers::SHIFT };
+        assert!(shift_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+        assert!(!shift_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
+
+        let plain_left = Chord { code: KeyCode::Left, mods: KeyModifiers::NONE };
+        assert!(plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
+        assert!(!plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+    }
+
+    #[test]
+    fn selection_foreground_absent_vs_null_are_distinct() {
+        // Absent key: `Option<Option<_>>` outer is None, meaning "no
+        // override" (the Ghostty-seeded value, if any, is kept).
+        let absent: RawConfig = serde_json::from_str(r##"{"theme": {}}"##).unwrap();
+        assert!(absent.theme.selection_foreground.is_none());
+
+        // Explicit `null`: outer is `Some(None)`, meaning "clear it".
+        let explicit_null: RawConfig =
+            serde_json::from_str(r##"{"theme": {"selection_foreground": null}}"##).unwrap();
+        assert!(matches!(explicit_null.theme.selection_foreground, Some(None)));
+    }
+
+    #[test]
+    fn selection_foreground_null_clears_ghostty_seeded_default() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-test-selfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(&path, r##"{"theme": {"selection_foreground": null}}"##).unwrap();
+        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // `load()` always seeds `selection_fg` from the Ghostty selection
+        // colors (or leaves it `None` if there aren't any) before applying
+        // this override, so regardless of the ambient Ghostty config, an
+        // explicit `null` here must land back on `None`.
+        let config = load();
+        std::env::remove_var("CMUX_MUX_CONFIG");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config.theme.selection_fg, None);
+    }
+
+    #[test]
+    fn browser_capture_config_validates_bounds() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-browser-capture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
+        )
+        .unwrap();
+        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        let config = load();
+        assert_eq!(config.browser.max_capture_megapixels, 3.5);
+        assert_eq!(config.browser.capture_scale, Some(0.5));
+
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 0, "capture_scale": 1.5}}"##,
+        )
+        .unwrap();
+        let config = load();
+        std::env::remove_var("CMUX_MUX_CONFIG");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            config.browser.max_capture_megapixels,
+            Browser::default().max_capture_megapixels
+        );
+        assert_eq!(config.browser.capture_scale, None);
     }
 }

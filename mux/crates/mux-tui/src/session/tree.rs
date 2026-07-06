@@ -2,7 +2,7 @@
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
 use mux_core::{
-    assign_short_ids, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind, WorkspaceId,
+    BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind, WorkspaceId,
 };
 use serde_json::Value;
 
@@ -15,7 +15,6 @@ pub struct TreeView {
 #[derive(Clone)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
-    pub short_id: String,
     pub name: String,
     pub screens: Vec<ScreenView>,
     pub active_screen: usize,
@@ -24,8 +23,6 @@ pub struct WorkspaceView {
 #[derive(Clone)]
 pub struct ScreenView {
     pub id: ScreenId,
-    #[allow(dead_code)]
-    pub short_id: String,
     /// User-assigned name, if any (display falls back to the number).
     pub name: Option<String>,
     pub layout: Node,
@@ -36,7 +33,6 @@ pub struct ScreenView {
 #[derive(Clone)]
 pub struct PaneView {
     pub id: PaneId,
-    pub short_id: String,
     /// User-assigned name, if any (display falls back to the active
     /// tab's title).
     pub name: Option<String>,
@@ -47,10 +43,11 @@ pub struct PaneView {
 #[derive(Clone)]
 pub struct TabView {
     pub surface: SurfaceId,
-    pub short_id: String,
     pub name: Option<String>,
     pub title: String,
     pub kind: SurfaceKind,
+    pub browser_source: Option<BrowserSource>,
+    pub browser_frames_stalled: bool,
 }
 
 impl TreeView {
@@ -131,23 +128,9 @@ impl PaneView {
 
 /// Snapshot a local mux state into a TreeView.
 pub fn tree_from_state(state: &State) -> TreeView {
-    let ids = state
-        .workspaces
-        .iter()
-        .flat_map(|ws| {
-            let mut ids = vec![ws.id];
-            for screen in &ws.screens {
-                ids.push(screen.id);
-                screen.root.pane_ids(&mut ids);
-            }
-            ids
-        })
-        .chain(state.surfaces.keys().copied());
-    let short_ids = assign_short_ids(ids);
     let pane_view = |id: &PaneId| {
         state.panes.get(id).map(|pane| PaneView {
             id: pane.id,
-            short_id: short_ids.get(&pane.id).cloned().unwrap_or_default(),
             name: pane.name.clone(),
             active_tab: pane.active_tab,
             tabs: pane
@@ -155,10 +138,15 @@ pub fn tree_from_state(state: &State) -> TreeView {
                 .iter()
                 .map(|sid| TabView {
                     surface: *sid,
-                    short_id: short_ids.get(sid).cloned().unwrap_or_default(),
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
+                    browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
+                    browser_frames_stalled: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|s| s.browser_frames_stalled())
+                        .unwrap_or(false),
                 })
                 .collect(),
         })
@@ -170,7 +158,6 @@ pub fn tree_from_state(state: &State) -> TreeView {
             .iter()
             .map(|ws| WorkspaceView {
                 id: ws.id,
-                short_id: short_ids.get(&ws.id).cloned().unwrap_or_default(),
                 name: ws.name.clone(),
                 active_screen: ws.active_screen,
                 screens: ws
@@ -181,7 +168,6 @@ pub fn tree_from_state(state: &State) -> TreeView {
                         screen.root.pane_ids(&mut pane_ids);
                         ScreenView {
                             id: screen.id,
-                            short_id: short_ids.get(&screen.id).cloned().unwrap_or_default(),
                             name: screen.name.clone(),
                             layout: screen.root.clone(),
                             active_pane: screen.active_pane,
@@ -217,7 +203,6 @@ fn parse_layout(value: &Value) -> Option<Node> {
 fn parse_pane(value: &Value) -> Option<PaneView> {
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
-        short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         active_tab: value.get("active_tab").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
         tabs: value
@@ -228,11 +213,6 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .filter_map(|tab| {
                         Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
-                            short_id: tab
-                                .get("short_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or_default()
-                                .to_string(),
                             name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
                             title: tab
                                 .get("title")
@@ -243,6 +223,16 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 Some("browser") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,
                             },
+                            browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
+                            {
+                                Some("external") => Some(BrowserSource::External),
+                                Some("launched") => Some(BrowserSource::Launched),
+                                _ => None,
+                            },
+                            browser_frames_stalled: tab
+                                .get("browser_frames_stalled")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
                         })
                     })
                     .collect()
@@ -254,7 +244,6 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
 fn parse_screen(value: &Value) -> Option<ScreenView> {
     Some(ScreenView {
         id: value.get("id")?.as_u64()?,
-        short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         name: value.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
         layout: value.get("layout").and_then(parse_layout)?,
         active_pane: value.get("active_pane").and_then(|v| v.as_u64()).unwrap_or(0),
@@ -278,7 +267,6 @@ pub fn parse_tree(data: &Value) -> TreeView {
         }
         let mut view = WorkspaceView {
             id: ws.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
-            short_id: ws.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             name: ws.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
             screens: Vec::new(),
             active_screen: 0,

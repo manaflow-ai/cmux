@@ -7,6 +7,7 @@
 //! headless) session over that socket, which is how detach/reattach works.
 
 mod app;
+mod browser_input;
 mod config;
 mod host_colors;
 mod keys;
@@ -14,10 +15,29 @@ mod session;
 mod ui;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use mux_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};
+
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn handle_signal(_: libc::c_int) {
+    SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+}
+
+pub(crate) fn shutdown_requested() -> bool {
+    SHUTDOWN_REQUESTED.load(Ordering::Acquire)
+}
+
+fn install_signal_handlers() {
+    unsafe {
+        libc::signal(libc::SIGTERM, handle_signal as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, handle_signal as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGHUP, handle_signal as *const () as libc::sighandler_t);
+    }
+}
 
 const USAGE: &str = "\
 cmux-mux - terminal multiplexer backed by libghostty-vt
@@ -34,19 +54,15 @@ OPTIONS:
   -h, --help         Show this help.
 
 KEYS (prefix: Ctrl-b)
-  c  new screen        n/p  next/prev screen  &    close screen
-  ,  rename screen
-  t  new tab           B    new browser tab   Tab/BackTab  next/prev tab
-  x  close tab         1-9  select tab
-  %  split right       \"  split down         X    close pane
-  h/j/k/l or arrows    move focus             d    quit (attach: detach)
-  $  rename workspace  w    next workspace    W    new workspace
-  s  toggle sidebar    Ctrl-b  send a literal Ctrl-b
-
-KEYS (no prefix, Alt layer; disable with keys.alt_shortcuts = false)
-  Alt-n  new pane (smart split)   Alt-h/j/k/l or Alt-arrows  move focus
-  Alt-[ / Alt-]  prev/next screen Alt-t  new tab
-  Alt-= / Alt--  grow/shrink the focused split
+  c  new tab in pane   B    new browser tab    n/p  next/prev tab
+  1-9  select tab
+  %  split right       \"  split down          x    close tab
+  ,  rename pane       $    rename workspace
+  Tab  next screen     S    new screen
+  h/j/k/l or arrows    move focus              d    quit (attach: detach)
+  w  next workspace    W    new workspace       s    toggle sidebar
+  <  browser back      >    browser forward     r/u  browser reload/edit URL
+  Ctrl-b  send a literal Ctrl-b
 
 MOUSE
   Right-click a pane for rename/new tab/split/close; right-click a
@@ -100,6 +116,7 @@ fn parse_args() -> Args {
 }
 
 fn main() {
+    install_signal_handlers();
     let args = parse_args();
     let result = if args.attach { run_attach(args) } else { run_server(args) };
     if let Err(e) = result {
@@ -124,6 +141,8 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.browser_discover_ports = config.browser.discover_ports.clone();
     surface_options.browser_user_data_dir = config.browser.user_data_dir.clone();
     surface_options.browser_ephemeral = config.browser.ephemeral;
+    surface_options.browser_max_capture_megapixels = config.browser.max_capture_megapixels;
+    surface_options.browser_capture_scale = config.browser.capture_scale;
     if let Some(term) = args.term {
         surface_options.term = term;
     }
@@ -163,10 +182,17 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
     loop {
-        if events.recv().is_err() {
-            std::thread::park();
+        if shutdown_requested() {
+            break;
+        }
+        match events.recv_timeout(std::time::Duration::from_millis(250)) {
+            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                std::thread::park_timeout(std::time::Duration::from_millis(250))
+            }
         }
     }
+    Ok(())
 }
 
 fn usage_exit(msg: &str) -> ! {

@@ -4,7 +4,8 @@
 //! pushes a [`Hit`] so clicks always match what is on screen.
 
 pub mod graphics;
-pub(crate) mod input;
+pub mod graphics_writer;
+pub mod omnibar;
 mod overlay;
 mod pane;
 mod scrollbar;
@@ -32,7 +33,6 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 
     let cursor = pane::draw_all(app, frame);
     draw_status_bar(app, frame);
-    overlay::draw_toast(app, frame);
     overlay::draw_menu(app, frame);
 
     // The dialog owns the terminal cursor while it is open (draw_prompt
@@ -93,20 +93,26 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     }
     app.hits.extend(hits);
 
-    // Status messages are right-aligned; otherwise the status bar stays
-    // empty after the screen list.
-    if let Some(message) = app.status_message.as_ref() {
-        let label = format!(" {} ", truncate(message, area.width.saturating_sub(x) as usize));
-        let label_w = label.chars().count() as u16;
-        if !app.prefix_armed && x + label_w < area.width {
-            frame.buffer_mut().set_stringn(
-                area.width - label_w,
-                status_y,
-                &label,
-                label_w as usize,
-                base.fg(Color::Red).add_modifier(Modifier::BOLD),
-            );
-        }
+    // Session label / status message, right-aligned (the prefix indicator
+    // replaces it).
+    let label = app
+        .status_message
+        .as_ref()
+        .map(|msg| format!(" {} ", truncate(msg, area.width.saturating_sub(x) as usize)))
+        .unwrap_or_else(|| format!("[{}] ", app.session_label));
+    let label_w = label.chars().count() as u16;
+    if !app.prefix_armed && x + label_w < area.width {
+        frame.buffer_mut().set_stringn(
+            area.width - label_w,
+            status_y,
+            &label,
+            label_w as usize,
+            if app.status_message.is_some() {
+                base.fg(Color::Red).add_modifier(Modifier::BOLD)
+            } else {
+                base.fg(Color::Indexed(244))
+            },
+        );
     }
 
     if app.prefix_armed {

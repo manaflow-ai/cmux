@@ -13,6 +13,7 @@ static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 pub struct ChromeLaunchOptions {
     pub binary: PathBuf,
     pub user_data_dir: Option<PathBuf>,
+    pub session_name: String,
     pub ephemeral: bool,
 }
 
@@ -28,7 +29,12 @@ impl Chrome {
     /// Launch Chrome in headless mode and wait for the browser CDP
     /// endpoint printed on stderr.
     pub fn launch(binary: PathBuf) -> anyhow::Result<Self> {
-        Chrome::launch_with(ChromeLaunchOptions { binary, user_data_dir: None, ephemeral: true })
+        Chrome::launch_with(ChromeLaunchOptions {
+            binary,
+            user_data_dir: None,
+            session_name: "default".to_string(),
+            ephemeral: true,
+        })
     }
 
     pub fn launch_with(options: ChromeLaunchOptions) -> anyhow::Result<Self> {
@@ -39,6 +45,9 @@ impl Chrome {
             .arg("--remote-debugging-port=0")
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
+            .arg("--disable-background-timer-throttling")
+            .arg("--disable-backgrounding-occluded-windows")
+            .arg("--disable-renderer-backgrounding")
             .arg(format!("--user-data-dir={}", profile_dir.display()))
             .arg("about:blank")
             .stdin(Stdio::null())
@@ -173,6 +182,7 @@ mod tests {
         let options = ChromeLaunchOptions {
             binary: PathBuf::from("chrome"),
             user_data_dir: Some(explicit_dir.clone()),
+            session_name: "ignored".to_string(),
             ephemeral: true,
         };
         let (selected, ephemeral) = profile_dir_for(&options).unwrap();
@@ -182,5 +192,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&selected);
         assert!(sentinel.exists());
         let _ = std::fs::remove_dir_all(&explicit_dir);
+    }
+
+    #[test]
+    fn explicit_profile_dir_is_used_verbatim() {
+        let explicit_dir =
+            std::env::temp_dir().join(format!("cmux-mux-cdp-verbatim-{}", std::process::id()));
+        let options = ChromeLaunchOptions {
+            binary: PathBuf::from("chrome"),
+            user_data_dir: Some(explicit_dir.clone()),
+            session_name: "main".to_string(),
+            ephemeral: false,
+        };
+        let (selected, ephemeral) = profile_dir_for(&options).unwrap();
+
+        assert!(!ephemeral);
+        assert_eq!(selected, explicit_dir);
     }
 }
