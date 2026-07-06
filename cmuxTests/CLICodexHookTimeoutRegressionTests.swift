@@ -5,6 +5,12 @@ import Testing
 
 @Suite(.serialized)
 struct CLICodexHookTimeoutRegressionTests {
+    struct InstalledHookEntry {
+        let eventName: String
+        let command: String
+        let body: String
+    }
+
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -40,20 +46,24 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
         #expect(install.status == 0, Comment(rawValue: install.stderr))
 
-        let commands = try codexHookCommands(in: codexHome)
-        let sessionStartCommands = commands.filter { $0.contains("hooks codex session-start") }
-        let promptCommands = commands.filter { $0.contains("hooks codex prompt-submit") }
-        let stopCommands = commands.filter { $0.contains("hooks codex stop") }
-        let feedCommands = commands.filter { $0.contains("hooks feed --source codex") }
-        #expect(!commands.contains(previousCommand), "Installer should remove stale synchronous hook")
-        #expect(sessionStartCommands.count == 1, "Installer should install one session-start hook")
-        #expect(sessionStartCommands.allSatisfy { $0.contains("nohup sh -c") && $0.contains("cat >\"$payload\"") })
-        #expect(sessionStartCommands.allSatisfy { $0.contains("agent_pid=") && $0.contains("CMUX_CODEX_PID=") })
-        #expect(promptCommands.count == 1, "Installer should collapse duplicate prompt hooks")
-        #expect(promptCommands.allSatisfy { $0.contains("nohup sh -c") && $0.contains("cat >\"$payload\"") })
-        #expect(promptCommands.allSatisfy { $0.contains("agent_pid=") && $0.contains("CMUX_CODEX_PID=") })
-        #expect(stopCommands.count == 1, "Installer should install one stop hook")
-        #expect(stopCommands.allSatisfy { !$0.contains("nohup sh -c") && !$0.contains(">/dev/null 2>&1 &") })
+        let hooks = try codexHookEntries(in: codexHome)
+        let sessionStartHooks = hooks.filter { $0.eventName == "SessionStart" }
+        let promptHooks = hooks.filter { $0.eventName == "UserPromptSubmit" }
+        let stopHooks = hooks.filter { $0.eventName == "Stop" }
+        let feedHooks = hooks.filter { $0.body.contains("hooks feed --source codex") }
+        #expect(!hooks.map(\.body).contains(previousCommand), "Installer should remove stale synchronous hook")
+        #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
+        #expect(sessionStartHooks.allSatisfy { $0.body.contains("hooks codex session-start") })
+        #expect(sessionStartHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
+        #expect(sessionStartHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(promptHooks.count == 1, "Installer should collapse duplicate prompt hooks")
+        #expect(promptHooks.allSatisfy { $0.body.contains("hooks codex prompt-submit") })
+        #expect(promptHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
+        #expect(promptHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
+        #expect(stopHooks.count == 1, "Installer should install one stop hook")
+        #expect(stopHooks.allSatisfy { $0.body.contains("hooks codex stop") })
+        #expect(stopHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
+        #expect(stopHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
         let expectedFeedEvents: Set<String> = [
             "PreToolUse",
             "PermissionRequest",
@@ -63,18 +73,82 @@ struct CLICodexHookTimeoutRegressionTests {
             "SubagentStart",
             "SubagentStop",
         ]
-        let installedFeedEvents = Set(feedCommands.compactMap { command in
-            expectedFeedEvents.first { command.contains("--event \($0)") }
+        let installedFeedEvents = Set(feedHooks.compactMap { hook in
+            expectedFeedEvents.first { hook.body.contains("--event \($0)") }
         })
-        #expect(feedCommands.count == expectedFeedEvents.count, "Installer should install every Codex feed hook")
+        #expect(feedHooks.count == expectedFeedEvents.count, "Installer should install every Codex feed hook")
         #expect(installedFeedEvents == expectedFeedEvents)
-        #expect(feedCommands.allSatisfy { !$0.contains("nohup sh -c") && !$0.contains(">/dev/null 2>&1 &") })
+        #expect(feedHooks.allSatisfy { !$0.body.contains("nohup sh -c") && !$0.body.contains(">/dev/null 2>&1 &") })
     }
 
     @Test func codexInstalledHookReturnsBeforeSlowCmuxCommandFinishes() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-async-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let capturedStdin = root.appendingPathComponent("hook-stdin.json", isDirectory: false)
+        let capturedArgs = root.appendingPathComponent("hook-args.txt", isDirectory: false)
+        let capturedPID = root.appendingPathComponent("hook-pid.txt", isDirectory: false)
+        let doneFile = root.appendingPathComponent("hook-done.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
+            "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
+            "cat > \"$CMUX_TEST_STDIN\"",
+            "sleep 4",
+            "printf done > \"$CMUX_TEST_DONE\"",
+        ])
+
+        let install = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+        let payload = #"{"session_id":"codex-session","prompt":"rename this workspace"}"#
+        let run = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": root.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_STDIN": capturedStdin.path,
+                "CMUX_TEST_ARGS": capturedArgs.path,
+                "CMUX_TEST_PID": capturedPID.path,
+                "CMUX_TEST_DONE": doneFile.path,
+            ],
+            standardInput: payload,
+            timeout: 2
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 1))
+        #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
+        #expect(waitForFile(doneFile, containing: "done", timeout: 6))
+    }
+
+    @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-stop-hook-async-\(UUID().uuidString)", isDirectory: true)
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
         let capturedStdin = root.appendingPathComponent("hook-stdin.json", isDirectory: false)
@@ -102,8 +176,10 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
         #expect(install.status == 0, Comment(rawValue: install.stderr))
 
-        let command = try #require(codexHookCommands(in: codexHome).first { $0.contains("hooks codex prompt-submit") })
-        let payload = #"{"session_id":"codex-session","prompt":"rename this workspace"}"#
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "Stop" }?.command
+        )
+        let payload = #"{"session_id":"codex-session","stop_hook_active":false}"#
         let run = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
@@ -128,7 +204,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(run.status == 0, Comment(rawValue: run.stderr))
         #expect(run.stdout == "{}\n")
         #expect(waitForFile(capturedStdin, containing: payload, timeout: 1))
-        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex prompt-submit", timeout: 1))
+        #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex stop", timeout: 1))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
     }
@@ -506,16 +582,26 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
     }
 
-    private func codexHookCommands(in codexHome: URL) throws -> [String] {
+    private func codexHookEntries(in codexHome: URL) throws -> [InstalledHookEntry] {
         let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
         let json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
         let hooks = try #require(json["hooks"] as? [String: Any])
-        return hooks.values
-            .compactMap { $0 as? [[String: Any]] }
-            .flatMap { $0 }
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
-            .compactMap { $0["command"] as? String }
+        return try hooks.flatMap { eventName, values -> [InstalledHookEntry] in
+            guard let groups = values as? [[String: Any]] else { return [] }
+            return try groups
+                .compactMap { $0["hooks"] as? [[String: Any]] }
+                .flatMap { $0 }
+                .compactMap { hook in
+                    guard let command = hook["command"] as? String else { return nil }
+                    let body: String
+                    if command.hasPrefix("/") {
+                        body = (try? String(contentsOfFile: command, encoding: .utf8)) ?? command
+                    } else {
+                        body = command
+                    }
+                    return InstalledHookEntry(eventName: eventName, command: command, body: body)
+                }
+        }
     }
 
     private func makeExecutableShellFile(at url: URL, lines: [String]) throws {

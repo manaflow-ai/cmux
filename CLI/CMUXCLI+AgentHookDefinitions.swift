@@ -406,7 +406,7 @@ extension CMUXCLI {
     }
 
     private static func codexHookCanRunFireAndForget(_ subcommand: String) -> Bool {
-        subcommand == "session-start" || subcommand == "prompt-submit"
+        subcommand == "session-start" || subcommand == "prompt-submit" || subcommand == "stop"
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
