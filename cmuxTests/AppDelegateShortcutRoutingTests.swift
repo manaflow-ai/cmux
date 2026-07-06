@@ -7046,10 +7046,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             let recorder = RecorderHostButton(frame: .zero)
             defer {
                 if RecorderHostButton.isActivelyRecording {
-                    recorder.debugStopRecording()
+                    recorder.stopRecording()
                 }
             }
-            recorder.debugStartRecording()
+            recorder.startRecording()
 
             XCTAssertTrue(RecorderHostButton.isActivelyRecording)
             XCTAssertFalse(textBoxView.performKeyEquivalent(with: event))

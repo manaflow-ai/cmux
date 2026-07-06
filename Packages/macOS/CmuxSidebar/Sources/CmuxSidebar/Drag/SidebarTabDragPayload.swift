@@ -16,10 +16,7 @@ public import UniformTypeIdentifiers
 /// drag contract (the exported UTType is declared in the app's
 /// `UTExportedTypeDeclarations`); they are frozen and must not change.
 ///
-/// lint:allow namespace-type — frozen UTType-constants + item-provider-factory
-/// holder for the sidebar reorder drag contract; there is no value type to host
-/// these and the static spelling is part of the frozen wire/call contract.
-public enum SidebarTabDragPayload {
+public struct SidebarTabDragPayload {
     /// The exported uniform type identifier for the sidebar reorder drag.
     public static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     /// The exported drop content `UTType`.
@@ -29,15 +26,25 @@ public enum SidebarTabDragPayload {
     /// The string prefix on the encoded drag payload.
     public static let prefix = "cmux.sidebar-tab."
 
+    /// The dragged workspace's id.
+    public let tabId: UUID
+
+    /// Creates a payload for the dragged workspace.
+    public init(tabId: UUID) {
+        self.tabId = tabId
+    }
+
     /// Builds the `NSItemProvider` carrying the dragged workspace's id.
-    public static func provider(for tabId: UUID) -> NSItemProvider {
+    ///
+    /// The payload data is materialized eagerly and the registration completes
+    /// synchronously: a synchronous pasteboard request must never wait on work
+    /// scheduled back to the main actor (issue #7344's drag deadlock).
+    public func provider() -> NSItemProvider {
         let provider = NSItemProvider()
-        let payload = "\(prefix)\(tabId.uuidString)"
-        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
-            let data = payload.data(using: .utf8)
-            Task { @MainActor in
-                completion(data, nil)
-            }
+        let payload = "\(Self.prefix)\(tabId.uuidString)"
+        let data = Data(payload.utf8)
+        provider.registerDataRepresentation(forTypeIdentifier: Self.typeIdentifier, visibility: .ownProcess) { completion in
+            completion(data, nil)
             return nil
         }
         return provider

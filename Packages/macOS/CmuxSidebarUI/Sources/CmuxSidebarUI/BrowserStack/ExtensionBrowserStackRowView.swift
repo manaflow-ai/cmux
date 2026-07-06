@@ -115,7 +115,7 @@ public struct ExtensionBrowserStackRowView: View {
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag {
             dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload.provider(for: row.workspaceId)
+            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
         }
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(

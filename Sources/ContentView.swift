@@ -7270,7 +7270,7 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
             #endif
             dragState.beginDragging(tabId: tabId)
-            return SidebarTabDragPayload.provider(for: tabId)
+            return SidebarTabDragPayload(tabId: tabId).provider()
         }
         let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
