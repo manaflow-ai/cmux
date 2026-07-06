@@ -27,6 +27,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         let sessionId = "live-session"
         let agentPID = 7_286
         let childPID = 7_287
+        let agentIdentity = AgentPIDProcessIdentity(pid: pid_t(agentPID), startSeconds: 42, startMicroseconds: 7)
         let executable = "/usr/local/bin/\(agentId)"
         let registry = CmuxVaultAgentRegistry(registrations: [
             CmuxVaultAgentRegistration(
@@ -91,6 +92,9 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                             arguments: [executable, "--session", sessionId],
                             environment: ["PWD": cwd.path]
                         )
+                    },
+                    processIdentityProvider: { pid in
+                        pid == agentPID ? agentIdentity : nil
                     }
                 )
                 .loadResultSynchronously()
@@ -101,12 +105,13 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             processIsRunningProvider: {
                 $0 == agentPID
             },
-            processMatchesCachedAgentProvider: { pid, scopedWorkspaceId, scopedPanelId, snapshot in
+            processMatchesCachedAgentProvider: { pid, scopedWorkspaceId, scopedPanelId, identity, snapshot in
                 isAgentScopedToPanel.withLock { isScoped in
                     isScoped
                         && pid == agentPID
                         && scopedWorkspaceId == workspaceId
                         && scopedPanelId == panelId
+                        && identity == agentIdentity
                         && snapshot.sessionId == sessionId
                 }
             }
@@ -116,6 +121,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
 
         #expect(sharedIndex.index?.processIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID, childPID]))
         #expect(sharedIndex.index?.agentProcessIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID]))
+        #expect(sharedIndex.index?.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId) == [agentPID: agentIdentity])
         #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
         #expect(
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId

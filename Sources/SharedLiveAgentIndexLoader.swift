@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct SharedLiveAgentIndexLoader {
@@ -13,6 +14,7 @@ struct SharedLiveAgentIndexLoader {
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
 
     init(
         homeDirectory: String = NSHomeDirectory(),
@@ -26,6 +28,10 @@ struct SharedLiveAgentIndexLoader {
         },
         processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) {
         self.homeDirectory = homeDirectory
@@ -34,6 +40,7 @@ struct SharedLiveAgentIndexLoader {
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
         self.processArgumentsProvider = processArgumentsProvider
+        self.processIdentityProvider = processIdentityProvider
     }
 
     func loadSynchronously() -> RestorableAgentSessionIndex {
@@ -56,7 +63,8 @@ struct SharedLiveAgentIndexLoader {
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
-            processArgumentsProvider: processArgumentsProvider
+            processArgumentsProvider: processArgumentsProvider,
+            processIdentityProvider: processIdentityProvider
         )
         return (
             index: index,

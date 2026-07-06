@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
 
@@ -930,6 +931,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let updatedAt: TimeInterval
         let processIDs: Set<Int>
         let agentProcessIDs: Set<Int>
+        let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     }
 
     enum ProcessDetectedSessionIDSource: Sendable {
@@ -980,6 +982,10 @@ struct RestorableAgentSessionIndex: Sendable {
 
     func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
         entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIDs ?? []
+    }
+
+    func agentProcessIdentities(workspaceId: UUID, panelId: UUID) -> [Int: AgentPIDProcessIdentity] {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIdentities ?? [:]
     }
 
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -1056,6 +1062,10 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
@@ -1139,7 +1149,11 @@ struct RestorableAgentSessionIndex: Sendable {
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? [],
-                    agentProcessIDs: liveProcessID.map { [$0] } ?? []
+                    agentProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: liveProcessID.map { [$0] } ?? [],
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
@@ -1179,7 +1193,11 @@ struct RestorableAgentSessionIndex: Sendable {
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
                     processIDs: detected.processIDs,
-                    agentProcessIDs: detected.agentProcessIDs
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindPanelCandidate {
@@ -1190,7 +1208,11 @@ struct RestorableAgentSessionIndex: Sendable {
                     lifecycle: panelCandidate.lifecycle,
                     updatedAt: panelCandidate.updatedAt,
                     processIDs: detected.processIDs,
-                    agentProcessIDs: detected.agentProcessIDs
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else {
                 resolved[key] = Entry(
@@ -1198,7 +1220,11 @@ struct RestorableAgentSessionIndex: Sendable {
                     lifecycle: nil,
                     updatedAt: 0,
                     processIDs: detected.processIDs,
-                    agentProcessIDs: detected.agentProcessIDs
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             }
         }
@@ -1238,6 +1264,15 @@ struct RestorableAgentSessionIndex: Sendable {
                     $0.snapshot.sessionId == snapshot.sessionId
             }
             .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    private static func agentProcessIdentities(
+        for processIDs: Set<Int>,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
+    ) -> [Int: AgentPIDProcessIdentity] {
+        Dictionary(uniqueKeysWithValues: processIDs.compactMap { pid in
+            processIdentityProvider(pid).map { (pid, $0) }
+        })
     }
 
     private static func shouldReplaceHookEntry(existing: Entry?, incoming: Entry) -> Bool {

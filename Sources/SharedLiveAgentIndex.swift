@@ -48,6 +48,7 @@ final class SharedLiveAgentIndex {
         Int,
         UUID,
         UUID,
+        AgentPIDProcessIdentity?,
         SessionRestorableAgentSnapshot
     ) -> Bool
 
@@ -70,8 +71,14 @@ final class SharedLiveAgentIndex {
             Int,
             UUID,
             UUID,
+            AgentPIDProcessIdentity?,
             SessionRestorableAgentSnapshot
-        ) -> Bool = { processId, workspaceId, panelId, snapshot in
+        ) -> Bool = { processId, workspaceId, panelId, expectedIdentity, snapshot in
+            guard let expectedIdentity,
+                  let currentIdentity = AgentPIDProcessIdentity(pid: pid_t(processId)),
+                  currentIdentity == expectedIdentity else {
+                return false
+            }
             guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: processId) else {
                 return false
             }
@@ -110,9 +117,11 @@ final class SharedLiveAgentIndex {
             return nil
         }
         let processIDs = index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId)
+        let processIdentities = index.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId)
         guard cachedLiveProcessIDsAreRunning(processIDs),
               cachedLiveProcessIDsMatchSnapshot(
                   processIDs,
+                  processIdentities: processIdentities,
                   workspaceId: workspaceId,
                   panelId: panelId,
                   snapshot: snapshot
@@ -147,12 +156,14 @@ final class SharedLiveAgentIndex {
             return false
         }
         let processIDs = index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId)
+        let processIdentities = index.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId)
         guard cachedLiveProcessIDsAreRunning(processIDs) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
         guard cachedLiveProcessIDsMatchSnapshot(
             processIDs,
+            processIdentities: processIdentities,
             workspaceId: workspaceId,
             panelId: panelId,
             snapshot: snapshot
@@ -331,12 +342,19 @@ final class SharedLiveAgentIndex {
 
     private func cachedLiveProcessIDsMatchSnapshot(
         _ processIDs: Set<Int>,
+        processIdentities: [Int: AgentPIDProcessIdentity],
         workspaceId: UUID,
         panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
         for processID in processIDs {
-            guard processMatchesCachedAgentProvider(processID, workspaceId, panelId, snapshot) else { return false }
+            guard processMatchesCachedAgentProvider(
+                processID,
+                workspaceId,
+                panelId,
+                processIdentities[processID],
+                snapshot
+            ) else { return false }
         }
         return true
     }

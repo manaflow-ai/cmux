@@ -149,6 +149,7 @@ struct WorkspaceForkConversationContextMenuTests {
         let liveWorkspaceId = UUID()
         let livePanelId = UUID()
         let processId = 7_287
+        let processIdentity = AgentPIDProcessIdentity(pid: pid_t(processId), startSeconds: 43, startMicroseconds: 7)
         let executable = "/usr/local/bin/\(agentId)"
         let registry = CmuxVaultAgentRegistry(registrations: [
             CmuxVaultAgentRegistration(
@@ -191,12 +192,11 @@ struct WorkspaceForkConversationContextMenuTests {
                     processSnapshotProvider: { snapshot },
                     capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
                     processArgumentsProvider: { pid in
-                        guard pid == processId else { return nil }
-                        return CmuxTopProcessArguments(
-                            arguments: [executable, "--session", sessionId],
-                            environment: ["PWD": cwd.path]
-                        )
-                    }
+                        pid == processId
+                            ? CmuxTopProcessArguments(arguments: [executable, "--session", sessionId], environment: ["PWD": cwd.path])
+                            : nil
+                    },
+                    processIdentityProvider: { $0 == processId ? processIdentity : nil }
                 )
                 .loadResultSynchronously()
             },
@@ -206,7 +206,7 @@ struct WorkspaceForkConversationContextMenuTests {
             processIsRunningProvider: {
                 $0 == processId
             },
-            processMatchesCachedAgentProvider: { $0 == processId && $1 == liveWorkspaceId && $2 == livePanelId && $3.sessionId == sessionId }
+            processMatchesCachedAgentProvider: { $0 == processId && $1 == liveWorkspaceId && $2 == livePanelId && $3 == processIdentity && $4.sessionId == sessionId }
         )
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: staleWorkspaceId, panelId: stalePanelId)
@@ -326,7 +326,7 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
-        await sharedIndex.refreshForkAvailabilityNow()
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
         #expect(
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId
