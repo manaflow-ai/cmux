@@ -87,6 +87,7 @@ const INCLUDE_SCREENSHOT_CURSOR = process.env.CMUX_CU_SCREENSHOT_CURSOR !== "0";
 const AUTO_APPROVE = process.env.CMUX_CU_AUTO_APPROVE === "1";
 const USE_FAKE_PROVIDER = process.env.CMUX_CU_FAKE_PROVIDER === "1";
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const EXECUTABLE_DIR = dirname(process.execPath);
 
 const MESSAGE_CATALOG = {
   en: {
@@ -979,6 +980,8 @@ function bundledProviderPath() {
   for (const candidate of [
     join(MODULE_DIR, "../bin/cmux-computer-use-provider"),
     join(MODULE_DIR, "bin/cmux-computer-use-provider"),
+    join(EXECUTABLE_DIR, "cmux-computer-use-provider"),
+    join(EXECUTABLE_DIR, "../bin/cmux-computer-use-provider"),
   ]) {
     const path = executablePath(candidate);
     if (path) return path;
