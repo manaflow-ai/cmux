@@ -808,6 +808,59 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(0);
   });
 
+  test("exec waits for a not-yet-running resume handle to settle before running", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000114",
+      userId: "user-workflow-exec-settle",
+      billingTeamId: "team-workflow-exec-settle",
+      providerVmId: "provider-vm-exec-settle",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    let execCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.suspend(() => {
+          execCalls += 1;
+          return Effect.succeed({ exitCode: 0, stdout: "ok", stderr: "" });
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          // Preflight probe sees paused; the settle poll after resume sees running.
+          return statusCalls === 1 ? ("paused" as const) : ("running" as const);
+        }),
+      resume: () =>
+        Effect.succeed({
+          provider: "freestyle" as const,
+          providerVmId: "provider-vm-exec-settle",
+          status: "creating" as const,
+          image: "freestyle:resumed",
+          createdAt: Date.now(),
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-settle",
+        providerVmId: "provider-vm-exec-settle",
+        command: "echo ok",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(execCalls).toBe(1);
+    expect(statusCalls).toBe(2);
+    expect(observedStatuses).toEqual([
+      { id: vm.id, providerVmId: "provider-vm-exec-settle", status: "running" },
+    ]);
+  });
+
   dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",

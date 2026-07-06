@@ -22,6 +22,7 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  VmProviderOperationError,
   isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
@@ -251,6 +252,42 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
+const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
+const RESUME_SETTLE_ATTEMPTS = 10;
+const RESUME_SETTLE_INTERVAL = "1 second";
+
+// resume() can legitimately return a not-yet-running handle (Freestyle maps a
+// post-start "starting" state to "creating"), so poll briefly until the VM is
+// observably running; never record a running transition for a VM that has not
+// settled, and fail without a durable write if it does not.
+function resumeUntilRunning(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    const resume = providers.resume;
+    if (!resume) return;
+    const handle = yield* resume(vm.provider, providerVmId);
+    if (handle.status === "running" || !getStatus) return;
+    for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
+      const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+      );
+      if (status === "running") return;
+      yield* Effect.sleep(RESUME_SETTLE_INTERVAL);
+    }
+    return yield* Effect.fail(
+      new VmProviderOperationError({
+        provider: vm.provider,
+        operation: `resume(${providerVmId})`,
+        cause: new Error("VM did not reach running after resume"),
+      }),
+    );
+  });
+}
+
 // Active-limit note: resuming a user's own existing VM is intentionally not
 // limit-gated here. Freestyle's SSH gateway resumes suspended VMs on any
 // client connect with no control-plane involvement, so this seam cannot
@@ -268,6 +305,15 @@ function preflightResumeIfSuspended(
     if (!getStatus || !resume) return;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.timeoutFail({
+        duration: RESUME_STATUS_PROBE_TIMEOUT,
+        onTimeout: () =>
+          new VmProviderOperationError({
+            provider: vm.provider,
+            operation: `getStatus(${providerVmId})`,
+            cause: new Error("status probe timed out"),
+          }),
+      }),
       Effect.catchAll((err) =>
         // Fail closed when the row durably says paused and the probe cannot
         // prove otherwise: minting endpoints against a suspended VM would
@@ -279,7 +325,7 @@ function preflightResumeIfSuspended(
     );
     if (status !== "paused") return;
 
-    yield* resume(vm.provider, providerVmId);
+    yield* resumeUntilRunning(providers, vm, providerVmId);
     yield* recordRunningTransition(
       repo,
       providers,
@@ -311,7 +357,7 @@ function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
           return yield* Effect.fail(originalError);
         }
 
-        yield* resume(vm.provider, providerVmId).pipe(
+        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.catchAll(() => Effect.fail(originalError)),
         );
         yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError);
