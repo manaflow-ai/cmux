@@ -134,15 +134,24 @@ extension Workspace {
                 focus: nil
             )
         case .project:
-            definition = CmuxSurfaceDefinition(
-                type: .project,
-                name: savedLayoutPanelName(panelId),
-                command: nil,
-                cwd: nil,
-                env: nil,
-                url: nil,
-                focus: nil
-            )
+            // Apply-side rebuilds project panes from `url ?? cwd`; a project
+            // surface without a path cannot be restored, so emit a counted
+            // placeholder terminal instead of an unrestorable node.
+            let projectPath = (panel as? ProjectPanel)?.projectURL.path ?? ""
+            if projectPath.isEmpty {
+                unsupportedSurfaceCount += 1
+                definition = CmuxSurfaceDefinition(type: .terminal)
+            } else {
+                definition = CmuxSurfaceDefinition(
+                    type: .project,
+                    name: savedLayoutPanelName(panelId),
+                    command: nil,
+                    cwd: projectPath,
+                    env: nil,
+                    url: nil,
+                    focus: nil
+                )
+            }
         case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .extensionBrowser:
             unsupportedSurfaceCount += 1
             definition = CmuxSurfaceDefinition(type: .terminal)
