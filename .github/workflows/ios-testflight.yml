@@ -63,7 +63,9 @@ jobs:
     timeout-minutes: 5
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
+      should_assign_only: ${{ steps.decide.outputs.should_assign_only }}
       last_uploaded_sha: ${{ steps.decide.outputs.last_uploaded_sha }}
+      last_uploaded_run_id: ${{ steps.decide.outputs.last_uploaded_run_id }}
     steps:
       - name: Decide whether a TestFlight upload is needed
         id: decide
@@ -91,15 +93,17 @@ jobs:
             // generator also fails closed to a fallback line when the base is not
             // an ancestor of HEAD).
             let lastUploadedSha = null;
+            let lastUploadedRunId = null;
+            let lastAssignmentSucceeded = false;
             let lookupFailed = false;
             try {
-              for (let page = 1; page <= 5 && !lastUploadedSha; page += 1) {
+              for (let page = 1; page <= 20 && !lastUploadedSha; page += 1) {
                 const runs = await github.rest.actions.listWorkflowRuns({
                   owner,
                   repo,
                   workflow_id: 'ios-testflight.yml',
                   branch: 'main',
-                  per_page: 20,
+                  per_page: 100,
                   page,
                 });
                 for (const run of runs.data.workflow_runs) {
@@ -113,10 +117,15 @@ jobs:
                   const uploadJob = jobs.data.jobs.find((job) => job.name === 'Upload to TestFlight');
                   if (uploadJob?.conclusion === 'success') {
                     lastUploadedSha = run.head_sha;
+                    lastUploadedRunId = String(run.id);
+                    const assignJob = jobs.data.jobs.find(
+                      (job) => job.name === 'Assign build to external TestFlight group'
+                    );
+                    lastAssignmentSucceeded = assignJob?.conclusion === 'success';
                     break;
                   }
                 }
-                if (runs.data.workflow_runs.length < 20) break;
+                if (runs.data.workflow_runs.length < 100) break;
               }
             } catch (e) {
               lookupFailed = true;
@@ -144,10 +153,18 @@ jobs:
             if (!forceBuild && context.eventName === 'schedule') {
               needsBuild = lastUploadedSha !== context.sha;
             }
+            const shouldAssignOnly =
+              !forceBuild &&
+              context.eventName === 'schedule' &&
+              lastUploadedSha === context.sha &&
+              !lastAssignmentSucceeded;
 
-            const shouldBuild = forceBuild || context.eventName === 'workflow_dispatch' || needsBuild;
+            const shouldBuild =
+              forceBuild || context.eventName === 'workflow_dispatch' || needsBuild;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
+            core.setOutput('should_assign_only', shouldAssignOnly ? 'true' : 'false');
             core.setOutput('last_uploaded_sha', lastUploadedSha || '');
+            core.setOutput('last_uploaded_run_id', lastUploadedRunId || '');
             core.summary
               .addHeading('iOS TestFlight upload decision')
               .addTable([
@@ -155,7 +172,10 @@ jobs:
                 [{ data: 'force', header: true }, String(forceBuild)],
                 [{ data: 'head sha', header: true }, context.sha],
                 [{ data: 'last uploaded sha (schedule only)', header: true }, String(lastUploadedSha)],
+                [{ data: 'last uploaded run id', header: true }, String(lastUploadedRunId)],
+                [{ data: 'last external assignment succeeded', header: true }, String(lastAssignmentSucceeded)],
                 [{ data: 'should build', header: true }, String(shouldBuild)],
+                [{ data: 'should assign only', header: true }, String(shouldAssignOnly)],
               ])
               .write();
 
@@ -363,6 +383,22 @@ jobs:
             echo "- audience: internal testers immediately, external testers after Apple Beta App Review for a new MARKETING_VERSION"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Persist uploaded build metadata
+        if: success()
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ios-testflight-build.json" <<EOF
+          {"head_sha":"${GITHUB_SHA}","build_number":"${{ steps.upload.outputs.final_build_number }}"}
+          EOF
+
+      - name: Upload build metadata artifact
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-testflight-build-metadata
+          path: ${{ runner.temp }}/ios-testflight-build.json
+          retention-days: 30
+
       - name: Cleanup keychain
         if: always()
         run: |
@@ -371,7 +407,7 @@ jobs:
   assign-external-group:
     name: Assign build to external TestFlight group
     needs: [decide, upload]
-    if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
+    if: always() && (needs.decide.outputs.should_build == 'true' || needs.decide.outputs.should_assign_only == 'true') && github.ref == 'refs/heads/main' && (needs.upload.result == 'success' || needs.decide.outputs.should_assign_only == 'true')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     env:
@@ -380,10 +416,24 @@ jobs:
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
+      GH_TOKEN: ${{ github.token }}
+      SHOULD_BUILD: ${{ needs.decide.outputs.should_build }}
+      SHOULD_ASSIGN_ONLY: ${{ needs.decide.outputs.should_assign_only }}
+      LAST_UPLOADED_RUN_ID: ${{ needs.decide.outputs.last_uploaded_run_id }}
       BUILD_NUMBER: ${{ needs.upload.outputs.final_build_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Restore previous uploaded build metadata
+        if: env.SHOULD_ASSIGN_ONLY == 'true'
+        run: |
+          set -euo pipefail
+          gh run download "$LAST_UPLOADED_RUN_ID" --repo manaflow-ai/cmux \
+            -n ios-testflight-build-metadata \
+            -D "$RUNNER_TEMP/ios-testflight-build"
+          BUILD_NUMBER="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["build_number"])' "$RUNNER_TEMP/ios-testflight-build/ios-testflight-build.json")"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
 
       - name: Assign uploaded build to the external beta group
         run: |

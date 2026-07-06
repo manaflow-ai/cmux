@@ -944,8 +944,8 @@ fi
 # build never reached the founders group.
 if [[ "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
-    echo "error: --external requires ASC API-key auth to assign the uploaded build to an external beta group. Set ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64)." >&2
-    exit 1
+    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to assign the build automatically." >&2
+    exit 0
   fi
   echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
   ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \

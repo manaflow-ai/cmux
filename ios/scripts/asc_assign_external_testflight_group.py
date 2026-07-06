@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import Dict, List, Optional
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -96,7 +97,7 @@ def _token() -> str:
     return (signing_input + b"." + _b64u(signature)).decode()
 
 
-def _asc_error_code(body: dict) -> str:
+def _asc_error_code(body: Dict) -> str:
     try:
         return str(((body.get("errors") or [{}])[0]).get("code", "unknown"))
     except Exception:
@@ -122,7 +123,7 @@ def _request(token: str, method: str, path: str, payload=None):
         return err.code, body
 
 
-def _paged_get(token: str, path: str) -> list[dict]:
+def _paged_get(token: str, path: str) -> List[Dict]:
     items = []
     next_path = path
     pages = 0
@@ -159,7 +160,7 @@ def _resolve_app_id(token: str, bundle_id: str) -> str:
     return data[0]["id"]
 
 
-def _find_build_id(token: str, app_id: str, build_number: str) -> str | None:
+def _find_build_id(token: str, app_id: str, build_number: str) -> Optional[str]:
     encoded_build = urllib.parse.quote(build_number, safe="")
     status, body = _request(
         token,
@@ -175,7 +176,7 @@ def _find_build_id(token: str, app_id: str, build_number: str) -> str | None:
     return data[0]["id"]
 
 
-def _list_beta_groups(token: str, app_id: str) -> list[dict]:
+def _list_beta_groups(token: str, app_id: str) -> List[Dict]:
     raw = _paged_get(
         token,
         f"/v1/betaGroups?filter[app]={app_id}"
@@ -195,12 +196,12 @@ def _list_beta_groups(token: str, app_id: str) -> list[dict]:
     return groups
 
 
-def _describe_group(group: dict) -> str:
+def _describe_group(group: Dict) -> str:
     kind = "internal" if group.get("is_internal") else "external"
     return f"{group.get('name') or '<unnamed>'} ({group['id']}, {kind})"
 
 
-def _select_group(groups: list[dict], group_id: str, group_name: str) -> dict:
+def _select_group(groups: List[Dict], group_id: str, group_name: str) -> Dict:
     if group_id:
         matches = [group for group in groups if group["id"] == group_id]
         if not matches:
