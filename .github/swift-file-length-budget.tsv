@@ -220,6 +220,7 @@
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/MobileTerminalRenderGridTests.swift
+538	Packages/macOS/CmuxDockExtensions/Sources/CmuxDockExtensions/Domain/DockExtensionsStore.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
@@ -227,7 +228,6 @@
 530	Sources/BrowserPaneDropTargetView.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
-527	Packages/macOS/CmuxDockExtensions/Sources/CmuxDockExtensions/Domain/DockExtensionsStore.swift
 527	cmuxTests/BrowserHTTPBasicAuthPromptTests.swift
 526	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamStore.swift
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
