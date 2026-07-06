@@ -358,8 +358,10 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
-        let focusToken = workspaceSceneID.map { GhosttySurfaceView.resignActiveInput(sceneID: $0) } ?? nil
         let openedFromBrowser = hasActiveBrowserForCurrentWorkspace()
+        let focusToken = openedFromBrowser && workspaceSceneID == nil
+            ? nil
+            : GhosttySurfaceView.resignActiveInput(surfaceID: selectedTerminalID, sceneID: workspaceSceneID)
         chatInputFocusToken = focusToken
         chatShouldFocusTerminalOnExit = openedFromBrowser && focusToken == nil
         if openedFromBrowser {

@@ -41,6 +41,7 @@ extension GhosttySurfaceView {
 nonisolated struct PendingSnapshotFallbackRead {
     let id: UInt64
     let startedAt: CFTimeInterval
+    var timedOut = false
 }
 
 nonisolated private struct SnapshotFallbackRead: @unchecked Sendable {

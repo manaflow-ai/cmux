@@ -149,7 +149,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pendingCopyableTextRead: PendingCopyableTextRead?
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil ||
-            pendingSnapshotFallbackRead != nil
+            pendingSnapshotFallbackRead?.timedOut == false
             || pendingCopyableTextRead != nil
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
@@ -1951,8 +1951,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             pendingVisibleSnapshot = nil
             pending.continuation.resume(returning: nil)
         }
-        if let pending = pendingSnapshotFallbackRead, now - pending.startedAt >= Self.visibleSnapshotTimeout {
-            pendingSnapshotFallbackRead = nil
+        if let pending = pendingSnapshotFallbackRead, !pending.timedOut, now - pending.startedAt >= Self.visibleSnapshotTimeout {
+            pendingSnapshotFallbackRead?.timedOut = true
         }
 
         if let pending = pendingCopyableTextRead,
@@ -2177,13 +2177,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Resigns the currently focused terminal input proxy, if any.
     ///
-    /// Use before presenting SwiftUI chrome over the terminal so UIKit releases
-    /// the hidden text input and the terminal can recalculate full-height
-    /// geometry after the keyboard leaves.
+    /// Use before presenting SwiftUI chrome so UIKit releases the hidden text
+    /// input and terminal geometry can expand after the keyboard leaves.
     @discardableResult
-    public static func resignActiveInput(sceneID: ObjectIdentifier? = nil) -> GhosttySurfaceInputFocusToken? {
+    public static func resignActiveInput(surfaceID: String? = nil, sceneID: ObjectIdentifier? = nil) -> GhosttySurfaceInputFocusToken? {
         guard let surface = activeInputSurface else { return nil }
         if let sceneID, surface.window?.windowScene.map(ObjectIdentifier.init) != sceneID { return nil }
+        if sceneID == nil, let surfaceID, surface.hostSurfaceID != surfaceID { return nil }
         let token = GhosttySurfaceInputFocusToken(view: surface)
         surface.resignInput()
         return token
