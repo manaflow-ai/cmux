@@ -29,7 +29,7 @@ extension TerminalController {
         let updateId = v2OptionalTrimmedRawString(params, "id")
         let ref = v2OptionalTrimmedRawString(params, "ref")
         guard source != nil || updateId != nil else {
-            return .err(code: "invalid_params", message: "source or id is required", data: nil)
+            return .err(code: "invalid_params", message: String(localized: "controlExtension.error.sourceOrIdRequired", defaultValue: "source or id is required"), data: nil)
         }
         do {
             let (token, preview) = try await DockExtensionsRuntime.shared.socketPreview(
@@ -45,13 +45,13 @@ extension TerminalController {
 
     func v2ExtensionInstall(params: [String: Any]) async -> V2CallResult {
         guard let token = v2OptionalTrimmedRawString(params, "preview_token") else {
-            return .err(code: "invalid_params", message: "preview_token is required", data: nil)
+            return .err(code: "invalid_params", message: String(localized: "controlExtension.error.previewTokenRequired", defaultValue: "preview_token is required"), data: nil)
         }
         do {
             guard let preview = try await DockExtensionsRuntime.shared.socketInstall(token: token) else {
                 return .err(
                     code: "not_found",
-                    message: "unknown or expired preview_token; run extension.preview again",
+                    message: String(localized: "controlExtension.error.previewTokenUnknown", defaultValue: "unknown or expired preview_token; run extension.preview again"),
                     data: nil
                 )
             }
@@ -68,7 +68,7 @@ extension TerminalController {
 
     func v2ExtensionDiscard(params: [String: Any]) async -> V2CallResult {
         guard let token = v2OptionalTrimmedRawString(params, "preview_token") else {
-            return .err(code: "invalid_params", message: "preview_token is required", data: nil)
+            return .err(code: "invalid_params", message: String(localized: "controlExtension.error.previewTokenRequired", defaultValue: "preview_token is required"), data: nil)
         }
         let discarded = DockExtensionsRuntime.shared.socketDiscard(token: token)
         return .ok(["discarded": discarded])
@@ -76,7 +76,7 @@ extension TerminalController {
 
     func v2ExtensionUninstall(params: [String: Any]) async -> V2CallResult {
         guard let id = v2OptionalTrimmedRawString(params, "id") else {
-            return .err(code: "invalid_params", message: "id is required", data: nil)
+            return .err(code: "invalid_params", message: String(localized: "controlExtension.error.idRequired", defaultValue: "id is required"), data: nil)
         }
         do {
             try await DockExtensionsRuntime.shared.store.uninstall(id: id)
@@ -88,7 +88,7 @@ extension TerminalController {
 
     func v2ExtensionLink(params: [String: Any]) async -> V2CallResult {
         guard let path = v2OptionalTrimmedRawString(params, "path"), path.hasPrefix("/") else {
-            return .err(code: "invalid_params", message: "path is required and must be absolute", data: nil)
+            return .err(code: "invalid_params", message: String(localized: "controlExtension.error.pathRequired", defaultValue: "path is required and must be absolute"), data: nil)
         }
         do {
             try await DockExtensionsRuntime.shared.store.link(directoryPath: path)
@@ -106,7 +106,7 @@ extension TerminalController {
 
     func v2ExtensionUnlink(params: [String: Any]) async -> V2CallResult {
         guard let id = v2OptionalTrimmedRawString(params, "id") else {
-            return .err(code: "invalid_params", message: "id is required", data: nil)
+            return .err(code: "invalid_params", message: String(localized: "controlExtension.error.idRequired", defaultValue: "id is required"), data: nil)
         }
         do {
             try await DockExtensionsRuntime.shared.store.unlink(id: id)
@@ -141,7 +141,7 @@ extension TerminalController {
                 return .ok(["qualified_id": qualifiedId])
             }
             guard let id = v2OptionalTrimmedRawString(params, "id") else {
-                return .err(code: "invalid_params", message: "target, qualified_id, or id is required", data: nil)
+                return .err(code: "invalid_params", message: String(localized: "controlExtension.error.targetRequired", defaultValue: "target, qualified_id, or id is required"), data: nil)
             }
             guard runtime.store.installedExtension(id: id) != nil else {
                 return Self.v2ExtensionError(DockExtensionError.notInstalled(id: id))
@@ -160,7 +160,7 @@ extension TerminalController {
         guard panes.count == 1, let pane = panes.first else {
             return .err(
                 code: "invalid_params",
-                message: "extension \"\(id)\" has \(panes.count) launchable panes; pass <id>.<pane>",
+                message: String(localized: "controlExtension.error.multiplePanes", defaultValue: "extension \"\(id)\" has \(panes.count) launchable panes; pass <id>.<pane>"),
                 data: nil
             )
         }
@@ -177,7 +177,7 @@ extension TerminalController {
     /// socket policy); no UI mutation, no focus.
     func v2ExtensionPaths(params: [String: Any]) -> V2CallResult {
         guard let id = v2OptionalTrimmedRawString(params, "id") else {
-            return .err(code: "invalid_params", message: "id is required", data: nil)
+            return .err(code: "invalid_params", message: String(localized: "controlExtension.error.idRequired", defaultValue: "id is required"), data: nil)
         }
         guard let payload = DockExtensionsRuntime.shared.socketPaths(id: id) else {
             return Self.v2ExtensionError(DockExtensionError.notInstalled(id: id))

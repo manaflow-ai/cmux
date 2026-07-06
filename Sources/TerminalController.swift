@@ -1359,7 +1359,9 @@ class TerminalController {
                 await self.v2ExtensionList(params: request.params)
             }
         case "extension.preview":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 600) {
+            // Covers the composed git budget: 60s resolve + 600s fetch +
+            // manifest parse headroom (the CLI client waits 760s).
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 720) {
                 await self.v2ExtensionPreview(params: request.params)
             }
         case "extension.install":
