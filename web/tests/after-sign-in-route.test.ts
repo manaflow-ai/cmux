@@ -67,7 +67,7 @@ describe("after sign-in native handoff", () => {
     signOut.mockClear();
   });
 
-  test("keeps an interactive return page for verified native handoffs", async () => {
+  test("requires explicit user action for verified native handoffs", async () => {
     handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
@@ -78,9 +78,9 @@ describe("after sign-in native handoff", () => {
     const html = await response.text();
     expect(html).toContain("Signed in to cmux");
     expect(html).toContain("Return to cmux");
-    expect(html).toContain("window.location.replace");
-    expect(html).toContain("window.clearTimeout");
-    expect(html).toContain("document.querySelectorAll(\"a\")");
+    expect(html).not.toContain("window.location.replace");
+    expect(html).not.toContain("window.clearTimeout");
+    expect(html).not.toContain("document.querySelectorAll(\"a\")");
     expect(html).not.toContain("http-equiv=\"refresh\"");
 
     const callbackURL = new URL(returnHref(html));
