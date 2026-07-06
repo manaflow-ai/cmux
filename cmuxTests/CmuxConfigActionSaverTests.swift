@@ -227,6 +227,10 @@ final class CmuxConfigActionSaverTests: XCTestCase {
         XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "agy"), "antigravity")
         XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "cursor-agent"), "cursor")
         XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "grok-macos-aarch64"), "grok")
+        // Registry-owned kinds are omitted from allCases but must still match.
+        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "pi"), "pi")
+        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "grok"), "grok")
+        XCTAssertEqual(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "antigravity"), "antigravity")
         XCTAssertNil(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "mytool"))
     }
 }
