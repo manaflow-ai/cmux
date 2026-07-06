@@ -7608,7 +7608,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let configuredItems = cmuxConfigStore.newWorkspaceContextMenuItems
-        guard !configuredItems.isEmpty else { return false }
 
         let menu = NSMenu()
         for configuredItem in configuredItems {
@@ -7636,6 +7635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 menu.addItem(item)
             }
         }
+        appendSavedLayoutMenuItems(to: menu, windowId: context.windowId)
 
         while menu.items.last?.isSeparatorItem == true {
             menu.removeItem(at: menu.items.count - 1)
@@ -13193,6 +13193,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .saveLayoutTemplate) {
+            requestSavedLayoutSave(preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow)
             return true
         }
 

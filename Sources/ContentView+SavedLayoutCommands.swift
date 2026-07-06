@@ -3,6 +3,20 @@ import CmuxCommandPalette
 import Foundation
 
 extension ContentView {
+    static func shouldHandleSavedLayoutSaveRequest(
+        observedWindow: NSWindow?,
+        requestedWindow: NSWindow?,
+        keyWindow: NSWindow?,
+        mainWindow: NSWindow?
+    ) -> Bool {
+        shouldHandleCommandPaletteRequest(
+            observedWindow: observedWindow,
+            requestedWindow: requestedWindow,
+            keyWindow: keyWindow,
+            mainWindow: mainWindow
+        )
+    }
+
     func appendSavedLayoutCommandContributions(
         to contributions: inout [CommandPaletteCommandContribution],
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
@@ -12,6 +26,7 @@ extension ContentView {
                 commandId: "palette.layout.saveCurrent",
                 title: { _ in String(localized: "command.savedLayout.saveCurrent.title", defaultValue: "Save Layout as Template…") },
                 subtitle: workspaceSubtitle,
+                shortcutHint: KeyboardShortcutSettings.shortcutIfBound(for: .saveLayoutTemplate)?.displayString,
                 keywords: ["save", "layout", "template", "preset", "workspace", "split"],
                 dismissOnRun: false,
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
@@ -42,7 +57,7 @@ extension ContentView {
         }
     }
 
-    private func presentSavedLayoutSavePrompt() {
+    func presentSavedLayoutSavePrompt() {
         guard let workspace = tabManager.selectedWorkspace else {
             NSSound.beep()
             return
@@ -142,4 +157,8 @@ extension ContentView {
             .replacingOccurrences(of: "=", with: "")
         return "palette.layout.open.\(encodedName)"
     }
+}
+
+extension Notification.Name {
+    static let savedLayoutSaveRequested = Notification.Name("cmux.savedLayoutSaveRequested")
 }
