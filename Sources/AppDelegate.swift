@@ -13889,17 +13889,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
-            return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
-        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomIn) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomIn) }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
-            return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
-        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomOut) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomOut) }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
-            return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
-        }
+        if matchConfiguredShortcut(event: event, action: .browserZoomReset) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomReset) }
 
         if matchConfiguredShortcut(event: event, action: .markdownZoomIn) {
             return shortcutEventMarkdownPanel(event)?.zoomIn() ?? false
@@ -14968,7 +14962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
         return KeyboardShortcutSettings.Action.allCases.contains {
-            $0.shortcutContext == .browserPanel &&
+            $0.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
                 !$0.isBrowserContentShortcut &&
                 matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))
         }
