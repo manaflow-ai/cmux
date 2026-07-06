@@ -426,18 +426,18 @@ final class RemoteTmuxController {
     /// the active window's sidebar. Prefer ``mirrorHostInNewWindow(host:)``
     /// for the user-facing attach.
     func mirrorHost(host: RemoteTmuxHost) async throws {
+        let dispatchFallback = AppDelegate.shared?.tabManager
         let sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
         // Confirm the shared ControlMaster before the per-session attach burst, so
         // concurrent `ControlMaster=auto` attaches don't race to create it (#6732).
         try await ensureControlMasterReadyForBurst(host: host)
-        // Resolve the target only AFTER the awaits: a dedicated window bound at
-        // entry can close mid-flight; its registry unbind then retargets the
-        // fallback instead of an orphaned manager (same invariant as the reuse path).
+        // Post-await re-resolve: prefer a still-bound dedicated window (a mid-flight
+        // close unbound it); focus changes must not retarget a live dispatch fallback.
         guard let appDelegate = AppDelegate.shared,
               let tabManager = Self.mirrorTargetTabManager(
                   dedicatedWindowId: windowRegistry.windowId(forHostHash: host.connectionHash),
                   tabManagerForWindow: { appDelegate.tabManagerFor(windowId: $0) },
-                  fallbackTabManager: { appDelegate.tabManager }
+                  fallbackTabManager: { dispatchFallback?.window != nil ? dispatchFallback : appDelegate.tabManager }
               ) else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
