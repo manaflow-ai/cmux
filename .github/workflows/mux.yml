@@ -50,6 +50,11 @@ jobs:
 
       - name: Build test binaries
         working-directory: mux
+        env:
+          # Force libghostty-vt's zig build onto a baseline CPU target so its
+          # SIMD codegen stays within what valgrind's instruction emulation
+          # supports (see crates/ghostty-vt-sys/build.rs).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           mkdir -p target
           cargo test --workspace --locked --no-run --message-format=json > target/cargo-test-binaries.jsonl
