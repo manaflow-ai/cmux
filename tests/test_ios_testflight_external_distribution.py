@@ -54,6 +54,20 @@ def main():
     _check(chosen["id"] == "external-1", "explicit external group id resolves correctly")
 
     try:
+        module._select_group(groups, "missing-group", "")
+    except RuntimeError as exc:
+        _check("no beta group found for id missing-group" in str(exc), "missing group id fails loudly")
+    else:
+        _check(False, "missing group id fails loudly")
+
+    try:
+        module._select_group(groups, "", "Missing Group")
+    except RuntimeError as exc:
+        _check("no beta group found named 'Missing Group'" in str(exc), "missing group name fails loudly")
+    else:
+        _check(False, "missing group name fails loudly")
+
+    try:
         module._select_group(groups, "", "cmux beta")
     except RuntimeError as exc:
         _check("internal" in str(exc), "explicit internal group is rejected")

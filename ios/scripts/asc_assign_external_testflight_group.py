@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -160,7 +160,7 @@ def _resolve_app_id(token: str, bundle_id: str) -> str:
     return data[0]["id"]
 
 
-def _find_build_id(token: str, app_id: str, build_number: str) -> Optional[str]:
+def _find_build(token: str, app_id: str, build_number: str) -> Optional[Tuple[str, str]]:
     encoded_build = urllib.parse.quote(build_number, safe="")
     status, body = _request(
         token,
@@ -173,7 +173,8 @@ def _find_build_id(token: str, app_id: str, build_number: str) -> Optional[str]:
     data = body.get("data", [])
     if not data:
         return None
-    return data[0]["id"]
+    attrs = data[0].get("attributes") or {}
+    return data[0]["id"], str(attrs.get("processingState") or "")
 
 
 def _list_beta_groups(token: str, app_id: str) -> List[Dict]:
@@ -271,17 +272,34 @@ def main() -> int:
     target_group = _select_group(groups, args.group_id.strip(), args.group_name.strip())
 
     deadline = time.time() + max(0, args.timeout_seconds)
-    build_id = None
+    build = None
     while True:
         token = _token()
-        build_id = _find_build_id(token, app_id, args.build_number)
-        if build_id:
+        build = _find_build(token, app_id, args.build_number)
+        if build:
             break
         if time.time() >= deadline:
             raise RuntimeError(
                 f"build {args.build_number} not visible on App Store Connect within {args.timeout_seconds}s"
             )
         time.sleep(max(1, args.poll_seconds))
+
+    build_id, processing_state = build
+    while processing_state != "VALID":
+        if processing_state in ("FAILED", "INVALID"):
+            raise RuntimeError(
+                f"build {args.build_number} entered processingState={processing_state}"
+            )
+        if time.time() >= deadline:
+            raise RuntimeError(
+                f"build {args.build_number} did not reach processingState=VALID within {args.timeout_seconds}s"
+            )
+        time.sleep(max(1, args.poll_seconds))
+        token = _token()
+        build = _find_build(token, app_id, args.build_number)
+        if not build:
+            raise RuntimeError(f"build {args.build_number} disappeared from App Store Connect")
+        build_id, processing_state = build
 
     if target_group["has_access_to_all_builds"]:
         print(

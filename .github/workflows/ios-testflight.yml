@@ -202,6 +202,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+        with:
+          persist-credentials: false
           submodules: recursive
           # Full history + tags so generate-testflight-notes.sh can walk the
           # commit range since the last beta and --auto-version can read ios-v*.
@@ -438,6 +440,10 @@ jobs:
       - name: Assign uploaded build to the external beta group
         run: |
           set -euo pipefail
+          if [ -z "${BUILD_NUMBER:-}" ] || [ "$BUILD_NUMBER" = "unknown" ]; then
+            echo "missing uploaded build number for external TestFlight assignment" >&2
+            exit 1
+          fi
           python3 ./ios/scripts/asc_assign_external_testflight_group.py \
             --bundle-id dev.cmux.app.beta \
             --build-number "$BUILD_NUMBER"
