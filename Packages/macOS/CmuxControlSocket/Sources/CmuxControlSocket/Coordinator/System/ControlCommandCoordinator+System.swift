@@ -85,8 +85,8 @@ extension ControlCommandCoordinator {
         context: (any ControlCommandContext)?
     ) -> ControlCallResult {
         guard let context else { return .ok(.object([:])) }
-        return .ok(context.controlResolveOnMain { seam in
-            (seam as? any ControlSystemContext)?.controlSystemIdentify(params: params) ?? .object([:])
+        return .ok(context.controlResolveOnMain { _ in
+            self.identify(params: params)
         })
     }
 
