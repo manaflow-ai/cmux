@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { featureWorkflowContentLocales } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
+import { comparePages, comparePath } from "./lib/compare-pages";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = "https://cmux.com";
@@ -14,7 +15,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }> = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
     { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/blog", lastModified: "2026-06-23", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9 },
+    { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/blog", lastModified: "2026-07-04", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-home", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-finder", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -60,6 +64,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
     // SEO landing/guide pages: localized, not in the main nav.
     { path: "/guides", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/compare", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.7 },
+    ...comparePages.map((page) => ({
+      path: comparePath(page.slug),
+      lastModified: page.lastModified,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
+    })),
     { path: "/best-terminal-for-mac", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/built-on-ghostty", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.7 },
