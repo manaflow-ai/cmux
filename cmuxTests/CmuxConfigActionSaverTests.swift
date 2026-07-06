@@ -136,8 +136,42 @@ final class CmuxConfigActionSaverTests: XCTestCase {
             TerminalForegroundCommandCapture.commandLine(fromArgv: ["/usr/bin/npm", "run", "dev server"]),
             "npm run 'dev server'"
         )
+        // The executable itself is quoted when it could read as shell syntax.
+        XCTAssertEqual(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: ["/Apps/My Tool.app/Contents/MacOS/my tool", "--flag"]),
+            "'my tool' --flag"
+        )
         XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: ["-zsh"]))
         XCTAssertNil(TerminalForegroundCommandCapture.commandLine(fromArgv: []))
+    }
+
+    func testSnapshotCapturedCommandsListsEveryPersistedCommand() {
+        let snapshot = WorkspaceConfigActionSnapshot(
+            definition: CmuxWorkspaceDefinition(
+                name: "W",
+                layout: .split(CmuxSplitDefinition(
+                    direction: .horizontal,
+                    split: 0.5,
+                    children: [
+                        .pane(CmuxPaneDefinition(surfaces: [
+                            CmuxSurfaceDefinition(type: .terminal, command: "claude")
+                        ])),
+                        .pane(CmuxPaneDefinition(surfaces: [
+                            CmuxSurfaceDefinition(type: .browser, url: "https://example.com"),
+                            CmuxSurfaceDefinition(type: .terminal, command: "curl -H 'Authorization: Bearer x'"),
+                        ])),
+                    ]
+                ))
+            ),
+            skippedPanelCount: 0
+        )
+        XCTAssertEqual(snapshot.capturedCommands, ["claude", "curl -H 'Authorization: Bearer x'"])
+
+        let plain = WorkspaceConfigActionSnapshot(
+            definition: CmuxWorkspaceDefinition(name: "P"),
+            skippedPanelCount: 0
+        )
+        XCTAssertEqual(plain.capturedCommands, [])
     }
 
     func testCommandLineFromArgvStripsAgentResumeArtifacts() {

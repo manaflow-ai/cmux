@@ -114,6 +114,16 @@ extension AppDelegate {
             )
             message += "\n\n" + String(format: skippedFormat, Int64(snapshot.skippedPanelCount))
         }
+        let capturedCommands = snapshot.capturedCommands
+        if !capturedCommands.isEmpty {
+            // Show every command verbatim so nothing secret-bearing is written
+            // to the config without the user seeing it first.
+            let commandsHeader = String(
+                localized: "dialog.saveWorkspaceAction.commandsHeader",
+                defaultValue: "Commands that will be saved and re-run:"
+            )
+            message += "\n\n" + commandsHeader + "\n" + capturedCommands.joined(separator: "\n")
+        }
         alert.informativeText = message
 
         let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))

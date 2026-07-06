@@ -8,6 +8,31 @@ struct WorkspaceConfigActionSnapshot {
     /// Panels with no representation in the layout schema (file previews,
     /// markdown viewers, custom sidebars, …) that were left out.
     var skippedPanelCount: Int
+
+    /// Every shell command the saved action would persist and re-run. The save
+    /// dialog shows these verbatim so secret-bearing foreground commands are
+    /// never written without the user seeing them first.
+    var capturedCommands: [String] {
+        guard let layout = definition.layout else { return [] }
+        var commands: [String] = []
+        Self.collectCommands(layout, into: &commands)
+        return commands
+    }
+
+    private static func collectCommands(_ node: CmuxLayoutNode, into commands: inout [String]) {
+        switch node {
+        case .pane(let pane):
+            for surface in pane.surfaces {
+                if let command = surface.command {
+                    commands.append(command)
+                }
+            }
+        case .split(let split):
+            for child in split.children {
+                collectCommands(child, into: &commands)
+            }
+        }
+    }
 }
 
 extension Workspace {

@@ -69,7 +69,10 @@ enum TerminalForegroundCommandCapture {
         if knownAgentExecutables.contains(executable) {
             arguments = strippingAgentResumeArguments(arguments, executable: executable)
         }
-        return ([executable] + arguments.map(shellQuoted)).joined(separator: " ")
+        // The executable is replayed through the user's shell too — quote it
+        // like every argument so a hostile or spaced basename can't become
+        // shell syntax.
+        return ([executable] + arguments).map(shellQuoted).joined(separator: " ")
     }
 
     /// Built-in agent CLIs only — `RestorableAgentKind(rawValue:)` would also
