@@ -122,25 +122,50 @@ extension TerminalController {
     func v2ExtensionOpen(params: [String: Any]) -> V2CallResult {
         let runtime = DockExtensionsRuntime.shared
         do {
+            // `target` resolves ambiguity server-side: extension ids may
+            // contain dots while pane ids may not, so a dotted target is
+            // FIRST matched as an exact extension id and only then split as
+            // `<id>.<pane>` — `cmux extension open com.example.tool` works.
+            if let target = v2OptionalTrimmedRawString(params, "target") {
+                if runtime.store.installedExtension(id: target) != nil {
+                    return openSolePane(ofExtension: target, runtime: runtime)
+                }
+                if DockExtensionPane.splitQualifiedId(target) != nil {
+                    try runtime.store.openPane(qualifiedId: target)
+                    return .ok(["qualified_id": target])
+                }
+                return Self.v2ExtensionError(DockExtensionError.notInstalled(id: target))
+            }
             if let qualifiedId = v2OptionalTrimmedRawString(params, "qualified_id") {
                 try runtime.store.openPane(qualifiedId: qualifiedId)
                 return .ok(["qualified_id": qualifiedId])
             }
             guard let id = v2OptionalTrimmedRawString(params, "id") else {
-                return .err(code: "invalid_params", message: "qualified_id or id is required", data: nil)
+                return .err(code: "invalid_params", message: "target, qualified_id, or id is required", data: nil)
             }
-            guard let installed = runtime.store.installedExtension(id: id) else {
+            guard runtime.store.installedExtension(id: id) != nil else {
                 return Self.v2ExtensionError(DockExtensionError.notInstalled(id: id))
             }
-            let panes = installed.launchablePanes
-            guard panes.count == 1, let pane = panes.first else {
-                return .err(
-                    code: "invalid_params",
-                    message: "extension \"\(id)\" has \(panes.count) launchable panes; pass qualified_id (<id>.<pane>)",
-                    data: nil
-                )
-            }
-            let qualifiedId = DockExtensionPane.qualifiedId(extensionId: id, paneId: pane.id)
+            return openSolePane(ofExtension: id, runtime: runtime)
+        } catch {
+            return Self.v2ExtensionError(error)
+        }
+    }
+
+    private func openSolePane(ofExtension id: String, runtime: DockExtensionsRuntime) -> V2CallResult {
+        guard let installed = runtime.store.installedExtension(id: id) else {
+            return Self.v2ExtensionError(DockExtensionError.notInstalled(id: id))
+        }
+        let panes = installed.launchablePanes
+        guard panes.count == 1, let pane = panes.first else {
+            return .err(
+                code: "invalid_params",
+                message: "extension \"\(id)\" has \(panes.count) launchable panes; pass <id>.<pane>",
+                data: nil
+            )
+        }
+        let qualifiedId = DockExtensionPane.qualifiedId(extensionId: id, paneId: pane.id)
+        do {
             try runtime.store.openPane(qualifiedId: qualifiedId)
             return .ok(["qualified_id": qualifiedId])
         } catch {

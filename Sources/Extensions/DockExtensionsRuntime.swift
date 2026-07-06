@@ -122,6 +122,11 @@ final class DockExtensionsRuntime {
 
     /// Stages a preview for `cmux extension install/update` and returns a
     /// one-shot token the CLI confirms or discards after showing the preview.
+    /// The most simultaneous unconfirmed socket previews. Each grant holds a
+    /// staged checkout on disk, so the set is bounded: minting beyond the cap
+    /// evicts (and discards) the oldest grant first.
+    static let maxSocketPreviewGrants = 4
+
     func socketPreview(
         sourceInput: String?,
         updateId: String?,
@@ -136,6 +141,11 @@ final class DockExtensionsRuntime {
         } else {
             throw DockExtensionError.invalidSource("")
         }
+        while socketPreviewGrants.count >= Self.maxSocketPreviewGrants,
+              let oldest = socketPreviewGrants.min(by: { $0.value.createdAt < $1.value.createdAt }) {
+            socketPreviewGrants.removeValue(forKey: oldest.key)
+            store.discard(oldest.value.preview)
+        }
         let token = UUID().uuidString.lowercased()
         socketPreviewGrants[token] = SocketPreviewGrant(preview: preview, createdAt: Date())
         return (token, preview)
@@ -144,6 +154,7 @@ final class DockExtensionsRuntime {
     /// Executes a previously granted preview. Returns `nil` for an unknown or
     /// expired token.
     func socketInstall(token: String) async throws -> DockExtensionInstallPreview? {
+        expireStaleSocketPreviews()
         guard let grant = socketPreviewGrants.removeValue(forKey: token) else { return nil }
         try await store.install(grant.preview)
         return grant.preview
@@ -152,6 +163,7 @@ final class DockExtensionsRuntime {
     /// Discards a granted preview's staged checkout (the CLI's "n" answer).
     /// Returns `false` for an unknown or expired token.
     func socketDiscard(token: String) -> Bool {
+        expireStaleSocketPreviews()
         guard let grant = socketPreviewGrants.removeValue(forKey: token) else { return false }
         store.discard(grant.preview)
         return true

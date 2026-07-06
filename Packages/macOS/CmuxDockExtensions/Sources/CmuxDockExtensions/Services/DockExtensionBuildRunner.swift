@@ -12,6 +12,12 @@ public actor DockExtensionBuildRunner {
     /// Default wall-clock limit per build step.
     public static let defaultStepTimeout = Duration.seconds(600)
 
+    /// Default wall-clock budget for ALL of an install's build steps combined.
+    /// Keeps the maximum install runtime below the socket verbs' 900s
+    /// `extension.install` timeout, so a many-step manifest cannot make the
+    /// socket report timeout while the install keeps running underneath.
+    public static let defaultTotalBudget = Duration.seconds(780)
+
     private let runner: DockExtensionProcessRunner
     private let loginShellPath: @Sendable () -> String
 
@@ -39,7 +45,8 @@ public actor DockExtensionBuildRunner {
         _ steps: [DockExtensionBuildStep],
         in root: URL,
         logsDirectory: URL,
-        stepTimeout: Duration = DockExtensionBuildRunner.defaultStepTimeout
+        stepTimeout: Duration = DockExtensionBuildRunner.defaultStepTimeout,
+        totalBudget: Duration = DockExtensionBuildRunner.defaultTotalBudget
     ) async throws {
         guard !steps.isEmpty else { return }
         let fileManager = FileManager.default
@@ -48,13 +55,24 @@ public actor DockExtensionBuildRunner {
             .replacingOccurrences(of: ":", with: "-")
         let logURL = logsDirectory.appendingPathComponent("build-\(timestamp).log", isDirectory: false)
         var log = ""
+        // Deadline shared across every step: 16 steps × the per-step timeout
+        // must not exceed the caller's overall contract (the socket install
+        // verb's response window), so each step gets the smaller of its own
+        // timeout and whatever remains of the total budget.
+        let clock = ContinuousClock()
+        let budgetDeadline = clock.now.advanced(by: totalBudget)
 
         for step in steps {
             let display = step.shellCommand
             log += "$ \(display)\n"
+            let remaining = clock.now.duration(to: budgetDeadline)
+            guard remaining > .zero else {
+                try? log.write(to: logURL, atomically: true, encoding: .utf8)
+                throw DockExtensionError.buildTimedOut(command: display)
+            }
             let result: DockExtensionProcessResult
             do {
-                result = try await run(step: step, in: root, timeout: stepTimeout)
+                result = try await run(step: step, in: root, timeout: min(stepTimeout, remaining))
             } catch {
                 log += "spawn failed: \(error.localizedDescription)\n"
                 try? log.write(to: logURL, atomically: true, encoding: .utf8)
@@ -71,6 +89,16 @@ public actor DockExtensionBuildRunner {
             try? log.write(to: logURL, atomically: true, encoding: .utf8)
             if result.timedOut {
                 throw DockExtensionError.buildTimedOut(command: display)
+            }
+            if result.outputLimitExceeded {
+                throw DockExtensionError.buildFailed(
+                    command: display,
+                    exitCode: result.exitStatus,
+                    logTail: String(
+                        localized: "dockExtensions.build.outputLimit",
+                        defaultValue: "build output exceeded the 64 MiB capture limit"
+                    )
+                )
             }
             guard result.exitStatus == 0 else {
                 throw DockExtensionError.buildFailed(

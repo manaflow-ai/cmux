@@ -66,7 +66,11 @@ extension DockExtensionInstallPreview {
                 "command": pane.shellCommand,
             ]
             if let cwd = pane.cwd { panePayload["cwd"] = cwd }
-            if !pane.env.isEmpty { panePayload["env_keys"] = pane.env.keys.sorted() }
+            if !pane.env.isEmpty {
+                // Full assignments: the CLI preview is a trust boundary, and
+                // env values (PATH, NODE_OPTIONS, DYLD_*) change what runs.
+                panePayload["env"] = pane.env
+            }
             return panePayload
         }
         return payload
