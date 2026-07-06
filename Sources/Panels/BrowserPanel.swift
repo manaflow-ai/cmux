@@ -6628,7 +6628,7 @@ extension BrowserPanel {
 
     func ownsDetachedDeveloperToolsWindow(_ window: NSWindow) -> Bool {
         guard window.isVisible || window.isMiniaturized else { return false }
-        detachedDeveloperToolsWindowBelongsToPanel(window)
+        return detachedDeveloperToolsWindowBelongsToPanel(window)
     }
 
     @discardableResult
