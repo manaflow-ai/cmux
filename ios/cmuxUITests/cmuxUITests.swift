@@ -1391,6 +1391,88 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatScrollToBottomButtonReturnsDuringStreamingLayoutChurn() throws {
+        let app = launchStreamingChatPreviewApp(environment: [
+            "CMUX_UITEST_AGENT_CHAT_FIXTURE_REPEAT_COUNT": "6",
+            "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
+        ])
+        defer { app.terminate() }
+        let table = app.tables["ChatTranscriptTableView"]
+        let loadedAwayFromBottom = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.contentHeight > $0.boundsHeight * 4
+                && $0.distanceFromBottom > max(1_000, $0.contentHeight * 0.25)
+                && self.isTranscriptScrollIdle($0)
+        }
+        let streamingGrowth = try waitForStreamingTranscriptContentGrowth(
+            table,
+            from: loadedAwayFromBottom,
+            timeout: 8
+        )
+        let button = app.buttons["ChatScrollToBottomButton"]
+        XCTAssertTrue(
+            button.waitForExistence(timeout: 4),
+            "The scroll-to-bottom button must appear while streaming continues away from bottom. metrics=\(streamingGrowth)"
+        )
+        XCTAssertTrue(button.isHittable)
+        button.tap()
+
+        assertScrollToBottomButtonVisibleUntilBottom(
+            button,
+            table: table,
+            startDescription: "streaming middle",
+            beforeTap: streamingGrowth
+        )
+        let afterTap = try waitForTranscriptMetrics(table, timeout: 6) {
+            $0.distanceFromBottom <= 40 && self.isTranscriptScrollIdle($0)
+        }
+        XCTAssertFalse(
+            button.exists,
+            "The scroll-to-bottom button must disappear after streaming churn settles at bottom. metrics=\(afterTap)"
+        )
+    }
+
+    @MainActor
+    func testAgentChatScrollToBottomButtonCancelsActiveScrollMomentum() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_AGENT_CHAT_FIXTURE_REPEAT_COUNT": "6",
+        ])
+        defer { app.terminate() }
+        let table = app.tables["ChatTranscriptTableView"]
+        let initialMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.distanceFromBottom <= 40
+                && $0.contentHeight > $0.boundsHeight * 4
+                && self.isTranscriptScrollIdle($0)
+        }
+        let button = app.buttons["ChatScrollToBottomButton"]
+        XCTAssertFalse(
+            button.exists,
+            "The scroll-to-bottom button must start hidden while the transcript is at bottom. metrics=\(initialMetrics)"
+        )
+
+        table.swipeDown(velocity: .fast)
+        let beforeTap = try waitForScrollToBottomButtonAfterFastSwipe(
+            button,
+            table: table,
+            timeout: 2
+        )
+        button.tap()
+
+        assertScrollToBottomButtonVisibleUntilBottom(
+            button,
+            table: table,
+            startDescription: "active scroll momentum",
+            beforeTap: beforeTap
+        )
+        let afterTap = try waitForTranscriptMetrics(table, timeout: 5) {
+            $0.distanceFromBottom <= 40 && self.isTranscriptScrollIdle($0)
+        }
+        XCTAssertFalse(
+            button.exists,
+            "The scroll-to-bottom button must disappear after the fast-swipe tap actually reaches bottom. beforeTap=\(beforeTap), afterTap=\(afterTap)"
+        )
+    }
+
+    @MainActor
     func testAgentChatTranscriptFastSwipeEvidence() throws {
         let app = launchAgentChatInlinePreviewApp(environment: [
             "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
@@ -1918,6 +2000,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(
             settleChatPreviewKeyboardDown(in: app, table: table),
             "Chat preview must start keyboard-down before keyboard evidence is collected. metrics=\(String(describing: transcriptMetrics(from: table)))"
+        )
+        return app
+    }
+
+    @MainActor
+    private func launchStreamingChatPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
+            "CMUX_UITEST_STREAMING_CHAT_PREVIEW": "1",
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            settleChatPreviewKeyboardDown(in: app, table: table),
+            "Streaming chat preview must start keyboard-down before scroll evidence is collected. metrics=\(String(describing: transcriptMetrics(from: table)))"
         )
         return app
     }
@@ -3333,6 +3433,12 @@ final class cmuxUITests: XCTestCase {
         case down
     }
 
+    private func isTranscriptScrollIdle(_ metrics: ChatTranscriptMetrics) -> Bool {
+        !metrics.scrollTracking
+            && !metrics.scrollDragging
+            && !metrics.scrollDecelerating
+    }
+
     @MainActor
     @discardableResult
     private func scrollTranscript(
@@ -3375,6 +3481,93 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return lastMetrics
+    }
+
+    @MainActor
+    private func waitForStreamingTranscriptContentGrowth(
+        _ table: XCUIElement,
+        from baseline: ChatTranscriptMetrics,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ChatTranscriptMetrics {
+        try waitForTranscriptMetrics(
+            table,
+            timeout: timeout,
+            matching: {
+                $0.contentHeight > baseline.contentHeight + 2
+                    && $0.distanceFromBottom > max(1_000, $0.contentHeight * 0.25)
+                    && self.isTranscriptScrollIdle($0)
+            },
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func waitForScrollToBottomButtonAfterFastSwipe(
+        _ button: XCUIElement,
+        table: XCUIElement,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ChatTranscriptMetrics {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastMetrics: ChatTranscriptMetrics?
+        while Date() < deadline {
+            if let metrics = transcriptMetrics(from: table) {
+                lastMetrics = metrics
+                if metrics.distanceFromBottom > 180,
+                   button.exists,
+                   button.isHittable {
+                    return metrics
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        let message = "Timed out waiting for scroll-to-bottom button after a fast swipe. Last metrics: \(String(describing: transcriptMetrics(from: table) ?? lastMetrics))"
+        XCTFail(message, file: file, line: line)
+        throw TranscriptMetricsWaitError(description: message)
+    }
+
+    @MainActor
+    private func assertScrollToBottomButtonVisibleUntilBottom(
+        _ button: XCUIElement,
+        table: XCUIElement,
+        startDescription: String,
+        beforeTap: ChatTranscriptMetrics,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(1.0)
+        var lastMetrics: ChatTranscriptMetrics?
+        while Date() < deadline {
+            guard let metrics = transcriptMetrics(from: table) else {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+                continue
+            }
+            lastMetrics = metrics
+            if metrics.distanceFromBottom <= 40 {
+                return
+            }
+            if !button.exists {
+                XCTFail(
+                    "The scroll-to-bottom button hid before the transcript reached bottom. start=\(startDescription), beforeTap=\(beforeTap), metrics=\(metrics)",
+                    file: file,
+                    line: line
+                )
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        if let lastMetrics, lastMetrics.distanceFromBottom > 40 {
+            XCTAssertTrue(
+                button.exists,
+                "The scroll-to-bottom button must remain visible while the transcript is still away from bottom. start=\(startDescription), beforeTap=\(beforeTap), metrics=\(lastMetrics)",
+                file: file,
+                line: line
+            )
+        }
     }
 
     @MainActor

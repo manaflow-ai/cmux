@@ -92,7 +92,6 @@ public struct ChatTranscriptListView: View {
             Group {
                 if !isAtBottom {
                     ChatScrollToBottomButton {
-                        isAtBottom = true
                         scrollToBottomRequest += 1
                     }
                     .padding(.trailing, 12)
