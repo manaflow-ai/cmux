@@ -24,6 +24,7 @@ import {
   VmNotFoundError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
@@ -143,6 +144,7 @@ export function createVm(input: {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
+            code: existing.failureCode,
             message: existing.failureMessage ?? "previous VM create failed",
           }),
         );
@@ -305,6 +307,7 @@ function finishBaseCreate(
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: existing.idempotencyKey ?? "",
+            code: existing.failureCode ?? null,
             message: existing.failureMessage ?? "previous Base create failed",
           }),
         );
@@ -536,6 +539,7 @@ export function forkVm(input: {
           return yield* Effect.fail(
             new VmCreateFailedError({
               idempotencyKey: input.idempotencyKey ?? "",
+              code: existing.failureCode ?? null,
               message: existing.failureMessage ?? "previous VM fork failed",
             }),
           );
@@ -1454,7 +1458,9 @@ function reserveCreateCredit(
           Effect.all([
             repo.markCreateFailed({
               id: vm.id,
-              code: "billing_reserve_failed",
+              code: isVmCreateCreditsInsufficientError(err)
+                ? "billing_credits_insufficient"
+                : "billing_reserve_failed",
               message: errorMessage(err),
             }),
             repo.recordUsageEvent({

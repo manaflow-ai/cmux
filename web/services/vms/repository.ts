@@ -240,6 +240,20 @@ async function findByIdempotencyKey(
   return existing ?? null;
 }
 
+export const FAILED_CREATE_RETRY_WINDOW_MS = 15 * 60 * 1000;
+
+const RETRYABLE_FAILED_CREATE_CODES = new Set([
+  "billing_credits_insufficient",
+  "billing_reserve_failed",
+]);
+
+function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {
+  if (vm.status === "destroyed") return true;
+  if (vm.status !== "failed") return false;
+  if (vm.failureCode && RETRYABLE_FAILED_CREATE_CODES.has(vm.failureCode)) return true;
+  return now.getTime() - vm.updatedAt.getTime() >= FAILED_CREATE_RETRY_WINDOW_MS;
+}
+
 function idempotencyScopeWhere(input: {
   readonly billingTeamId: string;
   readonly idempotencyKey: string;
@@ -379,7 +393,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 .where(idempotencyScopeWhere({ billingTeamId: input.billingTeamId, idempotencyKey }))
                 .limit(1);
               if (existing) {
-                if (existing.status !== "failed" && existing.status !== "destroyed") {
+                if (!isRetryableFailedCreate(existing, new Date())) {
                   return { inserted: false as const, vm: existing };
                 }
               }
@@ -393,7 +407,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 .where(idempotencyScopeWhere({ billingTeamId: input.billingTeamId, idempotencyKey }))
                 .limit(1);
               if (existing) {
-                if (existing.status !== "failed" && existing.status !== "destroyed") {
+                if (!isRetryableFailedCreate(existing, new Date())) {
                   return { inserted: false as const, vm: existing };
                 }
                 await tx

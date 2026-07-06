@@ -26,6 +26,7 @@ export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgres
 
 export class VmCreateFailedError extends Data.TaggedError("VmCreateFailedError")<{
   readonly idempotencyKey: string;
+  readonly code: string | null;
   readonly message: string;
 }> {}
 
