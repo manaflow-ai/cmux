@@ -2127,7 +2127,9 @@ final class CmuxConfigStore: ObservableObject {
                 settingName: "ui.newWorkspace.contextMenu",
                 settingSourcePath: configuredNewWorkspaceContextMenuSourcePath
             ),
-            actions: resolvedActionLookup
+            actions: resolvedActionLookup,
+            commands: commands,
+            sourcePaths: sourcePaths
         )
         let resolvedNotificationHooks = resolveNotificationHooks(
             globalConfig: globalConfig,
@@ -2830,9 +2832,14 @@ final class CmuxConfigStore: ObservableObject {
     /// anything with `newWorkspaceMenu: true`) in the plus-button menu without
     /// requiring the user to hand-edit `ui.newWorkspace.contextMenu`. Explicitly
     /// listed actions are not duplicated; `newWorkspaceMenu: false` opts out.
+    /// `workspaceCommand` actions get the same named-command validation the
+    /// explicit menu path applies, so a dead reference surfaces as a config
+    /// issue instead of a no-op menu item.
     private func appendingAutoNewWorkspaceMenuActions(
         to resolved: ResolvedContextMenuItems,
-        actions: [String: CmuxResolvedConfigAction]
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String]
     ) -> ResolvedContextMenuItems {
         let existingActionIDs = Set(resolved.items.compactMap { item -> String? in
             if case .action(let menuAction) = item {
@@ -2840,12 +2847,35 @@ final class CmuxConfigStore: ObservableObject {
             }
             return nil
         })
-        let autoActions = actions.values
+        let candidates = actions.values
             .filter { $0.wantsNewWorkspaceMenu && !existingActionIDs.contains($0.id) }
             .sorted {
                 ($0.title, $0.id) < ($1.title, $1.id)
             }
-        guard !autoActions.isEmpty else { return resolved }
+        guard !candidates.isEmpty else { return resolved }
+
+        var issues = resolved.issues
+        var autoActions: [CmuxResolvedConfigAction] = []
+        for action in candidates {
+            if let commandName = action.workspaceCommandName {
+                let resolution = resolvedConfiguredNewWorkspaceCommand(
+                    named: commandName,
+                    settingName: "ui.newWorkspace.contextMenu.auto.\(action.id)",
+                    settingSourcePath: action.actionSourcePath,
+                    commands: commands,
+                    sourcePaths: sourcePaths
+                )
+                if let issue = resolution.issue {
+                    issues.append(issue)
+                    continue
+                }
+                guard resolution.command != nil else { continue }
+            }
+            autoActions.append(action)
+        }
+        guard !autoActions.isEmpty else {
+            return ResolvedContextMenuItems(items: resolved.items, issues: issues)
+        }
 
         var items = resolved.items
         if let last = items.last, case .action = last {
@@ -2863,7 +2893,7 @@ final class CmuxConfigStore: ObservableObject {
                 )
             )
         })
-        return ResolvedContextMenuItems(items: items, issues: resolved.issues)
+        return ResolvedContextMenuItems(items: items, issues: issues)
     }
 
     private func resolvedConfiguredNewWorkspaceCommand(

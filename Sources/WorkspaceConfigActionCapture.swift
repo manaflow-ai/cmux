@@ -73,7 +73,24 @@ extension Workspace {
     func captureConfigActionSnapshot() -> WorkspaceConfigActionSnapshot {
         var skippedPanelCount = 0
         let workspaceCwd = Self.configCaptureAbbreviatedPath(currentDirectory)
-        let liveCommands = TerminalForegroundCommandCapture.liveCommandsBySurfaceUUID()
+        // Panel identity comes from the workspace's own tty registry; the
+        // foreground scan is joined on tty device ids, never on the child
+        // process's spoofable CMUX_* environment.
+        var ttyDeviceByPanelId: [UUID: Int64] = [:]
+        for (panelId, ttyName) in surfaceTTYNames {
+            if let device = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName) {
+                ttyDeviceByPanelId[panelId] = device
+            }
+        }
+        let liveCommandsByTTY = TerminalForegroundCommandCapture.liveCommands(
+            forTTYDevices: Set(ttyDeviceByPanelId.values)
+        )
+        var liveCommands: [UUID: String] = [:]
+        for (panelId, device) in ttyDeviceByPanelId {
+            if let command = liveCommandsByTTY[device] {
+                liveCommands[panelId] = command
+            }
+        }
         let layout = configCaptureLayoutNode(
             from: bonsplitController.treeSnapshot(),
             workspaceCwd: workspaceCwd,
@@ -137,7 +154,6 @@ extension Workspace {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
                 return configCaptureSurfaceDefinition(
                     panelId: panelId,
-                    tabUUID: tab.id.uuid,
                     workspaceCwd: workspaceCwd,
                     liveCommands: liveCommands,
                     skippedPanelCount: &skippedPanelCount
@@ -150,7 +166,6 @@ extension Workspace {
 
     private func configCaptureSurfaceDefinition(
         panelId: UUID,
-        tabUUID: UUID,
         workspaceCwd: String,
         liveCommands: [UUID: String],
         skippedPanelCount: inout Int
@@ -162,7 +177,7 @@ extension Workspace {
             var surface = CmuxSurfaceDefinition(type: .terminal)
             surface.name = customName
             surface.cwd = configCaptureSurfaceCwd(panelDirectories[panelId], workspaceCwd: workspaceCwd)
-            if let liveCommand = liveCommands[panelId] ?? liveCommands[tabUUID] {
+            if let liveCommand = liveCommands[panelId] {
                 // What the terminal is actually running right now (foreground
                 // argv, agent resume flags stripped so relaunch is fresh).
                 surface.command = liveCommand

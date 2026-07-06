@@ -293,6 +293,26 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
     }
 
     @MainActor
+    func testStoreValidatesAutoAppendedWorkspaceCommandActions() throws {
+        let store = try loadStore(globalJSON: """
+        {
+          "actions": {
+            "dead-ref": {
+              "type": "workspaceCommand",
+              "commandName": "No Such Command",
+              "newWorkspaceMenu": true
+            }
+          }
+        }
+        """)
+        XCTAssertFalse(menuActionIDs(store).contains("dead-ref"))
+        XCTAssertTrue(
+            store.configurationIssues.contains { $0.commandName == "No Such Command" },
+            "a dead workspaceCommand reference must surface as a config issue"
+        )
+    }
+
+    @MainActor
     func testStoreDoesNotDuplicateExplicitMenuEntries() throws {
         let store = try loadStore(globalJSON: """
         {

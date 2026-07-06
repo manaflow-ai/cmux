@@ -6,35 +6,39 @@ import Foundation
 /// it starts a fresh session (known agent resume flags stripped).
 enum TerminalForegroundCommandCapture {
 
-    /// Foreground, non-shell command lines keyed by the terminal's
-    /// `CMUX_SURFACE_ID` (the panel UUID exported to every spawned shell).
-    static func liveCommandsBySurfaceUUID() -> [UUID: String] {
+    /// Foreground, non-shell command lines keyed by tty device id. Identity
+    /// comes from the workspace-owned panel→tty mapping — never from the
+    /// child process's ambient CMUX_* environment, which any foreground
+    /// process can override or carry stale.
+    static func liveCommands(forTTYDevices ttyDevices: Set<Int64>) -> [Int64: String] {
+        guard !ttyDevices.isEmpty else { return [:] }
         let processes = CmuxTopProcessSnapshot.allProcesses(
             includeProcessDetails: true,
-            includeCMUXScope: true
+            includeCMUXScope: false
         )
-        var bestBySurface: [UUID: CmuxTopProcessInfo] = [:]
+        var bestByTTY: [Int64: CmuxTopProcessInfo] = [:]
         for process in processes {
-            guard let surfaceID = process.cmuxSurfaceID,
+            guard let ttyDevice = process.ttyDevice,
+                  ttyDevices.contains(ttyDevice),
                   let processGroupID = process.processGroupID,
                   let terminalProcessGroupID = process.terminalProcessGroupID,
                   processGroupID == terminalProcessGroupID,
                   !isShellProcessName(process.name) else { continue }
-            if let existing = bestBySurface[surfaceID] {
+            if let existing = bestByTTY[ttyDevice] {
                 if isPreferred(process, over: existing) {
-                    bestBySurface[surfaceID] = process
+                    bestByTTY[ttyDevice] = process
                 }
             } else {
-                bestBySurface[surfaceID] = process
+                bestByTTY[ttyDevice] = process
             }
         }
 
-        var commands: [UUID: String] = [:]
-        for (surfaceID, process) in bestBySurface {
+        var commands: [Int64: String] = [:]
+        for (ttyDevice, process) in bestByTTY {
             guard let argv = TerminalSSHSessionDetector.commandLineArguments(forPID: Int32(process.pid)),
                   let command = commandLine(fromArgv: argv),
                   !command.isEmpty else { continue }
-            commands[surfaceID] = command
+            commands[ttyDevice] = command
         }
         return commands
     }
