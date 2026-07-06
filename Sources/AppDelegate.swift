@@ -1406,6 +1406,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.startIfNeeded()
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
+        if !isRunningUnderXCTest {
+            CmuxFeatureFlags.shared.start()
+        }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
 
@@ -6128,7 +6131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+    func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
         if let scopedWindow = mainWindowForShortcutEvent(event) {
             return scopedWindow
         }
@@ -13123,6 +13126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handleSavedLayoutShortcut(event) { return true }
+
         if !hasFocusedAddressBarInShortcutContext,
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
@@ -14853,7 +14858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+    func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
@@ -15180,6 +15185,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didStart { onExecuted?() }
                 return didStart
+            case .mobileConnect:
+                MobilePairingWindowController.shared.show()
+                onExecuted?()
+                return true
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()

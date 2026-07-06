@@ -1,6 +1,5 @@
 import { useTranslations, useLocale } from "next-intl";
 import { HeroScreenshot } from "@/app/[locale]/components/hero-screenshot";
-import Balancer from "react-wrap-balancer";
 import { TypingTagline } from "@/app/[locale]/typing";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
 import { GitHubButton } from "@/app/[locale]/components/github-button";
@@ -83,19 +82,17 @@ function HomeContent() {
           </span>
         </p>
         <p
-          className="text-base text-muted lg:-mr-32 xl:-mr-48"
+          className="text-base text-muted text-balance lg:-mr-32 xl:-mr-48"
           data-dev="subtitle"
           style={{ lineHeight: 1.5 }}
         >
-          <Balancer>
-            {t.rich("subtitle", {
-              cliLink: (chunks) => (
-                <Link href="/docs/api" className={linkClass}>
-                  {chunks}
-                </Link>
-              ),
-            })}
-          </Balancer>
+          {t.rich("subtitle", {
+            cliLink: (chunks) => (
+              <Link href="/docs/api" className={linkClass}>
+                {chunks}
+              </Link>
+            ),
+          })}
         </p>
 
         {/* Download */}

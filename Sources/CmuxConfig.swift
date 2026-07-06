@@ -956,6 +956,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
+    static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
+
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
@@ -1390,6 +1392,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .cloudVM:
             title = String(localized: "command.cloudVM.title", defaultValue: "Start Cloud VM")
             keywords = ["cloud", "vm", "virtual", "machine", "remote"]
+        case .mobileConnect:
+            title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
+            keywords = ["iphone", "ipad", "mobile", "phone", "pair", "connect"]
         case .newTerminal:
             title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
             keywords = ["new", "terminal", "tab", "surface"]

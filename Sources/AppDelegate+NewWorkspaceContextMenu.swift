@@ -86,6 +86,8 @@ extension AppDelegate {
             menu.removeItem(at: menu.items.count - 1)
         }
 
+        appendSavedLayoutMenuItems(to: menu, windowId: context.windowId)
+
         appendWorkspaceActionAffordances(
             to: menu,
             windowId: context.windowId,
