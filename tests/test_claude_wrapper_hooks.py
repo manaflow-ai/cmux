@@ -1492,6 +1492,8 @@ def test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures: list[str]
     inherited = {
         "CLAUDE_CODE_USE_BEDROCK": "1",
         "ANTHROPIC_API_KEY": "anthropic-key-must-be-scrubbed-on-bedrock",
+        "ANTHROPIC_AUTH_TOKEN": "subrouter-token-must-be-scrubbed-on-bedrock",
+        "ANTHROPIC_BASE_URL": "http://subrouter-team:31415",
         "ANTHROPIC_MODEL": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         "ANTHROPIC_BEDROCK_BASE_URL": "https://bedrock-runtime.us-west-2.amazonaws.com",
@@ -1536,6 +1538,16 @@ def test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures: list[str]
     expect(
         auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__",
         f"bedrock auto-preserve: expected ANTHROPIC_API_KEY cleared (Bedrock does not consume it), got {auth_env.get('ANTHROPIC_API_KEY')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_AUTH_TOKEN") == "__UNSET__",
+        f"bedrock auto-preserve: expected ANTHROPIC_AUTH_TOKEN cleared (Bedrock does not consume it), got {auth_env.get('ANTHROPIC_AUTH_TOKEN')!r}",
+        failures,
+    )
+    expect(
+        auth_env.get("ANTHROPIC_BASE_URL") == "__UNSET__",
+        f"bedrock auto-preserve: expected ANTHROPIC_BASE_URL cleared so Subrouter does not override Bedrock, got {auth_env.get('ANTHROPIC_BASE_URL')!r}",
         failures,
     )
     expect(

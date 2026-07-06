@@ -1522,6 +1522,86 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePromptSubmitResumeBindingPersistsBedrockRoutingValues() throws {
+        let context = try makeClaudeHookContext(name: "claude-resume-bedrock-env")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-bedrock-env-session"
+        let launchEnvironment = [
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/claude",
+                "--model",
+                "sonnet",
+            ]),
+            "ANTHROPIC_API_KEY": "should-not-persist-on-bedrock",
+            "ANTHROPIC_BASE_URL": "http://subrouter-team:31415",
+            "ANTHROPIC_MODEL": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "ANTHROPIC_BEDROCK_BASE_URL": "https://bedrock-runtime.us-west-2.amazonaws.com",
+            "AWS_PROFILE": "bedrock-prod",
+            "AWS_REGION": "us-west-2",
+            "CLAUDE_CODE_USE_BEDROCK": "1",
+            "CLAUDE_CONFIG_DIR": context.root.appendingPathComponent("claude-config", isDirectory: true).path,
+        ]
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [context.surfaceId],
+            connectionLimit: 5
+        )
+
+        let start = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let commandStart = context.state.commands.count
+        let prompt = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let promptCommands = Array(context.state.commands.dropFirst(commandStart))
+        let resumeBindingRequests = promptCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, promptCommands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["auto_resume"] as? Bool, true)
+        let environment = try XCTUnwrap(request["environment"] as? [String: Any])
+        XCTAssertEqual(environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
+        XCTAssertEqual(
+            environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] as? String,
+            "ANTHROPIC_BEDROCK_BASE_URL,ANTHROPIC_MODEL,ANTHROPIC_SMALL_FAST_MODEL,CLAUDE_CODE_USE_BEDROCK,CLAUDE_CONFIG_DIR"
+        )
+        XCTAssertNil(environment["ANTHROPIC_API_KEY"])
+        XCTAssertNil(environment["ANTHROPIC_BASE_URL"])
+        XCTAssertEqual(environment["ANTHROPIC_MODEL"] as? String, "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+        XCTAssertEqual(environment["ANTHROPIC_SMALL_FAST_MODEL"] as? String, "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+        XCTAssertEqual(environment["ANTHROPIC_BEDROCK_BASE_URL"] as? String, "https://bedrock-runtime.us-west-2.amazonaws.com")
+        XCTAssertEqual(environment["AWS_PROFILE"] as? String, "bedrock-prod")
+        XCTAssertEqual(environment["AWS_REGION"] as? String, "us-west-2")
+        XCTAssertEqual(environment["CLAUDE_CODE_USE_BEDROCK"] as? String, "1")
+        XCTAssertEqual(
+            environment["CLAUDE_CONFIG_DIR"] as? String,
+            context.root.appendingPathComponent("claude-config", isDirectory: true).path
+        )
+    }
+
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-session-end-workspace")
         defer { context.cleanup() }
