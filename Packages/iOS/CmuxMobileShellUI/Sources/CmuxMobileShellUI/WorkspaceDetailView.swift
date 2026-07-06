@@ -59,6 +59,7 @@ struct WorkspaceDetailView: View {
     @State var pinnedChatSessionID: String?
     @State var chatInputFocusToken: GhosttySurfaceInputFocusToken?
     @State var chatShouldFocusTerminalOnExit = false
+    @State var workspaceSceneID: ObjectIdentifier?
     @State var chatSessions: [ChatSessionDescriptor] = []
     @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session.
@@ -79,12 +80,10 @@ struct WorkspaceDetailView: View {
     }
 
     var body: some View {
-        let content = Group {
-            detailSurfaceContent
-        }
+        let content = Group { detailSurfaceContent }
 
         #if os(iOS)
-        content
+        content.background(WorkspaceSceneIDProbe(sceneID: $workspaceSceneID))
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()

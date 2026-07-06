@@ -387,7 +387,10 @@ extension WorkspaceDetailView {
         if let terminalID {
             let restored = GhosttySurfaceView.restoreInputFocus(token, surfaceID: terminalID)
             if !restored, shouldFocusTerminal {
-                _ = GhosttySurfaceView.focusMountedInput(surfaceID: terminalID)
+                _ = GhosttySurfaceView.focusMountedInput(
+                    surfaceID: terminalID,
+                    sceneID: workspaceSceneID
+                )
             }
         }
     }
