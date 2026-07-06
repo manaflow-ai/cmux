@@ -503,6 +503,10 @@ function delay(ms) {
 }
 
 class FakeComputerUseProvider {
+  constructor() {
+    this.rotatingIdentityPid = 2000;
+  }
+
   async listApps() {
     return [
       { name: "TestApp", bundleIdentifier: "com.cmux.testapp", pid: 1001 },
@@ -510,25 +514,38 @@ class FakeComputerUseProvider {
       { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
       { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
       { name: "ProviderFailureApp", bundleIdentifier: "com.cmux.providerfailure", pid: 1005 },
+      { name: "RotatingIdentityApp", bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid },
     ];
   }
 
-  async getState(app, { includeScreenshot = true } = {}) {
+  identityForApp(app, target = null) {
+    const retainedTarget = retainableTarget(target);
+    if (retainedTarget) return retainedTarget;
     if (app === "ProviderFailureApp") {
       throw new ProviderOperationError("provider.appNotFound", "app not found: ProviderFailureApp", {
         app: "ProviderFailureApp",
       });
     }
+    const identities = {
+      TestApp: { name: "TestApp", bundleIdentifier: "com.cmux.testapp", pid: 1001 },
+      QueueHoldApp: { name: "QueueHoldApp", bundleIdentifier: "com.cmux.queuehold", pid: 1002 },
+      SlowStateApp: { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
+      NoWindowIdentityApp: { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
+    };
+    return identities[app] ?? identities.TestApp;
+  }
+
+  async resolveApp(app) {
+    if (app === "RotatingIdentityApp") {
+      this.rotatingIdentityPid += 1;
+      return { name: app, bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid };
+    }
+    return this.identityForApp(app);
+  }
+
+  async getState(app, { includeScreenshot = true, target = null } = {}) {
     if (app === "SlowStateApp" || app === "QueueHoldApp") await delay(140);
-    const pid = app === "QueueHoldApp" ? 1002 : app === "SlowStateApp" ? 1003 : app === "NoWindowIdentityApp" ? 1004 : 1001;
-    const bundleIdentifier =
-      app === "QueueHoldApp"
-        ? "com.cmux.queuehold"
-        : app === "SlowStateApp"
-          ? "com.cmux.slowstate"
-          : app === "NoWindowIdentityApp"
-            ? "com.cmux.nowindowidentity"
-            : "com.cmux.testapp";
+    const identity = this.identityForApp(app, target);
     const windowId = app === "NoWindowIdentityApp" ? null : 42;
     return {
       tree: [
@@ -577,7 +594,7 @@ class FakeComputerUseProvider {
       root: app === "NoWindowIdentityApp" ? "app" : "window",
       windowIndex: 0,
       windowId,
-      target: { pid, bundleIdentifier, name: app },
+      target: identity,
       window: {
         id: windowId,
         bounds: { x: 0, y: 0, width: 400, height: 300 },
@@ -721,8 +738,19 @@ class MacComputerUseProvider {
     return result.apps ?? [];
   }
 
-  async getState(app, { includeScreenshot = true } = {}) {
-    const result = await this.run({ op: "state", app, maxNodes: 1200, maxDepth: 10 });
+  async resolveApp(app) {
+    const result = await this.run({ op: "resolve_app", app });
+    return result.target ?? null;
+  }
+
+  async getState(app, { includeScreenshot = true, target = null } = {}) {
+    const result = await this.run({
+      op: "state",
+      app,
+      maxNodes: 1200,
+      maxDepth: 10,
+      ...targetInput(target),
+    });
     let image = null;
     if (includeScreenshot && result.window?.id != null) {
       image = await captureWindowScreenshot(result.window.id);
@@ -859,6 +887,15 @@ function retainableTarget(target) {
   return { pid, bundleIdentifier, name };
 }
 
+function targetInput(target) {
+  const retained = retainableTarget(target);
+  if (!retained) return {};
+  return {
+    targetPid: retained.pid,
+    targetBundleIdentifier: retained.bundleIdentifier,
+  };
+}
+
 function retainableSnapshot(state) {
   const bounds = retainableBounds(state?.window?.bounds);
   const imageWidth = finiteNumberOrNull(state?.image?.width);
@@ -941,12 +978,31 @@ function elementFromSnapshot(snapshot, index) {
   return (snapshot?.elements ?? []).find((element) => Number(element.index) === wanted) ?? null;
 }
 
-async function approveAppControl(app) {
-  const normalizedApp = normalizeAppName(app);
-  if (!normalizedApp) return false;
+function appControlName(app, target) {
+  return retainableString(target?.name) || app;
+}
+
+function appControlApprovalKey(target) {
+  const retained = retainableTarget(target);
+  if (!retained) return null;
+  return `app-control:${retained.bundleIdentifier || "unknown-bundle"}:${retained.pid}`;
+}
+
+async function resolveAppControlTarget(app) {
+  const s = await session();
+  const target = retainableTarget(await s.provider.resolveApp(app));
+  if (!target) {
+    throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
+  }
+  return { session: s, target };
+}
+
+async function approveAppControl(app, target) {
+  const approvalKey = appControlApprovalKey(target);
+  if (!approvalKey) return false;
   return approveLocalCapability(
-    `app-control:${normalizedApp}`,
-    localizedMessage("appControlApproval", normalizedApp)
+    approvalKey,
+    localizedMessage("appControlApproval", appControlName(app, target))
   );
 }
 
@@ -973,14 +1029,20 @@ async function listProviderApps() {
 async function perceive(app) {
   const normalizedApp = normalizeAppName(app);
   if (!normalizedApp) return err(localizedMessage("appRequiredInput"));
-  if (!(await approveAppControl(normalizedApp))) {
-    return err(localizedMessage("appControlNotApproved", normalizedApp));
+  let resolved;
+  try {
+    resolved = await resolveAppControlTarget(normalizedApp);
+  } catch (error) {
+    return providerError(error);
   }
-  const s = await session();
+  if (!(await approveAppControl(normalizedApp, resolved.target))) {
+    return err(localizedMessage("appControlNotApproved", appControlName(normalizedApp, resolved.target)));
+  }
+  const s = resolved.session;
   s.revoke(normalizedApp);
   let state;
   try {
-    state = await s.provider.getState(normalizedApp, { includeScreenshot: true });
+    state = await s.provider.getState(normalizedApp, { includeScreenshot: true, target: resolved.target });
   } catch (error) {
     return providerError(error);
   }
@@ -1004,14 +1066,20 @@ async function perceive(app) {
 async function appScreenshot(app) {
   const normalizedApp = normalizeAppName(app);
   if (!normalizedApp) return err(localizedMessage("appRequiredInput"));
-  if (!(await approveAppControl(normalizedApp))) {
-    return err(localizedMessage("appControlNotApproved", normalizedApp));
+  let resolved;
+  try {
+    resolved = await resolveAppControlTarget(normalizedApp);
+  } catch (error) {
+    return providerError(error);
   }
-  const s = await session();
+  if (!(await approveAppControl(normalizedApp, resolved.target))) {
+    return err(localizedMessage("appControlNotApproved", appControlName(normalizedApp, resolved.target)));
+  }
+  const s = resolved.session;
   s.revoke(normalizedApp);
   let state;
   try {
-    state = await s.provider.getState(normalizedApp, { includeScreenshot: true });
+    state = await s.provider.getState(normalizedApp, { includeScreenshot: true, target: resolved.target });
   } catch (error) {
     return providerError(error);
   }
@@ -1026,9 +1094,6 @@ async function callInputTool(tool, args) {
   const s = await session();
   const app = normalizeAppName(args.app);
   if (!app) return err(localizedMessage("appRequiredInput"));
-  if (!(await approveAppControl(app))) {
-    return err(localizedMessage("appControlNotApproved", app));
-  }
   const snapshot = s.snapshot(app);
   const hasElementIndex = hasOwn(args, "element_index");
   if (hasElementIndex && !isValidElementIndex(args.element_index)) {
@@ -1049,13 +1114,18 @@ async function callInputTool(tool, args) {
   if (snapshot && snapshot.windowId == null) {
     return err(localizedMessage("windowIdentityRequired", app));
   }
+  const target = snapshot?.target;
+  if (!target) return err(localizedMessage("stateSnapshotRequired", app));
+  if (!(await approveAppControl(app, target))) {
+    return err(localizedMessage("appControlNotApproved", appControlName(app, target)));
+  }
 
   const action = {
     app,
     windowIndex: snapshot?.windowIndex ?? null,
     windowId: snapshot?.windowId ?? null,
-    targetPid: snapshot?.target?.pid ?? null,
-    targetBundleIdentifier: snapshot?.target?.bundleIdentifier ?? null,
+    targetPid: target.pid,
+    targetBundleIdentifier: target.bundleIdentifier,
   };
   if (hasElementIndex) {
     const element = elementFromSnapshot(snapshot, args.element_index);

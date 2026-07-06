@@ -9,25 +9,20 @@ func jsonOut(_ object: Any) -> Never {
     FileHandle.standardOutput.write(Data([10]))
     exit(0)
 }
-
 func fail(_ code: String, _ message: String, details: [String: Any] = [:]) -> Never {
     var output: [String: Any] = ["ok": false, "code": code, "error": message]
     if !details.isEmpty { output["details"] = details }
     jsonOut(output)
 }
-
 func fail(_ message: String) -> Never {
     fail("provider.operationFailed", message)
 }
-
 let maxAXStringCharacters = 512
 let maxTreeCharacters = 60_000
-
 func boundedString(_ value: String, limit: Int = maxAXStringCharacters) -> String {
     if value.count <= limit { return value }
     return String(value.prefix(limit)) + "…"
 }
-
 func stringAttr(_ element: AXUIElement, _ attr: String) -> String {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success else { return "" }
@@ -51,7 +46,7 @@ func actionsFor(_ element: AXUIElement) -> [String] {
 func pointAttr(_ element: AXUIElement, _ attr: String) -> CGPoint? {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success,
-          let value else { return nil }
+          let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
     let axValue = value as! AXValue
     var point = CGPoint.zero
     guard AXValueGetValue(axValue, .cgPoint, &point) else { return nil }
@@ -61,7 +56,7 @@ func pointAttr(_ element: AXUIElement, _ attr: String) -> CGPoint? {
 func sizeAttr(_ element: AXUIElement, _ attr: String) -> CGSize? {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success,
-          let value else { return nil }
+          let value, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
     let axValue = value as! AXValue
     var size = CGSize.zero
     guard AXValueGetValue(axValue, .cgSize, &size) else { return nil }

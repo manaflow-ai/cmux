@@ -371,7 +371,23 @@ const repeatedAppControl = await runCalls({
 });
 console.log(`same-app app-control approval prompts -> count=${sameAppControlPrompts.length}`);
 if (repeatedAppControl.some((result) => result.isError) || sameAppControlPrompts.length !== 1) {
-  console.error("FAIL: app-control approval should be cached for the same normalized app in one MCP session");
+  console.error("FAIL: app-control approval should be cached for the same resolved app identity in one MCP session");
+  process.exit(1);
+}
+
+const rotatingIdentityPrompts = [];
+const rotatingIdentityControl = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "RotatingIdentityApp" } },
+    { tool: "computer_state", args: { app: "RotatingIdentityApp" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+  onElicitation: (message) => rotatingIdentityPrompts.push(message),
+});
+console.log(`same-name new-identity approval prompts -> count=${rotatingIdentityPrompts.length}`);
+if (rotatingIdentityControl.some((result) => result.isError) || rotatingIdentityPrompts.length !== 2) {
+  console.error("FAIL: app-control approval must not be reused when the same app name resolves to a new process identity");
   process.exit(1);
 }
 

@@ -31,6 +31,10 @@ guard let app = resolveApp(appQuery, targetPid: targetPid, targetBundleIdentifie
     fail("provider.appNotFound", "app not found: \(appQuery)", details: ["app": appQuery])
 }
 
+if op == "resolve_app" {
+    jsonOut(["ok": true, "target": appInfo(app)])
+}
+
 func elementSnapshot(_ element: AXUIElement, path: [Int], index: Int? = nil) -> [String: Any] {
     let role = stringAttr(element, kAXRoleAttribute as String)
     let subrole = stringAttr(element, kAXSubroleAttribute as String)
