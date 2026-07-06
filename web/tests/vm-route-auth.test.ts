@@ -28,8 +28,24 @@ const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
 
-const realWorkflows = await import("../services/vms/workflows");
-const realDbClient = await import("../db/client");
+// Capture the real implementations BY VALUE before mocking. bun's
+// mock.module can mutate an already-loaded module namespace in place, so a
+// captured namespace object would resolve to the mock at call time and a
+// delegating wrapper would recurse into itself. Copied function references
+// keep pointing at the originals under either registry semantics.
+const workflowsModule = await import("../services/vms/workflows");
+const realCreateVm = workflowsModule.createVm;
+const realDestroyVm = workflowsModule.destroyVm;
+const realExecVm = workflowsModule.execVm;
+const realListUserVms = workflowsModule.listUserVms;
+const realOpenAttachEndpoint = workflowsModule.openAttachEndpoint;
+const realOpenSshEndpoint = workflowsModule.openSshEndpoint;
+const realRunVmWorkflow = workflowsModule.runVmWorkflow;
+const realVmWorkflowLive = workflowsModule.VmWorkflowLive;
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let useWorkflowStubs = false;
 let useStubDb = false;
@@ -45,21 +61,21 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../services/vms/workflows", () => ({
-  ...realWorkflows,
-  createVm: ((...args: Parameters<typeof realWorkflows.createVm>) =>
-    useWorkflowStubs ? callMock(createVm, args) : realWorkflows.createVm(...args)) as typeof realWorkflows.createVm,
-  destroyVm: ((...args: Parameters<typeof realWorkflows.destroyVm>) =>
-    useWorkflowStubs ? callMock(destroyVm, args) : realWorkflows.destroyVm(...args)) as typeof realWorkflows.destroyVm,
-  execVm: ((...args: Parameters<typeof realWorkflows.execVm>) =>
-    useWorkflowStubs ? callMock(execVm, args) : realWorkflows.execVm(...args)) as typeof realWorkflows.execVm,
-  listUserVms: ((...args: Parameters<typeof realWorkflows.listUserVms>) =>
-    useWorkflowStubs ? callMock(listUserVms, args) : realWorkflows.listUserVms(...args)) as typeof realWorkflows.listUserVms,
-  openAttachEndpoint: ((...args: Parameters<typeof realWorkflows.openAttachEndpoint>) =>
-    useWorkflowStubs ? callMock(openAttachEndpoint, args) : realWorkflows.openAttachEndpoint(...args)) as typeof realWorkflows.openAttachEndpoint,
-  openSshEndpoint: ((...args: Parameters<typeof realWorkflows.openSshEndpoint>) =>
-    useWorkflowStubs ? callMock(openSshEndpoint, args) : realWorkflows.openSshEndpoint(...args)) as typeof realWorkflows.openSshEndpoint,
-  runVmWorkflow: ((...args: Parameters<typeof realWorkflows.runVmWorkflow>) =>
-    useWorkflowStubs ? callMock(runVmWorkflow, args) : realWorkflows.runVmWorkflow(...args)) as typeof realWorkflows.runVmWorkflow,
+  VmWorkflowLive: realVmWorkflowLive,
+  createVm: ((...args: Parameters<typeof realCreateVm>) =>
+    useWorkflowStubs ? callMock(createVm, args) : realCreateVm(...args)) as typeof realCreateVm,
+  destroyVm: ((...args: Parameters<typeof realDestroyVm>) =>
+    useWorkflowStubs ? callMock(destroyVm, args) : realDestroyVm(...args)) as typeof realDestroyVm,
+  execVm: ((...args: Parameters<typeof realExecVm>) =>
+    useWorkflowStubs ? callMock(execVm, args) : realExecVm(...args)) as typeof realExecVm,
+  listUserVms: ((...args: Parameters<typeof realListUserVms>) =>
+    useWorkflowStubs ? callMock(listUserVms, args) : realListUserVms(...args)) as typeof realListUserVms,
+  openAttachEndpoint: ((...args: Parameters<typeof realOpenAttachEndpoint>) =>
+    useWorkflowStubs ? callMock(openAttachEndpoint, args) : realOpenAttachEndpoint(...args)) as typeof realOpenAttachEndpoint,
+  openSshEndpoint: ((...args: Parameters<typeof realOpenSshEndpoint>) =>
+    useWorkflowStubs ? callMock(openSshEndpoint, args) : realOpenSshEndpoint(...args)) as typeof realOpenSshEndpoint,
+  runVmWorkflow: ((...args: Parameters<typeof realRunVmWorkflow>) =>
+    useWorkflowStubs ? callMock(runVmWorkflow, args) : realRunVmWorkflow(...args)) as typeof realRunVmWorkflow,
 }));
 
 // Self-shield from other suites' process-global db mocks AND from the real
@@ -69,9 +85,10 @@ mock.module("../services/vms/workflows", () => ({
 // isMissingDatabaseConfig so the reconcile degrades exactly like a
 // DATABASE_URL-less environment.
 mock.module("../db/client", () => ({
-  ...realDbClient,
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => {
-    if (!useStubDb) return realDbClient.cloudDb();
+    if (!useStubDb) return realCloudDb();
     throw new Error("DATABASE_URL is required for Cloud VM database access");
   },
 }));

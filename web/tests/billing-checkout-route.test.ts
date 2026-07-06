@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-const realDbClient = await import("../db/client");
+// Capture real implementations BY VALUE: bun's mock.module can mutate an
+// already-loaded namespace in place, so calling through a captured namespace
+// object at delegation time can recurse into the mock itself.
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 const teamCustomer = {
   id: "team-signed-in",
@@ -48,7 +54,8 @@ mock.module("../app/lib/stack", () => ({
 // Keep the real Pro resolver on the no-Stripe-subscription path regardless of
 // process-global db mocks installed by other route suites.
 mock.module("../db/client", () => ({
-  ...realDbClient,
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () =>
     useStubDb
       ? ({
@@ -59,8 +66,8 @@ mock.module("../db/client", () => ({
               }),
             }),
           }),
-        } as unknown as ReturnType<typeof realDbClient.cloudDb>)
-      : realDbClient.cloudDb(),
+        } as unknown as ReturnType<typeof realCloudDb>)
+      : realCloudDb(),
 }));
 
 mock.module("../services/billing/stripe", () => ({

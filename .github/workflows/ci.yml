@@ -261,7 +261,11 @@ jobs:
         run: bun run typecheck
 
       - name: Web tests
-        run: bun test
+        # Explicit sorted file list: bun discovers test files in filesystem
+        # readdir order, which differs between Linux runners and local macOS,
+        # so an unpinned run exercises a file order no developer can
+        # reproduce. Sorted order makes CI failures replayable locally.
+        run: bun test $(ls tests/*.test.ts tests/*.test.tsx | sort)
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).

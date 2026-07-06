@@ -2,7 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "b
 
 const originalFetch = globalThis.fetch;
 const secret = Buffer.alloc(32, 11).toString("base64");
-const realDbClient = await import("../db/client");
+// Capture real implementations BY VALUE: bun's mock.module can mutate an
+// already-loaded namespace in place, so calling through a captured namespace
+// object at delegation time can recurse into the mock itself.
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let currentUser: unknown;
 let fakeDb: ReturnType<typeof createFakeRouteDb>;
@@ -19,11 +25,12 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../db/client", () => ({
-  ...realDbClient,
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: (() =>
     useStubDb
-      ? (cloudDb() as unknown as ReturnType<typeof realDbClient.cloudDb>)
-      : realDbClient.cloudDb()) as typeof realDbClient.cloudDb,
+      ? (cloudDb() as unknown as ReturnType<typeof realCloudDb>)
+      : realCloudDb()) as typeof realCloudDb,
 }));
 
 const { encryptTenantKey } = await import("../services/subrouter/crypto");
