@@ -85,7 +85,9 @@ extension Workspace {
         definition.name = customTitle
         definition.cwd = workspaceCwd.isEmpty ? nil : workspaceCwd
         definition.color = customColor
-        definition.env = workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
+        // Deliberately no env: workspaceEnvironment values can be secrets and
+        // the dialog can only disclose keys. Users add env by hand via
+        // Customize Actions when they want it persisted.
         definition.layout = Self.configCaptureSimplifiedLayout(layout)
         return WorkspaceConfigActionSnapshot(
             definition: definition,

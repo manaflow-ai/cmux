@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// Resolves the shell command to save for each live terminal when capturing a
@@ -61,46 +62,34 @@ enum TerminalForegroundCommandCapture {
     /// Turns a captured argv into a re-runnable one-liner. argv[0] is preserved
     /// verbatim (it is the form the user invoked — bare name, `./gradlew`,
     /// or an absolute path — and panes replay from their saved cwd), known
-    /// agent resume artifacts are stripped so the saved action launches a
-    /// fresh session, and every token including the executable is
-    /// shell-quoted so nothing replays as shell syntax.
+    /// agent argv goes through the shared provider-aware
+    /// `AgentLaunchSanitizer` so stale session/resume artifacts never
+    /// replay, and every token including the executable is shell-quoted so
+    /// nothing replays as shell syntax.
     static func commandLine(fromArgv argv: [String]) -> String? {
         guard let executable = argv.first, !executable.isEmpty else { return nil }
         let executableName = (executable as NSString).lastPathComponent
         guard !executableName.isEmpty, !isShellProcessName(executableName) else { return nil }
-        var arguments = Array(argv.dropFirst())
+        var sanitizedArgv = argv
         if knownAgentExecutables.contains(executableName) {
-            arguments = strippingAgentResumeArguments(arguments, executable: executableName)
+            if let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
+                argv,
+                launcher: "",
+                fallbackKind: executableName
+            ) {
+                sanitizedArgv = sanitized
+            } else {
+                // Non-restorable launch form: save the bare CLI so the action
+                // starts a fresh session.
+                sanitizedArgv = [executable]
+            }
         }
-        return ([executable] + arguments).map(shellQuoted).joined(separator: " ")
+        return sanitizedArgv.map(shellQuoted).joined(separator: " ")
     }
 
     /// Built-in agent CLIs only — `RestorableAgentKind(rawValue:)` would also
-    /// accept arbitrary custom ids and strip flags from unrelated commands.
+    /// accept arbitrary custom ids and sanitize flags of unrelated commands.
     private static let knownAgentExecutables = Set(RestorableAgentKind.allCases.map(\.rawValue))
-
-    private static func strippingAgentResumeArguments(_ arguments: [String], executable: String) -> [String] {
-        var result: [String] = []
-        var index = 0
-        while index < arguments.count {
-            let argument = arguments[index]
-            let isResumeFlag = argument == "--resume" || argument == "-r" || argument == "--continue"
-            let isResumeSubcommand = index == 0 && argument == "resume"
-            if isResumeFlag || isResumeSubcommand {
-                // Skip the flag/subcommand and a following value when it isn't
-                // itself a flag (session ids, transcript paths, …).
-                if index + 1 < arguments.count, !arguments[index + 1].hasPrefix("-") {
-                    index += 2
-                } else {
-                    index += 1
-                }
-                continue
-            }
-            result.append(argument)
-            index += 1
-        }
-        return result
-    }
 
     private static let unquotedArgumentScalars: CharacterSet = {
         var allowed = CharacterSet.alphanumerics
