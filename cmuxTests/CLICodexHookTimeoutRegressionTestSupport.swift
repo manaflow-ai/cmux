@@ -9,7 +9,7 @@ struct InstalledHookEntry {
     let body: String
 }
 
-struct ProcessRunResult {
+struct CodexHookProcessRunResult {
     let status: Int32
     let stdout: String
     let stderr: String
@@ -47,12 +47,12 @@ func codexHookEntries(in codexHome: URL) throws -> [InstalledHookEntry] {
     }
 }
 
-func makeExecutableShellFile(at url: URL, lines: [String]) throws {
+func makeCodexHookExecutableShellFile(at url: URL, lines: [String]) throws {
     try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
 }
 
-final class CapturedSocketCommands: @unchecked Sendable {
+final class CodexHookCapturedSocketCommands: @unchecked Sendable {
     private let lock = NSLock()
     private var commands: [String] = []
 
@@ -70,14 +70,14 @@ final class CapturedSocketCommands: @unchecked Sendable {
     }
 }
 
-func makeSocketPath(_ name: String) -> String {
+func makeCodexHookSocketPath(_ name: String) -> String {
     let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
     return URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
         .path
 }
 
-func bindUnixSocket(at path: String) throws -> Int32 {
+func bindCodexHookUnixSocket(at path: String) throws -> Int32 {
     unlink(path)
     let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else {
@@ -114,9 +114,9 @@ func bindUnixSocket(at path: String) throws -> Int32 {
     return fd
 }
 
-func startMockSocketServerAccepting(
+func startCodexHookMockSocketServerAccepting(
     listenerFD: Int32,
-    commands: CapturedSocketCommands,
+    commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
     connectionLimit: Int
 ) {
@@ -136,15 +136,15 @@ func startMockSocketServerAccepting(
             }
             accepted += 1
             DispatchQueue.global(qos: .userInitiated).async {
-                handleMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
+                handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
             }
         }
     }
 }
 
-func handleMockSocketClient(
+func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
-    commands: CapturedSocketCommands,
+    commands: CodexHookCapturedSocketCommands,
     surfaceId: String
 ) {
     defer { Darwin.close(clientFD) }
@@ -163,7 +163,7 @@ func handleMockSocketClient(
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             commands.append(line)
-            let response = mockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
+            let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
@@ -171,22 +171,22 @@ func handleMockSocketClient(
     }
 }
 
-func mockSocketResponse(for line: String, surfaceId: String) -> String {
-    guard let payload = jsonObject(line),
+func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
+    guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
         return "OK"
     }
     if payload["method"] as? String == "surface.list" {
-        return v2Response(
+        return codexHookV2Response(
             id: id,
             ok: true,
             result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
         )
     }
-    return v2Response(id: id, ok: true, result: [:])
+    return codexHookV2Response(id: id, ok: true, result: [:])
 }
 
-func v2Response(
+func codexHookV2Response(
     id: String,
     ok: Bool,
     result: [String: Any]? = nil
@@ -197,18 +197,18 @@ func v2Response(
     return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
 }
 
-func jsonObject(_ line: String) -> [String: Any]? {
+func codexHookJSONObject(_ line: String) -> [String: Any]? {
     guard let data = line.data(using: .utf8) else { return nil }
     return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
 }
 
-func runProcess(
+func runCodexHookProcess(
     executablePath: String,
     arguments: [String],
     environment: [String: String],
     standardInput: String? = nil,
     timeout: TimeInterval
-) -> ProcessRunResult {
+) -> CodexHookProcessRunResult {
     let process = Process()
     let stdoutPipe = Pipe()
     let stderrPipe = Pipe()
@@ -223,7 +223,7 @@ func runProcess(
     do {
         try process.run()
     } catch {
-        return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
+        return CodexHookProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
     }
     if let standardInput, let stdinPipe {
         stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
@@ -247,7 +247,7 @@ func runProcess(
 
     let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
     let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-    return ProcessRunResult(
+    return CodexHookProcessRunResult(
         status: process.terminationStatus,
         stdout: String(data: stdoutData, encoding: .utf8) ?? "",
         stderr: String(data: stderrData, encoding: .utf8) ?? "",

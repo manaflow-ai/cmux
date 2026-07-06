@@ -22,7 +22,7 @@ struct CLICodexHookTimeoutRegressionTests {
         try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
             .write(to: codexHome.appendingPathComponent("hooks.json", isDirectory: false), options: .atomic)
 
-        let install = runProcess(
+        let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
@@ -78,7 +78,7 @@ struct CLICodexHookTimeoutRegressionTests {
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        try makeExecutableShellFile(at: fakeCLI, lines: [
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
             "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
             "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
@@ -87,7 +87,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "printf done > \"$CMUX_TEST_DONE\"",
         ])
 
-        let install = runProcess(
+        let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
@@ -100,7 +100,7 @@ struct CLICodexHookTimeoutRegressionTests {
             codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
         )
         let payload = #"{"session_id":"codex-session","prompt":"rename this workspace"}"#
-        let run = runProcess(
+        let run = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
             environment: [
@@ -142,7 +142,7 @@ struct CLICodexHookTimeoutRegressionTests {
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        try makeExecutableShellFile(at: fakeCLI, lines: [
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
             "printf '%s\\n' \"$*\" > \"$CMUX_TEST_ARGS\"",
             "printf '%s\\n' \"$CMUX_CODEX_PID\" > \"$CMUX_TEST_PID\"",
@@ -151,7 +151,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "printf done > \"$CMUX_TEST_DONE\"",
         ])
 
-        let install = runProcess(
+        let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
@@ -164,7 +164,7 @@ struct CLICodexHookTimeoutRegressionTests {
             codexHookEntries(in: codexHome).first { $0.eventName == "Stop" }?.command
         )
         let payload = #"{"session_id":"codex-session","stop_hook_active":false}"#
-        let run = runProcess(
+        let run = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
             environment: [
@@ -198,9 +198,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-installed-stale-stop-\(UUID().uuidString)", isDirectory: true)
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
-        let socketPath = makeSocketPath("codex-inst")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let commands = CapturedSocketCommands()
+        let socketPath = makeCodexHookSocketPath("codex-inst")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-installed-stale-stop-session"
@@ -211,14 +211,14 @@ struct CLICodexHookTimeoutRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        startMockSocketServerAccepting(
+        startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
             surfaceId: surfaceId,
             connectionLimit: 24
         )
 
-        let install = runProcess(
+        let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
@@ -248,7 +248,7 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_CODEX_PID": "4242",
         ]
 
-        let oldPrompt = runProcess(
+        let oldPrompt = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", promptCommand],
             environment: environment,
@@ -261,7 +261,7 @@ struct CLICodexHookTimeoutRegressionTests {
             commands.snapshot().contains { $0.hasPrefix("set_status codex Running ") }
         })
 
-        let currentPrompt = runProcess(
+        let currentPrompt = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", promptCommand],
             environment: environment,
@@ -277,7 +277,7 @@ struct CLICodexHookTimeoutRegressionTests {
         })
 
         let staleStopStart = commands.snapshot().count
-        let staleStop = runProcess(
+        let staleStop = runCodexHookProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", stopCommand],
             environment: environment,
@@ -303,9 +303,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-stale-prompt-\(UUID().uuidString)", isDirectory: true)
-        let socketPath = makeSocketPath("codex-stale")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let commands = CapturedSocketCommands()
+        let socketPath = makeCodexHookSocketPath("codex-stale")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-stale-session"
@@ -336,14 +336,14 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateURL, options: .atomic)
-        startMockSocketServerAccepting(
+        startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
             surfaceId: surfaceId,
             connectionLimit: 8
         )
 
-        let result = runProcess(
+        let result = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: [
@@ -366,8 +366,8 @@ struct CLICodexHookTimeoutRegressionTests {
         let sentCommands = commands.snapshot()
         #expect(!sentCommands.contains { $0.hasPrefix("set_status codex Running ") })
         #expect(!sentCommands.contains { $0.hasPrefix("clear_notifications ") })
-        #expect(!sentCommands.contains { jsonObject($0)?["method"] as? String == "feed.push" })
-        #expect(!sentCommands.contains { jsonObject($0)?["method"] as? String == "surface.resume.set" })
+        #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "feed.push" })
+        #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
 
         let saved = try #require(
             JSONSerialization.jsonObject(
@@ -385,9 +385,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-stale-start-\(UUID().uuidString)", isDirectory: true)
-        let socketPath = makeSocketPath("codex-start")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let commands = CapturedSocketCommands()
+        let socketPath = makeCodexHookSocketPath("codex-start")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-start-session"
@@ -421,14 +421,14 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateURL, options: .atomic)
-        startMockSocketServerAccepting(
+        startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
             surfaceId: surfaceId,
             connectionLimit: 8
         )
 
-        let result = runProcess(
+        let result = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "session-start"],
             environment: [
@@ -451,8 +451,8 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.stdout == "{}\n")
         let sentCommands = commands.snapshot()
         #expect(!sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex unknown ") })
-        #expect(!sentCommands.contains { jsonObject($0)?["method"] as? String == "feed.push" })
-        #expect(!sentCommands.contains { jsonObject($0)?["method"] as? String == "surface.resume.set" })
+        #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "feed.push" })
+        #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
 
         let saved = try #require(
             JSONSerialization.jsonObject(
@@ -470,9 +470,9 @@ struct CLICodexHookTimeoutRegressionTests {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-fresh-start-\(UUID().uuidString)", isDirectory: true)
-        let socketPath = makeSocketPath("codex-fresh")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let commands = CapturedSocketCommands()
+        let socketPath = makeCodexHookSocketPath("codex-fresh")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-fresh-session"
@@ -505,14 +505,14 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateURL, options: .atomic)
-        startMockSocketServerAccepting(
+        startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
             surfaceId: surfaceId,
             connectionLimit: 8
         )
 
-        let result = runProcess(
+        let result = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "session-start"],
             environment: [
@@ -534,7 +534,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.stdout == "{}\n")
         let sentCommands = commands.snapshot()
         #expect(sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex unknown ") })
-        #expect(sentCommands.contains { jsonObject($0)?["method"] as? String == "surface.resume.set" })
+        #expect(sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
 
         let saved = try #require(
             JSONSerialization.jsonObject(
@@ -549,7 +549,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
 
         let commandCountAfterSessionStart = sentCommands.count
-        let latePrompt = runProcess(
+        let latePrompt = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: [
@@ -573,17 +573,17 @@ struct CLICodexHookTimeoutRegressionTests {
         let commandsAfterLatePrompt = Array(commands.snapshot().dropFirst(commandCountAfterSessionStart))
         #expect(!commandsAfterLatePrompt.contains { $0.hasPrefix("set_status codex Running ") })
         #expect(!commandsAfterLatePrompt.contains { $0.hasPrefix("clear_notifications ") })
-        #expect(!commandsAfterLatePrompt.contains { jsonObject($0)?["method"] as? String == "feed.push" })
-        #expect(!commandsAfterLatePrompt.contains { jsonObject($0)?["method"] as? String == "surface.resume.set" })
+        #expect(!commandsAfterLatePrompt.contains { codexHookJSONObject($0)?["method"] as? String == "feed.push" })
+        #expect(!commandsAfterLatePrompt.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
     }
 
     @Test func codexSessionStartDoesNotReviveCompletedTurnFromSamePID() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-same-pid-start-\(UUID().uuidString)", isDirectory: true)
-        let socketPath = makeSocketPath("codex-same")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let commands = CapturedSocketCommands()
+        let socketPath = makeCodexHookSocketPath("codex-same")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-same-pid-session"
@@ -615,14 +615,14 @@ struct CLICodexHookTimeoutRegressionTests {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateURL, options: .atomic)
-        startMockSocketServerAccepting(
+        startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: commands,
             surfaceId: surfaceId,
             connectionLimit: 8
         )
 
-        let result = runProcess(
+        let result = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "session-start"],
             environment: [
@@ -645,7 +645,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(result.stdout == "{}\n")
         let sentCommands = commands.snapshot()
         #expect(!sentCommands.contains { $0.hasPrefix("set_agent_lifecycle codex unknown ") })
-        #expect(!sentCommands.contains { jsonObject($0)?["method"] as? String == "surface.resume.set" })
+        #expect(!sentCommands.contains { codexHookJSONObject($0)?["method"] as? String == "surface.resume.set" })
 
         let saved = try #require(
             JSONSerialization.jsonObject(
