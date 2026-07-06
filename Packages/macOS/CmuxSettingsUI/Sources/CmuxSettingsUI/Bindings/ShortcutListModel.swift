@@ -21,7 +21,7 @@ final class ShortcutListModel {
     /// Per-action conflict target for the red validation banner.
     private(set) var conflictRejections: [String: ShortcutAction] = [:]
     @ObservationIgnored private var rejectedConflictShortcuts: [String: StoredShortcut] = [:]
-    @ObservationIgnored private var pendingBindings: [String: StoredShortcut]?
+    private var pendingBindings: [String: StoredShortcut]?
     @ObservationIgnored private var pendingWriteGeneration = 0
 
     // MARK: - Observation-ignored internals
