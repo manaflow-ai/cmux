@@ -11,14 +11,16 @@ final class SharedLiveAgentIndex {
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
-    private var forkAvailabilityProbeCompletedAt: Date?
+    private var validatedForkPanelProbeCompletedAt: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
+    private var deferredReloadTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
+    private static let forkAvailabilityProbeTTL: TimeInterval = 2.0
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -48,6 +50,7 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        deferredReloadTimer?.cancel()
         directoryWatchSource?.cancel()
     }
 
@@ -60,7 +63,7 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        guard hasFreshForkAvailabilityProbe,
+        guard hasFreshForkAvailabilityProbe(for: panelKey),
               !isForkAvailabilityRefreshInFlight,
               let index,
               validatedForkPanels.contains(panelKey) else {
@@ -91,7 +94,7 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        guard hasFreshForkAvailabilityProbe else {
+        guard hasFreshForkAvailabilityProbe(for: panelKey) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
@@ -127,9 +130,7 @@ final class SharedLiveAgentIndex {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
             )
         }
-        if await reloadIfLiveAgentProcessFingerprintChanged() {
-            forkAvailabilityProbeCompletedAt = dateProvider()
-        }
+        _ = await reloadIfLiveAgentProcessFingerprintChanged()
     }
 
     private func requestForkAvailabilityRefresh(validating panelKey: RestorableAgentSessionIndex.PanelKey) {
@@ -140,9 +141,7 @@ final class SharedLiveAgentIndex {
         }
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            if await self.reloadIfLiveAgentProcessFingerprintChanged() {
-                self.forkAvailabilityProbeCompletedAt = self.dateProvider()
-            }
+            _ = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
@@ -153,6 +152,8 @@ final class SharedLiveAgentIndex {
     }
 
     private func startReload() {
+        deferredReloadTimer?.cancel()
+        deferredReloadTimer = nil
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.reload(forcePublish: true)
@@ -210,7 +211,7 @@ final class SharedLiveAgentIndex {
     ) {
         index = newIndex
         self.loadedAt = loadedAt
-        self.forkAvailabilityProbeCompletedAt = loadedAt
+        validatedForkPanelProbeCompletedAt.removeAll()
         validatedForkPanels = forkValidatedPanels
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
@@ -222,17 +223,20 @@ final class SharedLiveAgentIndex {
             pendingForkValidationPanels.removeAll()
             return
         }
+        let now = dateProvider()
         for panelKey in pendingForkValidationPanels {
             if index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) == nil {
-                validatedMissingForkPanels[panelKey] = dateProvider()
+                validatedMissingForkPanels[panelKey] = now
+            } else if validatedForkPanels.contains(panelKey) {
+                validatedForkPanelProbeCompletedAt[panelKey] = now
             }
         }
         pendingForkValidationPanels.removeAll()
     }
 
-    private var hasFreshForkAvailabilityProbe: Bool {
-        guard let forkAvailabilityProbeCompletedAt else { return false }
-        return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.cacheTTL
+    private func hasFreshForkAvailabilityProbe(for panelKey: RestorableAgentSessionIndex.PanelKey) -> Bool {
+        guard let completedAt = validatedForkPanelProbeCompletedAt[panelKey] else { return false }
+        return dateProvider().timeIntervalSince(completedAt) < Self.forkAvailabilityProbeTTL
     }
 
     private var isForkAvailabilityRefreshInFlight: Bool {
@@ -244,7 +248,24 @@ final class SharedLiveAgentIndex {
             changePending = true
             return
         }
-        startReload()
+        let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
+        if elapsed >= Self.minEventReloadInterval {
+            startReload()
+        } else if deferredReloadTimer == nil {
+            // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
+            let timer = DispatchSource.makeTimerSource(queue: watchQueue)
+            timer.schedule(deadline: .now() + (Self.minEventReloadInterval - elapsed))
+            timer.setEventHandler { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.deferredReloadTimer?.cancel()
+                    self.deferredReloadTimer = nil
+                    self.handleHookStoreChange()
+                }
+            }
+            deferredReloadTimer = timer
+            timer.resume()
+        }
     }
 
     private func ensureWatchingHookStoreDirectory() {

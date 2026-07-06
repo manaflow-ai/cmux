@@ -245,6 +245,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 panelId: stalePanelId
             ) == nil
         )
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: liveWorkspaceId, panelId: livePanelId)
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: liveWorkspaceId,
@@ -329,16 +330,16 @@ struct WorkspaceForkConversationContextMenuTests {
                 == sessionId
         )
 
-        now.withLock { $0 = Date(timeIntervalSince1970: 30) }
+        now.withLock { $0 = Date(timeIntervalSince1970: 1) }
         #expect(
             sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
-            "A completed fork probe should stay usable for the normal cache window without another process scan."
+            "A completed fork probe should stay briefly usable without another process scan."
         )
 
-        now.withLock { $0 = Date(timeIntervalSince1970: 61) }
+        now.withLock { $0 = Date(timeIntervalSince1970: 3) }
         #expect(
             !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
-            "Fork availability must fail closed while the shared index is refreshing."
+            "Fork availability must fail closed once the panel-specific probe expires."
         )
         #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
     }
