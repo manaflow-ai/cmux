@@ -14,9 +14,7 @@ func fail(_ code: String, _ message: String, details: [String: Any] = [:]) -> Ne
     if !details.isEmpty { output["details"] = details }
     jsonOut(output)
 }
-func fail(_ message: String) -> Never {
-    fail("provider.operationFailed", message)
-}
+func fail(_ message: String) -> Never { fail("provider.operationFailed", message) }
 let maxAXStringCharacters = 512
 let maxTreeCharacters = 60_000
 func boundedString(_ value: String, limit: Int = maxAXStringCharacters) -> String {
@@ -244,6 +242,7 @@ func resolvedWindowIdFor(_ window: AXUIElement, pid: pid_t) -> Int? {
 func appRoot(_ app: NSRunningApplication, windowIndex: Int?, windowId: Int?) -> (AXUIElement, String, Int?, Int?) {
     let root = AXUIElementCreateApplication(app.processIdentifier)
     let windows = childrenAttr(root, kAXWindowsAttribute as String)
+        .filter { stringAttr($0, kAXRoleAttribute as String) != "AXHelpTag" }
     if !windows.isEmpty {
         if let windowId {
             for (index, window) in windows.enumerated() {

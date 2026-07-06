@@ -20,7 +20,7 @@ import { accessSync, constants as fsConstants, rmSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import process from "node:process";
@@ -89,6 +89,7 @@ const AUTO_APPROVE = process.env.CMUX_CU_AUTO_APPROVE === "1";
 const USE_FAKE_PROVIDER = process.env.CMUX_CU_FAKE_PROVIDER === "1";
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const EXECUTABLE_DIR = dirname(process.execPath);
+const IS_BUNDLED_MCP_EXECUTABLE = basename(process.execPath).startsWith("cmux-computer-use-mcp");
 
 const MESSAGE_CATALOG = {
   en: {
@@ -988,22 +989,39 @@ function appControlApprovalKey(target) {
   return `app-control:${retained.bundleIdentifier || "unknown-bundle"}:${retained.pid}`;
 }
 
-async function resolveAppControlTarget(app) {
+async function approveAppControlTarget(app, target, { reuseCurrentApproval = false } = {}) {
+  const approvalKey = appControlApprovalKey(target);
+  if (!approvalKey) return false;
+  if (grantedLocalCapabilities.has(approvalKey)) return true;
+  if (
+    !reuseCurrentApproval &&
+    !(await requestLocalCapabilityApproval(
+      localizedMessage("appControlApproval", appControlName(app, target))
+    ))
+  ) {
+    return false;
+  }
+  grantedLocalCapabilities.add(approvalKey);
+  approvedAppControlQueries.add(app);
+  return true;
+}
+
+async function resolveApprovedAppControlTarget(app) {
   const s = await session();
+  let approvedThisCall = false;
+  if (!approvedAppControlQueries.has(app)) {
+    if (!(await requestLocalCapabilityApproval(localizedMessage("appControlApproval", app)))) {
+      return { approved: false, session: s, target: null };
+    }
+    approvedAppControlQueries.add(app);
+    approvedThisCall = true;
+  }
   const target = retainableTarget(await s.provider.resolveApp(app));
   if (!target) {
     throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
   }
-  return { session: s, target };
-}
-
-async function approveAppControl(app, target) {
-  const approvalKey = appControlApprovalKey(target);
-  if (!approvalKey) return false;
-  return approveLocalCapability(
-    approvalKey,
-    localizedMessage("appControlApproval", appControlName(app, target))
-  );
+  const approved = await approveAppControlTarget(app, target, { reuseCurrentApproval: approvedThisCall });
+  return { approved, session: s, target };
 }
 
 function providerError(error) {
@@ -1031,11 +1049,11 @@ async function perceive(app) {
   if (!normalizedApp) return err(localizedMessage("appRequiredInput"));
   let resolved;
   try {
-    resolved = await resolveAppControlTarget(normalizedApp);
+    resolved = await resolveApprovedAppControlTarget(normalizedApp);
   } catch (error) {
     return providerError(error);
   }
-  if (!(await approveAppControl(normalizedApp, resolved.target))) {
+  if (!resolved.approved) {
     return err(localizedMessage("appControlNotApproved", appControlName(normalizedApp, resolved.target)));
   }
   const s = resolved.session;
@@ -1068,11 +1086,11 @@ async function appScreenshot(app) {
   if (!normalizedApp) return err(localizedMessage("appRequiredInput"));
   let resolved;
   try {
-    resolved = await resolveAppControlTarget(normalizedApp);
+    resolved = await resolveApprovedAppControlTarget(normalizedApp);
   } catch (error) {
     return providerError(error);
   }
-  if (!(await approveAppControl(normalizedApp, resolved.target))) {
+  if (!resolved.approved) {
     return err(localizedMessage("appControlNotApproved", appControlName(normalizedApp, resolved.target)));
   }
   const s = resolved.session;
@@ -1116,7 +1134,7 @@ async function callInputTool(tool, args) {
   }
   const target = snapshot?.target;
   if (!target) return err(localizedMessage("stateSnapshotRequired", app));
-  if (!(await approveAppControl(app, target))) {
+  if (!(await approveAppControlTarget(app, target))) {
     return err(localizedMessage("appControlNotApproved", appControlName(app, target)));
   }
 
@@ -1257,12 +1275,17 @@ function executablePath(path) {
 }
 
 function bundledProviderPath() {
-  for (const candidate of [
+  const candidates = [
     join(MODULE_DIR, "../bin/cmux-computer-use-provider"),
     join(MODULE_DIR, "bin/cmux-computer-use-provider"),
-    join(EXECUTABLE_DIR, "cmux-computer-use-provider"),
-    join(EXECUTABLE_DIR, "../bin/cmux-computer-use-provider"),
-  ]) {
+  ];
+  if (IS_BUNDLED_MCP_EXECUTABLE) {
+    candidates.push(
+      join(EXECUTABLE_DIR, "cmux-computer-use-provider"),
+      join(EXECUTABLE_DIR, "../bin/cmux-computer-use-provider")
+    );
+  }
+  for (const candidate of candidates) {
     const path = executablePath(candidate);
     if (path) return path;
   }
@@ -1772,19 +1795,26 @@ async function execFileWithStdinTool(file, args, input, options) {
 // errors/times out. Grants are cached per capability for the lifetime of this
 // MCP session.
 const grantedLocalCapabilities = new Set();
+// This set only records that the human allowed resolving a raw app query in this
+// session. Actual control grants are still cached by resolved bundle id + pid.
+const approvedAppControlQueries = new Set();
 
 async function approveLocalCapability(key, message) {
   if (grantedLocalCapabilities.has(key)) return true;
+  if (await requestLocalCapabilityApproval(message)) {
+    grantedLocalCapabilities.add(key);
+    return true;
+  }
+  return false;
+}
+
+async function requestLocalCapabilityApproval(message) {
   const result = await forwardElicitationToClient({
     message,
     mode: "form",
     requestedSchema: { type: "object", properties: {} },
   });
-  if (result.action === "accept") {
-    grantedLocalCapabilities.add(key);
-    return true;
-  }
-  return false;
+  return result.action === "accept";
 }
 
 async function forwardElicitationToClient(params) {
