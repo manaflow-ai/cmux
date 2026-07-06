@@ -31,9 +31,10 @@ def resolve_cmux_cli() -> str:
             return explicit
         raise RuntimeError(f"Configured cmux CLI is not executable: {explicit}")
 
+    # No /tmp globbing: /tmp is world-writable, so auto-discovering and
+    # executing binaries from it is unsafe. CI always passes CMUX_CLI_BIN.
     candidates: list[str] = []
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
     candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
     if candidates:
         candidates.sort(key=os.path.getmtime, reverse=True)
@@ -182,7 +183,7 @@ def push_payload(message: str, tool_response: object) -> dict:
     payload = {
         "session_id": f"sess-{uuid.uuid4().hex}",
         "hook_event_name": "PostToolUse",
-        "cwd": "/Users/lawrence/fun",
+        "cwd": "/tmp/cmux-test-workspace",
         "tool_name": "PushNotification",
         "tool_input": {"message": message, "status": "proactive"},
     }
@@ -253,6 +254,26 @@ def main() -> int:
     expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||fallback delivery"
     if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
         print("FAIL: missing tool_response should fail open and bridge the message")
+        print(f"expected={expected!r} commands={commands!r}")
+        return 1
+
+    # 4. Explicit JSON-null disabledReason with localSent absent -> fail open.
+    #    JSONSerialization maps JSON null to NSNull, which is not Swift nil; a
+    #    naive `response["disabledReason"] == nil` check would suppress here.
+    proc, commands, workspace_id, surface_id = run_push_notification_hook(
+        cli_path,
+        push_payload(
+            "null reason delivery",
+            {"message": "null reason delivery", "disabledReason": None},
+        ),
+    )
+    if proc.returncode != 0:
+        print("FAIL: push-notification (null disabledReason) hook exited nonzero")
+        print(f"stdout={proc.stdout!r} stderr={proc.stderr!r} commands={commands!r}")
+        return 1
+    expected = f"notify_target_async {workspace_id} {surface_id} Claude Code||null reason delivery"
+    if [line for line in commands if line.startswith("notify_target_async ")] != [expected]:
+        print("FAIL: JSON-null disabledReason should fail open and bridge the message")
         print(f"expected={expected!r} commands={commands!r}")
         return 1
 
