@@ -537,6 +537,7 @@ describe("VM REST auth", () => {
       provider: "e2b",
       image: "cmuxd-ws:test",
       imageVersion: "test-version",
+      status: "paused",
       createdAt: 1_777_000_000_000,
     }]);
 
@@ -554,7 +555,7 @@ describe("VM REST auth", () => {
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-2");
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(await response.json()).toMatchObject({
-      vms: [{ id: "provider-vm-team-2", provider: "e2b" }],
+      vms: [{ id: "provider-vm-team-2", provider: "e2b", status: "paused" }],
     });
   });
 
