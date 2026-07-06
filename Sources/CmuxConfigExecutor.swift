@@ -140,37 +140,6 @@ struct CmuxConfigExecutor {
         }
     }
 
-    /// The trust dialog must disclose every shell string a workspace
-    /// action will run — the `setup` bootstrap and each surface `command` —
-    /// not just the action's (arbitrary, benign-looking) name.
-    static func workspaceShellDisclosure(_ command: CmuxCommandDefinition) -> String {
-        guard let workspace = command.workspace else { return command.name }
-        var shellLines: [String] = []
-        if let setup = workspace.setup {
-            shellLines.append(setup)
-        }
-        if let layout = workspace.layout {
-            collectSurfaceCommands(layout, into: &shellLines)
-        }
-        guard !shellLines.isEmpty else { return command.name }
-        return ([command.name] + shellLines).joined(separator: "\n")
-    }
-
-    private static func collectSurfaceCommands(_ node: CmuxLayoutNode, into lines: inout [String]) {
-        switch node {
-        case .pane(let pane):
-            for surface in pane.surfaces {
-                if let command = surface.command {
-                    lines.append(command)
-                }
-            }
-        case .split(let split):
-            for child in split.children {
-                collectSurfaceCommands(child, into: &lines)
-            }
-        }
-    }
-
     @discardableResult
     static func prepareShellInputIfAuthorized(
         _ rawCommand: String,

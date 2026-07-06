@@ -43,6 +43,12 @@ enum SidebarWorkspaceGroupConfigOpener {
                 attributes: nil
             )
             try? Data("{}\n".utf8).write(to: configURL, options: .atomic)
+            // The config later holds saved actions (commands, URLs, env
+            // values); keep it owner-only from the start.
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: configURL.path
+            )
         }
         return configURL
     }

@@ -123,6 +123,12 @@ final class CmuxConfigActionSaverTests: XCTestCase {
         let sanitized = try JSONCParser.preprocess(data: Data(saved.utf8))
         let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
         XCTAssertNotNil(config.actions["fresh"]?.action?.inlineWorkspace)
+
+        // Saved actions can carry secrets; the file must be owner-only.
+        let permissions = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: configPath)[.posixPermissions] as? NSNumber
+        )
+        XCTAssertEqual(permissions.intValue & 0o777, 0o600)
     }
 
     // MARK: - Foreground command capture

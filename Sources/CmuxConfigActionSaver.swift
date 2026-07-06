@@ -85,9 +85,14 @@ enum CmuxConfigActionSaver {
         let configURL = URL(fileURLWithPath: globalConfigPath)
         try fileManager.createDirectory(
             at: configURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
         try updated.write(to: configURL, atomically: true, encoding: .utf8)
+        // Saved actions can carry env values, URLs, and command lines; the
+        // atomic rewrite above resets permissions to the umask default, so
+        // re-tighten to owner-only every time.
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: globalConfigPath)
         return SaveResult(actionID: actionID, configPath: globalConfigPath)
     }
 

