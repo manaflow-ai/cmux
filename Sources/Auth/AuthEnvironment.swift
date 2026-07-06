@@ -110,21 +110,19 @@ enum AuthEnvironment {
         appWebOrigin(environment: environment).appendingPathComponent("app-pricing")
     }
 
-    /// Payment entrypoint used by native app UI. This intentionally does not
-    /// inherit `CMUX_WWW_ORIGIN`: a dev build can render `/app-pricing` from a
-    /// local Next server while still starting checkout on cmux.com so the
-    /// user's default browser cookies and anonymous billing session line up.
+    /// Payment entrypoint used by native app UI. `CMUX_BILLING_WWW_ORIGIN`
+    /// can explicitly pin checkout elsewhere, otherwise checkout follows the
+    /// same app web origin as `/app-pricing`. Direct Stripe Checkout binds the
+    /// purchaser to the server-created session, so dev builds must start the
+    /// request on the same origin that rendered pricing instead of crossing to
+    /// production.
     static var billingCheckoutURL: URL {
-        billingCheckoutURL(origin: billingWebsiteOrigin, callbackScheme: callbackScheme)
+        resolvedBillingCheckoutURL(environment: ProcessInfo.processInfo.environment)
     }
 
     static func resolvedBillingCheckoutURL(environment: [String: String]) -> URL {
         billingCheckoutURL(
-            origin: resolvedURL(
-                environmentKey: "CMUX_BILLING_WWW_ORIGIN",
-                fallback: "https://cmux.com",
-                environment: environment
-            ),
+            origin: billingWebsiteOrigin(environment: environment),
             callbackScheme: callbackScheme(environment: environment, bundleIdentifier: nil)
         )
     }
@@ -196,18 +194,11 @@ enum AuthEnvironment {
         resolvedCmuxPort(environment: ProcessInfo.processInfo.environment)
     }
 
-    private static var billingWebsiteOrigin: URL {
-        if let overridden = ProcessInfo.processInfo.environment["CMUX_BILLING_WWW_ORIGIN"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !overridden.isEmpty,
-           let url = URL(string: overridden) {
-            return url
+    private static func billingWebsiteOrigin(environment: [String: String]) -> URL {
+        if let overridden = environmentURL("CMUX_BILLING_WWW_ORIGIN", environment: environment) {
+            return overridden
         }
-        if let override = devOverride(key: "CMUX_BILLING_WWW_ORIGIN"),
-           let url = URL(string: override) {
-            return url
-        }
-        return URL(string: "https://cmux.com")!
+        return appWebOrigin(environment: environment)
     }
 
     private static func appWebOrigin(environment: [String: String]) -> URL {
