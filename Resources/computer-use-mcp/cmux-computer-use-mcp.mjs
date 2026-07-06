@@ -118,6 +118,8 @@ const MESSAGE_CATALOG = {
       "Allow cmux computer use to capture the entire desktop (all apps and screens)?",
     desktopScreenshotNotApproved:
       "full-desktop capture was not approved; pass `app` for per-app capture instead",
+    desktopScreenshotFailed: (reason) =>
+      `screencapture failed: ${reason}. Full-desktop capture needs macOS Screen Recording permission for the terminal app; per-app capture via \`app\` does not.`,
     displayNumber: "Display number for full-desktop capture",
     dragDescription:
       "Drag within an app between two points, in screenshot pixel coordinates measured on the latest computer_state/computer_screenshot image. Confirm with the user before destructive, irreversible, or high-stakes actions.",
@@ -250,6 +252,8 @@ const MESSAGE_CATALOG = {
       "cmux computer use にデスクトップ全体（すべてのアプリと画面）のキャプチャを許可しますか？",
     desktopScreenshotNotApproved:
       "デスクトップ全体のキャプチャは承認されませんでした。アプリ単体のキャプチャには `app` を渡してください",
+    desktopScreenshotFailed: (reason) =>
+      `screencapture に失敗しました: ${reason}。デスクトップ全体のキャプチャには、ターミナルアプリまたは cmux アプリへの macOS 画面収録権限が必要です。アプリ単体のキャプチャは \`app\` で実行できます。`,
     displayNumber: "デスクトップ全体をキャプチャするディスプレイ番号",
     dragDescription:
       "最新の computer_state/computer_screenshot 画像で測ったスクリーンショットピクセル座標を使い、アプリ内の2点間をドラッグします。破壊的、取り消し困難、または重要度の高い操作の前にはユーザーに確認してください。",
@@ -1386,10 +1390,7 @@ async function desktopScreenshot(display) {
     const data = await readFile(path);
     return ok([{ type: "image", data: data.toString("base64"), mimeType: "image/png" }]);
   } catch (error) {
-    return err(
-      `screencapture failed: ${error?.message ?? error}. Full-desktop capture needs macOS ` +
-        "Screen Recording permission for the terminal app; per-app capture via `app` does not."
-    );
+    return err(localizedMessage("desktopScreenshotFailed", shortErrorMessage(error)));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
     activeCaptureDirs.delete(dir);
@@ -1662,7 +1663,6 @@ let clientSupportsElicitation = false;
 let mcpClientDisplayName = localizedMessage("mcpClientFallback");
 let nextOutboundId = 1;
 const outboundPending = new Map();
-const canceledRequestIds = new Set();
 const activeToolCalls = new Map();
 let activeToolToken = null;
 
@@ -1699,7 +1699,6 @@ function cancelToolRequest(requestId) {
   const key = requestKey(requestId);
   const token = activeToolCalls.get(key);
   if (!token) return;
-  canceledRequestIds.add(key);
   token.canceled = true;
   if (activeToolToken === token) {
     rejectOutboundForToken(token);
@@ -1714,19 +1713,25 @@ function cancelToolRequest(requestId) {
     }
   } else {
     rejectOutboundForToken(token);
-    activeToolCalls.delete(key);
-    canceledRequestIds.delete(key);
+    removeQueuedToolCall(token);
+    finishToolCall(token);
+    token.resolve?.(err(localizedMessage("toolCallCancelled")));
   }
 }
 
 function abortActiveToolCalls() {
-  for (const token of activeToolCalls.values()) {
+  for (const token of Array.from(activeToolCalls.values())) {
     token.canceled = true;
     rejectOutboundForToken(token);
     for (const controller of token.abortControllers) {
       controller.abort();
     }
     token.abortControllers.clear();
+    if (activeToolToken !== token) {
+      removeQueuedToolCall(token);
+      finishToolCall(token);
+      token.resolve?.(err(localizedMessage("toolCallCancelled")));
+    }
   }
 }
 
@@ -1888,7 +1893,45 @@ async function forwardElicitationToClient(params) {
   return { action: result?.action === "cancel" ? "cancel" : "decline" };
 }
 
-let toolCallQueue = Promise.resolve();
+const toolCallQueue = [];
+let toolCallRunning = false;
+
+function removeQueuedToolCall(token) {
+  const index = toolCallQueue.indexOf(token);
+  if (index >= 0) {
+    toolCallQueue.splice(index, 1);
+    return true;
+  }
+  return false;
+}
+
+function finishToolCall(token) {
+  if (activeToolToken === token) activeToolToken = null;
+  activeToolCalls.delete(token.id);
+}
+
+function drainToolCallQueue() {
+  if (toolCallRunning) return;
+  const token = toolCallQueue.shift();
+  if (!token) return;
+  toolCallRunning = true;
+  activeToolToken = token;
+  (async () => {
+    try {
+      if (token.canceled) return err(localizedMessage("toolCallCancelled"));
+      const result = await token.run();
+      if (token.canceled) return err(localizedMessage("toolCallCancelled"));
+      return result;
+    } catch (error) {
+      if (token.canceled) return err(localizedMessage("toolCallCancelled"));
+      return err(error?.message ?? String(error));
+    } finally {
+      finishToolCall(token);
+      toolCallRunning = false;
+      drainToolCallQueue();
+    }
+  })().then(token.resolve);
+}
 
 function enqueueToolCall(id, args, run) {
   if (activeToolCalls.size >= MAX_PENDING_TOOL_CALLS) {
@@ -1900,35 +1943,18 @@ function enqueueToolCall(id, args, run) {
   const key = requestKey(id);
   const token = {
     id: key,
-    canceled: canceledRequestIds.has(key),
+    canceled: false,
+    run,
+    resolve: null,
     outboundIds: new Set(),
     abortControllers: new Set(),
   };
-  activeToolCalls.set(key, token);
-  const cleanupToken = () => {
-    if (activeToolToken === token) activeToolToken = null;
-    activeToolCalls.delete(key);
-    canceledRequestIds.delete(key);
-  };
-  const queued = toolCallQueue.then(
-    async () => {
-      try {
-        if (token.canceled) return err(localizedMessage("toolCallCancelled"));
-        activeToolToken = token;
-        const result = await run();
-        if (token.canceled) return err(localizedMessage("toolCallCancelled"));
-        return result;
-      } finally {
-        cleanupToken();
-      }
-    },
-    async () => {
-      cleanupToken();
-      return err("previous tool call failed before this request could run");
-    }
-  );
-  toolCallQueue = queued.catch(() => {});
-  return queued;
+  return new Promise((resolve) => {
+    token.resolve = resolve;
+    activeToolCalls.set(key, token);
+    toolCallQueue.push(token);
+    drainToolCallQueue();
+  });
 }
 
 async function handleRequest(message) {
