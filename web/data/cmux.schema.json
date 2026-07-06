@@ -675,6 +675,34 @@
               }
             }
           }
+        },
+        "uploadCommands": {
+          "type": "array",
+          "default": [],
+          "description": "Host-scoped rules that replace the built-in scp for terminal file drops and pastes over SSH. When the ssh destination matches a rule, cmux runs that rule's command once per file instead of scp, and inserts the command's stdout at the cursor (verbatim, with control characters stripped); if the command prints nothing, cmux inserts the shell-escaped remote path it chose instead. Per-file outputs are space-joined. First matching enabled rule wins; no match runs the built-in scp unchanged. A non-zero exit, timeout, or cancel inserts nothing.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command"],
+            "properties": {
+              "hostPattern": {
+                "type": ["string", "null"],
+                "minLength": 1,
+                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. Omit the key or set it to null for a catch-all (a blank string is rejected)."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). Its stdout is what cmux inserts at the cursor."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this rule is active. Defaults to true."
+              }
+            }
+          }
         }
       }
     },

@@ -130,6 +130,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         defaultValue: []
     )
 
+    /// Host-scoped rules that replace the built-in `scp` for terminal file
+    /// drops/pastes over ssh; cmux runs the matching command and inserts its
+    /// output. See ``TerminalUploadCommandRule``.
+    public let uploadCommands = JSONKey<[TerminalUploadCommandRule]>(
+        id: "terminal.uploadCommands",
+        defaultValue: []
+    )
+
     /// Multiplier applied to terminal scroll wheel and trackpad deltas.
     public let scrollSpeed = DefaultsKey<Double>(
         id: "terminal.scrollSpeed",

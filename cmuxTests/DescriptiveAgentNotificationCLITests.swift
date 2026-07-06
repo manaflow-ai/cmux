@@ -203,7 +203,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         let notificationDelivered = expectation(description: "legacy notifications delivered")
-        notificationDelivered.expectedFulfillmentCount = 2
+        notificationDelivered.expectedFulfillmentCount = 3
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in
             notificationDelivered.fulfill()
@@ -235,17 +235,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let legacy3 = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) Legacy Title|Legacy Subtitle|Legacy Body"
         let legacyMeta = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) Legacy Meta|Legacy Subtitle|Legacy Body|c=turn-complete;p=0"
+        let legacySpacedMeta = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) Legacy Spaced|Legacy Subtitle|Legacy Body| c=turn-complete;p=0"
         let responses = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try self.sendSocketCommands([legacy3, legacyMeta], to: socketPath))
+                    continuation.resume(returning: try self.sendSocketCommands([legacy3, legacyMeta, legacySpacedMeta], to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
 
-        XCTAssertEqual(responses, ["OK", "OK"])
+        XCTAssertEqual(responses, ["OK", "OK", "OK"])
         await fulfillment(of: [notificationDelivered], timeout: 5)
 
         let legacy3Notification = try XCTUnwrap(
@@ -261,6 +262,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(legacyMetaNotification.subtitle, "Legacy Subtitle")
         XCTAssertEqual(legacyMetaNotification.body, "Legacy Body")
         XCTAssertNil(legacyMetaNotification.agentId)
+
+        let legacySpacedMetaNotification = try XCTUnwrap(
+            store.notifications.first { $0.title == "Legacy Spaced" }
+        )
+        XCTAssertEqual(legacySpacedMetaNotification.subtitle, "Legacy Subtitle")
+        XCTAssertEqual(legacySpacedMetaNotification.body, "Legacy Body| c=turn-complete;p=0")
+        XCTAssertNil(legacySpacedMetaNotification.agentId)
     }
 
     private nonisolated func sendSocketCommands(_ commands: [String], to socketPath: String) throws -> [String] {

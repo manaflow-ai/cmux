@@ -139,10 +139,9 @@ import Testing
     }
 
     @Test func metaRejectsInvalidAgentIds() {
-        #expect(AgentNotificationMeta(meta: "a=") == nil)
-        #expect(AgentNotificationMeta(meta: "a=UPPER") == nil)
-        #expect(AgentNotificationMeta(meta: "a=has_underscore") == nil)
-        #expect(AgentNotificationMeta(meta: "a=abcdefghijklmnopqrstuvwxyzabcdefg") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=UPPER") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=has_underscore") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=abcdefghijklmnopqrstuvwxyzabcdefg") == nil)
     }
 }
