@@ -23,14 +23,17 @@ extension ControlCommandCoordinator {
         guard let name = string(params, "name") else {
             return .err(code: "invalid_params", message: "Missing or blank name", data: nil)
         }
+        guard let context else {
+            return .err(code: "unavailable", message: "Saved layout context not available", data: nil)
+        }
         let workspaceID = uuidAny(params["workspace_id"]) ?? uuidAny(params["workspace_ref"])
-        let resolution = context?.controlLayoutSave(
+        let resolution = context.controlLayoutSave(
             routing: routingSelectors(params),
             workspaceID: workspaceID,
             name: name,
             description: optionalTrimmedRawString(params, "description"),
             overwrite: bool(params, "overwrite") ?? false
-        ) ?? .workspaceNotFound
+        )
         switch resolution {
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -50,7 +53,10 @@ extension ControlCommandCoordinator {
     }
 
     private func layoutList(_ params: [String: JSONValue]) -> ControlCallResult {
-        let resolution = context?.controlLayoutList() ?? .resolved([])
+        guard let context else {
+            return .err(code: "unavailable", message: "Saved layout context not available", data: nil)
+        }
+        let resolution = context.controlLayoutList()
         switch resolution {
         case .corruptFile(let description):
             return .err(code: "invalid_state", message: "layouts.json is corrupt", data: .object(["description": .string(description)]))

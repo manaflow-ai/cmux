@@ -20,12 +20,16 @@ final class SavedLayoutStore {
         var layouts: [CmuxSavedLayout]
     }
 
+    private struct CachedLayoutsFile: Sendable {
+        var modificationDate: Date?
+        var file: LayoutsFile
+    }
+
     let fileURL: URL
 
     private let fileManager: FileManager
-    private var cachedFile: LayoutsFile?
-    private var cachedModificationDate: Date?
     private var corruptFileDescription: String?
+    private static var sharedCacheByPath: [String: CachedLayoutsFile] = [:]
 
     init(
         fileURL: URL = CmuxConfigLocation().userConfigFile
@@ -85,18 +89,19 @@ final class SavedLayoutStore {
 
     private func load() throws -> LayoutsFile {
         let modificationDate = self.modificationDate()
-        if let corruptFileDescription, cachedModificationDate == modificationDate {
+        if let corruptFileDescription,
+           Self.sharedCacheByPath[cacheKey]?.modificationDate == modificationDate {
             throw SavedLayoutStoreError.corruptFile(corruptFileDescription)
         }
 
-        if let cachedFile, cachedModificationDate == modificationDate {
-            return cachedFile
+        if let cached = Self.sharedCacheByPath[cacheKey],
+           cached.modificationDate == modificationDate {
+            return cached.file
         }
 
         guard fileManager.fileExists(atPath: fileURL.path) else {
             let empty = LayoutsFile(layouts: [])
-            cachedFile = empty
-            cachedModificationDate = nil
+            Self.sharedCacheByPath[cacheKey] = CachedLayoutsFile(modificationDate: nil, file: empty)
             corruptFileDescription = nil
             return empty
         }
@@ -104,14 +109,12 @@ final class SavedLayoutStore {
         do {
             let data = try Data(contentsOf: fileURL)
             let decoded = try JSONDecoder().decode(LayoutsFile.self, from: data)
-            cachedFile = decoded
-            cachedModificationDate = modificationDate
+            Self.sharedCacheByPath[cacheKey] = CachedLayoutsFile(modificationDate: modificationDate, file: decoded)
             corruptFileDescription = nil
             return decoded
         } catch {
             let description = error.localizedDescription
             corruptFileDescription = description
-            cachedModificationDate = modificationDate
             throw SavedLayoutStoreError.corruptFile(description)
         }
     }
@@ -135,11 +138,15 @@ final class SavedLayoutStore {
             try fileManager.moveItem(at: temporaryURL, to: fileURL)
         }
 
-        cachedFile = file
-        cachedModificationDate = modificationDate()
+        Self.sharedCacheByPath[cacheKey] = CachedLayoutsFile(modificationDate: modificationDate(), file: file)
+        corruptFileDescription = nil
     }
 
     private func modificationDate() -> Date? {
         (try? fileManager.attributesOfItem(atPath: fileURL.path)[.modificationDate]) as? Date
+    }
+
+    private var cacheKey: String {
+        fileURL.standardizedFileURL.path
     }
 }

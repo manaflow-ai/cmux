@@ -20,6 +20,14 @@ extension AppDelegate {
         )
     }
 
+    func handleSavedLayoutShortcut(_ event: NSEvent) -> Bool {
+        guard matchConfiguredShortcut(event: event, action: .saveLayoutTemplate) else {
+            return false
+        }
+        requestSavedLayoutSave(preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow)
+        return true
+    }
+
     func appendSavedLayoutMenuItems(to menu: NSMenu, windowId: UUID) {
         let layouts = (try? SavedLayoutStore().list()) ?? []
         guard !layouts.isEmpty else { return }

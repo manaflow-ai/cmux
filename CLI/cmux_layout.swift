@@ -1,6 +1,27 @@
 import Foundation
 
 extension CMUXCLI {
+    static func layoutHelpText() -> String {
+        """
+        Usage: cmux layout <subcommand> [flags]
+
+        Save, list, export, open, and delete named workspace layouts.
+
+        Subcommands:
+          save <name> [--workspace <ref>] [--overwrite] [--description <text>]
+          list [--json]
+          get <name>
+          open <name> [--cwd <dir>] [--focus <true|false>]
+          delete <name>
+
+        Examples:
+          cmux layout save dev --overwrite
+          cmux layout list
+          cmux layout get dev
+          cmux layout open dev --cwd ~/projects/myapp
+        """
+    }
+
     func runLayoutNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -40,7 +61,7 @@ extension CMUXCLI {
         let (windowOpt, rem2) = parseOption(rem1, name: "--window")
         let overwrite = hasFlag(rem2, name: "--overwrite")
         let remaining = rem2.filter { $0 != "--overwrite" }
-        if let unknown = remaining.dropFirst().first(where: { $0.hasPrefix("--") }) {
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "layout save: unknown flag '\(unknown)'")
         }
         guard let name = remaining.first?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
@@ -96,7 +117,7 @@ extension CMUXCLI {
     }
 
     private func runLayoutGet(commandArgs: [String], client: SocketClient) throws {
-        if let unknown = commandArgs.dropFirst().first(where: { $0.hasPrefix("--") }) {
+        if let unknown = commandArgs.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "layout get: unknown flag '\(unknown)'")
         }
         guard let name = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
@@ -116,7 +137,7 @@ extension CMUXCLI {
         let (cwdOpt, rem0) = parseOption(commandArgs, name: "--cwd")
         let (focusOpt, rem1) = parseOption(rem0, name: "--focus")
         let (windowOpt, remaining) = parseOption(rem1, name: "--window")
-        if let unknown = remaining.dropFirst().first(where: { $0.hasPrefix("--") }) {
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "layout open: unknown flag '\(unknown)'")
         }
         guard let name = remaining.first?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
@@ -137,7 +158,7 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        if let unknown = commandArgs.dropFirst().first(where: { $0.hasPrefix("--") }) {
+        if let unknown = commandArgs.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "layout delete: unknown flag '\(unknown)'")
         }
         guard let name = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {

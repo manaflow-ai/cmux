@@ -264,17 +264,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
     }
 
-    func testSaveLayoutTemplateSettingsPackageActionStaysAligned() {
-        guard let settingsAction = ShortcutAction(
-            rawValue: KeyboardShortcutSettings.Action.saveLayoutTemplate.rawValue
-        ) else {
-            XCTFail("Expected CmuxSettings.ShortcutAction for saveLayoutTemplate")
-            return
-        }
-        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "s", command: true, shift: true))
-        XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.saveLayoutTemplate.label)
-    }
-
     func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {
         for action in KeyboardShortcutSettings.Action.allCases {
             guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {

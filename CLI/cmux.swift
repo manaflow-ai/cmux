@@ -4085,14 +4085,7 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
-        case "layout":
-            try runLayoutNamespace(
-                commandArgs: commandArgs,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat,
-                windowOverride: windowId
-            )
+        case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
@@ -14732,24 +14725,7 @@ struct CMUXCLI {
               cmux workspace disconnect --workspace workspace:3
             """)
         case "layout":
-            return """
-            Usage: cmux layout <subcommand> [flags]
-
-            Save, list, export, open, and delete named workspace layouts.
-
-            Subcommands:
-              save <name> [--workspace <ref>] [--overwrite] [--description <text>]
-              list [--json]
-              get <name>
-              open <name> [--cwd <dir>] [--focus <true|false>]
-              delete <name>
-
-            Examples:
-              cmux layout save dev --overwrite
-              cmux layout list
-              cmux layout get dev
-              cmux layout open dev --cwd ~/projects/myapp
-            """
+            return Self.layoutHelpText()
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]

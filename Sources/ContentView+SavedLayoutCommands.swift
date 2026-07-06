@@ -28,7 +28,6 @@ extension ContentView {
                 subtitle: workspaceSubtitle,
                 shortcutHint: KeyboardShortcutSettings.shortcutIfBound(for: .saveLayoutTemplate)?.displayString,
                 keywords: ["save", "layout", "template", "preset", "workspace", "split"],
-                dismissOnRun: false,
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
                 enablement: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -51,8 +50,17 @@ extension ContentView {
             presentSavedLayoutSavePrompt()
         }
         for layout in savedLayoutsForCommandPalette() {
-            registry.register(commandId: savedLayoutOpenCommandID(layout.name)) {
-                _ = tabManager.openWorkspace(fromSavedLayout: layout, cwdOverride: nil, focus: true)
+            let layoutName = layout.name
+            registry.register(commandId: savedLayoutOpenCommandID(layoutName)) {
+                do {
+                    guard let resolvedLayout = try SavedLayoutStore().layout(named: layoutName) else {
+                        NSSound.beep()
+                        return
+                    }
+                    _ = tabManager.openWorkspace(fromSavedLayout: resolvedLayout, cwdOverride: nil, focus: true)
+                } catch {
+                    NSSound.beep()
+                }
             }
         }
     }
@@ -93,8 +101,8 @@ extension ContentView {
         }
         guard overwrite || (try? store.layout(named: name)) == nil else { return }
 
-        let capture = workspace.captureLayoutDefinition()
         do {
+            let capture = try workspace.captureLayoutDefinition()
             try store.save(
                 CmuxSavedLayout(name: name, description: nil, workspace: capture.workspace),
                 overwrite: overwrite
@@ -137,12 +145,11 @@ extension ContentView {
                 return String(localized: "dialog.savedLayout.error.duplicateName", defaultValue: "A layout with that name already exists.")
             case .notFound:
                 return String(localized: "dialog.savedLayout.error.notFound", defaultValue: "That saved layout could not be found.")
-            case .corruptFile(let description):
-                let format = String(localized: "dialog.savedLayout.error.corruptFile", defaultValue: "layouts.json could not be read: %@")
-                return String.localizedStringWithFormat(format, description)
+            case .corruptFile:
+                return String(localized: "dialog.savedLayout.error.corruptFile", defaultValue: "The saved layouts file could not be read. Check it and try again.")
             }
         }
-        return error.localizedDescription
+        return String(localized: "dialog.savedLayout.error.unknown", defaultValue: "The saved layout request could not be completed. Try again.")
     }
 
     private func savedLayoutsForCommandPalette() -> [CmuxSavedLayout] {

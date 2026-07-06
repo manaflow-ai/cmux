@@ -80,12 +80,12 @@ def main() -> int:
         "direction": "horizontal",
         "split": 0.4,
         "children": [
-            {"pane": {"surfaces": [{"type": "terminal", "name": "Left"}]}},
-            {
-                "direction": "vertical",
-                "split": 0.65,
-                "children": [
-                    {"pane": {"surfaces": [{"type": "browser", "url": "https://example.com", "name": "Docs"}]}},
+                    {"pane": {"surfaces": [{"type": "terminal", "name": "Left"}]}},
+                    {
+                        "direction": "vertical",
+                        "split": 0.65,
+                        "children": [
+                    {"pane": {"surfaces": [{"type": "browser", "url": "about:blank", "name": "Docs"}]}},
                     {"pane": {"surfaces": [{"type": "terminal", "cwd": "/tmp", "name": "Bottom"}]}},
                 ],
             },

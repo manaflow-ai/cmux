@@ -13,14 +13,14 @@ extension TerminalController: ControlLayoutContext {
             guard let workspace = controlLayoutWorkspace(routing: routing, workspaceID: workspaceID) else {
                 return .workspaceNotFound
             }
-            let capture = workspace.captureLayoutDefinition()
-            let store = SavedLayoutStore()
-            let layout = CmuxSavedLayout(
-                name: name,
-                description: description,
-                workspace: capture.workspace
-            )
             do {
+                let capture = try workspace.captureLayoutDefinition()
+                let store = SavedLayoutStore()
+                let layout = CmuxSavedLayout(
+                    name: name,
+                    description: description,
+                    workspace: capture.workspace
+                )
                 try store.save(layout, overwrite: overwrite)
                 return .saved(
                     name: name.trimmingCharacters(in: .whitespacesAndNewlines),

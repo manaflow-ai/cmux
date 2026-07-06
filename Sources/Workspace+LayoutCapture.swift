@@ -1,16 +1,27 @@
 import Bonsplit
 import Foundation
 
+enum SavedLayoutCaptureError: Error, Equatable, LocalizedError {
+    case unsupportedSplitOrientation(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedSplitOrientation(let orientation):
+            return "Unsupported split orientation in layout capture: \(orientation)"
+        }
+    }
+}
+
 struct CmuxWorkspaceLayoutCapture {
     var workspace: CmuxWorkspaceDefinition
     var unsupportedSurfaceCount: Int
 }
 
 extension Workspace {
-    func captureLayoutDefinition() -> CmuxWorkspaceLayoutCapture {
+    func captureLayoutDefinition() throws -> CmuxWorkspaceLayoutCapture {
         var unsupportedSurfaceCount = 0
         let baseCwd = currentDirectory
-        let root = captureLayoutNode(
+        let root = try captureLayoutNode(
             from: bonsplitController.treeSnapshot(),
             baseCwd: baseCwd,
             unsupportedSurfaceCount: &unsupportedSurfaceCount
@@ -32,17 +43,25 @@ extension Workspace {
         from node: ExternalTreeNode,
         baseCwd: String,
         unsupportedSurfaceCount: inout Int
-    ) -> CmuxLayoutNode {
+    ) throws -> CmuxLayoutNode {
         switch node {
         case .split(let split):
-            let direction: CmuxSplitDirection = split.orientation.lowercased() == "vertical" ? .vertical : .horizontal
+            let direction: CmuxSplitDirection
+            switch split.orientation.lowercased() {
+            case "horizontal":
+                direction = .horizontal
+            case "vertical":
+                direction = .vertical
+            default:
+                throw SavedLayoutCaptureError.unsupportedSplitOrientation(split.orientation)
+            }
             return .split(
                 CmuxSplitDefinition(
                     direction: direction,
                     split: Self.clampedSavedLayoutSplit(split.dividerPosition),
                     children: [
-                        captureLayoutNode(from: split.first, baseCwd: baseCwd, unsupportedSurfaceCount: &unsupportedSurfaceCount),
-                        captureLayoutNode(from: split.second, baseCwd: baseCwd, unsupportedSurfaceCount: &unsupportedSurfaceCount),
+                        try captureLayoutNode(from: split.first, baseCwd: baseCwd, unsupportedSurfaceCount: &unsupportedSurfaceCount),
+                        try captureLayoutNode(from: split.second, baseCwd: baseCwd, unsupportedSurfaceCount: &unsupportedSurfaceCount),
                     ]
                 )
             )
@@ -62,21 +81,28 @@ extension Workspace {
         unsupportedSurfaceCount: inout Int
     ) -> [CmuxSurfaceDefinition] {
         guard let paneUUID = UUID(uuidString: pane.id) else {
+            unsupportedSurfaceCount += pane.tabs.count
             return []
         }
-        return bonsplitController.tabs(inPane: PaneID(id: paneUUID))
-            .compactMap { tab -> CmuxSurfaceDefinition? in
-                guard let panelId = panelIdFromSurfaceId(tab.id),
-                      let panel = panels[panelId] else {
-                    return nil
-                }
-                return captureSurfaceDefinition(
+        var surfaces: [CmuxSurfaceDefinition] = []
+        surfaces.reserveCapacity(max(pane.tabs.count, 1))
+        for tab in bonsplitController.tabs(inPane: PaneID(id: paneUUID)) {
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let panel = panels[panelId] else {
+                unsupportedSurfaceCount += 1
+                surfaces.append(CmuxSurfaceDefinition(type: .terminal))
+                continue
+            }
+            surfaces.append(
+                captureSurfaceDefinition(
                     panelId: panelId,
                     panel: panel,
                     baseCwd: baseCwd,
                     unsupportedSurfaceCount: &unsupportedSurfaceCount
                 )
-            }
+            )
+        }
+        return surfaces
     }
 
     private func captureSurfaceDefinition(
