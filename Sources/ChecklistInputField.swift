@@ -25,6 +25,8 @@ struct ChecklistInputField: NSViewRepresentable {
     let onCancel: () -> Void
     /// Whether to place the caret at the end (edit) vs leave it empty (add).
     var selectsAllOnFocus: Bool = false
+    /// Typed-text/caret color (so the field reads on a selected sidebar row).
+    var textColor: NSColor = .labelColor
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onCommit: onCommit, onCancel: onCancel)
@@ -39,7 +41,8 @@ struct ChecklistInputField: NSViewRepresentable {
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
         field.font = .systemFont(ofSize: fontSize)
-        field.textColor = .labelColor
+        field.textColor = textColor
+        field.caretColor = textColor
         field.placeholderString = placeholder
         field.selectsAllOnFocus = selectsAllOnFocus
         field.setAccessibilityLabel(placeholder)
@@ -51,6 +54,8 @@ struct ChecklistInputField: NSViewRepresentable {
         context.coordinator.onCommit = onCommit
         context.coordinator.onCancel = onCancel
         nsView.font = .systemFont(ofSize: fontSize)
+        nsView.textColor = textColor
+        nsView.caretColor = textColor
         nsView.placeholderString = placeholder
     }
 
@@ -96,11 +101,20 @@ struct ChecklistInputField: NSViewRepresentable {
 /// flag chooses select-all (edit) vs caret-at-end (add) once the field editor exists.
 final class FocusGrabbingTextField: NSTextField {
     var selectsAllOnFocus = false
+    var caretColor: NSColor = .labelColor {
+        didSet { (currentEditor() as? NSTextView)?.insertionPointColor = caretColor }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else { return }
-        window?.makeFirstResponder(self)
+        guard let window else { return }
+        // The checklist popover is a separate NSPopover window floating over
+        // the terminal's main window. Unless this popover window is key, the
+        // main window stays key and its terminal keeps first responder, so
+        // keystrokes fall through to the terminal. Make the popover window key
+        // first, then take first responder inside it.
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(self)
         if selectsAllOnFocus {
             currentEditor()?.selectAll(nil)
         } else if let editor = currentEditor() {
