@@ -1,11 +1,14 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+
+const realDbClient = await import("../db/client");
 
 const originalSetTimeout = globalThis.setTimeout;
 const originalConsoleError = console.error;
 
 const updates: unknown[] = [];
 let stripeRows: unknown[] = [];
+let useStubDb = false;
 const getUser = mock(async () => confirmUser());
 const appListProducts = mock(async () => emptyProductsPage());
 const userListProducts = mock(async () => emptyProductsPage());
@@ -21,17 +24,28 @@ mock.module("../app/lib/stack", () => ({
 // every real export other tests import (vm-workflows, vm-db-read-model call
 // closeCloudDbForTests during teardown).
 mock.module("../db/client", () => ({
-  cloudDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: stripeLimit,
-        }),
-      }),
-    }),
-  }),
-  closeCloudDbForTests: async () => {},
+  ...realDbClient,
+  cloudDb: () =>
+    useStubDb
+      ? ({
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                limit: stripeLimit,
+              }),
+            }),
+          }),
+        } as unknown as ReturnType<typeof realDbClient.cloudDb>)
+      : realDbClient.cloudDb(),
 }));
+
+beforeAll(() => {
+  useStubDb = true;
+});
+
+afterAll(() => {
+  useStubDb = false;
+});
 
 const { GET } = await import("../app/api/billing/confirm/route");
 

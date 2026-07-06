@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+
+const realDbClient = await import("../db/client");
 
 const teamCustomer = {
   id: "team-signed-in",
@@ -35,6 +37,7 @@ const resolveProPrice = mock(async (interval: unknown) =>
   interval === "month" ? "price_month" : "price_year",
 );
 const stripeLimit = mock(async () => []);
+let useStubDb = false;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -45,16 +48,19 @@ mock.module("../app/lib/stack", () => ({
 // Keep the real Pro resolver on the no-Stripe-subscription path regardless of
 // process-global db mocks installed by other route suites.
 mock.module("../db/client", () => ({
-  cloudDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: stripeLimit,
-        }),
-      }),
-    }),
-  }),
-  closeCloudDbForTests: async () => {},
+  ...realDbClient,
+  cloudDb: () =>
+    useStubDb
+      ? ({
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                limit: stripeLimit,
+              }),
+            }),
+          }),
+        } as unknown as ReturnType<typeof realDbClient.cloudDb>)
+      : realDbClient.cloudDb(),
 }));
 
 mock.module("../services/billing/stripe", () => ({
@@ -70,6 +76,14 @@ mock.module("../services/billing/stripe", () => ({
 }));
 
 const { GET } = await import("../app/api/billing/checkout/route");
+
+beforeAll(() => {
+  useStubDb = true;
+});
+
+afterAll(() => {
+  useStubDb = false;
+});
 
 describe("billing checkout route", () => {
   beforeEach(() => {

@@ -492,7 +492,18 @@ fi
 # quantity > 0 with no subscription. Either keeps hasActiveProSubscription
 # true, so the checkout gate will still say "already active" for this account.
 residual_body="$(stack_request GET "/payments/products/user/$(urlencode "$stack_user_id")?limit=50" || true)"
-residual="$(printf '%s' "$residual_body" | jq -r '[.items[]? | select(.id == "pro" and ((.quantity // 0) > 0 or .subscription != null))] | length' 2>/dev/null || echo 0)"
+residual="$(printf '%s' "$residual_body" | node -e '
+let raw = "";
+process.stdin.on("data", (chunk) => { raw += chunk; });
+process.stdin.on("end", () => {
+  let count = 0;
+  try {
+    const items = JSON.parse(raw).items ?? [];
+    count = items.filter((p) => p.id === "pro" && ((p.quantity ?? 0) > 0 || p.subscription != null)).length;
+  } catch {}
+  process.stdout.write(String(count));
+});
+' || echo 0)"
 if [ "${residual:-0}" != "0" ]; then
   SUMMARY+=("WARNING: Stack product 'pro' still present (paid period not over or comped grant; no API early-revoke). This account stays Pro until it lapses; use a private window to dogfood checkout.")
 fi

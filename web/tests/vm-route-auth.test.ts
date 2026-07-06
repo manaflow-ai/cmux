@@ -44,6 +44,19 @@ mock.module("../services/vms/workflows", () => ({
   runVmWorkflow,
 }));
 
+// Self-shield from other suites' process-global db mocks AND from the real
+// pool: the VM route's Pro-plan reconcile calls cloudDb(), and without this
+// stub the real client can sit retrying a connection (hang) or another
+// suite's fixture data leaks in. The thrown message must match pro.ts's
+// isMissingDatabaseConfig so the reconcile degrades exactly like a
+// DATABASE_URL-less environment.
+mock.module("../db/client", () => ({
+  cloudDb: () => {
+    throw new Error("DATABASE_URL is required for Cloud VM database access");
+  },
+  closeCloudDbForTests: async () => {},
+}));
+
 const { GET, POST, withBillingReconcileDeadline } = await import("../app/api/vm/route");
 const { DELETE } = await import("../app/api/vm/[id]/route");
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
