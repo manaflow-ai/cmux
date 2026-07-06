@@ -5603,8 +5603,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 lastHostedInspectorDetachedFromHostWindow != detachedFromHostWindow else {
                 return
             }
-            lastHostedInspectorManualSideDockAllowed = sideDockAllowed
-            lastHostedInspectorDetachedFromHostWindow = detachedFromHostWindow
 
 #if DEBUG
             let recordedWidthDesc = recordedHostedInspectorSideDockWidth.map {
@@ -5622,7 +5620,19 @@ struct WebViewRepresentable: NSViewRepresentable {
                     allowSideDock: sideDockAllowed,
                     detachedFromHostWindow: detachedFromHostWindow
                 ).source,
-                completionHandler: nil
+                completionHandler: { [weak self, weak hostedInspectorFrontendWebView] result, error in
+                    guard let self,
+                          self.hostedInspectorFrontendWebView === hostedInspectorFrontendWebView else {
+                        return
+                    }
+                    guard error == nil, result != nil, !(result is NSNull) else {
+                        self.lastHostedInspectorManualSideDockAllowed = nil
+                        self.lastHostedInspectorDetachedFromHostWindow = nil
+                        return
+                    }
+                    self.lastHostedInspectorManualSideDockAllowed = sideDockAllowed
+                    self.lastHostedInspectorDetachedFromHostWindow = detachedFromHostWindow
+                }
             )
         }
 

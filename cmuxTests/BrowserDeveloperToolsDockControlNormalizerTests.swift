@@ -46,7 +46,7 @@ final class BrowserDeveloperToolsDockControlNormalizerTests: XCTestCase {
         )
         inspectorWindow.contentView?.addSubview(inspectorFrontendWebView)
 
-        BrowserDeveloperToolsDockControlNormalizer.normalize(
+        BrowserDeveloperToolsDockControlNormalizer().normalize(
             inspectorFrontendWebView: inspectorFrontendWebView,
             hostWindow: hostWindow
         )

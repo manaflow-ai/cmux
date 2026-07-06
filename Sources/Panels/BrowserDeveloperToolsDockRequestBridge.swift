@@ -2,33 +2,12 @@ import ObjectiveC.runtime
 import WebKit
 
 @MainActor
-enum BrowserDeveloperToolsDockRequestBridge {
-    static let messageHandlerName = "cmuxDevToolsDock"
-
-    private static var handlerKey: UInt8 = 0
-
-    static func install(on inspectorFrontendWebView: WKWebView, panel: BrowserPanel) {
-        let userContentController = inspectorFrontendWebView.configuration.userContentController
-        if let handler = objc_getAssociatedObject(
-            userContentController,
-            &handlerKey
-        ) as? BrowserDeveloperToolsDockRequestMessageHandler {
-            handler.panel = panel
-            return
-        }
-
-        let handler = BrowserDeveloperToolsDockRequestMessageHandler(panel: panel)
-        userContentController.add(handler, name: messageHandlerName)
-        objc_setAssociatedObject(
-            userContentController,
-            &handlerKey,
-            handler,
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        )
-    }
-}
-
 extension BrowserPanel {
+    func installDeveloperToolsDockRequestBridge(on inspectorFrontendWebView: WKWebView) {
+        let userContentController = inspectorFrontendWebView.configuration.userContentController
+        BrowserDeveloperToolsDockRequestMessageHandler.install(on: userContentController, panel: self)
+    }
+
     @discardableResult
     func handleDeveloperToolsDockRequestFromFrontend(side: String) -> Bool {
         let normalizedSide = side.lowercased()
@@ -47,17 +26,39 @@ extension BrowserPanel {
 }
 
 private final class BrowserDeveloperToolsDockRequestMessageHandler: NSObject, WKScriptMessageHandler {
+    private static let messageHandlerName = "cmuxDevToolsDock"
+    private static var associationKey: UInt8 = 0
+
     weak var panel: BrowserPanel?
 
     init(panel: BrowserPanel) {
         self.panel = panel
     }
 
+    static func install(on userContentController: WKUserContentController, panel: BrowserPanel) {
+        if let handler = objc_getAssociatedObject(
+            userContentController,
+            &associationKey
+        ) as? BrowserDeveloperToolsDockRequestMessageHandler {
+            handler.panel = panel
+            return
+        }
+
+        let handler = BrowserDeveloperToolsDockRequestMessageHandler(panel: panel)
+        userContentController.add(handler, name: messageHandlerName)
+        objc_setAssociatedObject(
+            userContentController,
+            &associationKey,
+            handler,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard message.name == BrowserDeveloperToolsDockRequestBridge.messageHandlerName else { return }
+        guard message.name == Self.messageHandlerName else { return }
         let side: String?
         if let body = message.body as? [String: Any] {
             side = body["side"] as? String

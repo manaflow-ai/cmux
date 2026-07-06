@@ -2,8 +2,8 @@ import AppKit
 import WebKit
 
 @MainActor
-enum BrowserDeveloperToolsDockControlNormalizer {
-    static func normalize(
+struct BrowserDeveloperToolsDockControlNormalizer {
+    func normalize(
         inspectorFrontendWebView: WKWebView?,
         hostWindow: NSWindow?,
         panel: BrowserPanel? = nil,
@@ -11,9 +11,8 @@ enum BrowserDeveloperToolsDockControlNormalizer {
     ) {
         guard let inspectorFrontendWebView else { return }
         if let panel {
-            BrowserDeveloperToolsDockRequestBridge.install(
-                on: inspectorFrontendWebView,
-                panel: panel
+            panel.installDeveloperToolsDockRequestBridge(
+                on: inspectorFrontendWebView
             )
         }
         let detachedFromHostWindow =
@@ -31,7 +30,7 @@ enum BrowserDeveloperToolsDockControlNormalizer {
 
 extension BrowserPanel {
     func normalizeDeveloperToolsDockControls() {
-        BrowserDeveloperToolsDockControlNormalizer.normalize(
+        BrowserDeveloperToolsDockControlNormalizer().normalize(
             inspectorFrontendWebView: webView.cmuxInspectorFrontendWebView(),
             hostWindow: webView.window,
             panel: self

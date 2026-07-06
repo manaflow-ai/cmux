@@ -6534,6 +6534,13 @@ extension BrowserPanel {
 
     private func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
+        if let frontendWebView = webView.cmuxInspectorFrontendWebView(),
+           frontendWebView !== webView,
+           frontendWebView.window === webView.window,
+           frontendWebView.isDescendant(of: container),
+           Self.isVisibleSideDockInspectorCandidate(frontendWebView) {
+            return true
+        }
         return Self.visibleDescendants(in: container)
             .contains { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
     }
@@ -6612,11 +6619,15 @@ extension BrowserPanel {
         guard noteDetachedDeveloperToolsWindowClosed(window, source: source) else { return false }
         detachedDeveloperToolsExplicitUserCloseWindowIds.insert(ObjectIdentifier(window))
         window.close()
-        scheduleDetachedDeveloperToolsWindowCloseResolution(source: "\(source).reconcile")
+        scheduleDetachedDeveloperToolsWindowCloseResolution(
+            source: "\(source).reconcile",
+            allowInspectorTeardown: false
+        )
         return true
     }
 
     func ownsDetachedDeveloperToolsWindow(_ window: NSWindow) -> Bool {
+        guard window.isVisible || window.isMiniaturized else { return false }
         detachedDeveloperToolsWindowBelongsToPanel(window)
     }
 
@@ -6651,7 +6662,8 @@ extension BrowserPanel {
 
     private func scheduleDetachedDeveloperToolsWindowCloseResolution(
         source: String,
-        startedAt: Date = Date()
+        startedAt: Date = Date(),
+        allowInspectorTeardown: Bool = true
     ) {
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
@@ -6667,13 +6679,21 @@ extension BrowserPanel {
             guard self.detachedDeveloperToolsWindowCloseResolutionGeneration == generation else { return }
             self.detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
             self.detachedDeveloperToolsWindowCloseResolutionTimer = nil
-            self.resolveDetachedDeveloperToolsWindowClose(source: source, startedAt: startedAt)
+            self.resolveDetachedDeveloperToolsWindowClose(
+                source: source,
+                startedAt: startedAt,
+                allowInspectorTeardown: allowInspectorTeardown
+            )
         }
         detachedDeveloperToolsWindowCloseResolutionTimer = timer
         timer.resume()
     }
 
-    private func resolveDetachedDeveloperToolsWindowClose(source: String, startedAt: Date) {
+    private func resolveDetachedDeveloperToolsWindowClose(
+        source: String,
+        startedAt: Date,
+        allowInspectorTeardown: Bool
+    ) {
         guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else {
             reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
@@ -6683,6 +6703,16 @@ extension BrowserPanel {
         let visible = isDeveloperToolsVisible()
         let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
         if hasAttachedLayout {
+            guard allowInspectorTeardown else {
+                developerToolsDetachedOpenGraceDeadline = nil
+                developerToolsLastKnownVisibleAt = nil
+                forceDeveloperToolsRefreshOnNextAttach = false
+                developerToolsPreservedVisibleIntentForNextAttach = false
+                setPreferredDeveloperToolsVisible(false)
+                reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+                cancelDeveloperToolsRestoreRetry()
+                return
+            }
             adoptAttachedDeveloperToolsRedock(source: source)
             return
         }
@@ -6694,12 +6724,15 @@ extension BrowserPanel {
            elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
             scheduleDetachedDeveloperToolsWindowCloseResolution(
                 source: "\(source).ambiguous",
-                startedAt: startedAt
+                startedAt: startedAt,
+                allowInspectorTeardown: allowInspectorTeardown
             )
             return
         }
         let closeReason = visible ? "redockUnsupported" : "manual"
-        if visible { _ = WebViewInspectorTeardown.closeInspector(for: webView) }
+        if visible, allowInspectorTeardown {
+            _ = WebViewInspectorTeardown.closeInspector(for: webView)
+        }
 
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
@@ -8284,7 +8317,8 @@ extension BrowserPanel {
         let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
         let transitionTarget = developerToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
         let pendingTarget = pendingDeveloperToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
-        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) tx=\(transitionTarget) pending=\(pendingTarget)"
+        let closeResolution = hasPendingDetachedDeveloperToolsWindowCloseResolution ? 1 : 0
+        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) tx=\(transitionTarget) pending=\(pendingTarget) closeResolution=\(closeResolution)"
     }
 
     func debugDeveloperToolsGeometrySummary() -> String {

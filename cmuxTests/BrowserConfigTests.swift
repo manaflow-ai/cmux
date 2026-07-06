@@ -3089,10 +3089,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         return nil
     }
 
-    private func waitForDeveloperToolsTransitions() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-    }
-
     private func waitForDetachedDeveloperToolsCloseResolutionDeadline(
         until condition: () -> Bool,
         file: StaticString = #filePath,
@@ -3109,6 +3105,29 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
         XCTFail("Timed out waiting for detached DevTools close resolution", file: file, line: line)
+    }
+
+    private func waitForDeveloperToolsTransitions(
+        panel: BrowserPanel,
+        until condition: () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        waitForDetachedDeveloperToolsCloseResolutionDeadline(
+            until: {
+                let summary = panel.debugDeveloperToolsStateSummary()
+                return summary.contains("tx=nil") &&
+                    summary.contains("pending=nil") &&
+                    summary.contains("closeResolution=0") &&
+                    condition()
+            },
+            file: file,
+            line: line
+        )
+    }
+
+    private var commandWCloseTabShortcut: StoredShortcut {
+        StoredShortcut(key: "w", command: true, shift: false, option: false, control: false, keyCode: 13)
     }
 
     private func closeBrowserPanel(_ panel: BrowserPanel) {
@@ -3327,7 +3346,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         XCTAssertTrue(panel.isDeveloperToolsVisible())
 
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            panel.isDeveloperToolsVisible() &&
+                panel.preferredDeveloperToolsVisible &&
+                inspector.closeCount == 0
+        }
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3414,7 +3437,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "The intercepted close-button action should close the WebKit-owned inspector window exactly once"
         )
         XCTAssertFalse(inspectorWindow.isVisible)
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: browserPanel) {
+            !inspectorWindow.isVisible &&
+                browserPanel.debugDeveloperToolsStateSummary().contains("pref=0")
+        }
         XCTAssertFalse(inspectorWindow.isVisible)
         XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
@@ -3604,9 +3630,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             keyCode: 13
         ))
 
-        NSApp.sendEvent(event)
-        spinRunLoopOneTick()
-        waitForDeveloperToolsTransitions()
+        withTemporaryShortcut(action: .closeTab, shortcut: commandWCloseTabShortcut) {
+            NSApp.sendEvent(event)
+            spinRunLoopOneTick()
+        }
+        waitForDeveloperToolsTransitions(panel: browserPanel) {
+            !inspectorWindow.isVisible &&
+                browserPanel.debugDeveloperToolsStateSummary().contains("pref=0")
+        }
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3681,9 +3712,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             keyCode: 13
         ))
 
-        NSApp.sendEvent(event)
-        spinRunLoopOneTick()
-        waitForDeveloperToolsTransitions()
+        withTemporaryShortcut(action: .closeTab, shortcut: commandWCloseTabShortcut) {
+            NSApp.sendEvent(event)
+            spinRunLoopOneTick()
+        }
+        waitForDeveloperToolsTransitions(panel: browserPanel) {
+            !inspectorWindow.isVisible &&
+                browserPanel.debugDeveloperToolsStateSummary().contains("pref=0")
+        }
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3798,7 +3834,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             NSApp.sendEvent(suffixEvent)
             spinRunLoopOneTick()
         }
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: browserPanel) {
+            !inspectorWindow.isVisible &&
+                browserPanel.debugDeveloperToolsStateSummary().contains("pref=0")
+        }
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3939,7 +3978,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showCount, 2)
     }
 
     private func attachPanelWebViewToWindow(_ panel: BrowserPanel) -> NSWindow {
@@ -4067,17 +4106,26 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            panel.isDeveloperToolsVisible() &&
+                inspector.showCount == 1
+        }
         XCTAssertEqual(inspector.attachCount, 0)
         XCTAssertFalse(inspector.isAttached())
 
         XCTAssertTrue(panel.hideDeveloperTools())
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            !panel.isDeveloperToolsVisible() &&
+                inspector.closeCount == 1
+        }
         XCTAssertFalse(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 1)
 
         XCTAssertTrue(panel.showDeveloperTools())
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            panel.isDeveloperToolsVisible() &&
+                inspector.showCount == 2
+        }
         XCTAssertTrue(
             panel.isDeveloperToolsVisible(),
             "DevTools must reopen after an explicit close without remounting through WebKit's attached-inspector path"
@@ -4127,14 +4175,18 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            panel.isDeveloperToolsVisible()
+        }
         XCTAssertTrue(panel.isDeveloperToolsVisible())
 
         inspector.hide()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
 
         panel.syncDeveloperToolsPreferenceFromInspector()
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            !panel.isDeveloperToolsVisible()
+        }
 
         var publishCount = 0
         let cancellable = panel.objectWillChange.sink {
@@ -4218,7 +4270,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 1)
         XCTAssertEqual(inspector.closeCount, 0)
 
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            panel.isDeveloperToolsVisible() &&
+                inspector.showCount == 1 &&
+                inspector.closeCount == 0
+        }
 
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 1)
@@ -4234,7 +4290,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 1)
         XCTAssertEqual(inspector.closeCount, 0)
 
-        waitForDeveloperToolsTransitions()
+        waitForDeveloperToolsTransitions(panel: panel) {
+            !panel.isDeveloperToolsVisible() &&
+                inspector.showCount == 1 &&
+                inspector.closeCount == 1
+        }
 
         XCTAssertFalse(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 1)

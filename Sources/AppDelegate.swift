@@ -16863,6 +16863,12 @@ private extension AppDelegate {
     }
 }
 
+extension AppDelegate {
+    func browserPanelsForInspectorFocusHandoff() -> [BrowserPanel] {
+        allBrowserPanelsForInspectorWindowClose()
+    }
+}
+
 private extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
@@ -17044,7 +17050,7 @@ private extension NSWindow {
             result = cmux_makeFirstResponder(responder)
         }
         if result {
-            BrowserInspectorFocusHandoff.postClickIntentIfNeeded(for: responder, in: self, event: currentEvent)
+            AppDelegate.shared?.postBrowserInspectorClickIntentIfNeeded(for: responder, in: self, event: currentEvent)
             if let fieldEditor = responder as? NSTextView, fieldEditor.isFieldEditor {
                 Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
             } else if let fieldEditor = self.firstResponder as? NSTextView, fieldEditor.isFieldEditor {
