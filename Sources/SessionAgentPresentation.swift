@@ -80,7 +80,7 @@ extension RestorableAgentKind {
     /// appearance variants (e.g. `Codex-dark`) via the supplied appearance.
     @MainActor
     func agentIconPNGData(appearance: NSAppearance? = nil) -> Data? {
-        AgentBrandIcon.pngData(assetName: agentIconAssetName, appearance: appearance)
+        agentBrandIconPNGData(assetName: agentIconAssetName, appearance: appearance)
     }
 }
 
@@ -102,30 +102,29 @@ extension SessionRestorableAgentSnapshot {
     /// channel, or `nil` when no bundled asset applies.
     @MainActor
     func agentIconPNGData(appearance: NSAppearance? = nil) -> Data? {
-        AgentBrandIcon.pngData(assetName: agentIconAssetName, appearance: appearance)
+        agentBrandIconPNGData(assetName: agentIconAssetName, appearance: appearance)
     }
 }
 
 /// Shared appearance-correct PNG encoding for agent brand assets. Centralizes the
-/// asset→`NSImage`→PNG path so the `RestorableAgentKind` and `SessionRestorableAgentSnapshot`
-/// icon helpers stay in sync.
-enum AgentBrandIcon {
-    /// Resolves `assetName` to an appearance-correct PNG. Returns `nil` when `assetName`
-    /// is `nil`, the asset is missing, or the image cannot be encoded. The asset catalog
-    /// resolves appearance variants (e.g. `Codex-dark`) via the supplied appearance.
-    @MainActor
-    static func pngData(assetName: String?, appearance: NSAppearance? = nil) -> Data? {
-        guard let assetName else { return nil }
-        guard let image = NSImage(named: assetName) else { return nil }
-        let effectiveAppearance = appearance ?? NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing()
-        var pngData: Data?
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            guard let tiff = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiff) else {
-                return
-            }
-            pngData = bitmap.representation(using: .png, properties: [:])
+/// asset→`NSImage`→PNG path so the `RestorableAgentKind`, `SessionRestorableAgentSnapshot`,
+/// and `DetectedBuiltInAgent` icon helpers stay in sync.
+///
+/// Resolves `assetName` to an appearance-correct PNG. Returns `nil` when `assetName`
+/// is `nil`, the asset is missing, or the image cannot be encoded. The asset catalog
+/// resolves appearance variants (e.g. `Codex-dark`) via the supplied appearance.
+@MainActor
+func agentBrandIconPNGData(assetName: String?, appearance: NSAppearance? = nil) -> Data? {
+    guard let assetName else { return nil }
+    guard let image = NSImage(named: assetName) else { return nil }
+    let effectiveAppearance = appearance ?? NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing()
+    var pngData: Data?
+    effectiveAppearance.performAsCurrentDrawingAppearance {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff) else {
+            return
         }
-        return pngData
+        pngData = bitmap.representation(using: .png, properties: [:])
     }
+    return pngData
 }

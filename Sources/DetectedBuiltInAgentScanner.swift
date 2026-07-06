@@ -30,7 +30,7 @@ struct DetectedBuiltInAgent: Sendable, Equatable {
     /// `iconImageData:` channel, or `nil` when no bundled asset applies.
     @MainActor
     func agentIconPNGData(appearance: NSAppearance? = nil) -> Data? {
-        AgentBrandIcon.pngData(assetName: agentIconAssetName, appearance: appearance)
+        agentBrandIconPNGData(assetName: agentIconAssetName, appearance: appearance)
     }
 }
 

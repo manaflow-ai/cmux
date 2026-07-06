@@ -1883,7 +1883,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
                 focus: false
             ) {
                 _ = closePanel(panelId, force: true)
@@ -1928,7 +1928,7 @@ extension Workspace {
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
                 focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -2085,6 +2085,11 @@ final class SharedLiveAgentIndex: ObservableObject {
     /// brand icon on the sidebar row + surface tab WITHOUT creating a synthetic restorable
     /// session that could trigger a spurious resume. Refreshed in the same off-main loader.
     @Published private(set) var detectedBuiltInAgentIconsByPanelKey: [RestorableAgentSessionIndex.PanelKey: DetectedBuiltInAgent] = [:]
+    /// Fires on the main actor AFTER both `index` and `detectedBuiltInAgentIconsByPanelKey`
+    /// have been assigned for a completed reload. Subscribers that need to READ the freshly
+    /// loaded state (not merely invalidate views) should observe this instead of
+    /// `objectWillChange`, which fires BEFORE the new values are stored.
+    let didReload = PassthroughSubject<Void, Never>()
     private var loadedAt: Date?
     private var refreshTask: Task<Void, Never>?
     // A hook-store change arrived while a reload was in flight; reload again after.
@@ -2171,6 +2176,9 @@ final class SharedLiveAgentIndex: ObservableObject {
             self.detectedBuiltInAgentIconsByPanelKey = loaded.1
             self.loadedAt = Date()
             self.refreshTask = nil
+            // Both @Published values are now stored; notify readers that need to READ the
+            // fresh state (e.g. per-workspace terminal tab-icon refresh) with no race.
+            self.didReload.send()
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -3366,20 +3374,22 @@ final class Workspace: Identifiable, ObservableObject {
         // tab-bar re-evaluates the Fork Conversation availability the moment a background
         // refresh lands.
         sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.objectWillChange.sink { [weak self] _ in
-            guard let self else { return }
-            self.objectWillChange.send()
-            // A shared-index refresh may have gained/lost a process-detected agent for
-            // a terminal pane; re-resolve those tabs' brand icons. Deferred to the next
-            // runloop turn so the just-published `index` is readable.
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated { self?.refreshTerminalAgentTabIcons() }
-            }
+            self?.objectWillChange.send()
+        }
+        // A completed shared-index reload may have gained/lost a process-detected agent
+        // for a terminal pane; re-resolve those tabs' brand icons. Driven by the explicit
+        // post-reload signal (fired AFTER `index` / `detectedBuiltInAgentIconsByPanelKey`
+        // are stored, on the main actor) rather than a runloop hop off `objectWillChange`,
+        // which fires before those writes land.
+        sharedLiveAgentIndexReloadCancellable = SharedLiveAgentIndex.shared.didReload.sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshTerminalAgentTabIcons() }
         }
 
         installAgentTabIconAppearanceObservation()
     }
 
     private var sharedLiveAgentIndexCancellable: AnyCancellable?
+    private var sharedLiveAgentIndexReloadCancellable: AnyCancellable?
 
     /// Panel ids whose terminal tab currently shows a process-detected agent brand PNG.
     /// Tracked so the icon can be cleared (revealing the terminal's default glyph) when
@@ -3489,6 +3499,17 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        // The default mobile-connect button is remotely toggleable; the flag
+        // is read when buttons are (re)applied, so a dashboard change lands
+        // on the next config reload or launch.
+        let buttons = CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
+            ? buttons
+            : buttons.filter { button in
+                if case .builtIn(let builtInAction) = button.action, builtInAction == .mobileConnect {
+                    return false
+                }
+                return true
+            }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
                 if button.terminalCommand != nil {
@@ -13078,6 +13099,8 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .mobileConnect:
+                MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
