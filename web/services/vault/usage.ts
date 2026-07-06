@@ -66,6 +66,8 @@ export async function reserveVaultUploadGrants(
   const expiresAt = new Date(params.now.getTime() + params.grantTtlMs);
 
   return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${params.userId}, 9))`);
+
     let projectedUserBytes =
       (await getVaultStoredCompressedBytes(tx, params.userId)) +
       (await getVaultPendingGrantBytes(tx, params.userId, params.now, batchObjectKeys));
