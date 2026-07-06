@@ -7,7 +7,7 @@ extension TerminalController: ControlFleetContext {
     func controlFleetList() -> [ControlFleetSnapshot] {
         let engine = FleetAppHost.shared.engine
         return engine.fleetConfigs().map { config in
-            FleetControlSocketMapping.fleetSnapshot(
+            ControlFleetSnapshot(
                 config: config,
                 counts: engine.taskCounts(fleetID: config.id),
                 isRunning: engine.isFleetRunning(id: config.id) ?? false
@@ -23,7 +23,7 @@ extension TerminalController: ControlFleetContext {
                   let config = engine.fleetConfigs().first(where: { $0.id == id })
             else { return .fleetNotFound(fleetID) }
             return .ok(ControlFleetStatusSnapshot(isRunning: isRunning, fleets: [
-                FleetControlSocketMapping.fleetSnapshot(
+                ControlFleetSnapshot(
                     config: config,
                     counts: engine.taskCounts(fleetID: id),
                     isRunning: isRunning
@@ -76,7 +76,7 @@ extension TerminalController: ControlFleetContext {
             priority: inputs.priority
         ) {
         case .success(let task):
-            return .added(FleetControlSocketMapping.taskSnapshot(fleetID: id, task: task))
+            return .added(ControlFleetTaskSnapshot(fleetID: id, task: task))
         case .failure(.fleetNotFound):
             return .fleetNotFound(inputs.fleetID)
         }
@@ -90,10 +90,10 @@ extension TerminalController: ControlFleetContext {
         let fleetIDValue = fleetID.map { FleetID(rawValue: $0) }
         switch engine.tasks(
             fleetID: fleetIDValue,
-            state: state.map(FleetControlSocketMapping.state)
+            state: state.map(\.fleetTaskState)
         ) {
         case .success(let rows):
-            return .ok(rows.map { FleetControlSocketMapping.taskSnapshot(fleetID: $0.fleetID, task: $0.task) })
+            return .ok(rows.map { ControlFleetTaskSnapshot(fleetID: $0.fleetID, task: $0.task) })
         case .failure(.fleetNotFound):
             return .fleetNotFound(fleetID ?? "")
         }
@@ -137,7 +137,7 @@ extension TerminalController: ControlFleetContext {
     }
 
     private func snapshot(config: FleetConfig, engine: FleetEngine) -> ControlFleetSnapshot {
-        FleetControlSocketMapping.fleetSnapshot(
+        ControlFleetSnapshot(
             config: config,
             counts: engine.taskCounts(fleetID: config.id),
             isRunning: engine.isFleetRunning(id: config.id) ?? false
@@ -153,11 +153,11 @@ extension TerminalController: ControlFleetContext {
             let rows = try? FleetAppHost.shared.engine.tasks(fleetID: nil, state: nil).get()
             guard let row = rows?.first(where: { $0.task.id == task.id })
             else { return .taskNotFound(task.id.rawValue) }
-            return .ok(FleetControlSocketMapping.taskSnapshot(fleetID: row.fleetID, task: task))
+            return .ok(ControlFleetTaskSnapshot(fleetID: row.fleetID, task: task))
         case .notFound:
             return .taskNotFound(requestedTaskID)
         case .invalidState(let state):
-            return .invalidState(current: FleetControlSocketMapping.state(state))
+            return .invalidState(current: state.controlStateName)
         }
     }
 }

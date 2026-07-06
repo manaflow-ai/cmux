@@ -2,10 +2,12 @@ import CmuxControlSocket
 import CmuxFleet
 import Foundation
 
-@MainActor
-enum FleetControlSocketMapping {
-    static func state(_ state: FleetTaskState) -> ControlFleetTaskStateName {
-        switch state {
+// Maps Fleet engine values to and from their control-socket wire shapes.
+
+extension FleetTaskState {
+    /// The control-socket wire name for this engine task state.
+    var controlStateName: ControlFleetTaskStateName {
+        switch self {
         case .queued:
             .queued
         case .provisioning:
@@ -30,9 +32,12 @@ enum FleetControlSocketMapping {
             .cancelled
         }
     }
+}
 
-    static func state(_ state: ControlFleetTaskStateName) -> FleetTaskState {
-        switch state {
+extension ControlFleetTaskStateName {
+    /// The Fleet engine task state for this wire name.
+    var fleetTaskState: FleetTaskState {
+        switch self {
         case .queued:
             .queued
         case .provisioning:
@@ -57,13 +62,16 @@ enum FleetControlSocketMapping {
             .cancelled
         }
     }
+}
 
-    static func fleetSnapshot(config: FleetConfig, counts: [FleetTaskState: Int], isRunning: Bool) -> ControlFleetSnapshot {
+extension ControlFleetSnapshot {
+    /// Builds the wire snapshot for one fleet.
+    init(config: FleetConfig, counts: [FleetTaskState: Int], isRunning: Bool) {
         var wireCounts: [ControlFleetTaskStateName: Int] = [:]
         for state in FleetTaskState.allCases {
-            wireCounts[self.state(state)] = counts[state] ?? 0
+            wireCounts[state.controlStateName] = counts[state] ?? 0
         }
-        return ControlFleetSnapshot(
+        self.init(
             fleetID: config.id.rawValue,
             name: config.name,
             repoRoot: config.repoRoot,
@@ -71,14 +79,17 @@ enum FleetControlSocketMapping {
             taskCounts: wireCounts
         )
     }
+}
 
-    static func taskSnapshot(fleetID: FleetID, task: FleetTask) -> ControlFleetTaskSnapshot {
-        ControlFleetTaskSnapshot(
+extension ControlFleetTaskSnapshot {
+    /// Builds the wire snapshot for one task.
+    init(fleetID: FleetID, task: FleetTask) {
+        self.init(
             taskID: task.id.rawValue,
             fleetID: fleetID.rawValue,
             source: task.sourceKind.rawValue,
             title: task.title,
-            state: state(task.state),
+            state: task.state.controlStateName,
             isBlocked: task.isBlocked,
             attempts: task.attempts,
             priority: task.priority,

@@ -28,7 +28,7 @@ extension CmuxEventBus {
 
         if phase == "received" {
             Task { @MainActor in
-                FleetWorkstreamTap.handle(event: event)
+                FleetAppHost.shared.handleWorkstreamEvent(event)
             }
         }
     }

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxFleet
 import Foundation
 
@@ -9,13 +10,6 @@ import Foundation
 final class FleetAppHost {
     /// The shared app composition host.
     static let shared = FleetAppHost()
-
-    private static var liveHost: FleetAppHost?
-
-    /// Whether an engine has already been instantiated.
-    static var hasLiveEngine: Bool {
-        liveHost?.engineStorage != nil
-    }
 
     private var engineStorage: FleetEngine?
 
@@ -40,9 +34,50 @@ final class FleetAppHost {
             }
         ))
         engineStorage = engine
-        Self.liveHost = self
         return engine
     }
 
+    /// Forwards one workstream hook event when Fleet already owns the event workspace.
+    ///
+    /// Events are dropped without instantiating the engine while Fleet is unused.
+    func handleWorkstreamEvent(_ event: WorkstreamEvent) {
+        guard let engine = engineStorage,
+              let workspaceID = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceID.isEmpty,
+              engine.hasTask(workspaceID: workspaceID)
+        else { return }
+        engine.noteWorkstreamHook(
+            workspaceID: workspaceID,
+            sessionID: event.sessionId,
+            pid: event.ppid.map(Int32.init),
+            kind: event.hookEventName.fleetHookKind,
+            at: event.receivedAt
+        )
+    }
+
     private init() {}
+}
+
+extension WorkstreamEvent.HookEventName {
+    /// The Fleet supervision hook kind for this workstream hook.
+    var fleetHookKind: FleetHookKind {
+        switch self {
+        case .sessionStart:
+            .sessionStart
+        case .stop:
+            .stop
+        case .sessionEnd:
+            .sessionEnd
+        case .permissionRequest, .askUserQuestion, .exitPlanMode:
+            .blockingRequest
+        case .userPromptSubmit:
+            .promptSubmit
+        case .preToolUse, .postToolUse, .todoWrite:
+            .toolUse
+        case .notification:
+            .notification
+        case .preCompact, .postCompact, .subagentStart, .subagentStop:
+            .other
+        }
+    }
 }

@@ -592,7 +592,6 @@
 		C0DEF1000000000000000042 /* FleetAppTimers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000041 /* FleetAppTimers.swift */; };
 		C0DEF1000000000000000052 /* FleetAppWorldReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000051 /* FleetAppWorldReader.swift */; };
 		C0DEF1000000000000000062 /* FleetControlSocketMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */; };
-		C0DEF1000000000000000072 /* FleetWorkstreamTap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF1000000000000000071 /* FleetWorkstreamTap.swift */; };
 		F0C05170000000000000002 /* FocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C05170000000000000001 /* FocusHistory.swift */; };
 		C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */; };
 		5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */; };
@@ -1918,7 +1917,6 @@
 		C0DEF1000000000000000041 /* FleetAppTimers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppTimers.swift; sourceTree = "<group>"; };
 		C0DEF1000000000000000051 /* FleetAppWorldReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetAppWorldReader.swift; sourceTree = "<group>"; };
 		C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetControlSocketMapping.swift; sourceTree = "<group>"; };
-		C0DEF1000000000000000071 /* FleetWorkstreamTap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FleetWorkstreamTap.swift; sourceTree = "<group>"; };
 		F0C05170000000000000001 /* FocusHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistory.swift; sourceTree = "<group>"; };
 		C4160A020000000000000002 /* FocusHistoryMenuInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistoryMenuInvalidator.swift; sourceTree = "<group>"; };
 		5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusStealingResponderConformances.swift; sourceTree = "<group>"; };
@@ -4081,7 +4079,6 @@
 				C0DEF1000000000000000041 /* FleetAppTimers.swift */,
 				C0DEF1000000000000000051 /* FleetAppWorldReader.swift */,
 				C0DEF1000000000000000061 /* FleetControlSocketMapping.swift */,
-				C0DEF1000000000000000071 /* FleetWorkstreamTap.swift */,
 			);
 			name = Fleet;
 			path = Fleet;
@@ -4820,7 +4817,6 @@
 				C0DEF1000000000000000042 /* FleetAppTimers.swift in Sources */,
 				C0DEF1000000000000000052 /* FleetAppWorldReader.swift in Sources */,
 				C0DEF1000000000000000062 /* FleetControlSocketMapping.swift in Sources */,
-				C0DEF1000000000000000072 /* FleetWorkstreamTap.swift in Sources */,
 				F0C05170000000000000002 /* FocusHistory.swift in Sources */,
 				C4160A020000000000000001 /* FocusHistoryMenuInvalidator.swift in Sources */,
 				5E55400000000000000000D1 /* FocusStealingResponderConformances.swift in Sources */,
