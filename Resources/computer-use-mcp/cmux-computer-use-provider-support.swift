@@ -402,6 +402,34 @@ func postMouse(_ type: CGEventType, _ point: CGPoint) {
         .post(tap: .cghidEventTap)
 }
 
+func glidePointer(to target: CGPoint, durationMs: Int = 180) {
+    guard let start = CGEvent(source: nil)?.location else {
+        postMouse(.mouseMoved, target)
+        return
+    }
+
+    let dx = target.x - start.x
+    let dy = target.y - start.y
+    if hypot(dx, dy) < 2.0 {
+        postMouse(.mouseMoved, target)
+        return
+    }
+
+    let intervalUs: useconds_t = 12_000
+    let clampedDurationMs = max(1, durationMs)
+    let steps = max(1, Int(ceil(Double(clampedDurationMs) / 12.0)))
+    for step in 1...steps {
+        let linear = CGFloat(step) / CGFloat(steps)
+        let eased = linear * linear * (3.0 - 2.0 * linear)
+        let point = CGPoint(x: start.x + dx * eased, y: start.y + dy * eased)
+        postMouse(.mouseMoved, point)
+        if step < steps {
+            usleep(intervalUs)
+        }
+    }
+    postMouse(.mouseMoved, target)
+}
+
 func clickAt(_ point: CGPoint) {
     postMouse(.mouseMoved, point)
     usleep(30_000)

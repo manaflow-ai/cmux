@@ -211,8 +211,7 @@ case "click_element":
     guard let element = inputElement else { fail("provider.elementMissing", "element no longer exists") }
     let actions = actionsFor(element)
     if let point = centerOf(element) {
-        postMouse(.mouseMoved, point)
-        usleep(30_000)
+        glidePointer(to: point)
     }
     if actions.contains(kAXPressAction as String),
        AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
@@ -227,7 +226,9 @@ case "click_point":
         windowId: resolvedWindowId,
         expected: expectedWindowBounds
     )
-    clickAt(pointFromSnapshotPixels(xKey: "pixelX", yKey: "pixelY", bounds: bounds))
+    let point = pointFromSnapshotPixels(xKey: "pixelX", yKey: "pixelY", bounds: bounds)
+    glidePointer(to: point)
+    clickAt(point)
     jsonOut(["ok": true, "message": "clicked"])
 case "type_text":
     typeText(inputObject["text"] as? String ?? "")
@@ -238,7 +239,7 @@ case "press_key":
 case "scroll":
     guard let element = inputElement else { fail("provider.elementMissing", "element no longer exists") }
     guard let point = centerOf(element) else { fail("provider.elementFrameMissing", "element has no scrollable frame") }
-    postMouse(.mouseMoved, point)
+    glidePointer(to: point)
     let direction = inputObject["direction"] as? String ?? "down"
     let pages = max(1, (inputObject["pages"] as? NSNumber)?.intValue ?? 1)
     let amount = Int32(8 * pages)
@@ -255,8 +256,7 @@ case "drag":
     )
     let start = pointFromSnapshotPixels(xKey: "fromPixelX", yKey: "fromPixelY", bounds: bounds)
     let end = pointFromSnapshotPixels(xKey: "toPixelX", yKey: "toPixelY", bounds: bounds)
-    postMouse(.mouseMoved, start)
-    usleep(30_000)
+    glidePointer(to: start)
     postMouse(.leftMouseDown, start)
     for step in 1...12 {
         let t = CGFloat(step) / 12.0
@@ -269,6 +269,9 @@ case "drag":
 case "action":
     guard let element = inputElement else { fail("provider.elementMissing", "element no longer exists") }
     let action = inputObject["action"] as? String ?? ""
+    if let point = centerOf(element) {
+        glidePointer(to: point)
+    }
     if AXUIElementPerformAction(element, action as CFString) == .success {
         jsonOut(["ok": true, "message": "action sent"])
     }
