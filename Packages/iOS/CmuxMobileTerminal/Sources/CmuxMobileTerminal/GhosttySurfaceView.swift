@@ -10,10 +10,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-public struct GhosttySurfaceInputFocusToken {
-    fileprivate weak var view: GhosttySurfaceView?
-}
-
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
@@ -2188,6 +2184,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surface.resignInput()
         return token
     }
+
+    /// Restores terminal input focus to a previously resigned surface token.
     public static func restoreInputFocus(
         _ token: GhosttySurfaceInputFocusToken?,
         surfaceID: String?

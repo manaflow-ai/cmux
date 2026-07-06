@@ -40,6 +40,7 @@ extension GhosttySurfaceView {
         return view
     }
 
+    /// Focuses a mounted terminal input in the matching scene.
     @MainActor
     @discardableResult
     public static func focusMountedInput(surfaceID: String, sceneID: ObjectIdentifier?) -> Bool {

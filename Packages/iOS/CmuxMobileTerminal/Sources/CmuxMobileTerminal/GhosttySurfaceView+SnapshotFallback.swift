@@ -44,6 +44,8 @@ nonisolated struct PendingSnapshotFallbackRead {
     var timedOut = false
 }
 
+// Safety: `SnapshotFallbackRead` is enqueued onto `GhosttySurfaceWorkQueue`,
+// which serializes access to the captured `ghostty_surface_t` for this generation.
 nonisolated private struct SnapshotFallbackRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
