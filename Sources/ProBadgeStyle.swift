@@ -272,28 +272,33 @@ struct ProBadgeView: View {
                 .accessibilityLabel(helpTitle)
                 .accessibilityIdentifier("ProBadgeButton")
 
-                // The X is always laid out; only its container width animates,
-                // so it's revealed by the widening capsule (clipped) rather
-                // than fading or sliding on its own.
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        ProBadgeStyleStore.shared.isDismissed = true
+                // Only mount the dismiss glyph while hovered. A zero-width
+                // Image(systemName:) frame crashes AppKit restoration layout on
+                // macOS 26 (CUINamedVectorGlyph requires targetSize > 0).
+                Group {
+                    if isHovered {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                ProBadgeStyleStore.shared.isDismissed = true
+                            }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(foreground)
+                                .opacity(0.75)
+                                .padding(.leading, 4)
+                                .frame(width: 14, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .safeHelp(dismissTitle)
+                        .accessibilityLabel(dismissTitle)
+                        .accessibilityIdentifier("ProBadgeDismissButton")
                     }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(foreground)
-                        .opacity(0.75)
-                        .padding(.leading, 4)
-                        .frame(width: isHovered ? 14 : 0, alignment: .leading)
-                        .clipped()
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .frame(width: isHovered ? 14 : 0, alignment: .leading)
+                .clipped()
                 .allowsHitTesting(isHovered)
-                .safeHelp(dismissTitle)
-                .accessibilityLabel(dismissTitle)
-                .accessibilityIdentifier("ProBadgeDismissButton")
             }
             .modifier(ProBadgeCapsule(style: style, isHovered: isHovered))
             .frame(height: 22, alignment: .center)
