@@ -31,6 +31,7 @@ extension AppDelegate {
             keyEquivalent: ""
         )
         customizeItem.target = self
+        customizeItem.representedObject = windowId as NSUUID
         menu.addItem(customizeItem)
     }
 
@@ -44,7 +45,24 @@ extension AppDelegate {
     }
 
     @objc private func customizeCmuxConfigActionsMenuItem(_ sender: NSMenuItem) {
-        SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
+        // Open inside cmux's own file editor rather than an external app — the
+        // OS-default handler for .json can be Xcode, which is never what
+        // "customize my actions" means.
+        let configURL = SidebarWorkspaceGroupConfigOpener.materializedCmuxConfigURL()
+        guard let windowId = (sender.representedObject as? NSUUID) as UUID?,
+              let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId
+                  ?? workspace.bonsplitController.allPaneIds.first,
+              !workspace.openFileSurfaces(
+                  inPane: paneId,
+                  filePaths: [configURL.path],
+                  focus: true,
+                  reuseExisting: true
+              ).isEmpty else {
+            SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
+            return
+        }
     }
 
     private func presentSaveWorkspaceActionDialog(context: MainWindowContext) {

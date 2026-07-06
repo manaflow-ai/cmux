@@ -23,6 +23,15 @@ enum SidebarWorkspaceGroupConfigOpener {
     /// `preferredEditorCommand` (with an OS-default fallback). Tests inject a
     /// capturing closure to assert the config file is routed through `open`.
     static func openCmuxConfigInEditor(home: URL, open: (URL) -> Void) {
+        open(materializedCmuxConfigURL(home: home))
+    }
+
+    /// Resolves `~/.config/cmux/cmux.json` under `home`, materializing an empty
+    /// config first if none exists. Shared by the external-editor path above and
+    /// in-app openers (e.g. the plus-button menu's "Customize Actions…").
+    static func materializedCmuxConfigURL(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
         let configURL = home
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: true)
@@ -35,7 +44,7 @@ enum SidebarWorkspaceGroupConfigOpener {
             )
             try? Data("{}\n".utf8).write(to: configURL, options: .atomic)
         }
-        open(configURL)
+        return configURL
     }
 
     static func openWorkspaceGroupsDocs() {
