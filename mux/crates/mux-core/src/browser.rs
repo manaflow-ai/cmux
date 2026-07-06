@@ -385,7 +385,6 @@ fn runtime_endpoint(
     let chrome = Chrome::launch_with(ChromeLaunchOptions {
         binary: chrome_binary,
         user_data_dir,
-        session_name: opts.browser_session_name.clone(),
         ephemeral: opts.browser_ephemeral,
     })?;
     let web_socket_url = chrome.web_socket_url().to_string();
@@ -1213,13 +1212,13 @@ mod tests {
             let mut request = [0u8; 512];
             let _ = stream.read(&mut request).unwrap();
             let body = r#"{"webSocketDebuggerUrl":"ws://127.0.0.1:9/devtools/browser/fake"}"#;
-            write!(
-                stream,
+            let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),
                 body
-            )
-            .unwrap();
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
         });
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 

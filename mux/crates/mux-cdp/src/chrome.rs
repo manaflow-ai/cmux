@@ -13,7 +13,6 @@ static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 pub struct ChromeLaunchOptions {
     pub binary: PathBuf,
     pub user_data_dir: Option<PathBuf>,
-    pub session_name: String,
     pub ephemeral: bool,
 }
 
@@ -29,12 +28,7 @@ impl Chrome {
     /// Launch Chrome in headless mode and wait for the browser CDP
     /// endpoint printed on stderr.
     pub fn launch(binary: PathBuf) -> anyhow::Result<Self> {
-        Chrome::launch_with(ChromeLaunchOptions {
-            binary,
-            user_data_dir: None,
-            session_name: "default".to_string(),
-            ephemeral: true,
-        })
+        Chrome::launch_with(ChromeLaunchOptions { binary, user_data_dir: None, ephemeral: true })
     }
 
     pub fn launch_with(options: ChromeLaunchOptions) -> anyhow::Result<Self> {
@@ -182,7 +176,6 @@ mod tests {
         let options = ChromeLaunchOptions {
             binary: PathBuf::from("chrome"),
             user_data_dir: Some(explicit_dir.clone()),
-            session_name: "ignored".to_string(),
             ephemeral: true,
         };
         let (selected, ephemeral) = profile_dir_for(&options).unwrap();
@@ -201,7 +194,6 @@ mod tests {
         let options = ChromeLaunchOptions {
             binary: PathBuf::from("chrome"),
             user_data_dir: Some(explicit_dir.clone()),
-            session_name: "main".to_string(),
             ephemeral: false,
         };
         let (selected, ephemeral) = profile_dir_for(&options).unwrap();

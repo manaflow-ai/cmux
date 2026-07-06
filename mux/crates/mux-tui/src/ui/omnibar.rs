@@ -125,9 +125,9 @@ fn draw_editing(app: &App, frame: &mut Frame, rect: Rect) {
         return;
     }
 
-    let visible: Vec<(usize, char)> = state.buffer.char_indices().collect();
+    let visible: Vec<(usize, char)> = state.input.buffer.char_indices().collect();
     let cursor_char =
-        visible.iter().position(|(idx, _)| *idx >= state.cursor).unwrap_or(visible.len());
+        visible.iter().position(|(idx, _)| *idx >= state.input.cursor).unwrap_or(visible.len());
     let width = rect.width as usize;
     let skip = cursor_char.saturating_sub(width.saturating_sub(1));
     let shown: Vec<char> = visible.iter().skip(skip).take(width).map(|(_, c)| *c).collect();

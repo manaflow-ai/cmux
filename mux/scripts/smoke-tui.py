@@ -2,7 +2,80 @@ import os, pty, select, socket, json, time, sys, signal, subprocess, re
 
 BIN = os.environ.get("CMUX_MUX_BIN", "target/debug/cmux-mux")
 SESSION = f"smoke-{os.getpid()}"
-SOCK = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"cmux-mux-{os.getuid()}", f"{SESSION}.sock")
+SOCK = None
+CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
+
+def fallback_socket_path():
+    base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
+    return os.path.join(base, f"cmux-mux-{os.getuid()}", f"{SESSION}.sock")
+
+def wait_for_control_socket(server, seconds=15):
+    deadline = time.time() + seconds
+    output = []
+    assert server.stdout is not None
+    while time.time() < deadline:
+        if server.poll() is not None:
+            rest = server.stdout.read() or ""
+            if rest:
+                output.append(rest)
+            break
+        wait = min(0.1, max(0.0, deadline - time.time()))
+        readable, _, _ = select.select([server.stdout], [], [], wait)
+        if not readable:
+            continue
+        line = server.stdout.readline()
+        if not line:
+            continue
+        output.append(line)
+        match = CONTROL_SOCKET_RE.search(line.strip())
+        if match:
+            path = match.group(1)
+            socket_deadline = time.time() + 5
+            while time.time() < socket_deadline:
+                if os.path.exists(path):
+                    return path
+                if server.poll() is not None:
+                    break
+                time.sleep(0.05)
+            raise AssertionError(f"control socket line found but socket missing at {path}")
+
+    fallback = fallback_socket_path()
+    if os.path.exists(fallback):
+        print("control socket line not seen; using fallback", fallback)
+        return fallback
+    raise AssertionError(
+        "headless server socket missing; expected startup line or fallback at "
+        + fallback
+        + "; output:\n"
+        + "".join(output)[-2000:]
+    )
+
+def stop_process(process):
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+def discover_socket_path():
+    probe = subprocess.Popen(
+        [BIN, "--headless", "--session", SESSION],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    path = None
+    try:
+        path = wait_for_control_socket(probe)
+        return path
+    finally:
+        stop_process(probe)
+        if path and os.path.exists(path):
+            os.unlink(path)
 
 def rpc(cmd):
     s = socket.socket(socket.AF_UNIX)
@@ -23,12 +96,24 @@ def tree():
 def active_screen(ws):
     return next(s for s in ws["screens"] if s["active"])
 
+def send_prefix_t_until_tab_count(count):
+    last = None
+    for _ in range(5):
+        last = active_screen(tree()[0])
+        if len(last["panes"][0]["tabs"]) >= count:
+            return last
+        os.write(fd, b"\x02t")
+        drain(0.8)
+    raise AssertionError(last)
+
+SOCK = discover_socket_path()
+
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
     os.environ["CMUX_MUX_CDP_URL"] = "http://127.0.0.1:1/"
     os.environ.pop("NO_COLOR", None)
-    os.execv(BIN, [BIN, "--session", SESSION])
+    os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK])
 
 # Set a real window size
 import fcntl, termios, struct
@@ -91,6 +176,139 @@ def wait_screen_contains(surface_id, needle, seconds=15):
             return last
     raise AssertionError(last[-500:])
 
+def render_style_snapshot(data, rows=30, cols=100):
+    grid = [[{"bg": None, "bold": False, "dim": False, "reverse": False} for _ in range(cols)] for _ in range(rows)]
+    x = y = 0
+    bg = None
+    bold = False
+    dim = False
+    reverse = False
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if b == 0x1b and i + 1 < len(data) and data[i + 1] == ord("["):
+            j = i + 2
+            while j < len(data) and not (0x40 <= data[j] <= 0x7e):
+                j += 1
+            if j >= len(data):
+                break
+            params = data[i + 2:j].decode("ascii", "ignore")
+            final = chr(data[j])
+            if final in ("H", "f"):
+                parts = [p for p in params.split(";") if p and not p.startswith("?")]
+                row = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else 1
+                col = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else 1
+                y = max(0, min(rows - 1, row - 1))
+                x = max(0, min(cols - 1, col - 1))
+            elif final == "m":
+                raw = [p for p in params.split(";") if p]
+                vals = [int(p) for p in raw if p.isdigit()] or [0]
+                k = 0
+                while k < len(vals):
+                    if vals[k] == 0:
+                        bg = None
+                        bold = False
+                        dim = False
+                        reverse = False
+                    elif vals[k] == 1:
+                        bold = True
+                    elif vals[k] == 2:
+                        dim = True
+                    elif vals[k] == 7:
+                        reverse = True
+                    elif vals[k] == 22:
+                        bold = False
+                        dim = False
+                    elif vals[k] == 27:
+                        reverse = False
+                    elif vals[k] == 49:
+                        bg = None
+                    elif vals[k] == 48 and k + 2 < len(vals) and vals[k + 1] == 5:
+                        bg = vals[k + 2]
+                        k += 2
+                    k += 1
+            i = j + 1
+            continue
+        if b == 0x0d:
+            x = 0
+            i += 1
+            continue
+        if b == 0x0a:
+            y = min(rows - 1, y + 1)
+            i += 1
+            continue
+        if b < 0x20:
+            i += 1
+            continue
+        if y < rows and x < cols:
+            grid[y][x] = {"bg": bg, "bold": bold, "dim": dim, "reverse": reverse}
+        if b < 0x80:
+            i += 1
+        elif b & 0xE0 == 0xC0:
+            i += 2
+        elif b & 0xF0 == 0xE0:
+            i += 3
+        elif b & 0xF8 == 0xF0:
+            i += 4
+        else:
+            i += 1
+        x = min(cols - 1, x + 1)
+    return grid
+
+def render_text_snapshot(data, rows=30, cols=100):
+    chars = [[" " for _ in range(cols)] for _ in range(rows)]
+    x = y = 0
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if b == 0x1b and i + 1 < len(data) and data[i + 1] == ord("["):
+            j = i + 2
+            while j < len(data) and not (0x40 <= data[j] <= 0x7e):
+                j += 1
+            if j >= len(data):
+                break
+            params = data[i + 2:j].decode("ascii", "ignore")
+            final = chr(data[j])
+            if final in ("H", "f"):
+                parts = [p for p in params.split(";") if p and not p.startswith("?")]
+                row = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else 1
+                col = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else 1
+                y = max(0, min(rows - 1, row - 1))
+                x = max(0, min(cols - 1, col - 1))
+            elif final == "K":
+                for xx in range(x, cols):
+                    chars[y][xx] = " "
+            elif final == "J":
+                for yy in range(y, rows):
+                    start = x if yy == y else 0
+                    for xx in range(start, cols):
+                        chars[yy][xx] = " "
+            i = j + 1
+            continue
+        if b == 0x0d:
+            x = 0
+            i += 1
+            continue
+        if b == 0x0a:
+            y = min(rows - 1, y + 1)
+            i += 1
+            continue
+        if b < 0x20:
+            i += 1
+            continue
+        step = 1
+        if b >= 0x80:
+            if b & 0xE0 == 0xC0:
+                step = 2
+            elif b & 0xF0 == 0xE0:
+                step = 3
+            elif b & 0xF8 == 0xF0:
+                step = 4
+        chars[y][x] = data[i : i + step].decode("utf-8", "replace")
+        x = min(cols - 1, x + 1)
+        i += step
+    return "\n".join("".join(row) for row in chars)
+
 deadline = time.time() + 15
 while not os.path.exists(SOCK) and time.time() < deadline:
     drain(0.2)
@@ -100,7 +318,7 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident
-assert ident["data"]["protocol"] in (4, 5, 6), ident
+assert ident["data"]["protocol"] == 6, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
@@ -179,7 +397,9 @@ try:
     tty.setraw(fd)
     os.write(fd, b'\\x1b]11;?\\x1b\\\\')
     data = b''
-    end = time.time() + 2
+    # Generous deadline: the shell may still be consuming the pasted
+    # heredoc and the TUI coalesces frames (this raced at 2s).
+    end = time.time() + 8
     while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
         r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
         if not r:
@@ -194,6 +414,8 @@ PY
 os.write(fd, inner_osc_query.replace("\n", "\r").encode())
 wait_screen_contains(surface_id, "1313/1414/1515")
 print("inner OSC 11 query receives seeded background ok")
+os.write(fd, b"\x03")
+drain(0.4)
 
 # Drag-select the marker text: press, drag, release (SGR mouse, 1-based).
 # Pane content starts at column 24 (sidebar 22 + left border 1; SGR
@@ -202,7 +424,7 @@ print("inner OSC 11 query receives seeded background ok")
 os.write(fd, b"clear; printf 'smoke-marker-%s\\n' ok\r")
 wait_screen_contains(surface_id, "smoke-marker-ok")
 lines = rpc({"id": 100, "cmd": "read-screen", "surface": surface_id})["data"]["text"].splitlines()
-vrow = next(i for i, line in enumerate(lines) if "smoke-marker-ok" in line)
+vrow = next(i for i, l in enumerate(lines) if "smoke-marker-ok" in l)
 row = vrow + 2  # +1 top border, +1 SGR 1-based
 col0 = 24 + lines[vrow].index("smoke-marker-ok")
 os.write(fd, f"\x1b[<0;{col0};{row}M".encode())
@@ -214,27 +436,97 @@ osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
 assert osc52, "no OSC 52 clipboard write after drag-select"
 copied = base64.b64decode(osc52[-1]).decode()
 assert "smoke-marker-ok" in copied, repr(copied)
+assert "Copied" in render_text_snapshot(output), output[-1200:]
+drain(1.7)
+assert "Copied" not in render_text_snapshot(output), output[-1200:]
 print("drag-select -> OSC52 clipboard copy ok")
+
+os.write(fd, b"clear; for i in $(seq -w 0 80); do printf 'sel-line-%s\\n' \"$i\"; done\r")
+wait_screen_contains(surface_id, "sel-line-80")
+assert rpc({"id": 101, "cmd": "scroll-surface", "surface": surface_id, "delta": -24})["ok"]
+drain(0.4)
+before_scroll = rpc({"id": 102, "cmd": "read-screen", "surface": surface_id})["data"]["text"]
+lines = before_scroll.splitlines()
+vrow = next(i for i, l in enumerate(lines) if "sel-line-" in l)
+start_col = 24 + lines[vrow].index("sel-line-")
+start_row = vrow + 2
+bottom_row = 28
+os.write(fd, f"\x1b[<0;{start_col};{start_row}M".encode())
+held_output_start = len(output)
+os.write(fd, f"\x1b[<32;{start_col + 10};{bottom_row}M".encode())
+drain(0.9)
+held_render = output[held_output_start:].decode("utf-8", "replace")
+assert re.search(r"sel-line-(2[0-9]|3[0-9]|4[0-9])", held_render), held_render[-2000:]
+os.write(fd, f"\x1b[<0;{start_col + 10};{bottom_row}m".encode())
+drain(0.6)
+osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
+assert osc52, "no OSC 52 clipboard write after auto-scroll drag-select"
+copied = base64.b64decode(osc52[-1]).decode()
+assert "sel-line-" in copied and "\n" in copied, repr(copied)
+print("drag-select auto-scroll and scroll-stable copy ok")
 
 # Click the + in the top border for a new tab (tab "1" label is 3 cols
 # wide plus optional title; find via hits is not possible from outside,
-# so use prefix-c which shares the same action path).
-os.write(fd, b"\x02c")
-drain(1.0)
-screen0 = active_screen(tree()[0])
+# so use prefix-t which shares the same action path).
+screen0 = send_prefix_t_until_tab_count(2)
+screen0 = send_prefix_t_until_tab_count(3)
 panes = screen0["panes"]
 assert len(panes) == 1, screen0
-assert len(panes[0]["tabs"]) == 2, screen0
-assert panes[0]["active_tab"] == 1, screen0
-print("prefix-c new tab in pane ok")
+assert len(panes[0]["tabs"]) == 3, screen0
+assert panes[0]["active_tab"] == 2, screen0
 
-# Prefix + %: split right (two panes).
-os.write(fd, b"\x02%")
+# Alt-n: smart split. In this 75x27 content geometry, width > 2*height,
+# so the visually longer axis is horizontal and the split is right.
+os.write(fd, b"\x1bn")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes = screen0["panes"]
 assert len(panes) == 2, screen0
-print("prefix-%% split ok")
+assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "right", screen0
+print("alt-n smart split ok")
+
+left_pane = panes[0]
+right_pane = panes[1]
+tab_order = [t["surface"] for t in left_pane["tabs"]]
+os.write(fd, b"\x1b[<0;41;1M\x1b[<32;24;1M\x1b[<0;24;1m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+left_pane = panes_by_id[left_pane["id"]]
+right_pane = panes_by_id[right_pane["id"]]
+reordered = [t["surface"] for t in left_pane["tabs"]]
+assert reordered == [tab_order[2], tab_order[0], tab_order[1]], (tab_order, reordered, screen0)
+print("tab drag reorder within pane ok")
+
+os.write(fd, b"\x1b[<0;24;1M\x1b[<32;42;1M\x1b[<0;42;1m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+left_pane = panes_by_id[left_pane["id"]]
+end_reordered = [t["surface"] for t in left_pane["tabs"]]
+assert end_reordered == [tab_order[0], tab_order[1], tab_order[2]], (tab_order, end_reordered, screen0)
+print("tab drag past last chip inserts at end ok")
+
+moving_surface = left_pane["tabs"][0]["surface"]
+os.write(fd, b"\x1b[<0;27;1M\x1b[<32;63;1M\x1b[<0;63;1m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+assert moving_surface not in [t["surface"] for t in panes_by_id[left_pane["id"]]["tabs"]], screen0
+assert moving_surface in [t["surface"] for t in panes_by_id[right_pane["id"]]["tabs"]], screen0
+print("tab drag to another pane ok")
+
+left_pane = panes_by_id[left_pane["id"]]
+right_pane = panes_by_id[right_pane["id"]]
+content_surface = left_pane["tabs"][0]["surface"]
+right_before = [t["surface"] for t in right_pane["tabs"]]
+os.write(fd, b"\x1b[<0;27;1M\x1b[<32;82;8M\x1b[<0;82;8m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+right_after = [t["surface"] for t in panes_by_id[right_pane["id"]]["tabs"]]
+assert right_after == right_before + [content_surface], (right_before, right_after, screen0)
+print("tab drag to pane content appends ok")
 
 # Split via socket while TUI is attached.
 new = rpc({"id": 6, "cmd": "split", "pane": panes[0]["id"], "dir": "down"})
@@ -244,14 +536,14 @@ screen0 = active_screen(tree()[0])
 assert len(screen0["panes"]) == 3, screen0
 print("socket-driven split visible ok")
 
-# Prefix + S: new screen in the workspace; it becomes active with 1 pane.
-os.write(fd, b"\x02S")
+# Prefix + c: new screen in the workspace; it becomes active with 1 pane.
+os.write(fd, b"\x02c")
 drain(1.0)
 ws0 = tree()[0]
 assert len(ws0["screens"]) == 2, ws0
 assert ws0["screens"][1]["active"], ws0
 assert len(ws0["screens"][1]["panes"]) == 1, ws0
-print("prefix-S new screen ok")
+print("prefix-c new screen ok")
 
 # The status bar shows both screens; click screen 1's entry to switch
 # back. Status bar row is the last row (30). The bar starts after the
@@ -299,13 +591,38 @@ assert len(workspaces) == 2, workspaces
 assert workspaces[1]["active"], workspaces
 print("prefix-W new workspace ok")
 
-# Click the first workspace's sidebar entry. Layout: row 0 header, row 1
-# blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2. Click
-# row 2 (SGR is 1-based: row 3).
-os.write(fd, b"\x1b[<0;2;3M\x1b[<0;2;3m")
+# Drag the original workspace below the new one. Layout: row 0 header,
+# row 1 blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2
+# (SGR mouse coordinates are 1-based).
+original_ws = ws_id
+os.write(fd, b"\x1b[<0;2;3M\x1b[<32;2;7M\x1b[<0;2;7m")
 drain(1.0)
-assert tree()[0]["active"], tree()
+workspaces = tree()
+assert [w["id"] for w in workspaces] == [w["id"] for w in workspaces if w["id"] != original_ws] + [original_ws], workspaces
+print("sidebar workspace drag reorder ok")
+
+# Click the moved original workspace's sidebar entry.
+os.write(fd, b"\x1b[<0;2;6M\x1b[<0;2;6m")
+drain(1.0)
+workspaces = tree()
+assert workspaces[1]["active"] and workspaces[1]["id"] == original_ws, workspaces
 print("sidebar click switches workspace ok")
+
+# A workspace context menu overlaps the active sidebar row. The menu must
+# repaint the cell style, not inherit the sidebar active background.
+output = b""
+os.write(fd, b"\x1b[<2;2;6M\x1b[<2;2;6m")
+drain(0.8)
+text = output.decode("utf-8", "replace")
+assert "Rename workspace" in text, text[-800:]
+assert "Copy workspace id" in text, text[-800:]
+assert "┌" in text, text[-800:]
+styles = render_style_snapshot(output)
+overlap = styles[6][2]  # item 1: non-selected menu row over the active workspace subtitle row.
+assert overlap["bg"] == 237 and not overlap["bold"] and not overlap["dim"], (overlap, text[-800:])
+os.write(fd, b"\x1b")
+drain(0.4)
+print("sidebar-overlapping menu repaints menu background ok")
 
 # Plain right-click inside the right-hand pane (col 81, row 6 SGR; clear
 # of the sidebar and borders): the menu opens at the press cell and must
@@ -315,21 +632,32 @@ os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename tab" in text, text[-800:]
+assert "Copy tab id" in text, text[-800:]
+assert "Copy pane id" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
 assert "┌" in text, text[-800:]
-assert "[ OK ]" not in text, text[-800:]
-os.write(fd, b"\x1b")  # close menu
-drain(0.4)
+assert "[ OK ⏎ ]" not in text, text[-800:]
+output = b""
+os.write(fd, b"\x1b[<34;81;7M\x1b[<2;81;7m")
+drain(0.8)
+osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
+assert osc52, "no OSC 52 clipboard write after menu copy"
+copied_id = base64.b64decode(osc52[-1]).decode()
+assert re.fullmatch(r"[0-9a-z]{6}", copied_id), copied_id
+assert f"Copied {copied_id}" in render_text_snapshot(output), output[-1200:]
+drain(1.7)
+assert f"Copied {copied_id}" not in render_text_snapshot(output), output[-1200:]
+print("right-click menu copy tab id -> OSC52 clipboard copy ok")
 
-# Right-press, drag to another row, and release activates that row. Row 2
-# is "New tab", so total tab count increases.
+# Right-press, drag to another row, and release activates that row. New tab
+# is below the copy-id rows, so total tab count increases.
 tabs_before = sum(
     len(p["tabs"])
     for w in tree()
     for s in w["screens"]
     for p in s["panes"]
 )
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;7M\x1b[<2;81;7m")
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;9M\x1b[<2;81;9m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])
@@ -348,10 +676,10 @@ assert "Rename tab" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
 os.write(fd, b"\x1b[<0;82;6M\x1b[<0;82;6m")
 drain(0.8)
-# A centered rename dialog opens (title + OK/Cancel buttons).
+# A centered rename dialog opens (title, input, and shortcut buttons).
 text = output.decode("utf-8", "replace")
-assert "[ OK ]" in text and "[ Cancel ]" in text, text[-800:]
-os.write(fd, b"clicked-tab")
+assert "[ Clear ^C ]" in text and "[ Cancel esc ]" in text and "[ OK ⏎ ]" in text, text[-800:]
+os.write(fd, b"tab\x01my-\x1bf-ok")
 drain(0.5)
 output = b""
 os.write(fd, b"\x1b[<0;65;17M\x1b[<0;65;17m")
@@ -363,9 +691,9 @@ tab_names = [
     for p in s["panes"]
     for t in p["tabs"]
 ]
-assert "clicked-tab" in tab_names, tab_names
+assert "my-tab-ok" in tab_names, tab_names
 text = output.decode("utf-8", "replace")
-assert "clicked-tab" in text, text[-1200:]
+assert "my-tab-ok" in text, text[-1200:]
 print("right-click menu -> rename tab prompt ok")
 
 # "Close tab" closes the active tab for the pane under the context menu.
@@ -375,8 +703,8 @@ tabs_before = sum(
     for s in w["screens"]
     for p in s["panes"]
 )
-# "Close tab" sits one row lower since "New browser tab" joined the menu.
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;11M\x1b[<2;81;11m")
+# "Close tab" sits below the copy-id and split rows.
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;13M\x1b[<2;81;13m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])

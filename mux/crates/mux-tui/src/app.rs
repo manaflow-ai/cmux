@@ -10,12 +10,13 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
-    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+    EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -35,6 +36,7 @@ use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
+use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
 pub enum AppEvent {
@@ -141,6 +143,7 @@ pub enum OmnibarHit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
     RenameWorkspace(WorkspaceId),
+    CopyWorkspaceId(WorkspaceId),
     CloseWorkspace(WorkspaceId),
     RenameScreen(mux_core::ScreenId),
     CloseScreen(mux_core::ScreenId),
@@ -151,6 +154,8 @@ pub enum MenuAction {
     BrowserCopyUrl(PaneId),
     BrowserActivate(PaneId),
     RenameTab(PaneId),
+    CopyTabId(PaneId),
+    CopyPaneId(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
     SplitRight(PaneId),
@@ -163,6 +168,7 @@ impl MenuAction {
     pub fn label(&self) -> &'static str {
         match self {
             MenuAction::RenameWorkspace(_) => "Rename workspace",
+            MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
             MenuAction::CloseWorkspace(_) => "Close workspace",
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
@@ -173,6 +179,8 @@ impl MenuAction {
             MenuAction::BrowserCopyUrl(_) => "Copy URL",
             MenuAction::BrowserActivate(_) => "Show in Chrome",
             MenuAction::RenameTab(_) => "Rename tab",
+            MenuAction::CopyTabId(_) => "Copy tab id",
+            MenuAction::CopyPaneId(_) => "Copy pane id",
             MenuAction::NewTab(_) => "New tab",
             MenuAction::NewBrowserTab(_) => "New browser tab",
             MenuAction::SplitRight(_) => "Split right",
@@ -245,11 +253,13 @@ pub enum PromptTarget {
 /// dismiss-outside) matches what is drawn.
 pub struct Prompt {
     pub label: &'static str,
-    pub buffer: String,
+    pub input: TextInput,
     pub target: PromptTarget,
     /// Dialog rect (set by the renderer each frame).
     pub rect: Rect,
-    /// OK / Cancel button rects (set by the renderer each frame).
+    /// Input / button rects (set by the renderer each frame).
+    pub input_rect: Rect,
+    pub clear: Rect,
     pub ok: Rect,
     pub cancel: Rect,
 }
@@ -258,9 +268,13 @@ pub struct Prompt {
 pub struct OmnibarState {
     pub pane: PaneId,
     pub surface: SurfaceId,
-    pub buffer: String,
-    pub cursor: usize,
+    pub input: TextInput,
     pub select_all: bool,
+}
+
+pub struct Toast {
+    pub text: String,
+    deadline: Instant,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -284,29 +298,30 @@ impl Prompt {
     fn new(label: &'static str, buffer: String, target: PromptTarget) -> Self {
         Prompt {
             label,
-            buffer,
+            input: TextInput::new(buffer),
             target,
             rect: Rect::default(),
+            input_rect: Rect::default(),
+            clear: Rect::default(),
             ok: Rect::default(),
             cancel: Rect::default(),
         }
     }
 }
 
-/// A text selection in one surface, in viewport cell coordinates
-/// relative to the pane content rect. `anchor` is where the drag
-/// started; `head` follows the mouse. Viewport-anchored: scrolling the
-/// surface clears it.
+/// A text selection in one surface. Rows are absolute scrollback rows:
+/// viewport row + scrollbar offset at capture time, so the selection
+/// remains stable while the viewport scrolls.
 #[derive(Debug, Clone, Copy)]
 pub struct Selection {
     pub surface: SurfaceId,
-    pub anchor: (u16, u16),
-    pub head: (u16, u16),
+    pub anchor: (u16, u64),
+    pub head: (u16, u64),
 }
 
 impl Selection {
     /// Normalized (start, end) in row-major order, inclusive.
-    pub fn range(&self) -> ((u16, u16), (u16, u16)) {
+    pub fn range(&self) -> ((u16, u64), (u16, u64)) {
         let a = (self.anchor.1, self.anchor.0);
         let h = (self.head.1, self.head.0);
         if a <= h {
@@ -316,8 +331,10 @@ impl Selection {
         }
     }
 
-    /// Whether a viewport cell is inside the (linear) selection.
-    pub fn contains(&self, x: u16, y: u16) -> bool {
+    /// Whether a viewport cell is inside the (linear) selection at the
+    /// current scrollbar offset.
+    pub fn contains_viewport(&self, x: u16, y: u16, offset: u64) -> bool {
+        let y = offset + y as u64;
         let ((sx, sy), (ex, ey)) = self.range();
         if y < sy || y > ey {
             return false;
@@ -335,10 +352,24 @@ impl Selection {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TabDragView {
+    pub surface: SurfaceId,
+    pub target: Option<(PaneId, usize)>,
+}
+
 /// Mouse drag in progress.
 enum Drag {
+    /// Left press on a tab chip; becomes `Tab` after moving cells.
+    TabArm { surface: SurfaceId, at: (u16, u16) },
+    /// Tab drag with the current drop target.
+    Tab { surface: SurfaceId, target: Option<(PaneId, usize)> },
+    /// Left press on a workspace entry; becomes `Workspace` after moving cells.
+    WorkspaceArm { workspace: WorkspaceId, at: (u16, u16) },
+    /// Workspace drag with the current insertion index.
+    Workspace { workspace: WorkspaceId, target: Option<usize> },
     /// Text selection inside a pane's content rect.
-    Select { content: Rect },
+    Select { content: Rect, auto_scroll: Option<i8>, col: u16 },
     /// Browser mouse drag inside a pane's content rect.
     Browser { surface: SurfaceId, content: Rect },
     /// Scrollbar thumb drag.
@@ -377,6 +408,7 @@ pub struct App {
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
     pub omnibar: Option<OmnibarState>,
+    pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     pub status_message: Option<String>,
@@ -402,17 +434,72 @@ fn sidebar_width_for(
     width: u16,
     override_width: Option<u16>,
 ) -> u16 {
-    let w = override_width.unwrap_or(config.sidebar.width);
-    if !visible || width < w.saturating_add(48) {
-        0
-    } else {
-        w
+    if !visible {
+        return 0;
     }
+    clamp_sidebar_width(config, width, override_width.unwrap_or(config.sidebar.width)).unwrap_or(0)
+}
+
+fn clamp_sidebar_width(config: &Config, terminal_width: u16, desired: u16) -> Option<u16> {
+    let terminal_max = terminal_width.saturating_sub(40);
+    let configured_max =
+        if config.sidebar.max_width > 0 { config.sidebar.max_width } else { u16::MAX };
+    let effective_max = terminal_max.min(configured_max);
+    (effective_max >= 10).then_some(desired.clamp(10, effective_max))
+}
+
+fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16) -> Option<u16> {
+    let terminal_width = content.width.saturating_add(sidebar_width);
+    clamp_sidebar_width(config, terminal_width, x.saturating_add(1))
 }
 
 fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
     let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, false);
     (content.width > 0 && content.height > 0).then_some((content.width, content.height))
+}
+
+fn cell_height_width_ratio(cell_pixels: (u16, u16)) -> u16 {
+    let (width, height) = cell_pixels;
+    if width == 0 || height == 0 {
+        return 4;
+    }
+    ((height as f32 / width as f32).round() as u16).max(1)
+}
+
+fn zellij_smart_direction(content: Rect, ratio: u16) -> Option<SplitDir> {
+    let rows = content.height as u32;
+    let cols = content.width as u32;
+    let ratio = ratio as u32;
+    if rows.saturating_mul(ratio) > cols && rows > 20 {
+        Some(SplitDir::Down)
+    } else if cols > 60 {
+        Some(SplitDir::Right)
+    } else {
+        None
+    }
+}
+
+fn smart_split_target(
+    areas: &[PaneArea],
+    focused: Option<PaneId>,
+    cell_pixels: (u16, u16),
+) -> Option<(PaneId, SplitDir)> {
+    let ratio = cell_height_width_ratio(cell_pixels);
+    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane)) {
+        if let Some(dir) = zellij_smart_direction(area.content, ratio) {
+            return Some((area.pane, dir));
+        }
+    }
+    areas
+        .iter()
+        .filter_map(|area| {
+            zellij_smart_direction(area.content, ratio).map(|dir| {
+                let area_score = area.content.width as u32 * area.content.height as u32;
+                (area_score, area.pane, dir)
+            })
+        })
+        .max_by_key(|(area_score, _, _)| *area_score)
+        .map(|(_, pane, dir)| (pane, dir))
 }
 
 fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
@@ -502,6 +589,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
+        stdout.execute(EnableFocusChange)?;
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
@@ -565,6 +653,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         menu: None,
         prompt: None,
         omnibar: None,
+        toast: None,
         shake_frames: 0,
         selection: None,
         status_message: None,
@@ -593,6 +682,7 @@ fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> 
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
     let _ = stdout.execute(DisableBracketedPaste);
+    let _ = stdout.execute(DisableFocusChange);
     let _ = stdout.execute(DisableMouseCapture);
     let _ = stdout.execute(LeaveAlternateScreen);
     disable_raw_mode()?;
@@ -614,7 +704,10 @@ impl App {
         while !self.quit && !crate::shutdown_requested() {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
-            let timeout = if self.shake_frames > 0 {
+            let timeout = if self.shake_frames > 0
+                || self.selection_auto_scroll_active()
+                || self.toast.is_some()
+            {
                 Duration::from_millis(30)
             } else {
                 Duration::from_millis(250)
@@ -625,6 +718,12 @@ impl App {
                 Err(RecvTimeoutError::Timeout) => {
                     if self.shake_frames > 0 {
                         action = RenderAction::Draw;
+                    }
+                    if self.auto_scroll_selection_tick() {
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if self.expire_toast() {
+                        action = action.merge(RenderAction::Draw);
                     }
                     None
                 }
@@ -641,6 +740,9 @@ impl App {
             }
             if self.quit {
                 break;
+            }
+            if self.expire_toast() {
+                action = action.merge(RenderAction::Draw);
             }
             match action {
                 RenderAction::Draw => {
@@ -829,20 +931,37 @@ impl App {
                 }
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
-            AppEvent::Input(Event::Key(key)) => self.handle_key(key),
-            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
-            AppEvent::Input(Event::Paste(text)) => {
-                if let Some(state) = self.omnibar.as_mut() {
-                    clear_omnibar_selection(state);
-                    state.buffer.insert_str(state.cursor, &text);
-                    state.cursor += text.len();
-                    return Ok(RenderAction::Draw);
+            AppEvent::Input(Event::Key(key)) => {
+                if key.kind != KeyEventKind::Release {
+                    self.reassert_visible_surface_sizes();
                 }
-                self.paste(&text);
-                Ok(RenderAction::None)
+                self.handle_key(key)
+            }
+            AppEvent::Input(Event::Mouse(mouse)) => {
+                self.reassert_visible_surface_sizes();
+                self.handle_mouse(mouse)
+            }
+            AppEvent::Input(Event::Paste(text)) => {
+                self.reassert_visible_surface_sizes();
+                if let Some(prompt) = self.prompt.as_mut() {
+                    prompt.input.insert_str(&text);
+                    Ok(RenderAction::Draw)
+                } else if let Some(state) = self.omnibar.as_mut() {
+                    clear_omnibar_selection(state);
+                    state.input.insert_str(&text);
+                    Ok(RenderAction::Draw)
+                } else {
+                    self.paste(&text);
+                    Ok(RenderAction::None)
+                }
+            }
+            AppEvent::Input(Event::FocusGained) => {
+                self.reassert_visible_surface_sizes();
+                Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
+                self.render_states.clear();
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(_) => Ok(RenderAction::None),
@@ -866,11 +985,77 @@ impl App {
         Some((id, self.session.surface(id)?))
     }
 
+    fn active_screen_id(&self) -> Option<mux_core::ScreenId> {
+        self.tree.active_screen().map(|screen| screen.id)
+    }
+
+    fn reassert_visible_surface_sizes(&self) {
+        for area in &self.pane_areas {
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
+            if let Some(surface) = self
+                .session
+                .surface_sized(area.surface, Some((area.content.width, area.content.height)))
+            {
+                surface.reassert_size(area.content.width, area.content.height);
+            }
+        }
+    }
+
     pub fn dragging_scrollbar(&self) -> Option<SurfaceId> {
         match self.drag {
             Some(Drag::Scrollbar { surface, .. }) => Some(surface),
             _ => None,
         }
+    }
+
+    pub fn tab_drag(&self) -> Option<TabDragView> {
+        match self.drag {
+            Some(Drag::Tab { surface, target }) => Some(TabDragView { surface, target }),
+            _ => None,
+        }
+    }
+
+    pub fn workspace_drag(&self) -> Option<(WorkspaceId, Option<usize>)> {
+        match self.drag {
+            Some(Drag::Workspace { workspace, target }) => Some((workspace, target)),
+            _ => None,
+        }
+    }
+
+    pub fn surface_scroll_offset(&self, surface: SurfaceId) -> u64 {
+        self.session
+            .surface(surface)
+            .and_then(|surface| surface.with_terminal(|t| t.scrollbar().map(|sb| sb.offset)))
+            .flatten()
+            .unwrap_or(0)
+    }
+
+    fn selection_auto_scroll_active(&self) -> bool {
+        matches!(self.drag, Some(Drag::Select { auto_scroll: Some(_), .. }))
+    }
+
+    fn auto_scroll_selection_tick(&mut self) -> bool {
+        let Some(Drag::Select { content, auto_scroll: Some(dir), col }) = self.drag else {
+            return false;
+        };
+        let Some(surface_id) = self.selection.map(|sel| sel.surface) else { return false };
+        let Some(surface) = self.session.surface(surface_id) else { return false };
+        let moved = surface
+            .with_terminal(|t| {
+                let before = t.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                t.scroll_delta(dir as isize);
+                let after = t.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                before != after
+            })
+            .unwrap_or(false);
+        let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
+        let offset = self.surface_scroll_offset(surface_id);
+        if let Some(sel) = self.selection.as_mut() {
+            sel.head = (col.min(content.width.saturating_sub(1)), offset + edge_row as u64);
+        }
+        moved
     }
 
     /// Content size for a pane filling `rect`.
@@ -888,6 +1073,15 @@ impl App {
     fn split_pane(&mut self, pane: PaneId, dir: SplitDir) -> anyhow::Result<()> {
         let hint = self.split_size_hint(pane, dir);
         self.session.split(pane, dir, hint)
+    }
+
+    fn new_pane_smart(&mut self) -> anyhow::Result<()> {
+        let Some((pane, dir)) =
+            smart_split_target(&self.pane_areas, self.active_pane(), self.cell_pixels)
+        else {
+            return Ok(());
+        };
+        self.split_pane(pane, dir)
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
@@ -912,6 +1106,9 @@ impl App {
         if self.omnibar.is_some() {
             return self.handle_omnibar_key(key);
         }
+        if let Some(action) = self.config.keys.modeless_action_for(&key) {
+            return self.run_action(action);
+        }
         if self.prefix_armed {
             self.prefix_armed = false;
             return self.handle_prefixed(key);
@@ -929,15 +1126,16 @@ impl App {
     /// Commit the open rename dialog (Enter or the OK button).
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
+        let input = prompt.input.as_str().to_string();
         match prompt.target {
             PromptTarget::Workspace(id) => {
-                if !prompt.buffer.is_empty() {
-                    self.session.rename_workspace(id, prompt.buffer);
+                if !input.is_empty() {
+                    self.session.rename_workspace(id, input);
                 }
             }
             // Empty screen/tab names clear back to the default.
-            PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
-            PromptTarget::Surface(id) => self.session.rename_surface(id, prompt.buffer),
+            PromptTarget::Screen(id) => self.session.rename_screen(id, input),
+            PromptTarget::Surface(id) => self.session.rename_surface(id, input),
         }
     }
 
@@ -952,25 +1150,11 @@ impl App {
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        if self.prompt.is_none() {
-            return Ok(RenderAction::None);
-        }
-        match key.code {
-            KeyCode::Esc => {
-                self.close_prompt();
-            }
-            KeyCode::Enter => self.commit_prompt(),
-            KeyCode::Backspace => {
-                if let Some(prompt) = self.prompt.as_mut() {
-                    prompt.buffer.pop();
-                }
-            }
-            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(prompt) = self.prompt.as_mut() {
-                    prompt.buffer.push(c);
-                }
-            }
-            _ => {}
+        let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
+        match prompt.input.handle_key(&key) {
+            InputEvent::Commit => self.commit_prompt(),
+            InputEvent::Cancel => self.close_prompt(),
+            InputEvent::Changed | InputEvent::None => {}
         }
         Ok(RenderAction::Draw)
     }
@@ -978,9 +1162,14 @@ impl App {
     /// Clicks while the rename dialog is open: OK commits, Cancel (or a
     /// click outside the dialog) dismisses; clicks inside are swallowed.
     fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
-        let Some(prompt) = self.prompt.as_ref() else { return Ok(RenderAction::None) };
+        let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
         if prompt.ok.contains(x, y) {
             self.commit_prompt();
+        } else if prompt.clear.contains(x, y) {
+            prompt.input.clear();
+        } else if prompt.input_rect.contains(x, y) {
+            let column = x.saturating_sub(prompt.input_rect.x) as usize;
+            prompt.input.set_cursor_from_visible_column(column, prompt.input_rect.width as usize);
         } else if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
             self.close_prompt();
         }
@@ -988,77 +1177,58 @@ impl App {
     }
 
     fn handle_omnibar_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
-        if matches!(key.code, KeyCode::Esc) {
-            self.omnibar = None;
-            return Ok(RenderAction::Draw);
-        }
-        if matches!(key.code, KeyCode::Enter) {
-            let Some(state) = self.omnibar.take() else { return Ok(RenderAction::Draw) };
-            let input = state.buffer.trim();
-            if input.is_empty() {
-                return Ok(RenderAction::Draw);
-            }
-            let url = mux_core::normalize_url(input);
-            match self.session.surface(state.surface) {
-                Some(handle) => {
-                    self.status_message =
-                        handle.browser_navigate(&url).err().map(|e| e.to_string());
-                }
-                None => self.status_message = Some("unknown browser surface".to_string()),
-            }
-            return Ok(RenderAction::Draw);
-        }
         let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
-        match key.code {
-            KeyCode::Backspace => {
-                clear_omnibar_selection(state);
-                if let Some(prev) = prev_char_boundary(&state.buffer, state.cursor) {
-                    state.buffer.replace_range(prev..state.cursor, "");
-                    state.cursor = prev;
+        let replace_selection = state.select_all
+            && matches!(
+                key.code,
+                KeyCode::Backspace
+                    | KeyCode::Delete
+                    | KeyCode::Char(_)
+                        if !key.modifiers.intersects(
+                            KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER
+                        )
+            );
+        if replace_selection {
+            state.input.clear();
+            state.select_all = false;
+        } else if matches!(
+            key.code,
+            KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::Backspace
+                | KeyCode::Delete
+        ) {
+            state.select_all = false;
+        }
+        if matches!(key.code, KeyCode::Char('a') | KeyCode::Char('A'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            state.select_all = true;
+            state.input.cursor = state.input.buffer.len();
+            return Ok(RenderAction::Draw);
+        }
+        match state.input.handle_key(&key) {
+            InputEvent::Cancel => {
+                self.omnibar = None;
+            }
+            InputEvent::Commit => {
+                let Some(state) = self.omnibar.take() else { return Ok(RenderAction::Draw) };
+                let input = state.input.as_str().trim();
+                if input.is_empty() {
+                    return Ok(RenderAction::Draw);
+                }
+                let url = mux_core::normalize_url(input);
+                match self.session.surface(state.surface) {
+                    Some(handle) => {
+                        self.status_message =
+                            handle.browser_navigate(&url).err().map(|e| e.to_string());
+                    }
+                    None => self.status_message = Some("unknown browser surface".to_string()),
                 }
             }
-            KeyCode::Delete => {
-                clear_omnibar_selection(state);
-                if let Some(next) = next_char_boundary(&state.buffer, state.cursor) {
-                    state.buffer.replace_range(state.cursor..next, "");
-                }
-            }
-            KeyCode::Left => {
-                state.select_all = false;
-                if let Some(prev) = prev_char_boundary(&state.buffer, state.cursor) {
-                    state.cursor = prev;
-                }
-            }
-            KeyCode::Right => {
-                state.select_all = false;
-                if let Some(next) = next_char_boundary(&state.buffer, state.cursor) {
-                    state.cursor = next;
-                }
-            }
-            KeyCode::Home => {
-                state.select_all = false;
-                state.cursor = 0;
-            }
-            KeyCode::End => {
-                state.select_all = false;
-                state.cursor = state.buffer.len();
-            }
-            KeyCode::Char('a') | KeyCode::Char('A')
-                if key.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                state.select_all = true;
-                state.cursor = state.buffer.len();
-            }
-            KeyCode::Char(c)
-                if !key.modifiers.intersects(
-                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                ) =>
-            {
-                clear_omnibar_selection(state);
-                state.buffer.insert(state.cursor, c);
-                state.cursor += c.len_utf8();
-            }
-            _ => {}
+            InputEvent::Changed | InputEvent::None => {}
         }
         Ok(RenderAction::Draw)
     }
@@ -1123,6 +1293,7 @@ impl App {
                 self.session.new_tab(pane, None)?;
             }
             Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
+            Action::NewPaneSmart => self.new_pane_smart()?,
             Action::NextTab => self.session.select_tab(pane, None, Some(1)),
             Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
             Action::SplitRight => {
@@ -1143,8 +1314,20 @@ impl App {
                     self.session.close_surface(surface);
                 }
             }
+            Action::ClosePane => {
+                if let Some(pane) = pane {
+                    self.session.close_pane(pane);
+                }
+            }
             Action::RenameTab => self.open_rename_tab_prompt(pane),
+            Action::RenameScreen => self.open_rename_screen_prompt(),
             Action::RenameWorkspace => self.open_rename_workspace_prompt(),
+            Action::CloseScreen => {
+                if let Some(screen) = self.active_screen_id() {
+                    self.session.close_screen(screen);
+                }
+            }
+            Action::PrevScreen => self.session.select_screen(None, Some(-1)),
             Action::NextScreen => self.session.select_screen(None, Some(1)),
             Action::NewScreen => self.new_screen()?,
             Action::NextWorkspace => self.session.select_workspace(None, Some(1)),
@@ -1154,6 +1337,8 @@ impl App {
             Action::FocusRight => self.move_focus(1, 0),
             Action::FocusUp => self.move_focus(0, -1),
             Action::FocusDown => self.move_focus(0, 1),
+            Action::ResizeGrow => self.resize_focused_split(0.05),
+            Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
             Action::BrowserBack => {
@@ -1205,6 +1390,13 @@ impl App {
         let Some(ws) = self.tree.active_workspace() else { return };
         self.prompt =
             Some(Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id)));
+    }
+
+    fn open_rename_screen_prompt(&mut self) {
+        let Some(ws) = self.tree.active_workspace() else { return };
+        let Some(screen) = ws.active_screen_ref() else { return };
+        let buffer = screen.name.clone().unwrap_or_default();
+        self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(screen.id)));
     }
 
     fn browser_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
@@ -1290,7 +1482,7 @@ impl App {
             return;
         }
         self.omnibar =
-            Some(OmnibarState { pane, surface, cursor: buffer.len(), buffer, select_all });
+            Some(OmnibarState { pane, surface, input: TextInput::new(buffer), select_all });
     }
 
     fn browser_handle_for_pane(&self, pane: PaneId) -> anyhow::Result<SurfaceHandle> {
@@ -1314,8 +1506,8 @@ impl App {
         else {
             return;
         };
-        self.copy_text(&url);
-        self.status_message = Some("browser URL copied".to_string());
+        self.copy_text_to_clipboard(&url);
+        self.show_toast("Copied URL".to_string());
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
@@ -1332,6 +1524,13 @@ impl App {
                     Some(Prompt::new("Rename workspace", buffer, PromptTarget::Workspace(id)));
             }
             MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
+            MenuAction::CopyWorkspaceId(id) => {
+                if let Some(short_id) =
+                    self.tree.workspaces.iter().find(|ws| ws.id == id).map(|ws| ws.short_id.clone())
+                {
+                    self.copy_short_id(short_id);
+                }
+            }
             MenuAction::RenameScreen(id) => {
                 let buffer = self
                     .tree
@@ -1367,6 +1566,21 @@ impl App {
                 self.set_status_from_browser_result(result);
             }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
+            MenuAction::CopyTabId(id) => {
+                if let Some(short_id) = self
+                    .tree
+                    .pane(id)
+                    .and_then(|pane| pane.tabs.get(pane.active_tab))
+                    .map(|tab| tab.short_id.clone())
+                {
+                    self.copy_short_id(short_id);
+                }
+            }
+            MenuAction::CopyPaneId(id) => {
+                if let Some(short_id) = self.tree.pane(id).map(|pane| pane.short_id.clone()) {
+                    self.copy_short_id(short_id);
+                }
+            }
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
             MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
@@ -1399,11 +1613,6 @@ impl App {
                 return;
             }
             let _ = surface.with_terminal(|t| t.scroll_delta(delta));
-        }
-        if let (Some(sel), Some(active)) = (self.selection, self.active_surface()) {
-            if sel.surface == active {
-                self.selection = None;
-            }
         }
     }
 
@@ -1525,6 +1734,71 @@ impl App {
         })
     }
 
+    fn tab_drop_target_at(&self, x: u16, y: u16) -> Option<(PaneId, usize)> {
+        let area = self.pane_areas.iter().find(|area| {
+            area.bar.is_some_and(|bar| bar.contains(x, y)) || area.content.contains(x, y)
+        })?;
+        let pane = self.tree.pane(area.pane)?;
+        let len = pane.tabs.len();
+        if !area.bar.is_some_and(|bar| bar.contains(x, y)) {
+            return Some((area.pane, len));
+        }
+        let mut tab_hits = self
+            .hits
+            .iter()
+            .filter_map(|(rect, hit)| match hit {
+                Hit::Tab { pane, index } if *pane == area.pane => Some((*rect, *index)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        tab_hits.sort_by_key(|(rect, index)| (rect.x, *index));
+        for (rect, index) in &tab_hits {
+            let mid = rect.x + rect.width / 2;
+            if x < mid {
+                return Some((area.pane, (*index).min(len)));
+            }
+            if rect.contains(x, y) {
+                return Some((area.pane, (index + 1).min(len)));
+            }
+        }
+        Some((area.pane, len))
+    }
+
+    fn workspace_drop_target_at(&self, x: u16, y: u16) -> Option<usize> {
+        if self.sidebar_width < 3 || x >= self.sidebar_width.saturating_sub(1) {
+            return None;
+        }
+        let len = self.tree.workspaces.len();
+        for index in 0..len {
+            let start = 2 + index as u16 * 3;
+            if y < start {
+                return Some(index);
+            }
+            if y <= start + 1 {
+                return Some(if y == start { index } else { index + 1 }.min(len));
+            }
+        }
+        Some(len)
+    }
+
+    fn tab_location(&self, surface: SurfaceId) -> Option<(PaneId, usize)> {
+        self.tree
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .find_map(|pane| {
+                pane.tabs
+                    .iter()
+                    .position(|tab| tab.surface == surface)
+                    .map(|index| (pane.id, index))
+            })
+    }
+
+    fn workspace_index(&self, workspace: WorkspaceId) -> Option<usize> {
+        self.tree.workspaces.iter().position(|ws| ws.id == workspace)
+    }
+
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -1559,7 +1833,10 @@ impl App {
     /// or a dialog button): these render the hand pointer.
     fn is_clickable(&self, x: u16, y: u16) -> bool {
         if let Some(prompt) = &self.prompt {
-            return prompt.ok.contains(x, y) || prompt.cancel.contains(x, y);
+            return prompt.ok.contains(x, y)
+                || prompt.cancel.contains(x, y)
+                || prompt.clear.contains(x, y)
+                || prompt.input_rect.contains(x, y);
         }
         if let Some(menu) = &self.menu {
             // Everything inside the menu rect is menu territory: only item
@@ -1759,8 +2036,8 @@ impl App {
 
         if let Some(hit) = self.hit_at(x, y) {
             match hit {
-                Hit::Workspace { index, .. } => {
-                    self.session.select_workspace(Some(index), None);
+                Hit::Workspace { id, .. } => {
+                    self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
                 Hit::NewWorkspace => self.new_workspace()?,
                 Hit::ScreenEntry { index, .. } => {
@@ -1768,8 +2045,14 @@ impl App {
                 }
                 Hit::NewScreen => self.new_screen()?,
                 Hit::Tab { pane, index } => {
-                    self.session.focus_pane(pane);
-                    self.session.select_tab(Some(pane), Some(index), None);
+                    if let Some(surface) = self
+                        .tree
+                        .pane(pane)
+                        .and_then(|pane| pane.tabs.get(index))
+                        .map(|t| t.surface)
+                    {
+                        self.drag = Some(Drag::TabArm { surface, at: (x, y) });
+                    }
                 }
                 Hit::NewTab { pane } => {
                     self.session.focus_pane(pane);
@@ -1803,10 +2086,15 @@ impl App {
                 } else {
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
-                    let cell = (x - area.content.x, y - area.content.y);
+                    let offset = self.surface_scroll_offset(area.surface);
+                    let cell = (x - area.content.x, offset + (y - area.content.y) as u64);
                     self.selection =
                         Some(Selection { surface: area.surface, anchor: cell, head: cell });
-                    self.drag = Some(Drag::Select { content: area.content });
+                    self.drag = Some(Drag::Select {
+                        content: area.content,
+                        auto_scroll: None,
+                        col: x - area.content.x,
+                    });
                 }
             }
             return Ok(RenderAction::Draw);
@@ -1816,13 +2104,51 @@ impl App {
 
     fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         match &self.drag {
-            Some(Drag::Select { content }) => {
+            Some(Drag::TabArm { surface, at }) => {
+                let (surface, at) = (*surface, *at);
+                if (x, y) != at {
+                    let target = self.tab_drop_target_at(x, y);
+                    self.drag = Some(Drag::Tab { surface, target });
+                }
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::Tab { surface, .. }) => {
+                let surface = *surface;
+                let target = self.tab_drop_target_at(x, y);
+                self.drag = Some(Drag::Tab { surface, target });
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::WorkspaceArm { workspace, at }) => {
+                let (workspace, at) = (*workspace, *at);
+                if (x, y) != at {
+                    let target = self.workspace_drop_target_at(x, y);
+                    self.drag = Some(Drag::Workspace { workspace, target });
+                }
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::Workspace { workspace, .. }) => {
+                let workspace = *workspace;
+                let target = self.workspace_drop_target_at(x, y);
+                self.drag = Some(Drag::Workspace { workspace, target });
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::Select { content, .. }) => {
                 let content = *content;
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
+                let offset =
+                    self.selection.map(|sel| self.surface_scroll_offset(sel.surface)).unwrap_or(0);
                 if let Some(sel) = self.selection.as_mut() {
-                    sel.head = (cx - content.x, cy - content.y);
+                    sel.head = (cx - content.x, offset + (cy - content.y) as u64);
                 }
+                let auto_scroll = if y <= content.y {
+                    Some(-1)
+                } else if y >= content.y + content.height.saturating_sub(1) {
+                    Some(1)
+                } else {
+                    None
+                };
+                self.drag = Some(Drag::Select { content, auto_scroll, col: cx - content.x });
                 Ok(RenderAction::Draw)
             }
             Some(Drag::Browser { surface, content }) => {
@@ -1845,7 +2171,11 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             Some(Drag::SidebarResize) => {
-                self.sidebar_width_override = Some(x.saturating_add(1).clamp(10, 60));
+                if let Some(width) =
+                    sidebar_drag_width(&self.config, self.content_area, self.sidebar_width, x)
+                {
+                    self.sidebar_width_override = Some(width);
+                }
                 Ok(RenderAction::Draw)
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
@@ -1863,6 +2193,35 @@ impl App {
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        if let Some(Drag::TabArm { surface, .. }) = self.drag {
+            self.drag = None;
+            if let Some((pane, index)) = self.tab_location(surface) {
+                self.session.focus_pane(pane);
+                self.session.select_tab(Some(pane), Some(index), None);
+            }
+            return Ok(RenderAction::Draw);
+        }
+        if let Some(Drag::Tab { surface, .. }) = self.drag {
+            self.drag = None;
+            if let Some((pane, index)) = self.tab_drop_target_at(x, y) {
+                self.session.move_tab(surface, pane, index);
+            }
+            return Ok(RenderAction::Draw);
+        }
+        if let Some(Drag::WorkspaceArm { workspace, .. }) = self.drag {
+            self.drag = None;
+            if let Some(index) = self.workspace_index(workspace) {
+                self.session.select_workspace(Some(index), None);
+            }
+            return Ok(RenderAction::Draw);
+        }
+        if let Some(Drag::Workspace { workspace, .. }) = self.drag {
+            self.drag = None;
+            if let Some(index) = self.workspace_drop_target_at(x, y) {
+                self.session.move_workspace(workspace, index);
+            }
+            return Ok(RenderAction::Draw);
+        }
         if let Some(Drag::Browser { surface, content }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
@@ -1900,22 +2259,42 @@ impl App {
     fn copy_selection(&mut self, sel: Selection) {
         let Some(surface) = self.session.surface(sel.surface) else { return };
         let (start, end) = sel.range();
-        let Some(text) = surface.with_terminal(|t| t.selection_text(start, end)).flatten() else {
+        let Some(text) = surface.with_terminal(|t| t.selection_text_absolute(start, end)).flatten()
+        else {
             return;
         };
         if text.is_empty() {
             return;
         }
-        self.copy_text(&text);
+        self.copy_text_to_clipboard(&text);
+        self.show_toast("Copied".to_string());
     }
 
-    fn copy_text(&self, text: &str) {
+    fn copy_text_to_clipboard(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let lock = self.stdout_lock.clone();
         let _guard = lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
+    }
+
+    fn copy_short_id(&mut self, short_id: String) {
+        self.copy_text_to_clipboard(&short_id);
+        self.show_toast(format!("Copied {short_id}"));
+    }
+
+    fn show_toast(&mut self, text: String) {
+        self.toast = Some(Toast { text, deadline: Instant::now() + Duration::from_millis(1500) });
+    }
+
+    fn expire_toast(&mut self) -> bool {
+        if self.toast.as_ref().is_some_and(|toast| Instant::now() >= toast.deadline) {
+            self.toast = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// Shift a pane's tab bar left/right. The renderer clamps to the
@@ -1930,7 +2309,6 @@ impl App {
     fn start_scrollbar_drag(&mut self, surface: SurfaceId, track: Rect, y: u16) {
         let Some(handle) = self.session.surface(surface) else { return };
         let mut anchor_offset = None;
-        let mut moved = false;
         let _ = handle.with_terminal(|t| {
             let Some(sb) = t.scrollbar() else { return };
             let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
@@ -1943,14 +2321,10 @@ impl App {
                 let delta = target - sb.offset as i64;
                 if delta != 0 {
                     t.scroll_delta(delta as isize);
-                    moved = true;
                 }
             }
             anchor_offset = t.scrollbar().map(|after| after.offset);
         });
-        if moved && self.selection.is_some_and(|s| s.surface == surface) {
-            self.selection = None;
-        }
         if let Some(anchor_offset) = anchor_offset {
             self.drag = Some(Drag::Scrollbar { surface, track, anchor_y: y, anchor_offset });
         }
@@ -1966,7 +2340,6 @@ impl App {
         y: u16,
     ) {
         let Some(handle) = self.session.surface(surface) else { return };
-        let mut moved = false;
         handle.with_terminal(|t| {
             let Some(sb) = t.scrollbar() else { return };
             let (_, thumb_len) = thumb_geometry(&sb, track.height);
@@ -1979,12 +2352,59 @@ impl App {
             let scroll_delta = target - current;
             if scroll_delta != 0 {
                 t.scroll_delta(scroll_delta as isize);
-                moved = true;
             }
         });
-        if moved && self.selection.is_some_and(|s| s.surface == surface) {
-            self.selection = None;
-        }
+    }
+
+    fn resize_focused_split(&mut self, delta: f32) {
+        let Some(pane) = self.active_pane() else { return };
+        let Some(screen) = self.tree.active_screen() else { return };
+        let Some(area) = self.pane_areas.iter().find(|area| area.pane == pane) else {
+            return;
+        };
+        let candidates = [
+            (SplitEdge::Right, PaneEdge::Right),
+            (SplitEdge::Left, PaneEdge::Left),
+            (SplitEdge::Bottom, PaneEdge::Bottom),
+            (SplitEdge::Top, PaneEdge::Top),
+        ];
+        let Some((edge, target)) = candidates
+            .into_iter()
+            .filter_map(|(split_edge, pane_edge)| {
+                split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+                    .map(|target| (pane_edge, target))
+            })
+            .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
+        else {
+            return;
+        };
+        let (current, dir, sign) = match edge {
+            PaneEdge::Left => (
+                (area.rect.x.saturating_sub(target.area.x)) as f32
+                    / target.area.width.max(1) as f32,
+                SplitDir::Right,
+                -1.0,
+            ),
+            PaneEdge::Right => (
+                (area.rect.x + area.rect.width).saturating_sub(target.area.x) as f32
+                    / target.area.width.max(1) as f32,
+                SplitDir::Right,
+                1.0,
+            ),
+            PaneEdge::Top => (
+                (area.rect.y.saturating_sub(target.area.y)) as f32
+                    / target.area.height.max(1) as f32,
+                SplitDir::Down,
+                -1.0,
+            ),
+            PaneEdge::Bottom => (
+                (area.rect.y + area.rect.height).saturating_sub(target.area.y) as f32
+                    / target.area.height.max(1) as f32,
+                SplitDir::Down,
+                1.0,
+            ),
+        };
+        self.session.set_ratio(target.set_pane, dir, (current + delta * sign).clamp(0.05, 0.95));
     }
 
     fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {
@@ -2024,7 +2444,11 @@ impl App {
                 self.menu = Some(ContextMenu::at(
                     x,
                     y,
-                    vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
+                    vec![
+                        MenuAction::RenameWorkspace(id),
+                        MenuAction::CopyWorkspaceId(id),
+                        MenuAction::CloseWorkspace(id),
+                    ],
                 ));
                 return;
             }
@@ -2054,6 +2478,8 @@ impl App {
             }
             items.extend([
                 MenuAction::RenameTab(area.pane),
+                MenuAction::CopyTabId(area.pane),
+                MenuAction::CopyPaneId(area.pane),
                 MenuAction::NewTab(area.pane),
                 MenuAction::NewBrowserTab(area.pane),
                 MenuAction::SplitRight(area.pane),
@@ -2106,10 +2532,6 @@ impl App {
             // (the usual alternate-scroll behavior).
             let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
             surface.write_bytes(seq);
-        }
-        // The viewport moved: a viewport-anchored selection is stale.
-        if self.selection.is_some_and(|s| s.surface == surface_id) {
-            self.selection = None;
         }
         Ok(RenderAction::Draw)
     }
@@ -2194,25 +2616,9 @@ fn browser_hover_forward_allowed(status: Option<BrowserStatus>, editing_same_pan
 
 fn clear_omnibar_selection(state: &mut OmnibarState) {
     if state.select_all {
-        state.buffer.clear();
-        state.cursor = 0;
+        state.input.clear();
         state.select_all = false;
     }
-}
-
-fn prev_char_boundary(value: &str, cursor: usize) -> Option<usize> {
-    if cursor == 0 {
-        return None;
-    }
-    value[..cursor].char_indices().last().map(|(idx, _)| idx)
-}
-
-fn next_char_boundary(value: &str, cursor: usize) -> Option<usize> {
-    if cursor >= value.len() {
-        return None;
-    }
-    let next = value[cursor..].chars().next()?.len_utf8();
-    Some(cursor + next)
 }
 
 fn rects_intersect(a: Rect, b: Rect) -> bool {

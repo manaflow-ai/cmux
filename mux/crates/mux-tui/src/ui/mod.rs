@@ -5,6 +5,7 @@
 
 pub mod graphics;
 pub mod graphics_writer;
+pub(crate) mod input;
 pub mod omnibar;
 mod overlay;
 mod pane;
@@ -33,6 +34,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
 
     let cursor = pane::draw_all(app, frame);
     draw_status_bar(app, frame);
+    overlay::draw_toast(app, frame);
     overlay::draw_menu(app, frame);
 
     // The dialog owns the terminal cursor while it is open (draw_prompt

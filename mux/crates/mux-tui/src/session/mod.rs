@@ -38,6 +38,19 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
     cmd
 }
 
+pub(crate) fn resize_action(
+    desired: (u16, u16),
+    asserted: Option<(u16, u16)>,
+    server: (u16, u16),
+    user_interaction: bool,
+) -> bool {
+    if user_interaction {
+        desired != server
+    } else {
+        asserted != Some(desired)
+    }
+}
+
 #[derive(Clone)]
 pub enum SurfaceHandle {
     Local(Arc<Surface>),
@@ -334,6 +347,32 @@ impl Session {
             }
         }
     }
+
+    pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
+        match self {
+            Session::Local(mux) => {
+                mux.move_tab(surface, pane, index);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(
+                    json!({"cmd": "move-tab", "surface": surface, "pane": pane, "index": index}),
+                );
+            }
+        }
+    }
+
+    pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
+        match self {
+            Session::Local(mux) => {
+                mux.move_workspace(workspace, index);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(
+                    json!({"cmd": "move-workspace", "workspace": workspace, "index": index}),
+                );
+            }
+        }
+    }
 }
 
 impl SurfaceHandle {
@@ -358,19 +397,42 @@ impl SurfaceHandle {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) {
+        let desired = (cols.max(1), rows.max(1));
         match self {
             SurfaceHandle::Local(surface) => {
-                let _ = surface.resize(cols, rows);
+                let _ = surface.resize(desired.0, desired.1);
             }
             SurfaceHandle::Remote(surface, session) => {
-                if surface.set_size(cols, rows) {
+                if resize_action(desired, surface.asserted_size(), surface.server_size(), false) {
                     let _ = session.request(json!({
                         "cmd": "resize-surface",
                         "surface": surface.id,
-                        "cols": cols,
-                        "rows": rows,
+                        "cols": desired.0,
+                        "rows": desired.1,
+                    }));
+                    surface.set_asserted_size(desired);
+                }
+            }
+            SurfaceHandle::RemoteBrowserUnsupported => {}
+        }
+    }
+
+    pub fn reassert_size(&self, cols: u16, rows: u16) {
+        let desired = (cols.max(1), rows.max(1));
+        match self {
+            SurfaceHandle::Local(surface) => {
+                let _ = surface.resize(desired.0, desired.1);
+            }
+            SurfaceHandle::Remote(surface, session) => {
+                if resize_action(desired, surface.asserted_size(), surface.server_size(), true) {
+                    let _ = session.request(json!({
+                        "cmd": "resize-surface",
+                        "surface": surface.id,
+                        "cols": desired.0,
+                        "rows": desired.1,
                     }));
                 }
+                surface.set_asserted_size(desired);
             }
             SurfaceHandle::RemoteBrowserUnsupported => {}
         }
@@ -616,5 +678,44 @@ impl SurfaceHandle {
                 anyhow::bail!("browser panes are not supported over attach yet")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resize_action;
+
+    #[test]
+    fn first_layout_after_attach_sends_ordered_resize() {
+        let desired = (123, 65);
+        let server = (80, 24);
+        assert!(resize_action(desired, None, server, false));
+    }
+
+    #[test]
+    fn already_sized_first_layout_does_not_send_redundant_resize() {
+        let desired = (123, 65);
+        assert!(!resize_action(desired, Some(desired), desired, false));
+    }
+
+    #[test]
+    fn remote_resize_with_no_local_change_does_not_send() {
+        let desired = (123, 65);
+        let server = (341, 92);
+        assert!(!resize_action(desired, Some(desired), server, false));
+    }
+
+    #[test]
+    fn remote_resize_followed_by_user_interaction_sends() {
+        let desired = (123, 65);
+        let server = (341, 92);
+        assert!(resize_action(desired, Some(desired), server, true));
+    }
+
+    #[test]
+    fn steady_state_does_not_send() {
+        let desired = (123, 65);
+        assert!(!resize_action(desired, Some(desired), desired, false));
+        assert!(!resize_action(desired, Some(desired), desired, true));
     }
 }

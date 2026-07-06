@@ -22,6 +22,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
     let content_w = (width - 1) as usize; // last column is the border
     let rail = app.config.theme.sidebar_rail;
+    let workspace_drag = app.workspace_drag();
     let buf = frame.buffer_mut();
 
     let base = Style::default();
@@ -59,7 +60,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             break;
         }
         let active = i == app.tree.active_workspace;
-        let style = if active { active_style } else { base };
+        let mut style = if active { active_style } else { base };
+        if workspace_drag.is_some_and(|(id, _)| id == ws.id) {
+            style = style.add_modifier(Modifier::DIM);
+        }
         // The active highlight paints the full rows, and the rail marks
         // BOTH lines of the entry in the configured color.
         if active {
@@ -87,6 +91,17 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         set_line_from(buf, 1, y + 1, subtitle.trim_start(), sub_style);
         hits.push((row_rect(y + 1), Hit::Workspace { index: i, id: ws.id }));
         y += 3; // two content lines + one blank separator line
+    }
+
+    if let Some((_, Some(index))) = workspace_drag {
+        let marker_y = 2u16.saturating_add(index as u16 * 3).saturating_sub(1);
+        if marker_y < height {
+            for x in 0..width - 1 {
+                buf[(x, marker_y)]
+                    .set_symbol("─")
+                    .set_style(Style::default().fg(app.config.theme.border_active));
+            }
+        }
     }
 
     if y < height {

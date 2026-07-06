@@ -94,6 +94,10 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let active_tab = pane.active_tab;
     let pane_id = area.pane;
     let hover = app.hover;
+    let tab_drag = app.tab_drag();
+    let drop_index = tab_drag
+        .and_then(|drag| drag.target)
+        .and_then(|(target_pane, index)| (target_pane == pane_id).then_some(index));
 
     let screen = frame.area();
     if bar.width < 2 || bar.y >= screen.height {
@@ -199,16 +203,29 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             break;
         }
         let is_active = i == active_tab;
-        let style = if is_active { active_style } else { base };
+        let mut style = if is_active { active_style } else { base };
+        if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
+            style = style.add_modifier(Modifier::DIM);
+        }
         buf.set_stringn(x, bar.y, label, w as usize, style);
         if tab_cfg.solid_background && is_active {
             buf[(x, bar.y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+        }
+        if drop_index == Some(i) && x < max_x {
+            buf[(x, bar.y)]
+                .set_symbol("▌")
+                .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
         }
         hits.push((
             Rect { x, y: bar.y, width: w, height: 1 },
             Hit::Tab { pane: pane_id, index: i },
         ));
         x += w;
+    }
+    if drop_index == Some(tabs.len()) && x < max_x {
+        buf[(x, bar.y)]
+            .set_symbol("▌")
+            .set_style(Style::default().fg(theme.tab_rail).add_modifier(Modifier::BOLD));
     }
     if overflow && x + arrow_w <= max_x {
         let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
@@ -244,6 +261,11 @@ fn draw_content(
         return None;
     }
 
+    let selection: Option<Selection> =
+        app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
+    let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
+    let theme = app.config.theme;
+
     let rs = app
         .render_states
         .entry(area.surface)
@@ -252,10 +274,6 @@ fn draw_content(
         return None;
     }
     rs.set_clean();
-
-    let selection: Option<Selection> =
-        app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
-    let theme = app.config.theme;
 
     let screen = frame.area();
     let buf = frame.buffer_mut();
@@ -273,7 +291,8 @@ fn draw_content(
                 break;
             }
             let x = rect.x + col as u16;
-            let selected = selection.is_some_and(|s| s.contains(col as u16, row as u16));
+            let selected = selection
+                .is_some_and(|s| s.contains_viewport(col as u16, row as u16, selection_offset));
             apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(&theme));
         }
         // Pane narrower than the rect (during resize races): blank the rest.

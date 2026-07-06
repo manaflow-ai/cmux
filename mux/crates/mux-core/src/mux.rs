@@ -1159,6 +1159,26 @@ mod tests {
     }
 
     #[test]
+    fn closing_active_pane_focuses_most_recent_remaining_pane() {
+        let mux = test_mux();
+        let s1 = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+        let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+        let s3 = mux.split(p2, SplitDir::Down, None).unwrap();
+        let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
+
+        assert!(mux.focus_pane(p1));
+        assert!(mux.focus_pane(p3));
+        mux.close_pane(p3);
+
+        mux.with_state(|s| {
+            assert_eq!(s.workspaces[0].screens[0].active_pane, p1);
+            assert!(s.panes.contains_key(&p2));
+        });
+    }
+
+    #[test]
     fn tabs_within_pane() {
         let mux = test_mux();
         let s1 = mux.new_workspace(None, None).unwrap();
@@ -1183,6 +1203,71 @@ mod tests {
         // Closing the last tab collapses the pane, screen, and workspace.
         mux.close_surface(s1.id);
         mux.with_state(|s| assert!(s.workspaces.is_empty()));
+    }
+
+    #[test]
+    fn move_tab_within_pane_clamps_and_tracks_active_tab() {
+        let mux = test_mux();
+        let s1 = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+        let s2 = mux.new_tab(Some(pane), None, None).unwrap();
+        let s3 = mux.new_tab(Some(pane), None, None).unwrap();
+
+        assert!(mux.move_tab(s3.id, pane, 0));
+        mux.with_state(|s| {
+            let pane = &s.panes[&pane];
+            assert_eq!(pane.tabs, vec![s3.id, s1.id, s2.id]);
+            assert_eq!(pane.active_tab, 0);
+        });
+
+        assert!(mux.move_tab(s3.id, pane, 99));
+        mux.with_state(|s| {
+            let pane = &s.panes[&pane];
+            assert_eq!(pane.tabs, vec![s1.id, s2.id, s3.id]);
+            assert_eq!(pane.active_tab, 2);
+        });
+    }
+
+    #[test]
+    fn move_tab_same_position_preserves_active_tab_and_emits_no_event() {
+        let mux = test_mux();
+        let s1 = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+        let s2 = mux.new_tab(Some(pane), None, None).unwrap();
+        let s3 = mux.new_tab(Some(pane), None, None).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let events = mux.subscribe();
+
+        assert!(!mux.move_tab(s2.id, pane, 1));
+        mux.with_state(|s| {
+            let pane = &s.panes[&pane];
+            assert_eq!(pane.tabs, vec![s1.id, s2.id, s3.id]);
+            assert_eq!(pane.active_tab, 0);
+        });
+        assert!(events.try_iter().all(|event| !matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[test]
+    fn move_tab_across_panes_collapses_empty_source_and_preserves_surface() {
+        let mux = test_mux();
+        let s1 = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+        let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+        let original_count = mux.surface_count();
+
+        assert!(mux.move_tab(s1.id, p2, 0));
+        mux.with_state(|s| {
+            assert!(!s.panes.contains_key(&p1));
+            let target = &s.panes[&p2];
+            assert_eq!(target.tabs, vec![s1.id, s2.id]);
+            assert_eq!(target.active_tab, 0);
+            assert!(s.surfaces.contains_key(&s1.id));
+            let mut ids = Vec::new();
+            s.workspaces[0].screens[0].root.pane_ids(&mut ids);
+            assert_eq!(ids, vec![p2]);
+        });
+        assert_eq!(mux.surface_count(), original_count);
     }
 
     #[test]
@@ -1311,5 +1396,33 @@ mod tests {
             assert_eq!(s.active_workspace, 0);
         });
         assert!(events.try_iter().count() > 0);
+    }
+
+    #[test]
+    fn move_workspace_reorders_and_tracks_active_workspace() {
+        let mux = test_mux();
+        mux.new_workspace(Some("one".into()), None).unwrap();
+        mux.new_workspace(Some("two".into()), None).unwrap();
+        mux.new_workspace(Some("three".into()), None).unwrap();
+        let (ws1, ws2, ws3) =
+            mux.with_state(|s| (s.workspaces[0].id, s.workspaces[1].id, s.workspaces[2].id));
+
+        assert!(mux.move_workspace(ws3, 0));
+        mux.with_state(|s| {
+            assert_eq!(
+                s.workspaces.iter().map(|ws| ws.id).collect::<Vec<_>>(),
+                vec![ws3, ws1, ws2]
+            );
+            assert_eq!(s.active_workspace, 0);
+        });
+
+        assert!(mux.move_workspace(ws1, 99));
+        mux.with_state(|s| {
+            assert_eq!(
+                s.workspaces.iter().map(|ws| ws.id).collect::<Vec<_>>(),
+                vec![ws3, ws2, ws1]
+            );
+            assert_eq!(s.active_workspace, 0);
+        });
     }
 }
