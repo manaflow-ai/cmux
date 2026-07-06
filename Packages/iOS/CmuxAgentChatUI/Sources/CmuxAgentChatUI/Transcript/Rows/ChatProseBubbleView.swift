@@ -131,35 +131,36 @@ public struct ChatProseBubbleView: View {
             let visibleCode = codeLines.count > Self.codeBlockLineCap
                 ? codeLines.prefix(Self.codeBlockLineCap).joined(separator: "\n")
                 : segment.content
-            VStack(alignment: .leading, spacing: 0) {
-                codeHeader(language: language)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(verbatim: visibleCode.isEmpty ? " " : visibleCode)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(theme.terminalCardText)
-                        .textSelection(.enabled)
-                        .padding(8)
-                }
-                if codeLines.count > Self.codeBlockLineCap {
-                    Text(
-                        String(
-                            localized: "chat.terminal.more_lines",
-                            defaultValue: "⋯ \(codeLines.count - Self.codeBlockLineCap) more lines",
-                            bundle: .module
-                        )
-                    )
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 6)
-                }
-            }
-            .background(theme.terminalCardFill, in: .rect(cornerRadius: 8))
-            .contentShape(.rect)
-            .onTapGesture {
+            Button {
                 onShowCodeDetail(segment.content, language)
+            } label: {
+                VStack(alignment: .leading, spacing: 0) {
+                    codeHeader(language: language)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(verbatim: visibleCode.isEmpty ? " " : visibleCode)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(theme.terminalCardText)
+                            .padding(8)
+                    }
+                    if codeLines.count > Self.codeBlockLineCap {
+                        Text(
+                            String(
+                                localized: "chat.terminal.more_lines",
+                                defaultValue: "⋯ \(codeLines.count - Self.codeBlockLineCap) more lines",
+                                bundle: .module
+                            )
+                        )
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
+                    }
+                }
+                .background(theme.terminalCardFill, in: .rect(cornerRadius: 8))
+                .contentShape(.rect)
             }
-            .accessibilityAddTraits(.isButton)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ChatCodeBlockDetail-\(message.id)-\(segment.index)")
             .accessibilityLabel(
                 String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
             )

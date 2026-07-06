@@ -1434,7 +1434,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
+    func testAgentChatDetailControlsPreserveTranscriptScrollPosition() throws {
         let app = launchAgentChatInlinePreviewApp()
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
@@ -1442,12 +1442,12 @@ final class cmuxUITests: XCTestCase {
             $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
         }
 
-        try assertExpansionTogglePreservesTranscriptPosition(
+        try assertDetailControlPreservesTranscriptPosition(
             buttonID: "ChatToolUseToggle-msg-fixture-4",
             table: table,
             app: app
         )
-        try assertExpansionTogglePreservesTranscriptPosition(
+        try assertDetailControlPreservesTranscriptPosition(
             buttonID: "ChatTerminalToggle-msg-fixture-6",
             table: table,
             app: app
@@ -3378,7 +3378,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertExpansionTogglePreservesTranscriptPosition(
+    private func assertDetailControlPreservesTranscriptPosition(
         buttonID: String,
         table: XCUIElement,
         app: XCUIApplication,
@@ -3391,7 +3391,7 @@ final class cmuxUITests: XCTestCase {
             table.swipeDown(velocity: .fast)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
-        XCTAssertTrue(button.isHittable, "Expected expansion control \(buttonID) to become hittable", file: file, line: line)
+        XCTAssertTrue(button.isHittable, "Expected detail control \(buttonID) to become hittable", file: file, line: line)
 
         let before = try waitForTranscriptMetrics(
             table,
@@ -3401,10 +3401,8 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         button.tap()
-        let predicate = NSPredicate(format: "value == %@", "Expanded")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: button)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 4)
-        XCTAssertEqual(result, .completed, "Expected \(buttonID) to expand", file: file, line: line)
+        let sheet = app.descendants(matching: .any)["ChatBlockDetailSheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 4), "Expected \(buttonID) to open the detail sheet", file: file, line: line)
         let after = try waitForTranscriptMetrics(
             table,
             timeout: 4,
@@ -3426,6 +3424,10 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        let doneButton = app.buttons["ChatBlockDetailDoneButton"]
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 4), "Expected detail sheet Done button", file: file, line: line)
+        doneButton.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 2), "Expected detail sheet to dismiss", file: file, line: line)
     }
 
     @MainActor

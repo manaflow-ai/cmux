@@ -26,24 +26,29 @@ public struct ChatFileEditCardView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            header
-            if let diff = edit.unifiedDiff, !diff.isEmpty {
-                Rectangle()
-                    .fill(theme.hairline)
-                    .frame(height: 0.5)
-                diffBlock(diff: diff)
+        Button(action: onShowDetail) {
+            VStack(spacing: 0) {
+                header
+                if let diff = edit.unifiedDiff, !diff.isEmpty {
+                    Rectangle()
+                        .fill(theme.hairline)
+                        .frame(height: 0.5)
+                    diffBlock(diff: diff)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(theme.hairline, lineWidth: 0.5)
+            )
+            .contentShape(.rect)
         }
-        .frame(maxWidth: .infinity)
-        .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.hairline, lineWidth: 0.5)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("ChatFileEditDetail-\(rowID)")
+        .accessibilityLabel(
+            String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
         )
-        .contentShape(.rect)
-        .onTapGesture(perform: onShowDetail)
-        .accessibilityAddTraits(.isButton)
         .accessibilityHint(
             String(
                 localized: "chat.detail.show.hint",
@@ -136,7 +141,6 @@ public struct ChatFileEditCardView: View {
             .foregroundStyle(foregroundColor(for: line))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .textSelection(.enabled)
             .padding(.horizontal, 8)
             .padding(.vertical, 1)
             .frame(maxWidth: .infinity, alignment: .leading)

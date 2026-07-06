@@ -33,11 +33,13 @@ public struct ChatMessageRowView: View {
                 )
             case .thought:
                 ChatThoughtRowView(
+                    rowID: rowID,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .toolUse(let toolUse):
                 ChatToolUseRowView(
                     toolUse: toolUse,
+                    rowID: rowID,
                     onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .terminal(let capture):

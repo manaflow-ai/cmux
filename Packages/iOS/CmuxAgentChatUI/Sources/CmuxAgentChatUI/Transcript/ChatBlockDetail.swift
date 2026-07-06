@@ -229,6 +229,7 @@ struct ChatBlockDetailSheetView: View {
                     Button(String(localized: "chat.detail.done", defaultValue: "Done", bundle: .module)) {
                         dismiss()
                     }
+                    .accessibilityIdentifier("ChatBlockDetailDoneButton")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     copyAllButton

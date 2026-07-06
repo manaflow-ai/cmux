@@ -5,36 +5,44 @@ import SwiftUI
 /// glyph.
 public struct ChatToolUseRowView: View {
     private let toolUse: ChatToolUse
+    private let rowID: String
     private let onShowDetail: () -> Void
 
     /// Creates a tool-use row.
     ///
     /// - Parameters:
     ///   - toolUse: The invocation payload.
+    ///   - rowID: The row's stable identity, for UI automation.
     ///   - onShowDetail: Opens the full tool input/output in a detail sheet.
-    public init(toolUse: ChatToolUse, onShowDetail: @escaping () -> Void = {}) {
+    public init(toolUse: ChatToolUse, rowID: String, onShowDetail: @escaping () -> Void = {}) {
         self.toolUse = toolUse
+        self.rowID = rowID
         self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbolName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(toolUse.summary)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            statusGlyph
-            detailGlyph
-            Spacer(minLength: 0)
+        Button(action: onShowDetail) {
+            HStack(spacing: 6) {
+                Image(systemName: symbolName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(toolUse.summary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                statusGlyph
+                detailGlyph
+                Spacer(minLength: 0)
+            }
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(.rect)
-        .onTapGesture(perform: onShowDetail)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("ChatToolUseToggle-\(rowID)")
+        .accessibilityLabel(
+            String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
+        )
         .accessibilityHint(
             String(
                 localized: "chat.detail.show.hint",

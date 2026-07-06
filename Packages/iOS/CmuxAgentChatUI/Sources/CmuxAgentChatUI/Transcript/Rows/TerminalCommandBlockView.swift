@@ -48,30 +48,32 @@ public struct TerminalCommandBlockView: View {
         // Split the output once per render; outputLines was a computed property
         // read 5+ times per body pass (each a full re-split of growing output).
         let lines = outputLines
-        return VStack(alignment: .leading, spacing: 3) {
-            commandRow
-            if !lines.isEmpty {
-                outputBlock(lines)
+        return Button(action: onShowDetail) {
+            VStack(alignment: .leading, spacing: 3) {
+                commandRow
+                if !lines.isEmpty {
+                    outputBlock(lines)
+                }
+                footer
             }
-            footer
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 5)
-        // Reserve the rail gutter on every row so command text stays aligned
-        // whether or not the command failed (no cross-row horizontal shift).
-        .padding(.leading, 8)
-        .overlay(alignment: .leading) {
-            // A red left rail makes failed commands scannable while flicking
-            // through history; it sits in the reserved gutter.
-            if block.failed {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(.red)
-                    .frame(width: 2.5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 5)
+            // Reserve the rail gutter on every row so command text stays aligned
+            // whether or not the command failed (no cross-row horizontal shift).
+            .padding(.leading, 8)
+            .overlay(alignment: .leading) {
+                // A red left rail makes failed commands scannable while flicking
+                // through history; it sits in the reserved gutter.
+                if block.failed {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(.red)
+                        .frame(width: 2.5)
+                }
             }
+            .contentShape(.rect)
         }
-        .contentShape(.rect)
-        .onTapGesture(perform: onShowDetail)
-        .accessibilityAddTraits(.isButton)
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(
             String(
                 localized: "chat.detail.show.hint",
@@ -90,7 +92,6 @@ public struct TerminalCommandBlockView: View {
             Text(block.command.isEmpty ? " " : block.command)
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(theme.terminalCardText)
-                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -134,7 +135,6 @@ public struct TerminalCommandBlockView: View {
             .font(.system(size: 13, design: .monospaced))
             .foregroundStyle(theme.terminalCardText)
             .fixedSize(horizontal: true, vertical: false)
-            .textSelection(.enabled)
     }
 
     @ViewBuilder

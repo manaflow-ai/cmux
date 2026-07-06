@@ -2,22 +2,29 @@ import SwiftUI
 
 /// A collapsed agent reasoning block: a small "Thought" caption.
 public struct ChatThoughtRowView: View {
+    private let rowID: String
     private let onShowDetail: () -> Void
 
     /// Creates a thought row.
-    public init(onShowDetail: @escaping () -> Void = {}) {
+    public init(rowID: String, onShowDetail: @escaping () -> Void = {}) {
+        self.rowID = rowID
         self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            collapsedContent
-            Spacer(minLength: 0)
+        Button(action: onShowDetail) {
+            HStack(spacing: 0) {
+                collapsedContent
+                Spacer(minLength: 0)
+            }
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(.rect)
-        .onTapGesture(perform: onShowDetail)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("ChatThoughtDetail-\(rowID)")
+        .accessibilityLabel(
+            String(localized: "chat.detail.show.accessibility", defaultValue: "Show details", bundle: .module)
+        )
         .accessibilityHint(
             String(
                 localized: "chat.detail.show.hint",

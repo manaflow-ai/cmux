@@ -34,24 +34,27 @@ public struct ChatTerminalCardView: View {
 
     public var body: some View {
         let lines = outputLines
-        VStack(spacing: 0) {
-            header
-            if !lines.isEmpty {
-                Rectangle()
-                    .fill(theme.hairline)
-                    .frame(height: 0.5)
-                outputBlock(lines: lines)
+        Button(action: onShowDetail) {
+            VStack(spacing: 0) {
+                header
+                if !lines.isEmpty {
+                    Rectangle()
+                        .fill(theme.hairline)
+                        .frame(height: 0.5)
+                    outputBlock(lines: lines)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(theme.hairline, lineWidth: 0.5)
+            )
+            .contentShape(.rect)
         }
-        .frame(maxWidth: .infinity)
-        .background(theme.terminalCardFill, in: .rect(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.hairline, lineWidth: 0.5)
-        )
-        .contentShape(.rect)
-        .onTapGesture(perform: onShowDetail)
-        .accessibilityAddTraits(.isButton)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("ChatTerminalToggle-\(rowID)")
+        .accessibilityLabel(headerAccessibilityLabel)
         .accessibilityHint(
             String(
                 localized: "chat.detail.show.hint",
@@ -193,6 +196,5 @@ public struct ChatTerminalCardView: View {
             .foregroundStyle(theme.terminalCardText)
             .lineLimit(nil)
             .fixedSize(horizontal: true, vertical: false)
-            .textSelection(.enabled)
     }
 }
