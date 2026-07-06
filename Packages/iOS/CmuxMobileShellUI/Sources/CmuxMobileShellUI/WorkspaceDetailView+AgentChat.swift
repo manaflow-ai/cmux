@@ -381,7 +381,7 @@ extension WorkspaceDetailView {
         }
         pinnedChatSessionID = nil
         let token = chatInputFocusToken
-        let shouldFocusTerminal = chatShouldFocusTerminalOnExit
+        let shouldFocusTerminal = chatShouldFocusTerminalOnExit || token != nil
         chatInputFocusToken = nil
         chatShouldFocusTerminalOnExit = false
         if let terminalID {
