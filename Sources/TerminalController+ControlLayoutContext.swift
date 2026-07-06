@@ -120,6 +120,17 @@ extension TerminalController: ControlLayoutContext {
     }
 
     private func controlLayoutWorkspace(routing: ControlRoutingSelectors, workspaceID: UUID?) -> Workspace? {
+        // An explicit window selector scopes the lookup: a workspace living in
+        // another window must resolve to nothing rather than escape the scope.
+        if routing.hasWindowIDParam {
+            guard let tabManager = resolveTabManager(routing: routing) else {
+                return nil
+            }
+            if let workspaceID {
+                return tabManager.tabs.first { $0.id == workspaceID }
+            }
+            return tabManager.selectedWorkspace
+        }
         if let workspaceID,
            let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) {
             return tabManager.tabs.first { $0.id == workspaceID }
