@@ -15,6 +15,7 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
+    @State private var sceneActivityID = UUID()
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
@@ -112,9 +113,10 @@ struct CMUXMobileRootView: View {
         .onAppear {
             syncShellAuthentication(isAuthenticated)
             if scenePhase == .active {
+                store.setSceneForegroundActive(true, sceneID: sceneActivityID)
                 store.resumeForegroundRefresh()
             } else {
-                store.setAppForegroundActive(false)
+                store.setSceneForegroundActive(false, sceneID: sceneActivityID)
             }
             #if os(iOS)
             pushCoordinator.bind(store: store)
@@ -146,9 +148,10 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else {
-                store.setAppForegroundActive(false)
+                store.setSceneForegroundActive(false, sceneID: sceneActivityID)
                 return
             }
+            store.setSceneForegroundActive(true, sceneID: sceneActivityID)
             store.resumeForegroundRefresh()
             // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()
@@ -156,6 +159,9 @@ struct CMUXMobileRootView: View {
             // backgrounded routes to the sign-in page instead of waiting for a
             // failed connect to surface a confusing host-side message.
             Task { await authManager.revalidateSession() }
+        }
+        .onDisappear {
+            store.setSceneForegroundActive(false, sceneID: sceneActivityID)
         }
         .onOpenURL { url in
             let rawURL = url.absoluteString

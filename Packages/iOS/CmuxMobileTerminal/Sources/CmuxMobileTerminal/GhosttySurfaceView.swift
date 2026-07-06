@@ -2181,13 +2181,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the hidden text input and the terminal can recalculate full-height
     /// geometry after the keyboard leaves.
     @discardableResult
-    public static func resignActiveInput() -> GhosttySurfaceInputFocusToken? {
+    public static func resignActiveInput(sceneID: ObjectIdentifier? = nil) -> GhosttySurfaceInputFocusToken? {
         guard let surface = activeInputSurface else { return nil }
+        if let sceneID, surface.window?.windowScene.map(ObjectIdentifier.init) != sceneID { return nil }
         let token = GhosttySurfaceInputFocusToken(view: surface)
         surface.resignInput()
         return token
     }
-
     public static func restoreInputFocus(
         _ token: GhosttySurfaceInputFocusToken?,
         surfaceID: String?

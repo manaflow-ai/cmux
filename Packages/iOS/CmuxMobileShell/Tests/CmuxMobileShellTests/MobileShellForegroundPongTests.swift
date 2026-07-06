@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -162,4 +163,21 @@ import Testing
         "a subscribe timeout after the app backgrounds again must not restart the listener"
     )
     collector.unmount()
+}
+
+@MainActor
+@Test func foregroundActivityRequiresAllScenesInactive() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let firstScene = UUID()
+    let secondScene = UUID()
+    store.setSceneForegroundActive(true, sceneID: firstScene)
+    store.setSceneForegroundActive(true, sceneID: secondScene)
+    store.setSceneForegroundActive(false, sceneID: firstScene)
+    #expect(store.isAppForegroundActive, "one inactive scene must not background the shared shell store")
+    store.setSceneForegroundActive(false, sceneID: secondScene)
+    #expect(store.isAppForegroundActive == false, "the shell store becomes inactive only after every scene is inactive")
 }

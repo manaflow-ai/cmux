@@ -702,6 +702,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
     var isAppForegroundActive = true
+    var foregroundActiveSceneIDs: Set<UUID> = []
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var terminalSubscriptionRefreshID: UUID?
     var terminalEventPongContinuationsByNonce: [String: CheckedContinuation<Bool, Never>] = [:]
