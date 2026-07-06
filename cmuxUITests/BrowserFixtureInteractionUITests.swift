@@ -156,16 +156,21 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = String(max(1.0, responseTimeout))
         process.environment = environment
         let stdout = Pipe()
+        let stderr = Pipe()
         process.standardOutput = stdout
-        process.standardError = Pipe()
+        process.standardError = stderr
         do {
             try process.run()
         } catch {
             return nil
         }
+        // Drain stderr concurrently and read stdout before waiting on exit, so the
+        // CLI can't block on a full pipe buffer and hang the test run.
+        let stderrDrain = DispatchQueue(label: "cmux-ui-test-cli-stderr-drain")
+        stderrDrain.async { _ = stderr.fileHandleForReading.readDataToEndOfFile() }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
         guard let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             return nil
         }
@@ -352,8 +357,20 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     ) throws -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if (try openTabURLs(file: file, line: line)).contains(where: { $0.contains(needle) }) {
-                return true
+            // Poll through the transient socket errors the first browser
+            // interaction of a freshly launched app can hit (matching
+            // waitForCondition), retrying until the deadline instead of throwing
+            // out of the loop on the first miss.
+            let envelope = socketEnvelope(
+                method: "browser.tab.list",
+                params: ["workspace_id": lastWorkspaceID],
+                responseTimeout: 6.0
+            )
+            if (envelope?["ok"] as? Bool) == true,
+               let result = envelope?["result"] as? [String: Any],
+               let tabs = result["tabs"] as? [[String: Any]] {
+                let urls = tabs.compactMap { $0["url"] as? String }
+                if urls.contains(where: { $0.contains(needle) }) { return true }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         }
