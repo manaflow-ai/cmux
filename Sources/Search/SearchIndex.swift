@@ -5,6 +5,9 @@ enum GlobalSearchKind: String, Codable, Sendable {
     case browser
     case markdown
     case title
+    case workspace
+    case transcript
+    case command
 
     var localizedLabel: String {
         switch self {
@@ -14,6 +17,12 @@ enum GlobalSearchKind: String, Codable, Sendable {
             return String(localized: "globalSearch.kind.markdown", defaultValue: "Markdown")
         case .title:
             return String(localized: "globalSearch.kind.title", defaultValue: "Title")
+        case .workspace:
+            return String(localized: "globalSearch.kind.workspace", defaultValue: "Workspace")
+        case .transcript:
+            return String(localized: "globalSearch.kind.transcript", defaultValue: "Transcript")
+        case .command:
+            return String(localized: "globalSearch.kind.command", defaultValue: "Command")
         }
     }
 }
@@ -356,7 +365,8 @@ actor SearchIndex {
         }
     }
 
-    private func withStatement<T>(
+    /// Internal for the SearchIndex+SuperSearch extension.
+    func withStatement<T>(
         _ sql: String,
         _ body: (OpaquePointer) throws -> T
     ) throws -> T {
@@ -376,14 +386,16 @@ actor SearchIndex {
         return try body(statement)
     }
 
-    private func bind(_ value: String, at index: Int32, in statement: OpaquePointer) throws {
+    /// Internal for the SearchIndex+SuperSearch extension.
+    func bind(_ value: String, at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_text(statement, index, value, -1, Self.sqliteTransient)
         guard result == SQLITE_OK else {
             throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
         }
     }
 
-    private func bind(_ value: Double, at index: Int32, in statement: OpaquePointer) throws {
+    /// Internal for the SearchIndex+SuperSearch extension.
+    func bind(_ value: Double, at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_double(statement, index, value)
         guard result == SQLITE_OK else {
             throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
@@ -397,7 +409,8 @@ actor SearchIndex {
         }
     }
 
-    private func stepDone(_ statement: OpaquePointer) throws {
+    /// Internal for the SearchIndex+SuperSearch extension.
+    func stepDone(_ statement: OpaquePointer) throws {
         let result = sqlite3_step(statement)
         guard result == SQLITE_DONE else {
             throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(result)")

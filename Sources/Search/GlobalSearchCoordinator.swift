@@ -9,6 +9,8 @@ final class GlobalSearchCoordinator {
     private var panelPurgeTaskIDs: [UUID: UUID] = [:]
     private var startupIndexTask: Task<Void, Never>?
     private var indexState: SearchIndexState = .idle
+    private var workspaceMetadataIndexer: GlobalSearchWorkspaceMetadataIndexer?
+    private var transcriptIndexer: GlobalSearchTranscriptIndexer?
     private lazy var captureManager = GlobalSearchPanelCaptureManager(
         indexProvider: { [weak self] in
             guard let self else { return nil }
@@ -35,6 +37,9 @@ final class GlobalSearchCoordinator {
             }
 
             guard !Task.isCancelled else { return }
+            if let service = TerminalController.shared.agentChatTranscriptService {
+                self.configureTranscriptIndexing(for: service)
+            }
             await self.refreshLiveIndex()
             if !Task.isCancelled {
                 self.startupIndexTask = nil
@@ -81,6 +86,9 @@ final class GlobalSearchCoordinator {
 
     func refreshLiveIndex() async {
         guard let index = await ensureIndex(), let appDelegate = AppDelegate.shared else { return }
+
+        let metadataIndexer = workspaceIndexer(index: index)
+        metadataIndexer.refresh(contexts: appDelegate.globalSearchWorkspaceMetadataContexts())
 
         for context in appDelegate.globalSearchPanelContexts() {
             guard !Task.isCancelled else { return }
@@ -143,10 +151,55 @@ final class GlobalSearchCoordinator {
         panelPurgeTasks[panelID] = task
     }
 
+    func purgeWorkspace(id workspaceID: UUID) {
+        if let workspaceMetadataIndexer {
+            workspaceMetadataIndexer.purgeWorkspace(id: workspaceID)
+            return
+        }
+        Task { [weak self] in
+            guard let self, let index = await self.ensureIndex() else { return }
+            do {
+                try await index.deleteWorkspace(workspaceID)
+            } catch {
+#if DEBUG
+                cmuxDebugLog("globalSearch.workspace.purgeIndex failed workspace=\(workspaceID.uuidString.prefix(5)) error=\(error.localizedDescription)")
+#endif
+            }
+        }
+    }
+
+    func configureTranscriptIndexing(for service: AgentChatTranscriptService) {
+        Task { @MainActor [weak self, weak service] in
+            guard let self, let service, let index = await self.ensureIndex() else { return }
+            let indexer = self.transcriptIndexer ?? GlobalSearchTranscriptIndexer(
+                index: index,
+                routing: { workspaceID, surfaceID in
+                    await MainActor.run {
+                        AppDelegate.shared?.globalSearchTranscriptRouting(
+                            workspaceID: workspaceID,
+                            surfaceID: surfaceID
+                        )
+                    }
+                }
+            )
+            self.transcriptIndexer = indexer
+            service.enableSearchIndexing(indexer: indexer)
+        }
+    }
+
     private func cancelPanelPurge(forPanelID panelID: UUID) {
         panelPurgeTasks[panelID]?.cancel()
         panelPurgeTasks[panelID] = nil
         panelPurgeTaskIDs[panelID] = nil
+    }
+
+    private func workspaceIndexer(index: SearchIndex) -> GlobalSearchWorkspaceMetadataIndexer {
+        if let workspaceMetadataIndexer {
+            return workspaceMetadataIndexer
+        }
+        let created = GlobalSearchWorkspaceMetadataIndexer(index: index)
+        workspaceMetadataIndexer = created
+        return created
     }
 
     private func ensureIndex() async -> SearchIndex? {

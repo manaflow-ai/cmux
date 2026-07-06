@@ -17,6 +17,8 @@ final class AgentChatTranscriptService {
     private let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
+    var searchIndexingSink: (@Sendable (String, AgentChatTranscriptTailer.Batch) -> Void)?
+    var searchTranscriptIndexer: GlobalSearchTranscriptIndexer?
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved; skipped until an
@@ -337,9 +339,10 @@ final class AgentChatTranscriptService {
     }
 
     // MARK: - Internals
-
+    /// Internal so the search-indexing extension can activate a tailer without
+    /// growing this file further or duplicating transcript resolution logic.
     @discardableResult
-    private func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
+    func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
             return existing
         }
@@ -378,6 +381,7 @@ final class AgentChatTranscriptService {
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        searchIndexingSink?(sessionID, batch)
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -458,6 +462,7 @@ final class AgentChatTranscriptService {
                 Task { await tailer.stop() }
             }
         }
+        activateSearchIndexingIfNeeded(for: record)
         guard hasEventSubscribers() else { return }
         if transcriptBecameAvailable, record.state != .ended {
             ensureTailer(for: record)
