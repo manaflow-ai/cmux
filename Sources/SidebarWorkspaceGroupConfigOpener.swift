@@ -28,7 +28,7 @@ enum SidebarWorkspaceGroupConfigOpener {
 
     /// Resolves `~/.config/cmux/cmux.json` under `home`, materializing an empty
     /// config first if none exists. Shared by the external-editor path above and
-    /// in-app openers (e.g. the plus-button menu's "Customize Actions…").
+    /// in-app openers (e.g. the plus-button menu's "Customize Workspace Layouts…").
     static func materializedCmuxConfigURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {

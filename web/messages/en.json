@@ -1653,10 +1653,10 @@
       "newWorkspaceButton": "Custom plus button actions",
       "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>.",
       "newWorkspaceWorktreeNote": "This example makes the normal plus click run the <action>worktree-agents</action> action. The workspace command from <commands>commands</commands> uses a visible setup terminal to create the Git <worktree>worktree</worktree> first. Codex and Claude start at the same time, wait for the workspace-specific state file, then cd into the created directory before exec.",
-      "workspaceActions": "Workspace actions",
-      "workspaceActionsDesc": "A <workspace>workspace</workspace> action embeds a full workspace definition directly in the action, so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
-      "workspaceActionsMenuDesc": "Workspace actions appear in the plus-button right-click menu automatically. Set <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> to <falseValue>false</falseValue> to hide one, or to <trueValue>true</trueValue> on any other action to add it to the menu.",
-      "workspaceActionsSaveDesc": "You can also create these without writing JSON: right-click the plus button and choose <saveAction>Save Workspace as Action</saveAction> to capture the current workspace's splits, directories, running agents, and browser tabs into <configPath>~/.config/cmux/cmux.json</configPath>. <customize>Customize Actions</customize> opens that file in your editor.",
+      "workspaceActions": "Workspace layouts",
+      "workspaceActionsDesc": "A workspace layout is stored as a <workspace>workspace</workspace> action, embedding a full workspace definition directly in the action so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
+      "workspaceActionsMenuDesc": "Workspace layouts appear in the plus-button right-click menu automatically. Set <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> to <falseValue>false</falseValue> to hide one, or to <trueValue>true</trueValue> on any other action to add it to the menu.",
+      "workspaceActionsSaveDesc": "You can also create these without writing JSON: right-click the plus button and choose <saveLayout>Save as Workspace Layout</saveLayout> to capture the current workspace's splits, directories, running agents, and browser tabs into <configPath>~/.config/cmux/cmux.json</configPath>. They are stored as entries in the <actions>actions</actions> block. <customize>Customize Workspace Layouts</customize> opens that file in your editor.",
       "simpleCommands": "Simple commands",
       "simpleCommandsDesc": "A simple command runs a shell command in the currently focused terminal:",
       "simpleCommandFields": "Fields",
@@ -1707,7 +1707,9 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
-      "restartNew": "Create a new workspace (default)"
+      "restartNew": "Create a new workspace (default)",
+      "workspaceActionsDefaultTitle": "Default for new workspaces",
+      "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

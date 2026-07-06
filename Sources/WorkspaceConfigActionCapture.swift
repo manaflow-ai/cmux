@@ -2,7 +2,7 @@ import Bonsplit
 import Foundation
 
 /// Snapshot of a live workspace as a reusable `type: "workspace"` config
-/// action ("Save Workspace as Action" in the new-workspace menu).
+/// action (saved as a workspace layout from the new-workspace menu).
 struct WorkspaceConfigActionSnapshot {
     var definition: CmuxWorkspaceDefinition
     /// Panels with no representation in the layout schema (file previews,
@@ -104,7 +104,7 @@ extension Workspace {
         definition.color = customColor
         // Deliberately no env: workspaceEnvironment values can be secrets and
         // the dialog can only disclose keys. Users add env by hand via
-        // Customize Actions when they want it persisted.
+        // Customize Workspace Layouts when they want it persisted.
         definition.layout = Self.configCaptureSimplifiedLayout(layout)
         return WorkspaceConfigActionSnapshot(
             definition: definition,

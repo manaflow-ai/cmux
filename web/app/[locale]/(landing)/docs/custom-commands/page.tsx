@@ -318,7 +318,7 @@ export default function CustomCommandsPage() {
         })}
       </p>
 
-      <DocsHeading level={2} id="workspace-actions">{t("workspaceActions")}</DocsHeading>
+      <DocsHeading level={2} id="workspace-layouts">{t("workspaceActions")}</DocsHeading>
       <p>
         {t.rich("workspaceActionsDesc", {
           workspace: (chunks) => <code>{chunks}</code>,
@@ -370,9 +370,20 @@ export default function CustomCommandsPage() {
       </p>
       <p>
         {t.rich("workspaceActionsSaveDesc", {
-          saveAction: (chunks) => <strong>{chunks}</strong>,
+          saveLayout: (chunks) => <strong>{chunks}</strong>,
           customize: (chunks) => <strong>{chunks}</strong>,
           configPath: (chunks) => <code>{chunks}</code>,
+          actions: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <DocsHeading level={3} id="default-workspace-layout">{t("workspaceActionsDefaultTitle")}</DocsHeading>
+      <p>
+        {t.rich("workspaceActionsDefaultDesc", {
+          defaultMenu: (chunks) => <strong>{chunks}</strong>,
+          checkbox: (chunks) => <strong>{chunks}</strong>,
+          action: (chunks) => <code>{chunks}</code>,
+          localConfig: (chunks) => <code>{chunks}</code>,
+          globalConfig: (chunks) => <code>{chunks}</code>,
         })}
       </p>
 

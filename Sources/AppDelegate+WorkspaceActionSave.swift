@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-// MARK: - Save Workspace as Action (new-workspace plus-button menu)
+// MARK: - Save Workspace Layout (new-workspace plus-button menu)
 
 /// Payload for delete-action menu items (submenu entries and ⌥-alternates).
 @MainActor
@@ -17,11 +17,21 @@ final class WorkspaceActionDeleteBox: NSObject {
     }
 }
 
+@MainActor
+final class WorkspaceDefaultLayoutBox: NSObject {
+    let windowId: UUID
+    let actionID: String?
+
+    init(windowId: UUID, actionID: String?) {
+        self.windowId = windowId
+        self.actionID = actionID
+    }
+}
+
 extension AppDelegate {
 
-    /// Appends the always-available "Save Workspace as Action…",
-    /// "Delete Action" (when something is deletable), and
-    /// "Customize Actions…" items to the new-workspace plus-button menu.
+    /// Appends the saved workspace layout affordances to the new-workspace
+    /// plus-button menu.
     func appendWorkspaceActionAffordances(
         to menu: NSMenu,
         windowId: UUID,
@@ -32,8 +42,8 @@ extension AppDelegate {
         }
         let saveItem = NSMenuItem(
             title: String(
-                localized: "menu.newWorkspace.saveWorkspaceAsAction",
-                defaultValue: "Save Workspace as Action…"
+                localized: "menu.newWorkspace.saveWorkspaceAsLayout",
+                defaultValue: "Save as Workspace Layout…"
             ),
             action: #selector(saveWorkspaceAsConfigActionMenuItem(_:)),
             keyEquivalent: ""
@@ -48,8 +58,8 @@ extension AppDelegate {
         if !deletableActions.isEmpty {
             let deleteParent = NSMenuItem(
                 title: String(
-                    localized: "menu.newWorkspace.deleteActionSubmenu",
-                    defaultValue: "Delete Action"
+                    localized: "menu.newWorkspace.deleteLayoutSubmenu",
+                    defaultValue: "Delete Workspace Layout"
                 ),
                 action: nil,
                 keyEquivalent: ""
@@ -77,10 +87,54 @@ extension AppDelegate {
             menu.addItem(deleteParent)
         }
 
+        let defaultLayoutModel = NewWorkspaceDefaultLayoutMenuModel.build(
+            loadedActions: cmuxConfigStore.loadedActions,
+            newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID
+        )
+        if !defaultLayoutModel.entries.isEmpty || defaultLayoutModel.hasDefault {
+            let defaultParent = NSMenuItem(
+                title: String(
+                    localized: "menu.newWorkspace.defaultLayoutSubmenu",
+                    defaultValue: "Default for New Workspace"
+                ),
+                action: nil,
+                keyEquivalent: ""
+            )
+            let submenu = NSMenu()
+            let noneItem = NSMenuItem(
+                title: String(
+                    localized: "menu.newWorkspace.defaultLayoutNone",
+                    defaultValue: "None (Blank Terminal)"
+                ),
+                action: #selector(setNewWorkspaceDefaultLayoutMenuItem(_:)),
+                keyEquivalent: ""
+            )
+            noneItem.target = self
+            noneItem.representedObject = WorkspaceDefaultLayoutBox(windowId: windowId, actionID: nil)
+            noneItem.state = defaultLayoutModel.hasDefault ? .off : .on
+            submenu.addItem(noneItem)
+            if !defaultLayoutModel.entries.isEmpty {
+                submenu.addItem(.separator())
+            }
+            for entry in defaultLayoutModel.entries {
+                let item = NSMenuItem(
+                    title: entry.title,
+                    action: #selector(setNewWorkspaceDefaultLayoutMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = WorkspaceDefaultLayoutBox(windowId: windowId, actionID: entry.id)
+                item.state = entry.isCurrent ? .on : .off
+                submenu.addItem(item)
+            }
+            defaultParent.submenu = submenu
+            menu.addItem(defaultParent)
+        }
+
         let customizeItem = NSMenuItem(
             title: String(
-                localized: "menu.newWorkspace.customizeActions",
-                defaultValue: "Customize Actions…"
+                localized: "menu.newWorkspace.customizeLayouts",
+                defaultValue: "Customize Workspace Layouts…"
             ),
             action: #selector(customizeCmuxConfigActionsMenuItem(_:)),
             keyEquivalent: ""
@@ -90,8 +144,8 @@ extension AppDelegate {
         menu.addItem(customizeItem)
     }
 
-    /// Actions defined in the global config (where "Save Workspace as Action"
-    /// writes) are deletable from the UI; project-local and built-in actions
+    /// Actions defined in the global config (where saved workspace layouts
+    /// write) are deletable from the UI; project-local and built-in actions
     /// are not.
     func isDeletableGlobalAction(
         _ action: CmuxResolvedConfigAction,
@@ -115,11 +169,11 @@ extension AppDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
-            localized: "dialog.deleteWorkspaceAction.title",
-            defaultValue: "Delete Action?"
+            localized: "dialog.deleteWorkspaceLayout.title",
+            defaultValue: "Delete Workspace Layout?"
         )
         let messageFormat = String(
-            localized: "dialog.deleteWorkspaceAction.message",
+            localized: "dialog.deleteWorkspaceLayout.message",
             defaultValue: "Removes “%1$@” from %2$@. Workspaces it already created stay open."
         )
         alert.informativeText = String(
@@ -128,12 +182,12 @@ extension AppDelegate {
             (cmuxConfigStore.globalConfigPath as NSString).abbreviatingWithTildeInPath
         )
         let deleteButton = alert.addButton(withTitle: String(
-            localized: "dialog.deleteWorkspaceAction.delete",
+            localized: "dialog.deleteWorkspaceLayout.delete",
             defaultValue: "Delete"
         ))
         deleteButton.hasDestructiveAction = true
         alert.addButton(withTitle: String(
-            localized: "dialog.deleteWorkspaceAction.cancel",
+            localized: "dialog.deleteWorkspaceLayout.cancel",
             defaultValue: "Cancel"
         ))
         alert.beginSheetModal(for: window) { [weak window, weak cmuxConfigStore] response in
@@ -152,12 +206,12 @@ extension AppDelegate {
                 let errorAlert = NSAlert()
                 errorAlert.alertStyle = .warning
                 errorAlert.messageText = String(
-                    localized: "dialog.deleteWorkspaceAction.failedTitle",
-                    defaultValue: "Couldn't Delete Action"
+                    localized: "dialog.deleteWorkspaceLayout.failedTitle",
+                    defaultValue: "Couldn't Delete Workspace Layout"
                 )
                 errorAlert.informativeText = error.localizedDescription
                 errorAlert.addButton(withTitle: String(
-                    localized: "dialog.saveWorkspaceAction.ok",
+                    localized: "dialog.saveWorkspaceLayout.ok",
                     defaultValue: "OK"
                 ))
                 errorAlert.beginSheetModal(for: window)
@@ -174,10 +228,32 @@ extension AppDelegate {
         presentSaveWorkspaceActionDialog(context: context)
     }
 
+    @objc private func setNewWorkspaceDefaultLayoutMenuItem(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? WorkspaceDefaultLayoutBox,
+              let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
+              let cmuxConfigStore = context.cmuxConfigStore,
+              let window = resolvedWindow(for: context) else {
+            NSSound.beep()
+            return
+        }
+        do {
+            try CmuxConfigActionSaver.setNewWorkspaceDefaultAction(
+                id: box.actionID,
+                globalConfigPath: cmuxConfigStore.globalConfigPath
+            )
+            cmuxConfigStore.loadAll()
+#if DEBUG
+            cmuxDebugLog("newWorkspaceDefaultLayout.updated id=\(box.actionID ?? "<none>")")
+#endif
+        } catch {
+            presentNewWorkspaceDefaultLayoutError(error, for: window)
+        }
+    }
+
     @objc private func customizeCmuxConfigActionsMenuItem(_ sender: NSMenuItem) {
         // Open inside cmux's own file editor rather than an external app — the
         // OS-default handler for .json can be Xcode, which is never what
-        // "customize my actions" means.
+        // "customize my workspace layouts" means.
         let configURL = SidebarWorkspaceGroupConfigOpener.materializedCmuxConfigURL()
         guard let windowId = (sender.representedObject as? NSUUID) as UUID?,
               let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
@@ -219,12 +295,12 @@ extension AppDelegate {
 
         let alert = NSAlert()
         alert.messageText = String(
-            localized: "dialog.saveWorkspaceAction.title",
-            defaultValue: "Save Workspace as Action"
+            localized: "dialog.saveWorkspaceLayout.title",
+            defaultValue: "Save Workspace Layout"
         )
         let messageFormat = String(
-            localized: "dialog.saveWorkspaceAction.message",
-            defaultValue: "Saves this workspace's layout as a reusable action in %@. It appears in the new-workspace menu and the Command Palette."
+            localized: "dialog.saveWorkspaceLayout.message",
+            defaultValue: "Saves this workspace as a reusable layout in %@. It appears in the new-workspace menu and the Command Palette."
         )
         var message = String(
             format: messageFormat,
@@ -232,7 +308,7 @@ extension AppDelegate {
         )
         if snapshot.skippedPanelCount > 0 {
             let skippedFormat = String(
-                localized: "dialog.saveWorkspaceAction.skippedNote",
+                localized: "dialog.saveWorkspaceLayout.skippedNote",
                 defaultValue: "%lld panels have no layout representation (previews, viewers, …) and will be left out."
             )
             message += "\n\n" + String(format: skippedFormat, Int64(snapshot.skippedPanelCount))
@@ -242,7 +318,7 @@ extension AppDelegate {
             // Show every command verbatim so nothing secret-bearing is written
             // to the config without the user seeing it first.
             let commandsHeader = String(
-                localized: "dialog.saveWorkspaceAction.commandsHeader",
+                localized: "dialog.saveWorkspaceLayout.commandsHeader",
                 defaultValue: "Commands that will be saved and re-run:"
             )
             message += "\n\n" + commandsHeader + "\n" + capturedCommands.joined(separator: "\n")
@@ -250,7 +326,7 @@ extension AppDelegate {
         let capturedURLs = snapshot.capturedURLs
         if !capturedURLs.isEmpty {
             let urlsHeader = String(
-                localized: "dialog.saveWorkspaceAction.urlsHeader",
+                localized: "dialog.saveWorkspaceLayout.urlsHeader",
                 defaultValue: "URLs that will be saved:"
             )
             message += "\n\n" + urlsHeader + "\n" + capturedURLs.joined(separator: "\n")
@@ -258,7 +334,7 @@ extension AppDelegate {
         let capturedEnvironmentKeys = snapshot.capturedEnvironmentKeys
         if !capturedEnvironmentKeys.isEmpty {
             let envHeader = String(
-                localized: "dialog.saveWorkspaceAction.envHeader",
+                localized: "dialog.saveWorkspaceLayout.envHeader",
                 defaultValue: "Environment variables whose values will be saved:"
             )
             message += "\n\n" + envHeader + "\n" + capturedEnvironmentKeys.joined(separator: ", ")
@@ -269,17 +345,31 @@ extension AppDelegate {
         nameField.stringValue = workspace.customTitle
             ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent
         nameField.placeholderString = String(
-            localized: "dialog.saveWorkspaceAction.namePlaceholder",
-            defaultValue: "Action name"
+            localized: "dialog.saveWorkspaceLayout.namePlaceholder",
+            defaultValue: "Layout name"
         )
-        alert.accessoryView = nameField
+        let makeDefaultCheckbox = NSButton(
+            checkboxWithTitle: String(
+                localized: "dialog.saveWorkspaceLayout.makeDefaultCheckbox",
+                defaultValue: "Use as default for new workspaces"
+            ),
+            target: nil,
+            action: nil
+        )
+        makeDefaultCheckbox.state = .off
+        let accessoryStack = NSStackView(views: [nameField, makeDefaultCheckbox])
+        accessoryStack.orientation = .vertical
+        accessoryStack.alignment = .leading
+        accessoryStack.spacing = 8
+        accessoryStack.frame = NSRect(x: 0, y: 0, width: 260, height: 56)
+        alert.accessoryView = accessoryStack
         alert.window.initialFirstResponder = nameField
         alert.addButton(withTitle: String(
-            localized: "dialog.saveWorkspaceAction.save",
+            localized: "dialog.saveWorkspaceLayout.save",
             defaultValue: "Save"
         ))
         alert.addButton(withTitle: String(
-            localized: "dialog.saveWorkspaceAction.cancel",
+            localized: "dialog.saveWorkspaceLayout.cancel",
             defaultValue: "Cancel"
         ))
 
@@ -287,7 +377,7 @@ extension AppDelegate {
             guard response == .alertFirstButtonReturn else { return }
             let typedTitle = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = typedTitle.isEmpty
-                ? String(localized: "dialog.saveWorkspaceAction.defaultName", defaultValue: "Workspace")
+                ? String(localized: "dialog.saveWorkspaceLayout.defaultName", defaultValue: "Workspace")
                 : typedTitle
             // The recreated workspace carries the action's name: the captured
             // customTitle would otherwise win in executeWorkspaceCommand and
@@ -304,9 +394,23 @@ extension AppDelegate {
                     // be shadowed into a no-op.
                     reservedActionIDs: cmuxConfigStore.map { Set($0.actionLookup.keys) } ?? []
                 )
+                var defaultUpdateError: Error?
+                if makeDefaultCheckbox.state == .on {
+                    do {
+                        try CmuxConfigActionSaver.setNewWorkspaceDefaultAction(
+                            id: result.actionID,
+                            globalConfigPath: globalConfigPath
+                        )
+                    } catch {
+                        defaultUpdateError = error
+                    }
+                }
                 // The app's store runs without file watchers; reload explicitly
-                // so the saved action shows up in the menus right away.
+                // so the saved layout shows up in the menus right away.
                 cmuxConfigStore?.loadAll()
+                if let defaultUpdateError, let window {
+                    self.presentNewWorkspaceDefaultLayoutError(defaultUpdateError, for: window)
+                }
 #if DEBUG
                 cmuxDebugLog("saveWorkspaceAction.saved id=\(result.actionID)")
 #endif
@@ -315,16 +419,31 @@ extension AppDelegate {
                 let errorAlert = NSAlert()
                 errorAlert.alertStyle = .warning
                 errorAlert.messageText = String(
-                    localized: "dialog.saveWorkspaceAction.failedTitle",
-                    defaultValue: "Couldn't Save Action"
+                    localized: "dialog.saveWorkspaceLayout.failedTitle",
+                    defaultValue: "Couldn't Save Workspace Layout"
                 )
                 errorAlert.informativeText = error.localizedDescription
                 errorAlert.addButton(withTitle: String(
-                    localized: "dialog.saveWorkspaceAction.ok",
+                    localized: "dialog.saveWorkspaceLayout.ok",
                     defaultValue: "OK"
                 ))
                 errorAlert.beginSheetModal(for: window)
             }
         }
+    }
+
+    private func presentNewWorkspaceDefaultLayoutError(_ error: Error, for window: NSWindow) {
+        let errorAlert = NSAlert()
+        errorAlert.alertStyle = .warning
+        errorAlert.messageText = String(
+            localized: "dialog.newWorkspaceDefault.failedTitle",
+            defaultValue: "Couldn't Update Default"
+        )
+        errorAlert.informativeText = error.localizedDescription
+        errorAlert.addButton(withTitle: String(
+            localized: "dialog.saveWorkspaceLayout.ok",
+            defaultValue: "OK"
+        ))
+        errorAlert.beginSheetModal(for: window)
     }
 }

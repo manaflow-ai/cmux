@@ -1,6 +1,6 @@
 import Foundation
 
-/// Persists "Save Workspace as Action" results into the global cmux.json,
+/// Persists saved workspace layout results into the global cmux.json,
 /// preserving JSONC comments and formatting via `JSONCObjectEditor`.
 enum CmuxConfigActionSaver {
 
@@ -113,6 +113,68 @@ enum CmuxConfigActionSaver {
         try writeOwnerOnlyConfig(updated, globalConfigPath: globalConfigPath, fileManager: fileManager)
     }
 
+    static func setNewWorkspaceDefaultAction(
+        id actionID: String?,
+        globalConfigPath: String
+    ) throws {
+        try setNewWorkspaceDefaultAction(
+            id: actionID,
+            globalConfigPath: globalConfigPath,
+            fileManager: .default
+        )
+    }
+
+    static func setNewWorkspaceDefaultAction(
+        id actionID: String?,
+        globalConfigPath: String,
+        fileManager: FileManager
+    ) throws {
+        let fileExists = fileManager.fileExists(atPath: globalConfigPath)
+        guard fileExists || actionID != nil else {
+            return
+        }
+
+        let source: String
+        if fileExists {
+            guard let data = fileManager.contents(atPath: globalConfigPath),
+                  let text = String(data: data, encoding: .utf8) else {
+                throw SaveError.unreadableConfig(globalConfigPath)
+            }
+            source = text
+            try validateEditableConfig(source, globalConfigPath: globalConfigPath)
+        } else {
+            source = emptyConfigTemplate
+        }
+
+        let updated: String
+        if let actionID {
+            do {
+                updated = try JSONCObjectEditor.setNestedStringProperty(
+                    objectPath: ["ui", "newWorkspace"],
+                    key: "action",
+                    value: actionID,
+                    in: source
+                )
+            } catch {
+                throw SaveError.malformedConfig(globalConfigPath)
+            }
+        } else {
+            guard let removed = JSONCObjectEditor.removeNestedObjectProperty(
+                objectPath: ["ui", "newWorkspace"],
+                key: "action",
+                in: source
+            ) else {
+                throw SaveError.malformedConfig(globalConfigPath)
+            }
+            updated = removed
+        }
+
+        guard updated != source else {
+            return
+        }
+        try writeOwnerOnlyConfig(updated, globalConfigPath: globalConfigPath, fileManager: fileManager)
+    }
+
     /// Fail closed before editing: a config that doesn't fully parse, or
     /// whose `actions` value isn't an object, must never be structurally
     /// edited — the JSONC editors could otherwise replace user-authored
@@ -208,5 +270,35 @@ enum CmuxConfigActionSaver {
             slug.removeLast()
         }
         return slug.isEmpty ? "workspace" : slug
+    }
+}
+
+struct NewWorkspaceDefaultLayoutMenuModel: Equatable {
+    struct Entry: Equatable {
+        let id: String
+        let title: String
+        let isCurrent: Bool
+    }
+
+    let entries: [Entry]
+    let hasDefault: Bool
+
+    static func build(
+        loadedActions: [CmuxResolvedConfigAction],
+        newWorkspaceActionID: String?
+    ) -> NewWorkspaceDefaultLayoutMenuModel {
+        let entries = loadedActions
+            .sorted { ($0.title, $0.id) < ($1.title, $1.id) }
+            .map { action in
+                Entry(
+                    id: action.id,
+                    title: action.title,
+                    isCurrent: action.id == newWorkspaceActionID
+                )
+            }
+        return NewWorkspaceDefaultLayoutMenuModel(
+            entries: entries,
+            hasDefault: newWorkspaceActionID != nil
+        )
     }
 }

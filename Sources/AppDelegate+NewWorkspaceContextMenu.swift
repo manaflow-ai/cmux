@@ -61,7 +61,7 @@ extension AppDelegate {
                 // affordance, native alternate-item style.
                 if isDeletableGlobalAction(menuAction.action, cmuxConfigStore: cmuxConfigStore) {
                     let deleteFormat = String(
-                        localized: "menu.newWorkspace.deleteActionAlternate",
+                        localized: "menu.newWorkspace.deleteLayoutAlternate",
                         defaultValue: "Delete “%@”"
                     )
                     let alternate = NSMenuItem(

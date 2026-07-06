@@ -32,7 +32,7 @@
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Workspace actions are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Action\" in the plus-button menu writes entries here.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save as Workspace Layout\" in the plus-button menu writes entries here.",
       "type": "object",
       "additionalProperties": true
     },
@@ -40,7 +40,21 @@
       "title": "ui",
       "description": "UI action wiring, including surface tab bar buttons and plus-button behavior. The plus-button context menu shows ui.newWorkspace.contextMenu (or the default items) followed by actions that opt in via newWorkspaceMenu.",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "newWorkspace": {
+          "title": "newWorkspace",
+          "description": "New Workspace button behavior and context-menu wiring.",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "ID of the action run by plain New Workspace. This is the default workspace layout; omit or remove it for None (Blank Terminal). Project-local ui.newWorkspace.action wins over the global value."
+            }
+          }
+        }
+      }
     },
     "commands": {
       "title": "commands",

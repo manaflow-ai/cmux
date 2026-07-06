@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// "Save Workspace as Action" persistence (JSONC upsert/removal into
+/// "Save as Workspace Layout" persistence (JSONC upsert/removal into
 /// cmux.json) and the foreground-command capture that feeds saved terminal
 /// surfaces.
 struct CmuxConfigActionSaverTests {

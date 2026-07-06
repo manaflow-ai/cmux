@@ -21,6 +21,42 @@ extension JSONCObjectEditor {
               let parentObject = parseObject(in: source, at: parentValueStart),
               let child = parentObject.property(named: childKey) else { return nil }
 
+        return removing(child: child, from: parentObject, in: source)
+    }
+
+    /// Removes a nested property from an object path. Missing path segments or
+    /// a missing leaf key are no-ops and return `source`; malformed object path
+    /// segments return nil so callers can fail closed.
+    static func removeNestedObjectProperty(
+        objectPath: [String],
+        key: String,
+        in source: String
+    ) -> String? {
+        guard let root = rootObject(in: source) else { return nil }
+        var object = root
+        for segment in objectPath {
+            guard let property = object.property(named: segment) else {
+                return source
+            }
+            let valueStart = skipWhitespaceAndComments(in: source, from: property.valueStart)
+            guard valueStart < source.endIndex,
+                  source[valueStart] == "{",
+                  let childObject = parseObject(in: source, at: valueStart) else {
+                return nil
+            }
+            object = childObject
+        }
+        guard let child = object.property(named: key) else {
+            return source
+        }
+        return removing(child: child, from: object, in: source)
+    }
+
+    private static func removing(
+        child: PropertyRange,
+        from parentObject: ObjectRange,
+        in source: String
+    ) -> String? {
         // Eat the removed entry's leading indentation.
         let removeStart = startOfLine(containing: child.keyStart, in: source)
         var removeEnd = child.valueEnd
