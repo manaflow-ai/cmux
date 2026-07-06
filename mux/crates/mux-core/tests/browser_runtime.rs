@@ -137,6 +137,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 "Page.enable"
                 | "Emulation.setDeviceMetricsOverride"
                 | "Page.stopScreencast"
+                | "Target.activateTarget"
+                | "Page.bringToFront"
                 | "Input.dispatchMouseEvent"
                 | "Input.insertText"
                 | "Page.navigateToHistoryEntry"
@@ -443,6 +445,162 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     mux.close_surface(surface);
     mux.shutdown();
     server::cleanup(&socket_path);
+    server.join().unwrap();
+}
+
+#[test]
+fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (seen_tx, seen_rx) = mpsc::channel();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+        loop {
+            let request = read_json(&mut ws);
+            let id = request["id"].clone();
+            let method = request["method"].as_str().unwrap().to_string();
+            seen_tx.send(request.clone()).unwrap();
+            match method.as_str() {
+                "Target.setDiscoverTargets" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.createTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
+                }
+                "Target.attachToTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
+                }
+                "Page.enable"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast"
+                | "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.closeTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
+                    break;
+                }
+                method => panic!("unexpected CDP method {method}"),
+            }
+        }
+    });
+
+    let opts = SurfaceOptions {
+        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
+        browser_discover: false,
+        browser_max_capture_megapixels: 0.01,
+        ..Default::default()
+    };
+    let mux = Mux::new("browser-scale-test", opts);
+    mux.set_cell_pixel_size(100, 100);
+    let surface = mux
+        .new_browser_tab("example.test".to_string(), None, Some((100, 100)))
+        .expect("browser tab");
+
+    let metrics = recv_method(&seen_rx, "Emulation.setDeviceMetricsOverride");
+    assert_eq!(metrics["sessionId"], "session-1");
+    assert_eq!(metrics["params"]["width"], 100);
+    assert_eq!(metrics["params"]["height"], 100);
+    let screencast = recv_method(&seen_rx, "Page.startScreencast");
+    assert_eq!(screencast["sessionId"], "session-1");
+    assert_eq!(screencast["params"]["maxWidth"], 100);
+    assert_eq!(screencast["params"]["maxHeight"], 100);
+
+    wait_for(
+        || matches!(surface.browser_status(), Some(BrowserStatus::Live)).then_some(()),
+        Duration::from_secs(10),
+    )
+    .expect("browser went live");
+    surface.browser_mouse_event("mousePressed", 5_000.0, 5_000.0, Some("left"), Some(1)).unwrap();
+    let mouse = recv_method(&seen_rx, "Input.dispatchMouseEvent");
+    assert_eq!(mouse["sessionId"], "session-1");
+    assert_eq!(mouse["params"]["x"], 50.0);
+    assert_eq!(mouse["params"]["y"], 50.0);
+
+    mux.shutdown();
+    server.join().unwrap();
+}
+
+#[test]
+fn stalled_external_browser_nudges_target_once_before_interaction() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (seen_tx, seen_rx) = mpsc::channel();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+        loop {
+            let request = read_json(&mut ws);
+            let id = request["id"].clone();
+            let method = request["method"].as_str().unwrap().to_string();
+            seen_tx.send(request.clone()).unwrap();
+            match method.as_str() {
+                "Target.setDiscoverTargets" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.createTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
+                }
+                "Target.attachToTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
+                }
+                "Page.enable"
+                | "Emulation.setDeviceMetricsOverride"
+                | "Page.startScreencast"
+                | "Target.activateTarget"
+                | "Page.bringToFront"
+                | "Input.dispatchMouseEvent" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.closeTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
+                    break;
+                }
+                method => panic!("unexpected CDP method {method}"),
+            }
+        }
+    });
+
+    let opts = SurfaceOptions {
+        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
+        browser_discover: false,
+        ..Default::default()
+    };
+    let mux = Mux::new("browser-stall-nudge-test", opts);
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
+    wait_for(
+        || matches!(surface.browser_status(), Some(BrowserStatus::Live)).then_some(()),
+        Duration::from_secs(10),
+    )
+    .expect("browser went live");
+    wait_for(
+        || surface.browser_frames_stalled().filter(|stalled| *stalled),
+        Duration::from_secs(4),
+    )
+    .expect("browser frames stalled");
+    while seen_rx.try_recv().is_ok() {}
+
+    surface.browser_mouse_event("mousePressed", 12.0, 9.0, Some("left"), Some(1)).unwrap();
+    let activate = recv_method(&seen_rx, "Target.activateTarget");
+    assert_eq!(activate["params"]["targetId"], "target-1");
+    let front = recv_method(&seen_rx, "Page.bringToFront");
+    assert_eq!(front["sessionId"], "session-1");
+    let mouse = recv_method(&seen_rx, "Input.dispatchMouseEvent");
+    assert_eq!(mouse["sessionId"], "session-1");
+    assert_eq!(mouse["params"]["type"], "mousePressed");
+
+    surface.browser_mouse_event("mousePressed", 13.0, 10.0, Some("left"), Some(1)).unwrap();
+    let second_mouse = seen_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(second_mouse["method"], "Input.dispatchMouseEvent");
+    assert_eq!(second_mouse["params"]["x"], 13.0);
+
+    mux.shutdown();
     server.join().unwrap();
 }
 

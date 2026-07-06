@@ -436,6 +436,16 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn browser_frames_stalled(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(surface) => surface.browser_frames_stalled().unwrap_or(false),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_frames_stalled()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
+    }
+
     pub fn browser_insert_text(&self, text: &str) -> anyhow::Result<()> {
         match self {
             SurfaceHandle::Local(surface) => surface.browser_insert_text(text),

@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, Terminal};
@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use super::tree::{parse_tree, TreeView};
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[u64] = &[4, 5, 6];
+const BROWSER_STALL_THRESHOLD: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 struct RemoteBrowserFrame {
@@ -29,12 +30,23 @@ struct RemoteBrowserState {
     url: Option<String>,
     title: Option<String>,
     status: BrowserStatus,
+    frames_stalled: bool,
+    live_since: Option<Instant>,
+    last_frame_at: Option<Instant>,
     frame: Option<RemoteBrowserFrame>,
 }
 
 impl Default for RemoteBrowserState {
     fn default() -> Self {
-        Self { url: None, title: None, status: BrowserStatus::Starting, frame: None }
+        Self {
+            url: None,
+            title: None,
+            status: BrowserStatus::Starting,
+            frames_stalled: false,
+            live_since: None,
+            last_frame_at: None,
+            frame: None,
+        }
     }
 }
 
@@ -77,8 +89,23 @@ impl RemoteSurface {
         self.browser.lock().unwrap().status.clone()
     }
 
+    pub fn browser_frames_stalled(&self) -> bool {
+        let browser = self.browser.lock().unwrap();
+        if !matches!(browser.status, BrowserStatus::Live) {
+            return false;
+        }
+        if browser.frames_stalled {
+            return true;
+        }
+        let Some(since) = browser.last_frame_at.or(browser.live_since) else {
+            return false;
+        };
+        Instant::now().saturating_duration_since(since) > BROWSER_STALL_THRESHOLD
+    }
+
     fn update_browser_state(&self, value: &Value) {
         let mut browser = self.browser.lock().unwrap();
+        let previous_status = browser.status.clone();
         browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
         browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
         browser.status = match value.get("status").and_then(|v| v.as_str()) {
@@ -88,7 +115,13 @@ impl RemoteSurface {
             Some("live") => BrowserStatus::Live,
             _ => BrowserStatus::Starting,
         };
+        browser.frames_stalled =
+            value.get("frames_stalled").and_then(|v| v.as_bool()).unwrap_or(false);
+        if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
+            browser.live_since = Some(Instant::now());
+        }
         if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
+            browser.last_frame_at = Some(Instant::now());
             browser.frame = Some(frame);
         }
     }
@@ -97,6 +130,9 @@ impl RemoteSurface {
         if let Some(frame) = parse_browser_frame(value) {
             let mut browser = self.browser.lock().unwrap();
             browser.status = BrowserStatus::Live;
+            browser.frames_stalled = false;
+            browser.live_since.get_or_insert_with(Instant::now);
+            browser.last_frame_at = Some(Instant::now());
             browser.frame = Some(frame);
         }
     }

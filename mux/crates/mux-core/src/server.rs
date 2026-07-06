@@ -381,6 +381,7 @@ fn pane_json(state: &State, id: PaneId) -> Value {
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
+                "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
                 "name": surface.and_then(|s| s.name()),
                 "title": surface.map(|s| s.title()).unwrap_or_default(),
                 "size": surface.map(|s| {
@@ -470,6 +471,7 @@ fn browser_state_json(surface: SurfaceId, state: &crate::BrowserAttachState) -> 
         "title": state.title,
         "status": state.status.as_str(),
         "error": state.status.error(),
+        "frames_stalled": state.frames_stalled,
         "frame": state.frame.as_ref().map(|frame| json!({
             "seq": frame.seq,
             "width": frame.css_width,
@@ -767,7 +769,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                 writer.send(&browser_state_json(surface_id, &state))?;
                 let writer = writer.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                    while let Ok(frame) = frames.recv() {
+                    while frames.notify.recv().is_ok() {
+                        let Some(frame) = frames.slot.lock().unwrap().take() else {
+                            continue;
+                        };
                         let value = json!({
                             "event": "frame",
                             "surface": surface_id,

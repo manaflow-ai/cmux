@@ -38,7 +38,7 @@ Press prefix-`B` or right-click a pane and choose `New browser tab` to create an
 
 Chrome 136 and newer ignore `--remote-debugging-port` for the default user data directory, so everyday Chrome profiles are not attachable. Reuse works with Chrome instances started with a custom `--user-data-dir` and a debugging port, or with other tooling/headless instances that expose `/json/version`. Headful Chrome may throttle screencast frames when its window or tab is hidden or occluded.
 
-Frames stream as `Page.screencastFrame` PNGs into the TUI. The frame is rendered with the kitty graphics protocol after each Ratatui draw; overlapping cmux menus and prompts temporarily delete the image placement so terminal UI stays readable.
+Frames stream as `Page.screencastFrame` PNGs into the TUI. The frame is rendered with the kitty graphics protocol after each Ratatui draw; overlapping cmux menus and prompts temporarily delete the image placement so terminal UI stays readable. Large panes are captured at a scaled viewport by default: `browser.max_capture_megapixels` is 2.0, and `browser.capture_scale` can force a fixed scale from `0 < scale <= 1`.
 
 Terminal support:
 
@@ -49,9 +49,22 @@ Terminal support:
 | WezTerm | Supported when kitty graphics are enabled |
 | Other terminals | TUI remains usable and shows `terminal has no kitty graphics support` |
 
-Browser tab creation inserts the tab immediately with a `starting browser...` placeholder while Chrome/CDP setup runs in the background. Failures stay in the pane as `browser failed: ...` and also appear in the status line, so a bad binary, dead CDP endpoint, or page-load failure does not freeze the TUI. JavaScript dialogs are auto-handled (`beforeunload` accepted, alert/confirm/prompt dismissed) and reported in the status line. `window.open` and `_blank` page targets whose opener is a mux browser tab are adopted as new tabs in the same pane; unrelated external targets are ignored.
+Browser tab creation inserts the tab immediately with a `starting browser...` placeholder while Chrome/CDP setup runs in the background. Failures stay in the pane as `browser failed: ...` and also appear in the status line, so a bad binary, dead CDP endpoint, or page-load failure does not freeze the TUI. JavaScript dialogs are auto-handled (`beforeunload` accepted, alert/confirm/prompt dismissed) and reported in the status line. `window.open` and `_blank` page targets whose opener is a mux browser tab are adopted as new tabs in the same pane; unrelated external targets are ignored. External headful Chrome can still throttle hidden tabs; when a live browser surface stops producing frames, the omnibar shows `⏸ chrome tab hidden`, and clicking, typing, or scrolling the pane nudges Chrome with `Target.activateTarget` once for that stall episode.
 
-Attach clients stream browser panes over protocol 6. `attach-surface` sends the current browser state and latest PNG frame if one exists, then streams subsequent frames; mouse, hover, wheel, keyboard, text insertion, URL navigation, back, forward, reload, and activate are forwarded over the control socket. Older protocol 4/5 servers still show the clear `browser panes are not supported over attach yet` placeholder. Browser device metrics use the rendering client's detected terminal cell pixel size; with multiple concurrent attach clients, the last `set-cell-pixels` writer wins. `list-workspaces` reports browser tabs with `kind: "browser"`, `browser_source: "external"` or `"launched"` once live, and additive `browser_status` / `browser_error` fields.
+Attach clients stream browser panes over protocol 6. `attach-surface` sends the current browser state and latest PNG frame if one exists, then streams subsequent frames; mouse, hover, wheel, keyboard, text insertion, URL navigation, back, forward, reload, and activate are forwarded over the control socket. Older protocol 4/5 servers still show the clear `browser panes are not supported over attach yet` placeholder. Browser device metrics use the rendering client's detected terminal cell pixel size, scaled by the capture budget; with multiple concurrent attach clients, the last `set-cell-pixels` writer wins. `list-workspaces` reports browser tabs with `kind: "browser"`, `browser_source: "external"` or `"launched"` once live, and additive `browser_status` / `browser_error` / `browser_frames_stalled` fields.
+
+## Performance
+
+Browser capture is budgeted before it reaches the socket or kitty graphics path. The default `browser.max_capture_megapixels` value of 2.0 scales oversized panes down for both `Emulation.setDeviceMetricsOverride` and `Page.startScreencast`; `browser.capture_scale` overrides the budget with a fixed scale. Input coordinates stay in pane pixels and are scaled inside mux-core, so attached clients do not need protocol changes.
+
+Use `scripts/measure-frames.py` against a running session to keep the evidence loop tight:
+
+```bash
+python3 scripts/measure-frames.py --socket /path/to/session.sock --surface 42 --seconds 10
+python3 scripts/measure-frames.py --socket /path/to/session.sock --url https://example.com --seconds 10
+```
+
+The script reports FPS, frame byte sizes, inter-frame gaps, and wheel-to-next-frame latency. If it receives zero frames, it exits nonzero with a hint to check hidden or occluded external Chrome tabs.
 
 ## Configuration
 
@@ -83,7 +96,9 @@ Attach clients stream browser panes over protocol 6. `attach-surface` sends the 
     "discover": true,
     "discover_ports": [9222],
     "user_data_dir": "/Users/me/Library/Application Support/cmux-mux/chrome-profile",
-    "ephemeral": false
+    "ephemeral": false,
+    "max_capture_megapixels": 2.0,
+    "capture_scale": null
   },
   "scrollbar": { "position": "column" },
   "keys": {
@@ -102,7 +117,7 @@ Attach clients stream browser panes over protocol 6. `attach-surface` sends the 
 }
 ```
 
-Colors are `#rrggbb`, `#rgb`, or an xterm-256 index. The selection colors default to the user's Ghostty config (`selection-background`/`selection-foreground` from `~/.config/ghostty/config`), falling back to a dark grey. `sidebar_rail` controls the active workspace rail, `sidebar_active_bg` its two-row background, `tab_rail` the active tab chip rail, `tab_bg` inactive solid tab chips, and `tab_active_bg` overrides the focused/unfocused active tab chip backgrounds when set. Tabs are numbered `1 2 3…` by default; recognized agent programs (the `agents` list) surface after the number, `show_titles` restores full process titles, and a user-assigned tab name overrides both. `scrollbar.position` is `"column"` by default or `"border"` for the old right-border overlay. Browser config is optional: `chrome_binary` overrides binary discovery, `cdp_url` accepts `ws://...` or `http://host:port`, `discover` defaults to true, `discover_ports` defaults to `[9222]`, `user_data_dir` overrides the launched profile path, and `ephemeral` restores temporary-profile behavior. When `ephemeral` is true it takes precedence over `user_data_dir`: cmux creates and later deletes a fresh temp profile and never deletes the configured directory. Every prefix binding is remappable via `keys` (formats: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"pageup"`); `1`-`9` stay fixed to tab selection. The old key name `"rename-pane"` is still accepted as an alias for `"rename-tab"`.
+Colors are `#rrggbb`, `#rgb`, or an xterm-256 index. The selection colors default to the user's Ghostty config (`selection-background`/`selection-foreground` from `~/.config/ghostty/config`), falling back to a dark grey. `sidebar_rail` controls the active workspace rail, `sidebar_active_bg` its two-row background, `tab_rail` the active tab chip rail, `tab_bg` inactive solid tab chips, and `tab_active_bg` overrides the focused/unfocused active tab chip backgrounds when set. Tabs are numbered `1 2 3…` by default; recognized agent programs (the `agents` list) surface after the number, `show_titles` restores full process titles, and a user-assigned tab name overrides both. `scrollbar.position` is `"column"` by default or `"border"` for the old right-border overlay. Browser config is optional: `chrome_binary` overrides binary discovery, `cdp_url` accepts `ws://...` or `http://host:port`, `discover` defaults to true, `discover_ports` defaults to `[9222]`, `user_data_dir` overrides the launched profile path, and `ephemeral` restores temporary-profile behavior. `max_capture_megapixels` must be greater than zero and defaults to 2.0; `capture_scale`, when set, must satisfy `0 < scale <= 1` and overrides the megapixel budget. When `ephemeral` is true it takes precedence over `user_data_dir`: cmux creates and later deletes a fresh temp profile and never deletes the configured directory. Every prefix binding is remappable via `keys` (formats: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"pageup"`); `1`-`9` stay fixed to tab selection. The old key name `"rename-pane"` is still accepted as an alias for `"rename-tab"`.
 
 ## Control socket
 
@@ -118,7 +133,7 @@ printf '%s\n' '{"id":4,"cmd":"read-screen","surface":1}' | nc -U "$SOCK"
 
 Commands: `identify`, `list-workspaces` (each workspace carries `screens`, each with its split-tree `layout` plus `panes` with their `tabs`; each tab includes `kind: "pty" | "browser"` and browser tabs include `browser_source`), `send` (text or base64 `bytes`, PTY only), `read-screen` (PTY only), `vt-state` (PTY only), `new-tab` (PTY tab in a pane), `new-browser-tab` (browser tab in a pane; returns after tree insertion, before CDP bootstrap may be complete), `new-screen` (in a workspace), `new-workspace`, `split` (`dir`: `right`/`down`), `set-ratio` (`pane`, `dir`: `right`/`down`, `ratio`), `set-default-colors` (`fg`/`bg`: `#rrggbb`), `set-cell-pixels` (`width_px`, `height_px`), `close-surface`, `close-pane`, `close-screen`, `close-workspace`, `rename-surface`, `rename-pane`, `rename-screen`, `rename-workspace`, `resize-surface`, `focus-pane`, `select-tab` (within a pane), `select-screen`, `select-workspace`, `scroll-surface` (PTY only), `browser-mouse`, `browser-wheel`, `browser-key`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `subscribe`, `attach-surface`.
 
-`subscribe` turns the connection full-duplex: the server pushes `{"event":...}` lines (tree-changed, surface-output, surface-exited, title-changed, bell, status). `attach-surface` on PTYs sends a `vt-state` event carrying a base64 VT replay of the complete state (screen, styles, cursor, modes, palette, kitty keyboard state, charsets — produced by ghostty's formatter), then streams every subsequent pty byte as `output` events. Replaying state then stream into a fresh terminal reproduces the surface exactly; the snapshot and stream tap are taken under the same terminal lock, so there is no gap and no duplication. `attach-surface` on browsers sends `browser-state` with URL/title/size/status and optional latest frame, then streams `frame` events with base64 PNG payloads and finishes with `detached` when the surface or tap ends. Browser frame snapshot and tap registration happen under the same frame-state lock; stalled frame taps are bounded and dropped rather than blocking CDP frame handling. PTY-only socket commands against browser surfaces return `ok:false` with a clear error.
+`subscribe` turns the connection full-duplex: the server pushes `{"event":...}` lines (tree-changed, surface-output, surface-exited, title-changed, bell, status). `attach-surface` on PTYs sends a `vt-state` event carrying a base64 VT replay of the complete state (screen, styles, cursor, modes, palette, kitty keyboard state, charsets — produced by ghostty's formatter), then streams every subsequent pty byte as `output` events. Replaying state then stream into a fresh terminal reproduces the surface exactly; the snapshot and stream tap are taken under the same terminal lock, so there is no gap and no duplication. `attach-surface` on browsers sends `browser-state` with URL/title/size/status/stall state and optional latest frame, then streams `frame` events with base64 PNG payloads and finishes with `detached` when the surface or tap ends. Browser frame snapshot and tap registration happen under the same frame-state lock; each tap keeps one latest-frame slot plus a wakeup, so slow clients skip old frames instead of accumulating latency or being detached. PTY-only socket commands against browser surfaces return `ok:false` with a clear error.
 
 ## Design notes
 
@@ -136,7 +151,7 @@ Commands: `identify`, `list-workspaces` (each workspace carries `screens`, each 
 ## Current limitations
 
 - Scrollback from before an attach is not replayed (the VT replay covers the screen and state, not history); the mirror accumulates its own scrollback from the live stream.
-- Reused headful Chrome instances can pause screencast frames when their windows or tabs are hidden.
+- Reused headful Chrome instances can pause screencast frames when their windows or tabs are hidden; the omnibar stall indicator and interaction nudge make this visible but cannot prevent all external Chrome throttling.
 - No PTY mouse-event forwarding to applications (viewport scroll and alternate-screen arrow fallback only).
 - Kitty graphics generated by PTY applications are tracked by the engine but not rendered by the TUI.
 - Pane split ratios are adjustable from the TUI and control socket, but not persisted across new splits.

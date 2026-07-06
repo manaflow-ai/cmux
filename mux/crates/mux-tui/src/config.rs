@@ -30,7 +30,9 @@
 //!     "discover": true,
 //!     "discover_ports": [9222],
 //!     "user_data_dir": "/Users/me/Library/Application Support/cmux-mux/chrome-profile",
-//!     "ephemeral": false
+//!     "ephemeral": false,
+//!     "max_capture_megapixels": 2.0,
+//!     "capture_scale": null
 //!   },
 //!   "scrollbar": {
 //!     "position": "column"
@@ -123,6 +125,8 @@ struct RawBrowser {
     discover_ports: Option<Vec<u16>>,
     user_data_dir: Option<String>,
     ephemeral: Option<bool>,
+    max_capture_megapixels: Option<f64>,
+    capture_scale: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -245,6 +249,8 @@ pub struct Browser {
     pub discover_ports: Vec<u16>,
     pub user_data_dir: Option<String>,
     pub ephemeral: bool,
+    pub max_capture_megapixels: f64,
+    pub capture_scale: Option<f64>,
 }
 
 impl Default for Browser {
@@ -256,6 +262,8 @@ impl Default for Browser {
             discover_ports: vec![9222],
             user_data_dir: None,
             ephemeral: false,
+            max_capture_megapixels: 2.0,
+            capture_scale: None,
         }
     }
 }
@@ -572,6 +580,24 @@ pub fn load() -> Config {
     if let Some(ephemeral) = raw.browser.ephemeral {
         config.browser.ephemeral = ephemeral;
     }
+    if let Some(megapixels) = raw.browser.max_capture_megapixels {
+        if megapixels.is_finite() && megapixels > 0.0 {
+            config.browser.max_capture_megapixels = megapixels;
+        } else {
+            eprintln!(
+                "cmux-mux: ignoring browser.max_capture_megapixels={megapixels:?}; expected > 0"
+            );
+        }
+    }
+    if let Some(scale) = raw.browser.capture_scale {
+        if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
+            config.browser.capture_scale = Some(scale);
+        } else {
+            eprintln!(
+                "cmux-mux: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
+            );
+        }
+    }
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
@@ -794,5 +820,37 @@ mod tests {
         std::env::remove_var("CMUX_MUX_CONFIG");
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_fg, None);
+    }
+
+    #[test]
+    fn browser_capture_config_validates_bounds() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-browser-capture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
+        )
+        .unwrap();
+        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        let config = load();
+        assert_eq!(config.browser.max_capture_megapixels, 3.5);
+        assert_eq!(config.browser.capture_scale, Some(0.5));
+
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 0, "capture_scale": 1.5}}"##,
+        )
+        .unwrap();
+        let config = load();
+        std::env::remove_var("CMUX_MUX_CONFIG");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            config.browser.max_capture_megapixels,
+            Browser::default().max_capture_megapixels
+        );
+        assert_eq!(config.browser.capture_scale, None);
     }
 }

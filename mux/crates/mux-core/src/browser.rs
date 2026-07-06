@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, Instant};
 
 use mux_cdp::{
     discover_browser_ws_url, resolve_browser_ws_url, CdpClient, CdpEvent, CdpKeyEvent, Chrome,
@@ -34,6 +35,16 @@ pub struct BrowserFrame {
     pub css_width: u32,
     pub css_height: u32,
     pub seq: u64,
+}
+
+pub struct BrowserFrameStream {
+    pub slot: Arc<Mutex<Option<BrowserFrame>>>,
+    pub notify: Receiver<()>,
+}
+
+struct BrowserFrameTap {
+    slot: Arc<Mutex<Option<BrowserFrame>>>,
+    notify: SyncSender<()>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +79,7 @@ pub struct BrowserAttachState {
     pub rows: u16,
     pub status: BrowserStatus,
     pub frame: Option<BrowserFrame>,
+    pub frames_stalled: bool,
 }
 
 #[derive(Clone)]
@@ -79,15 +91,19 @@ struct BrowserSession {
 
 struct BrowserState {
     latest_frame: Option<BrowserFrame>,
-    // Bounded attach frame taps. Broadcast uses try_send while holding
-    // this same state lock; a stalled client is dropped instead of
-    // blocking the CDP event path or building an unbounded queue.
-    taps: Vec<SyncSender<BrowserFrame>>,
+    // Latest-wins attach frame taps. Broadcast overwrites each slot and
+    // sends one wakeup; a slow client skips old frames but stays attached.
+    taps: Vec<BrowserFrameTap>,
     title: String,
     url: String,
     size: (u16, u16),
-    pixels: (u32, u32),
+    pane_pixels: (u32, u32),
+    capture_pixels: (u32, u32),
+    capture_scale: f64,
     status: BrowserStatus,
+    live_since: Option<Instant>,
+    last_frame_at: Option<Instant>,
+    stall_nudged: bool,
 }
 
 pub struct BrowserRuntime {
@@ -111,7 +127,17 @@ pub struct BrowserSurface {
     dirty: AtomicBool,
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
+    capture_options: BrowserCaptureOptions,
 }
+
+#[derive(Debug, Clone, Copy)]
+struct BrowserCaptureOptions {
+    max_capture_megapixels: f64,
+    fixed_capture_scale: Option<f64>,
+}
+
+const DEFAULT_CAPTURE_MEGAPIXELS: f64 = 2.0;
+const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
@@ -237,12 +263,16 @@ pub(crate) fn new_surface(
     url: String,
     size: (u16, u16),
     cell_pixels: (u16, u16),
+    opts: &SurfaceOptions,
 ) -> Arc<Surface> {
     let normalized_url = normalize_url(&url);
     let (cols, rows) = (size.0.max(1), size.1.max(1));
     let (cell_w, cell_h) = (cell_pixels.0.max(1), cell_pixels.1.max(1));
     let pixel_w = cols as u32 * cell_w as u32;
     let pixel_h = rows as u32 * cell_h as u32;
+    let capture_options = BrowserCaptureOptions::from_options(opts);
+    let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
+    let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
     Arc::new(Surface::Browser(BrowserSurface {
         meta: SurfaceMeta { id, name: Mutex::new(None) },
         session: Mutex::new(None),
@@ -252,13 +282,54 @@ pub(crate) fn new_surface(
             title: normalized_url.clone(),
             url: normalized_url,
             size: (cols, rows),
-            pixels: (pixel_w, pixel_h),
+            pane_pixels: (pixel_w, pixel_h),
+            capture_pixels,
+            capture_scale,
             status: BrowserStatus::Starting,
+            live_since: None,
+            last_frame_at: None,
+            stall_nudged: false,
         }),
         dirty: AtomicBool::new(true),
         dead: AtomicBool::new(false),
         cell_pixels: Mutex::new((cell_w, cell_h)),
+        capture_options,
     }))
+}
+
+impl BrowserCaptureOptions {
+    fn from_options(opts: &SurfaceOptions) -> Self {
+        let max_capture_megapixels = if opts.browser_max_capture_megapixels.is_finite()
+            && opts.browser_max_capture_megapixels > 0.0
+        {
+            opts.browser_max_capture_megapixels
+        } else {
+            DEFAULT_CAPTURE_MEGAPIXELS
+        };
+        let fixed_capture_scale = opts
+            .browser_capture_scale
+            .filter(|scale| scale.is_finite() && *scale > 0.0 && *scale <= 1.0);
+        BrowserCaptureOptions { max_capture_megapixels, fixed_capture_scale }
+    }
+}
+
+fn capture_scale_for(pane_px_w: u32, pane_px_h: u32, opts: BrowserCaptureOptions) -> f64 {
+    if let Some(scale) = opts.fixed_capture_scale {
+        return scale;
+    }
+    let area = f64::from(pane_px_w.max(1)) * f64::from(pane_px_h.max(1));
+    let budget = opts.max_capture_megapixels.max(f64::MIN_POSITIVE) * 1_000_000.0;
+    if area <= budget {
+        1.0
+    } else {
+        (budget / area).sqrt().clamp(f64::MIN_POSITIVE, 1.0)
+    }
+}
+
+fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
+    let width = (f64::from(pane_px_w.max(1)) * scale).round().max(1.0) as u32;
+    let height = (f64::from(pane_px_h.max(1)) * scale).round().max(1.0) as u32;
+    (width, height)
 }
 
 fn runtime_endpoint(
@@ -449,6 +520,10 @@ impl BrowserSurface {
         self.state.lock().unwrap().status.clone()
     }
 
+    pub fn frames_stalled(&self) -> bool {
+        self.frames_stalled_at(Instant::now())
+    }
+
     pub fn source(&self) -> Option<BrowserSource> {
         self.session.lock().unwrap().as_ref().map(|session| session.runtime.source())
     }
@@ -458,7 +533,7 @@ impl BrowserSurface {
     }
 
     fn pixel_size(&self) -> (u32, u32) {
-        self.state.lock().unwrap().pixels
+        self.state.lock().unwrap().capture_pixels
     }
 
     pub fn is_dead(&self) -> bool {
@@ -503,25 +578,37 @@ impl BrowserSurface {
         let cell = *self.cell_pixels.lock().unwrap();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;
         let pixel_h = rows as u32 * cell.1.max(1) as u32;
-        let unchanged = {
+        let (unchanged, capture_w, capture_h) = {
             let mut state = self.state.lock().unwrap();
-            let unchanged = state.size == (cols, rows) && state.pixels == (pixel_w, pixel_h);
+            let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
+            let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
+            let unchanged = state.size == (cols, rows)
+                && state.pane_pixels == (pixel_w, pixel_h)
+                && state.capture_pixels == capture_pixels;
             state.size = (cols, rows);
-            state.pixels = (pixel_w, pixel_h);
-            unchanged
+            state.pane_pixels = (pixel_w, pixel_h);
+            state.capture_pixels = capture_pixels;
+            state.capture_scale = capture_scale;
+            if !unchanged {
+                state.live_since = Some(Instant::now());
+                state.last_frame_at = None;
+                state.stall_nudged = false;
+            }
+            (unchanged, capture_pixels.0, capture_pixels.1)
         };
         if unchanged {
             return Ok(());
         }
         let Some(session) = self.live_session()? else { return Ok(()) };
-        session.runtime.client.set_device_metrics(&session.session_id, pixel_w, pixel_h)?;
+        session.runtime.client.set_device_metrics(&session.session_id, capture_w, capture_h)?;
         let _ = session.runtime.client.stop_screencast(&session.session_id);
-        session.runtime.client.start_screencast(&session.session_id, pixel_w, pixel_h)?;
+        session.runtime.client.start_screencast(&session.session_id, capture_w, capture_h)?;
         Ok(())
     }
 
-    pub fn attach_frames(&self) -> (BrowserAttachState, Receiver<BrowserFrame>) {
-        let (tx, rx) = std::sync::mpsc::sync_channel(2);
+    pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let slot = Arc::new(Mutex::new(None));
         let mut state = self.state.lock().unwrap();
         let snapshot = BrowserAttachState {
             url: state.url.clone(),
@@ -530,11 +617,12 @@ impl BrowserSurface {
             rows: state.size.1,
             status: state.status.clone(),
             frame: state.latest_frame.clone(),
+            frames_stalled: frames_stalled_locked(&state, Instant::now(), self.is_dead()),
         };
         if !self.is_dead() {
-            state.taps.push(tx);
+            state.taps.push(BrowserFrameTap { slot: slot.clone(), notify: tx });
         }
-        (snapshot, rx)
+        (snapshot, BrowserFrameStream { slot, notify: rx })
     }
 
     fn store_frame(&self, frame: BrowserFrame) {
@@ -546,10 +634,15 @@ impl BrowserSurface {
         if !matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
         }
+        state.last_frame_at = Some(Instant::now());
+        state.stall_nudged = false;
         state.latest_frame = Some(frame.clone());
-        state.taps.retain(|tap| match tap.try_send(frame.clone()) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
+        state.taps.retain(|tap| {
+            *tap.slot.lock().unwrap() = Some(frame.clone());
+            match tap.notify.try_send(()) {
+                Ok(()) | Err(TrySendError::Full(())) => true,
+                Err(TrySendError::Disconnected(())) => false,
+            }
         });
     }
 
@@ -573,6 +666,10 @@ impl BrowserSurface {
         if !matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
         }
+        let now = Instant::now();
+        state.live_since = Some(now);
+        state.last_frame_at = None;
+        state.stall_nudged = false;
         Ok(())
     }
 
@@ -580,6 +677,7 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         state.status = BrowserStatus::Failed(message.clone());
         state.title = format!("browser failed: {message}");
+        state.stall_nudged = false;
         self.dirty.store(true, Ordering::Release);
     }
 
@@ -608,6 +706,7 @@ impl BrowserSurface {
         state.url = url;
         state.title = title;
         state.status = BrowserStatus::Live;
+        state.stall_nudged = false;
     }
 
     fn live_session(&self) -> anyhow::Result<Option<BrowserSession>> {
@@ -628,6 +727,41 @@ impl BrowserSurface {
         self.live_session()?.ok_or_else(|| anyhow::anyhow!("browser is still starting"))
     }
 
+    fn frames_stalled_at(&self, now: Instant) -> bool {
+        let state = self.state.lock().unwrap();
+        frames_stalled_locked(&state, now, self.is_dead())
+    }
+
+    fn scale_input_point(&self, x: f64, y: f64) -> (f64, f64) {
+        let state = self.state.lock().unwrap();
+        let (width, height) = state.capture_pixels;
+        let scale = state.capture_scale;
+        ((x * scale).clamp(0.0, f64::from(width)), (y * scale).clamp(0.0, f64::from(height)))
+    }
+
+    fn scale_delta(&self, delta: f64) -> f64 {
+        delta * self.state.lock().unwrap().capture_scale
+    }
+
+    fn maybe_nudge_stalled_external(&self, session: &BrowserSession) {
+        if session.runtime.source() != BrowserSource::External {
+            return;
+        }
+        let should_nudge = {
+            let mut state = self.state.lock().unwrap();
+            if frames_stalled_locked(&state, Instant::now(), self.is_dead()) && !state.stall_nudged
+            {
+                state.stall_nudged = true;
+                true
+            } else {
+                false
+            }
+        };
+        if should_nudge {
+            let _ = session.runtime.client.activate_target(&session.target_id, &session.session_id);
+        }
+    }
+
     pub fn mouse_event(
         &self,
         event_type: &str,
@@ -637,6 +771,10 @@ impl BrowserSurface {
         click_count: Option<u32>,
     ) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
+        if event_type == "mousePressed" {
+            self.maybe_nudge_stalled_external(&session);
+        }
+        let (x, y) = self.scale_input_point(x, y);
         session.runtime.client.dispatch_mouse_event(
             &session.session_id,
             event_type,
@@ -649,6 +787,9 @@ impl BrowserSurface {
 
     pub fn wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
+        self.maybe_nudge_stalled_external(&session);
+        let (x, y) = self.scale_input_point(x, y);
+        let delta_y = self.scale_delta(delta_y);
         session.runtime.client.dispatch_wheel(&session.session_id, x, y, delta_y)
     }
 
@@ -662,6 +803,7 @@ impl BrowserSurface {
         text: Option<&str>,
     ) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
+        self.maybe_nudge_stalled_external(&session);
         session.runtime.client.dispatch_key_event(
             &session.session_id,
             CdpKeyEvent { event_type, key, code, windows_virtual_key_code, modifiers, text },
@@ -670,6 +812,7 @@ impl BrowserSurface {
 
     pub fn insert_text(&self, text: &str) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
+        self.maybe_nudge_stalled_external(&session);
         session.runtime.client.insert_text(&session.session_id, text)
     }
 
@@ -725,6 +868,16 @@ impl BrowserSurface {
         let session = self.require_live_session()?;
         session.runtime.client.handle_javascript_dialog(&session.session_id, accept)
     }
+}
+
+fn frames_stalled_locked(state: &BrowserState, now: Instant, dead: bool) -> bool {
+    if dead || !matches!(state.status, BrowserStatus::Live) {
+        return false;
+    }
+    let Some(since) = state.last_frame_at.or(state.live_since) else {
+        return false;
+    };
+    now.saturating_duration_since(since) > STALL_THRESHOLD
 }
 
 fn handle_frame_navigated(browser: &BrowserSurface, params: serde_json::Value) {
@@ -862,7 +1015,12 @@ fn percent_encode_query(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{new_surface, normalize_url, BrowserFrame, BrowserStatus};
+    use super::{
+        capture_scale_for, new_surface, normalize_url, scaled_pixels, BrowserCaptureOptions,
+        BrowserFrame, BrowserStatus,
+    };
+    use crate::SurfaceOptions;
+    use std::time::{Duration, Instant};
 
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
@@ -876,7 +1034,8 @@ mod tests {
 
     #[test]
     fn frames_do_not_clear_failed_status() {
-        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16));
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
         let browser = surface.as_browser().expect("browser surface");
         browser.store_frame(test_frame(1));
         assert_eq!(browser.status(), BrowserStatus::Live);
@@ -894,6 +1053,103 @@ mod tests {
         browser.clear_error();
         assert_eq!(browser.status(), BrowserStatus::Live);
         assert_eq!(browser.latest_frame().map(|frame| frame.seq), Some(2));
+    }
+
+    #[test]
+    fn capture_scale_respects_budget_and_fixed_override() {
+        let opts = BrowserCaptureOptions { max_capture_megapixels: 2.0, fixed_capture_scale: None };
+        let scale = capture_scale_for(4760, 2548, opts);
+        assert!(scale < 1.0);
+        assert_eq!(scaled_pixels(4760, 2548, scale), (1933, 1035));
+
+        let small = capture_scale_for(800, 600, opts);
+        assert_eq!(small, 1.0);
+        assert_eq!(scaled_pixels(800, 600, small), (800, 600));
+
+        let fixed =
+            BrowserCaptureOptions { max_capture_megapixels: 2.0, fixed_capture_scale: Some(0.5) };
+        assert_eq!(capture_scale_for(800, 600, fixed), 0.5);
+        assert_eq!(scaled_pixels(800, 600, 0.5), (400, 300));
+    }
+
+    #[test]
+    fn frames_stalled_requires_live_surface_over_threshold() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        let now = Instant::now();
+        {
+            let mut state = browser.state.lock().unwrap();
+            state.status = BrowserStatus::Live;
+            state.live_since = Some(now - Duration::from_secs(3));
+            state.last_frame_at = None;
+        }
+        assert!(browser.frames_stalled_at(now));
+
+        browser.store_frame(test_frame(1));
+        assert!(!browser.frames_stalled_at(Instant::now()));
+
+        browser.mark_failed("nope".to_string());
+        {
+            let mut state = browser.state.lock().unwrap();
+            state.last_frame_at = Some(now - Duration::from_secs(3));
+        }
+        assert!(!browser.frames_stalled_at(now));
+    }
+
+    #[test]
+    fn same_size_resize_does_not_reset_stall_state() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        let now = Instant::now();
+        {
+            let mut state = browser.state.lock().unwrap();
+            state.status = BrowserStatus::Live;
+            state.live_since = Some(now - Duration::from_secs(10));
+            state.last_frame_at = Some(now - Duration::from_secs(3));
+            state.stall_nudged = true;
+        }
+        assert!(browser.frames_stalled_at(now));
+
+        browser.resize(10, 5);
+        {
+            let state = browser.state.lock().unwrap();
+            assert_eq!(state.last_frame_at, Some(now - Duration::from_secs(3)));
+            assert!(state.stall_nudged);
+        }
+        assert!(browser.frames_stalled_at(now));
+
+        browser.resize(11, 5);
+        let state = browser.state.lock().unwrap();
+        assert_eq!(state.last_frame_at, None);
+        assert!(!state.stall_nudged);
+        assert!(!super::frames_stalled_locked(&state, Instant::now(), false));
+    }
+
+    #[test]
+    fn attach_frames_are_latest_wins_and_close_detaches() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        let (_state, stream) = browser.attach_frames();
+
+        browser.store_frame(test_frame(1));
+        browser.store_frame(test_frame(2));
+        browser.store_frame(test_frame(3));
+
+        stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
+        let frame = stream.slot.lock().unwrap().take().expect("latest frame");
+        assert_eq!(frame.seq, 3);
+        assert!(stream.notify.try_recv().is_err());
+
+        browser.store_frame(test_frame(4));
+        stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
+        let frame = stream.slot.lock().unwrap().take().expect("next latest frame");
+        assert_eq!(frame.seq, 4);
+
+        browser.kill();
+        assert!(stream.notify.recv_timeout(Duration::from_secs(1)).is_err());
     }
 
     #[test]

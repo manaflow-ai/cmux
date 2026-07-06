@@ -141,6 +141,8 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.browser_discover_ports = config.browser.discover_ports.clone();
     surface_options.browser_user_data_dir = config.browser.user_data_dir.clone();
     surface_options.browser_ephemeral = config.browser.ephemeral;
+    surface_options.browser_max_capture_megapixels = config.browser.max_capture_megapixels;
+    surface_options.browser_capture_scale = config.browser.capture_scale;
     if let Some(term) = args.term {
         surface_options.term = term;
     }

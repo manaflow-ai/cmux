@@ -23,8 +23,8 @@ pub use layout::{
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{Mux, MuxEvent};
 pub use surface::{
-    AttachStream, BrowserAttachState, BrowserFrame, BrowserSource, BrowserStatus, DefaultColors,
-    Surface, SurfaceKind, SurfaceOptions,
+    AttachStream, BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource,
+    BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions,
 };
 
 pub use ghostty_vt::Rgb;

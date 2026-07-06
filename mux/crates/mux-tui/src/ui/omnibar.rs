@@ -84,8 +84,37 @@ fn draw_idle(
         label.push('…');
     }
     let max = rect.width.saturating_sub(TEXT_START_X) as usize;
-    let text = truncate(&label, max);
-    put(frame, rect, TEXT_START_X, &text, base);
+    let suffix = " ⏸ chrome tab hidden";
+    let tree_stalled = app
+        .tree
+        .workspaces
+        .iter()
+        .flat_map(|ws| ws.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .find(|tab| tab.surface == area.surface)
+        .is_some_and(|tab| tab.browser_frames_stalled);
+    if (surface.browser_frames_stalled() || tree_stalled) && max > 0 {
+        let suffix_width = suffix.chars().count();
+        if max > suffix_width {
+            let label_max = max - suffix_width;
+            let text = truncate(&label, label_max);
+            put(frame, rect, TEXT_START_X, &text, base);
+            put(
+                frame,
+                rect,
+                TEXT_START_X + text.chars().count() as u16,
+                suffix,
+                base.fg(Color::Indexed(241)),
+            );
+        } else {
+            let text = truncate(suffix.trim_start(), max);
+            put(frame, rect, TEXT_START_X, &text, base.fg(Color::Indexed(241)));
+        }
+    } else {
+        let text = truncate(&label, max);
+        put(frame, rect, TEXT_START_X, &text, base);
+    }
 }
 
 fn draw_editing(app: &App, frame: &mut Frame, rect: Rect) {

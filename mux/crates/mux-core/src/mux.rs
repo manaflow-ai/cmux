@@ -106,7 +106,7 @@ impl Mux {
         let opts = self.surface_options.clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let surface = browser::new_surface(id, url.clone(), size, cell_pixels);
+        let surface = browser::new_surface(id, url.clone(), size, cell_pixels, &opts);
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
         self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
         surface
@@ -450,7 +450,7 @@ impl Mux {
         let opts = self.surface_options.clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let surface = browser::new_surface(id, url.clone(), size, cell_pixels);
+        let surface = browser::new_surface(id, url.clone(), size, cell_pixels, &opts);
         let attached = {
             let mut state = self.state.lock().unwrap();
             let Some(pane) = state.panes.get_mut(&pane_id) else {
