@@ -9,9 +9,12 @@ public struct SidebarPathFormatter: Sendable {
     /// default canonicalization root for the abbreviation helpers.
     public let homeDirectoryPath: String
 
-    /// Creates a path formatter with the current user's home directory by default.
-    public init(homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path) {
-        self.homeDirectoryPath = homeDirectoryPath
+    /// Creates a path formatter with the current user's home directory by
+    /// default. The home path is resolved in the body (not the default argument)
+    /// so `FileManager` stays out of this public init's module interface, which
+    /// the package's internal `import Foundation` would otherwise reject.
+    public init(homeDirectoryPath: String? = nil) {
+        self.homeDirectoryPath = homeDirectoryPath ?? FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     /// Abbreviates `path` using this formatter's `homeDirectoryPath`.
