@@ -444,13 +444,12 @@ final class RemoteTmuxController {
         mirrorSessions(sessions, host: host, into: tabManager)
     }
 
-    /// The subset of `sessions` not yet mirrored for `host`. Stable tmux ids
-    /// take precedence over mutable names so bulk discovery does not duplicate
-    /// a session while a `%session-renamed` event is still catching up
-    /// (#7362, #7365).
+    /// The subset of `sessions` not yet mirrored for `host`: stable tmux ids beat
+    /// mutable names so bulk discovery can't duplicate mid-rename (#7362, #7365).
+    /// Stream-reported ids win; discovery-seeded ids cover the pre-`%enter` gap.
     func unmirroredSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost) -> [RemoteTmuxSession] {
         let mirrors = sessionMirrors.values.filter { $0.host.connectionHash == host.connectionHash }
-        return Self.unmirroredSessions(sessions, mirroredSessionIds: Set(mirrors.compactMap(\.connection.sessionId)), mirroredNames: Set(mirrors.map(\.sessionName)))
+        return Self.unmirroredSessions(sessions, mirroredSessionIds: Set(mirrors.compactMap { $0.connection.sessionId ?? $0.seededSessionId }), mirroredNames: Set(mirrors.map(\.sessionName)))
     }
 
     /// Mirrors each not-yet-mirrored session into `manager` (one failure must not
@@ -459,7 +458,7 @@ final class RemoteTmuxController {
     func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager) {
         for session in unmirroredSessions(sessions, host: host) {
             do {
-                try mirrorSession(host: host, sessionName: session.name, into: manager)
+                try mirrorSession(host: host, sessionName: session.name, sessionId: Self.tmuxSessionNumericId(session.id), into: manager)
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: mirror session \(session.name) on \(host.destination) failed: \(error)")
@@ -493,10 +492,12 @@ final class RemoteTmuxController {
     }
 
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).
+    /// `sessionId` seeds discovery's stable id for de-dup before the stream reports it.
     @discardableResult
     func mirrorSession(
         host: RemoteTmuxHost,
         sessionName: String,
+        sessionId: Int? = nil,
         into tabManager: TabManager
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
@@ -514,6 +515,7 @@ final class RemoteTmuxController {
         sessionMirrors[key] = RemoteTmuxSessionMirror(
             host: host,
             sessionName: sessionName,
+            seededSessionId: sessionId,
             connection: connection,
             tabManager: tabManager,
             workspace: workspace
@@ -882,9 +884,8 @@ final class RemoteTmuxController {
         tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId)
     }
 
-    /// Removes a mirror and its control connection, then closes or converts the
-    /// local workspace. Used both when tmux reports the session is gone and when
-    /// the user deliberately detaches; neither path kills the remote session.
+    /// Removes a mirror + its control connection, then closes or converts the local
+    /// workspace. Shared by remote session-end and deliberate detach; neither kills.
     private func tearDownMirrorAndCloseWorkspace(
         host: RemoteTmuxHost,
         sessionName: String,
@@ -1150,9 +1151,8 @@ final class RemoteTmuxController {
     }
 
     /// Detaches a control client and removes its mirror workspace while leaving
-    /// the remote session alive. Internal callers that already removed the mirror
-    /// keep the low-level stop-only path so close/quit flows preserve their kill
-    /// semantics (#7364).
+    /// the remote session alive (#7364). Internal callers that already removed the
+    /// mirror keep the low-level stop-only path, preserving their kill semantics.
     func detach(host: RemoteTmuxHost, sessionName: String) {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         if let workspaceId = sessionMirrors[key]?.mirroredWorkspaceId {

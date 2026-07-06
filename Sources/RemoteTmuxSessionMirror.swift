@@ -14,6 +14,9 @@ import CmuxRemoteSession
 final class RemoteTmuxSessionMirror {
     let host: RemoteTmuxHost
     private(set) var sessionName: String
+    /// Discovery's stable tmux session id (`$N`), seeded at creation so id-based
+    /// de-dup works before the control stream reports `connection.sessionId`.
+    let seededSessionId: Int?
     let connection: RemoteTmuxControlConnection
 
     /// Updates the tracked session name after a `rename-session`.
@@ -71,12 +74,14 @@ final class RemoteTmuxSessionMirror {
     init(
         host: RemoteTmuxHost,
         sessionName: String,
+        seededSessionId: Int? = nil,
         connection: RemoteTmuxControlConnection,
         tabManager: TabManager,
         workspace: Workspace
     ) {
         self.host = host
         self.sessionName = sessionName
+        self.seededSessionId = seededSessionId
         self.connection = connection
         self.tabManager = tabManager
         self.workspace = workspace

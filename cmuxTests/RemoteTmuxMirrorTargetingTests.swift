@@ -88,6 +88,20 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(fresh.map(\.name) == ["fresh"])
     }
 
+    @Test func unmirroredSessionsSeesSeededSessionIdBeforeStreamReportsIt() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "user@host")
+        cacheConnection(controller: controller, host: host, sessionName: "old")
+        try controller.mirrorSession(host: host, sessionName: "old", sessionId: 3, into: manager)
+
+        // Renamed remotely before %session-changed re-keys: same $3, new name —
+        // the discovery-seeded id must prevent a duplicate mirror.
+        #expect(controller.unmirroredSessions([session("renamed", id: "$3")], host: host).isEmpty)
+        // A genuinely new session is still discovered.
+        #expect(controller.unmirroredSessions([session("fresh", id: "$4")], host: host).map(\.name) == ["fresh"])
+    }
+
     @Test func mirrorSessionsMirrorsOnlyNewSessionsAndIsIdempotent() throws {
         let controller = RemoteTmuxController()
         let manager = TabManager()
