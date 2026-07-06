@@ -1,14 +1,15 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
 /// Regression coverage for issue #7367: `ssh-session-attach --workspace <B> --split`
 /// must not anchor the split to the caller's `CMUX_SURFACE_ID` from workspace A.
 /// Gated by the dedicated non-tolerant focused CI step ("Run ssh-session-attach
 /// anchor regression"): the sharded unit-test run tolerates any failure summary
-/// reporting "(0 unexpected)", so a failing assertion there cannot red the shard.
-final class CLISSHSessionAttachAnchorTests: XCTestCase {
-    func testSplitWithExplicitWorkspaceOmitsCallerEnvSurfaceAnchor() throws {
+/// reporting "(0 unexpected)", so a failing test there cannot red the shard.
+@Suite(.serialized)
+struct CLISSHSessionAttachAnchorTests {
+    @Test func splitWithExplicitWorkspaceOmitsCallerEnvSurfaceAnchor() throws {
         let (requests, result) = try runSSHSessionAttach(
             arguments: [
                 "ssh-session-attach",
@@ -19,19 +20,19 @@ final class CLISSHSessionAttachAnchorTests: XCTestCase {
             ],
             responseWorkspaceId: Self.targetWorkspaceId
         )
-        XCTAssertEqual(result.status, 0, result.stderr + result.stdout)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        XCTAssertEqual(methods, ["surface.split"], methods.joined(separator: ","))
+        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
 
-        let params = try XCTUnwrap(requests.first?["params"] as? [String: Any])
-        XCTAssertEqual(params["workspace_id"] as? String, Self.targetWorkspaceId)
-        XCTAssertEqual(params["direction"] as? String, "right")
-        XCTAssertEqual(params["remote_pty_session_id"] as? String, "ssh-test")
-        XCTAssertNil(params["surface_id"], String(describing: params["surface_id"]))
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["direction"] as? String == "right")
+        #expect(params["remote_pty_session_id"] as? String == "ssh-test")
+        #expect(params["surface_id"] == nil)
     }
 
-    func testSplitWithExplicitWorkspaceAndExplicitSurfaceStillSendsSurface() throws {
+    @Test func splitWithExplicitWorkspaceAndExplicitSurfaceStillSendsSurface() throws {
         let (requests, result) = try runSSHSessionAttach(
             arguments: [
                 "ssh-session-attach",
@@ -43,17 +44,17 @@ final class CLISSHSessionAttachAnchorTests: XCTestCase {
             ],
             responseWorkspaceId: Self.targetWorkspaceId
         )
-        XCTAssertEqual(result.status, 0, result.stderr + result.stdout)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        XCTAssertEqual(methods, ["surface.split"], methods.joined(separator: ","))
+        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
 
-        let params = try XCTUnwrap(requests.first?["params"] as? [String: Any])
-        XCTAssertEqual(params["workspace_id"] as? String, Self.targetWorkspaceId)
-        XCTAssertEqual(params["surface_id"] as? String, Self.targetSurfaceId)
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.targetSurfaceId)
     }
 
-    func testSplitWithoutWorkspaceFlagStillUsesCallerEnvSurface() throws {
+    @Test func splitWithoutWorkspaceFlagStillUsesCallerEnvSurface() throws {
         let (requests, result) = try runSSHSessionAttach(
             arguments: [
                 "ssh-session-attach",
@@ -63,14 +64,14 @@ final class CLISSHSessionAttachAnchorTests: XCTestCase {
             ],
             responseWorkspaceId: Self.callerWorkspaceId
         )
-        XCTAssertEqual(result.status, 0, result.stderr + result.stdout)
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
-        XCTAssertEqual(methods, ["surface.split"], methods.joined(separator: ","))
+        #expect(methods == ["surface.split"], Comment(rawValue: methods.joined(separator: ",")))
 
-        let params = try XCTUnwrap(requests.first?["params"] as? [String: Any])
-        XCTAssertEqual(params["workspace_id"] as? String, Self.callerWorkspaceId)
-        XCTAssertEqual(params["surface_id"] as? String, Self.callerSurfaceId)
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(params["surface_id"] as? String == Self.callerSurfaceId)
     }
 
     private func runSSHSessionAttach(
@@ -120,10 +121,9 @@ final class CLISSHSessionAttachAnchorTests: XCTestCase {
             timeout: 5
         )
 
-        XCTAssertEqual(handled.wait(timeout: .now() + 5), .success)
-        let errors = state.errorsSnapshot()
-        XCTAssertTrue(errors.isEmpty, errors.joined(separator: "\n"))
-        XCTAssertTrue(!result.timedOut, result.stderr)
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
 
         return (try state.requestObjects(), result)
     }
@@ -175,7 +175,7 @@ final class CLISSHSessionAttachAnchorTests: XCTestCase {
             let lines = requestLines
             lock.unlock()
             return try lines.map { line in
-                try XCTUnwrap(CLISSHSessionAttachAnchorTests.jsonObject(line))
+                try #require(CLISSHSessionAttachAnchorTests.jsonObject(line))
             }
         }
     }
