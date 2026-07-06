@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CmuxCore
 import CmuxSettings
 import Testing
 
@@ -211,6 +212,271 @@ struct WindowTitleTemplateTests {
         #expect(workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/new"))
         manager.workspaceCurrentDirectoryDidChange(workspaceId: workspace.id)
         #expect(window.title == "[cmux:01234567] /tmp/new")
+    }
+
+    @MainActor
+    @Test func remoteWorkspaceTitleUsesReportedDirectoryForActiveDirectoryTemplate() throws {
+        let defaults = UserDefaults.standard
+        let previousValues: [String: Any?] = [
+            WindowTitleTemplate.userDefaultsKey: defaults.object(forKey: WindowTitleTemplate.userDefaultsKey),
+        ]
+        defer {
+            restore(previousValues, defaults: defaults)
+        }
+        defaults.set("[cmux:{windowToken}] {activeDirectory}", forKey: WindowTitleTemplate.userDefaultsKey)
+
+        let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        manager.windowId = windowId
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567] \(localDirectory)")
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-window-title.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+        #expect(window.title == "[cmux:01234567]")
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
+        #expect(window.title == "[cmux:01234567]")
+
+        workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: "seepine@192.168.5.20")
+        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
+        #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
+
+        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
+        #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
+
+        workspace.disconnectRemoteConnection()
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567]")
+        #expect(manager.gitProbeDirectory(for: workspace, panelId: remotePanelId) == nil)
+    }
+
+    @MainActor
+    @Test func remoteWorkspaceTitleUsesFocusedLocalTerminalDirectoryForActiveDirectoryTemplate() throws {
+        let defaults = UserDefaults.standard
+        let previousValues: [String: Any?] = [
+            WindowTitleTemplate.userDefaultsKey: defaults.object(forKey: WindowTitleTemplate.userDefaultsKey),
+        ]
+        defer {
+            restore(previousValues, defaults: defaults)
+        }
+        defaults.set("[cmux:{windowToken}] {activeDirectory}", forKey: WindowTitleTemplate.userDefaultsKey)
+
+        let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let initialDirectory = "/Users/alice/development"
+        let localTerminalDirectory = "/Users/alice/local-tools"
+        let remoteDirectory = "/home/seepine/workspace"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: initialDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        manager.windowId = windowId
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        let localPanel = try #require(workspace.newTerminalSplit(
+            from: remotePanelId,
+            orientation: .horizontal,
+            focus: false
+        ))
+        #expect(workspace.updatePanelDirectory(panelId: localPanel.id, directory: localTerminalDirectory))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-local-window-title.sock",
+                terminalStartupCommand: "ssh seepine@192.168.5.20"
+            ),
+            autoConnect: false
+        )
+        #expect(workspace.isRemoteTerminalSurface(remotePanelId))
+        #expect(!workspace.isRemoteTerminalSurface(localPanel.id))
+
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        workspace.focusPanel(localPanel.id)
+        #expect(workspace.presentedCurrentDirectory == localTerminalDirectory)
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567] \(localTerminalDirectory)")
+
+        workspace.focusPanel(remotePanelId)
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
+    }
+
+    @MainActor
+    @Test func remoteWorkspacePresentedDirectoryFallsBackToTrustedRemoteWhenAgentFocused() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: sshCommand
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-agent-focus.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        #expect(workspace.panelDirectories[agentPanel.id] == remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
+        let agentSnapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id })
+        #expect(agentSnapshot.directoryIsTrustedRemoteReport == true)
+
+        #expect(workspace.terminalPanel(for: agentPanel.id) == nil)
+        #expect(workspace.focusedPanelId == agentPanel.id)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(workspace.sessionSnapshot(includeScrollback: false))
+        let restoredAgentPanelId = try #require(restoredPanelIds[agentPanel.id])
+        #expect(restored.reportedPanelDirectory(panelId: restoredAgentPanelId) == remoteDirectory)
+        let restoredAgentSnapshot = try #require(
+            restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredAgentPanelId }
+        )
+        #expect(restoredAgentSnapshot.directoryIsTrustedRemoteReport == true)
+
+        let nonReportingAgent = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: "",
+            focus: true
+        ))
+        #expect(workspace.reportedPanelDirectory(panelId: nonReportingAgent.id) == nil)
+        let fallbackAgent = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        #expect(workspace.reportedPanelDirectory(panelId: fallbackAgent.id) == remoteDirectory)
+
+        workspace.disconnectRemoteConnection()
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
+        #expect(workspace.reportedPanelDirectory(panelId: fallbackAgent.id) == nil)
+    }
+
+    @MainActor
+    @Test func remoteTmuxMirrorRequiresTrustedDirectoryBeforePresentationFallback() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/tmux-workspace"
+        let workspace = Workspace(workingDirectory: localDirectory)
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: panelId, directory: localDirectory))
+
+        workspace.isRemoteTmuxMirror = true
+        #expect(workspace.presentedCurrentDirectory == nil)
+        #expect(workspace.reportedPanelDirectory(panelId: panelId) == nil)
+
+        workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: remoteDirectory)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: panelId) == remoteDirectory)
+    }
+
+    @MainActor
+    @Test func remoteWorkspaceReportsExplicitLocalAgentDirectory() throws {
+        let localDirectory = "/Users/alice/local-agent"
+        let workspace = Workspace(workingDirectory: "/Users/alice/development")
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: "ssh seepine@192.168.5.20"), autoConnect: false)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: localDirectory,
+            focus: true
+        ))
+
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == localDirectory)
+        #expect(workspace.presentedCurrentDirectory == localDirectory)
+    }
+
+    private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-window-title-\(UUID().uuidString).sock",
+            terminalStartupCommand: command
+        )
     }
 
     private func isolatedDefaults() throws -> UserDefaults {

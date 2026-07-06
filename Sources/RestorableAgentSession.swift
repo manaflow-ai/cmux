@@ -918,24 +918,6 @@ private enum AgentResumeScriptStore {
     }
 }
 
-private struct RestorableAgentHookSessionRecord: Codable, Sendable {
-    var sessionId: String
-    var workspaceId: String
-    var surfaceId: String
-    var cwd: String?
-    var transcriptPath: String?
-    var pid: Int?
-    var launchCommand: AgentLaunchCommandSnapshot?
-    var isRestorable: Bool?
-    var agentLifecycle: AgentHibernationLifecycleState?
-    var updatedAt: TimeInterval
-}
-
-private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
-    var version: Int = 1
-    var sessions: [String: RestorableAgentHookSessionRecord] = [:]
-}
-
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
@@ -1094,12 +1076,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                     : record
                 // Drop untrusted launch captures before ANY derivation: the
-                // working directory below would otherwise inherit the foreign
-                // agent's launch cwd even though the launch command is stripped.
+                // working directory below would otherwise inherit the foreign launch cwd.
                 effectiveRecord.launchCommand = trustedLaunchCommand(
                     effectiveRecord.launchCommand,
                     kind: kind
                 )
+                if kind == .codex, normalizedNonEmptyValue(effectiveRecord.launchCommand?.source)?.lowercased() == "environment", normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CODEX_HOME"]) == nil, (normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil) { effectiveRecord.launchCommand = nil }
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
@@ -1258,6 +1240,24 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
+        if kind == .codex {
+            guard record.isRestorable != false else { return false }
+            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+            let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
+            if record.isRestorable == true
+                || launchSource == "default"
+                || (record.launchCommand?.arguments.isEmpty == false
+                    && (launchSource == nil || ["environment", "process"].contains(launchSource))
+                    && !(launchSource == "environment" && normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))
+                || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
+                return true
+            }
+            guard let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else { return false }
+            return regularNonEmptyFileExists(
+                atPath: (transcriptPath as NSString).expandingTildeInPath,
+                fileManager: fileManager
+            )
+        }
         guard kind == .claude else {
             return record.isRestorable != false
         }
@@ -2182,16 +2182,26 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+            // Periodic autosave/deactivation saves re-run within seconds and
+            // self-heal, so they tolerate reusing a <=5s-old process snapshot.
+            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
         }.value
     }
 
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maximumSnapshotAge: TimeInterval? = nil
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        // Direct callers are termination-critical saves (quit, power-off, update
+        // relaunch): nothing runs later to correct a stale miss, so nil means a
+        // fresh capture. Only the periodic async path opts into cached reuse.
+        let processSnapshot = if let maximumSnapshotAge {
+            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
+        } else {
+            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        }
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,

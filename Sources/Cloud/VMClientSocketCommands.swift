@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
@@ -127,6 +128,62 @@ extension TerminalController {
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {
         guard let array = raw as? [Any] else { return [] }
         return array.compactMap { socketWorkerString($0) }
+    }
+
+    /// Handles `aiAccounts.*` socket methods backing `cmux ai-accounts`.
+    /// OAuth credential files are read here in the app process so the CLI only
+    /// sends provider/options; API-key providers may carry an explicit key.
+    ///
+    /// Trust model (conscious decision): the control socket is same-user
+    /// trusted. A socket caller can already exfiltrate any user-readable file
+    /// through existing verbs (`send` types arbitrary commands into a shell
+    /// pane), and this upload only goes to the signed-in user's own team
+    /// tenant using app-held auth. Reading the files app-side keeps secrets
+    /// out of CLI argv and socket payloads; moving the reads to the caller
+    /// would push credentials through more process boundaries, not fewer.
+    nonisolated func socketWorkerAIAccountsResponse(
+        method: String,
+        id: Any?,
+        params: [String: Any]
+    ) -> String {
+        switch method {
+        case "aiAccounts.list":
+            let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
+            return v2VmCall(id: id) {
+                let accounts = try await AIAccountsClient.shared.list(teamID: teamID)
+                return ["accounts": accounts.map(\.foundationObject)]
+            }
+        case "aiAccounts.upload":
+            guard let rawProvider = Self.socketWorkerString(params["provider"]),
+                  let provider = AIAccountProvider(rawValue: rawProvider) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: "aiAccounts.upload requires provider claude, codex, anthropic-key, or openai-key."
+                )
+            }
+            let label = Self.socketWorkerString(params["label"])
+            let explicitKey = Self.socketWorkerString(params["key"])
+            let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
+            let validate = Self.socketWorkerBool(params["validate"]) ?? false
+            return v2VmCall(id: id) {
+                let sources = AIAccountCredentialSources()
+                let payload = try sources.uploadPayload(provider: provider, label: label, explicitAPIKey: explicitKey)
+                let result = try await AIAccountsClient.shared.upload(payload, teamID: teamID, validate: validate)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
+        case "aiAccounts.remove":
+            guard let accountID = Self.socketWorkerString(params["id"]), !accountID.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "aiAccounts.remove requires `id`. Run `cmux ai-accounts list`.")
+            }
+            let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
+            return v2VmCall(id: id) {
+                let result = try await AIAccountsClient.shared.remove(id: accountID, teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
+        default:
+            return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+        }
     }
 
     private nonisolated static func socketWorkerSSHInfoPayload(_ endpoint: VMSSHEndpoint) -> [String: Any] {
