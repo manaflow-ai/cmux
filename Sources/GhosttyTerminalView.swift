@@ -1921,10 +1921,12 @@ class GhosttyApp {
             // render-path dispatch did not regress. RENDER itself is a no-op here
             // (the render is driven by Ghostty wakeups), so this measures pure
             // dispatch overhead.
+            #if DEBUG
             let renderTimingStart = CmuxTypingTiming.start()
             defer {
                 CmuxTypingTiming.logDuration(path: "terminal.handleAction.RENDER", startedAt: renderTimingStart)
             }
+            #endif
             return false
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
@@ -1933,18 +1935,22 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
+            #if DEBUG
             let scrollbarTimingStart = CmuxTypingTiming.start()
             defer {
                 CmuxTypingTiming.logDuration(path: "terminal.handleAction.SCROLLBAR", startedAt: scrollbarTimingStart)
             }
+            #endif
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
+            #if DEBUG
             let cellSizeTimingStart = CmuxTypingTiming.start()
             defer {
                 CmuxTypingTiming.logDuration(path: "terminal.handleAction.CELL_SIZE", startedAt: cellSizeTimingStart)
             }
+            #endif
             let cellSize = CGSize(
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)

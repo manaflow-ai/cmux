@@ -4,6 +4,12 @@ import CmuxSettings
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
+// Re-vend value types the refactor consolidated into CmuxSettings so app-module
+// consumers (and `@testable import cmux_DEV` tests that reference
+// `cmux_DEV.StoredShortcut`/etc.) keep resolving them without a package import.
+typealias StoredShortcut = CmuxSettings.StoredShortcut
+typealias ShortcutStroke = CmuxSettings.ShortcutStroke
+typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
