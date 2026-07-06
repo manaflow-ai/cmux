@@ -99,7 +99,10 @@ no review. An `--external` build is different: the FIRST external build of a new
 external tester can install it. Subsequent external builds of the same version
 ship without re-review. The scheduled `main` sync lane now uploads
 external-eligible builds too, so founders track `main` once the current version
-has cleared that review gate.
+has cleared that review gate. The upload path assigns the processed build to the
+app's external beta group automatically, auto-selecting the single external
+group or using `IOS_TESTFLIGHT_EXTERNAL_GROUP_ID` / `IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME`
+repo variables when the app has multiple external groups.
 
 ## TestFlight GitHub Actions signing
 

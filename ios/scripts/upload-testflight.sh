@@ -118,7 +118,11 @@ Options:
                             be added to an external group. External-eligible
                             builds must pass Apple Beta App Review (~24h) before
                             external testers can install the first build of a new
-                            MARKETING_VERSION. Also set via
+                            MARKETING_VERSION. With ASC API-key auth, the script
+                            also assigns the processed build to the selected
+                            external beta group (single external group by
+                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME).
+                            Also set via
                             CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
@@ -923,4 +927,24 @@ else
   else
     echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
   fi
+fi
+
+# --external means "ship to founders", not merely "make this build externally
+# eligible in principle". After upload, assign the processed build to the app's
+# external beta group so external testers actually receive it. This is fatal: a
+# red CI/upload is preferable to claiming the external lane tracked main when the
+# build never reached the founders group.
+if [[ "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "error: --external requires ASC API-key auth to assign the uploaded build to an external beta group. Set ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64)." >&2
+    exit 1
+  fi
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
+  ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+    ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
+    CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" \
+    CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" \
+    python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
+      --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+      --build-number "$SHIPPED_BUILD_NUMBER"
 fi
