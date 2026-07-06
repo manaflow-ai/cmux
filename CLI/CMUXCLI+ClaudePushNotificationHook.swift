@@ -88,18 +88,26 @@ extension CMUXCLI {
     /// Message for a PushNotification PostToolUse payload: the tool input's
     /// `message`, falling back to the structured tool_response `message`.
     /// Read from rawObject: the compacted `object` allowlist does not keep
-    /// `tool_input.message` or `tool_response`.
+    /// `tool_input.message` or `tool_response`. Normalized and capped like
+    /// every other hook notification body (240 chars, the message-key limit
+    /// in claudeHookCompactFieldLimit) so a model-controlled push cannot grow
+    /// the notification store/UI unboundedly.
     private func claudePushNotificationMessage(_ object: [String: Any]?) -> String? {
         guard let object else { return nil }
+        let rawMessage: String?
         if let input = object["tool_input"] as? [String: Any],
            let message = firstString(in: input, keys: ["message"]) {
-            return message
+            rawMessage = message
+        } else if let response = object["tool_response"] as? [String: Any],
+                  let message = firstString(in: response, keys: ["message"]) {
+            rawMessage = message
+        } else {
+            rawMessage = nil
         }
-        if let response = object["tool_response"] as? [String: Any],
-           let message = firstString(in: response, keys: ["message"]) {
-            return message
-        }
-        return nil
+        guard let rawMessage else { return nil }
+        let normalized = normalizedSingleLine(rawMessage)
+        guard !normalized.isEmpty else { return nil }
+        return truncate(normalized, maxLength: 240)
     }
 
     /// Whether the PushNotification tool call should surface as a cmux
