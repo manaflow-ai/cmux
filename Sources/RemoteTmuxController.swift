@@ -254,17 +254,6 @@ final class RemoteTmuxController {
         }
     }
 
-    private static func authRequiredAttachArgv(
-        host: RemoteTmuxHost,
-        result: RemoteTmuxCommandResult
-    ) -> [String]? {
-        guard !result.succeeded,
-              RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(result.stderr) else {
-            return nil
-        }
-        return host.interactiveAuthInvocation()
-    }
-
     // MARK: - Sidebar mirroring (P3, initial increment)
 
     /// Active session→workspace mirrors keyed `connectionHash\u{1}session`
@@ -336,7 +325,9 @@ final class RemoteTmuxController {
                 }
                 throw error
             }
-            try await mirrorUnmirroredSessionsIntoDedicatedWindow(host: host, windowId: existing, sessions: sessions)
+            guard try await mirrorUnmirroredSessionsIntoDedicatedWindow(host: host, windowId: existing, sessions: sessions) else {
+                throw RemoteTmuxError.unreachable("dedicated window closed during attach for \(host.destination)")
+            }
             return .mirrored(windowId: existing)
         }
         // Guard the await gap: a second concurrent attach for the same host must
@@ -376,7 +367,9 @@ final class RemoteTmuxController {
         if let existing = windowRegistry.windowId(forHostHash: host.connectionHash),
            let window = appDelegate.windowForMainWindowId(existing) {
             if activateWindow { window.makeKeyAndOrderFront(nil) }
-            try await mirrorUnmirroredSessionsIntoDedicatedWindow(host: host, windowId: existing, sessions: sessions)
+            guard try await mirrorUnmirroredSessionsIntoDedicatedWindow(host: host, windowId: existing, sessions: sessions) else {
+                throw RemoteTmuxError.unreachable("dedicated window closed during attach for \(host.destination)")
+            }
             return .mirrored(windowId: existing)
         }
 
@@ -450,14 +443,14 @@ final class RemoteTmuxController {
         mirrorSessions(sessions, host: host, into: tabManager)
     }
 
-    /// The subset of `sessions` not yet mirrored for `host`, keyed the same way
-    /// as live mirrors. Reuse-path discovery calls this so a second `cmux
-    /// ssh-tmux <host>` attaches only sessions created since the first mirror
-    /// (#7362).
+    /// The subset of `sessions` not yet mirrored for `host`. Stable tmux ids
+    /// take precedence over mutable names so reuse-path discovery does not
+    /// duplicate a session while a `%session-renamed` event is still catching up
+    /// (#7362, #7365).
     func unmirroredSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost) -> [RemoteTmuxSession] {
-        sessions.filter { session in
-            sessionMirrors[Self.connectionKey(host: host, sessionName: session.name)] == nil
-        }
+        let mirrors = sessionMirrors.values.filter { $0.host.connectionHash == host.connectionHash }
+        let namesWithoutId = Set(mirrors.compactMap { $0.connection.sessionId == nil ? $0.sessionName : nil })
+        return Self.unmirroredSessions(sessions, mirroredSessionIds: Set(mirrors.compactMap(\.connection.sessionId)), mirroredNames: Set(mirrors.map(\.sessionName)), mirroredNamesWithoutId: namesWithoutId)
     }
 
     /// Mirrors each session into `manager` (idempotent per host+session); one
@@ -475,19 +468,27 @@ final class RemoteTmuxController {
     }
 
     /// Mirrors newly-discovered sessions into an existing dedicated window.
-    /// Reuse paths do not take the in-flight window-creation guard; mirroring is
-    /// idempotent per host+session, and warming the master only happens when there
-    /// is actual new work to attach (#7362).
+    ///
+    /// Reuse paths skip the window-creation guard because mirroring is idempotent
+    /// (#7362). Revalidation must stay after the last await so a closed window
+    /// never receives invisible mirror workspaces.
     private func mirrorUnmirroredSessionsIntoDedicatedWindow(
         host: RemoteTmuxHost,
         windowId: UUID,
         sessions: [RemoteTmuxSession]
-    ) async throws {
-        guard let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId) else { return }
+    ) async throws -> Bool {
         let unmirrored = unmirroredSessions(sessions, host: host)
-        guard !unmirrored.isEmpty else { return }
-        try await ensureControlMasterReadyForBurst(host: host)
+        if !unmirrored.isEmpty {
+            try await ensureControlMasterReadyForBurst(host: host)
+            try Task.checkCancellation()
+        }
+        guard windowRegistry.windowId(forHostHash: host.connectionHash) == windowId,
+              let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+            return false
+        }
+        guard !unmirrored.isEmpty else { return true }
         mirrorSessions(unmirrored, host: host, into: manager)
+        return true
     }
 
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).

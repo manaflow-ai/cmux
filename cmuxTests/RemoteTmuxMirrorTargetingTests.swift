@@ -43,6 +43,49 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(controller.unmirroredSessions(sessions, host: host).map(\.name) == ["new"])
     }
 
+    @Test func tmuxSessionNumericIdParsesOnlyDollarPrefixedDecimalIds() {
+        #expect(RemoteTmuxController.tmuxSessionNumericId("$0") == 0)
+        #expect(RemoteTmuxController.tmuxSessionNumericId("$42") == 42)
+        #expect(RemoteTmuxController.tmuxSessionNumericId("0") == nil)
+        #expect(RemoteTmuxController.tmuxSessionNumericId("") == nil)
+        #expect(RemoteTmuxController.tmuxSessionNumericId("$x") == nil)
+        #expect(RemoteTmuxController.tmuxSessionNumericId("$-1") == nil)
+    }
+
+    @Test func unmirroredSessionsUsesStableSessionIdsBeforeNames() {
+        let renameRace = RemoteTmuxController.unmirroredSessions(
+            [session("zeromain", id: "$0")],
+            mirroredSessionIds: [0],
+            mirroredNames: ["0"],
+            mirroredNamesWithoutId: []
+        )
+        #expect(renameRace.isEmpty)
+
+        let reusedOldName = RemoteTmuxController.unmirroredSessions(
+            [session("0", id: "$5")],
+            mirroredSessionIds: [0],
+            mirroredNames: ["0"],
+            mirroredNamesWithoutId: []
+        )
+        #expect(reusedOldName.map(\.name) == ["0"])
+
+        let midAttach = RemoteTmuxController.unmirroredSessions(
+            [session("dev", id: "$5")],
+            mirroredSessionIds: [],
+            mirroredNames: ["dev"],
+            mirroredNamesWithoutId: ["dev"]
+        )
+        #expect(midAttach.isEmpty)
+
+        let fresh = RemoteTmuxController.unmirroredSessions(
+            [session("fresh", id: "$7")],
+            mirroredSessionIds: [0],
+            mirroredNames: ["old"],
+            mirroredNamesWithoutId: []
+        )
+        #expect(fresh.map(\.name) == ["fresh"])
+    }
+
     @Test func mirrorSessionsMirrorsOnlyNewSessionsAndIsIdempotent() throws {
         let controller = RemoteTmuxController()
         let manager = TabManager()

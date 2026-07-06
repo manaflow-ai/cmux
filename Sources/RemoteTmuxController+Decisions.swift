@@ -1,6 +1,20 @@
 import Foundation
 
 extension RemoteTmuxController {
+    /// Returns the interactive SSH argv when an attach preflight failed because
+    /// BatchMode could not prompt; otherwise the caller can handle the command
+    /// result normally.
+    nonisolated static func authRequiredAttachArgv(
+        host: RemoteTmuxHost,
+        result: RemoteTmuxCommandResult
+    ) -> [String]? {
+        guard !result.succeeded,
+              RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(result.stderr) else {
+            return nil
+        }
+        return host.interactiveAuthInvocation()
+    }
+
     /// Returns a cwd only when its source panel is backed by a live tmux window.
     ///
     /// A mirror workspace can briefly contain a local bootstrap/default terminal
@@ -59,6 +73,48 @@ extension RemoteTmuxController {
             return manager
         }
         return fallbackTabManager()
+    }
+
+    /// Parses tmux's stable session id (`"$3"`) to its numeric id.
+    ///
+    /// Only non-negative, `$`-prefixed ASCII decimal ids are accepted; names and
+    /// malformed ids fall back to name-based matching by returning nil.
+    nonisolated static func tmuxSessionNumericId(_ rawId: String) -> Int? {
+        guard rawId.first == "$" else { return nil }
+        let digits = rawId.dropFirst()
+        guard !digits.isEmpty,
+              digits.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }) else {
+            return nil
+        }
+        return Int(String(digits))
+    }
+
+    /// Sessions not yet mirrored, using stable tmux ids before mutable names.
+    ///
+    /// Identity precedence per session:
+    /// 1. If its stable id parses and matches a mirrored connection's sessionId,
+    ///    the session is already mirrored.
+    /// 2. If its id parses and no id-less mirror shares its name, it is new. This
+    ///    covers a fresh session reusing a stale pre-rename mirror's name.
+    /// 3. Otherwise fall back to name matching, covering mirrors whose connection
+    ///    has not learned its sessionId yet, such as mid-attach.
+    nonisolated static func unmirroredSessions(
+        _ sessions: [RemoteTmuxSession],
+        mirroredSessionIds: Set<Int>,
+        mirroredNames: Set<String>,
+        mirroredNamesWithoutId: Set<String>
+    ) -> [RemoteTmuxSession] {
+        sessions.filter { session in
+            if let sessionId = tmuxSessionNumericId(session.id) {
+                if mirroredSessionIds.contains(sessionId) {
+                    return false
+                }
+                if !mirroredNamesWithoutId.contains(session.name) {
+                    return true
+                }
+            }
+            return !mirroredNames.contains(session.name)
+        }
     }
 
     /// Builds ``MirrorTabActivity`` from per-pane foreground states. Pure;
