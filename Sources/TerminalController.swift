@@ -1519,7 +1519,7 @@ class TerminalController {
                 : .rejectConnection("ERROR: Access denied — only processes started inside cmux can connect")
         }
         return peerHasSameUID()
-            ? .allowCommands
+            ? .probeOnlyNoCommands
             : .rejectConnection("ERROR: Unable to verify client process")
     }
 
