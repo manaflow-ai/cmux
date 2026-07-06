@@ -1214,6 +1214,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if isActive {
             restartRenderGridLivenessWatchdogIfNeeded()
         } else {
+            cancelTerminalEventPongWaiters()
             stopRenderGridLivenessWatchdog(listenerID: nil)
         }
     }
@@ -6383,11 +6384,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             if restartOnFailure {
-                let streamDelivered = await self.verifyTerminalEventStreamDelivery(
-                    client: client,
-                    timeoutNanoseconds: timeoutNanoseconds
-                )
+                let streamDelivered = await self.verifyTerminalEventStreamDelivery(client: client, timeoutNanoseconds: timeoutNanoseconds)
                 guard streamDelivered else {
+                    guard self.isAppForegroundActive else { return }
                     MobileDebugLog.anchormux("sync.refresh_stream_failed reason=\(reason)")
                     self.resyncTerminalOutput(
                         reason: "\(reason).stream_failed",

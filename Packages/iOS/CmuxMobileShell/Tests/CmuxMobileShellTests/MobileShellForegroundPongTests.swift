@@ -45,3 +45,40 @@ import Testing
     #expect(replayed, "foreground stream restart must replay mounted terminal surfaces")
     collector.unmount()
 }
+
+@MainActor
+@Test func foregroundPongTimeoutDoesNotRestartAfterAppBackgroundsAgain() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing background cancellation"
+    )
+
+    await router.setDropPongEvents(true)
+    store.setAppForegroundActive(false)
+    store.resumeForegroundRefresh()
+    let pinged = try await pollUntil {
+        await router.count(of: "mobile.events.ping") >= 1
+    }
+    #expect(pinged, "foreground resume should send a push-stream ping")
+    store.setAppForegroundActive(false)
+    try await Task.sleep(nanoseconds: 300_000_000)
+
+    #expect(
+        await router.count(of: "mobile.host.status") == 1,
+        "a pong timeout after the app backgrounds again must not restart the listener"
+    )
+    collector.unmount()
+}

@@ -50,6 +50,7 @@ extension GhosttySurfaceView {
             .first { candidate in
                 candidate.hostSurfaceID == surfaceID && candidate.window != nil
                     && (sceneID == nil || candidate.window?.windowScene.map(ObjectIdentifier.init) == sceneID)
+                    && candidate.surface != nil && !candidate.isDismantled
                     && !candidate.isHidden && candidate.alpha > 0.01
             }
         guard let matchingView else { return false }

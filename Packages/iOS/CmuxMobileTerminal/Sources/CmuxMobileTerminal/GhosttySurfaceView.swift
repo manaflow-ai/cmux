@@ -2195,7 +2195,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surfaceID,
               let view = token?.view,
               view.hostSurfaceID == surfaceID,
-              view.window != nil,
+              view.window != nil, view.surface != nil, !view.isDismantled,
               !view.isHidden,
               view.alpha > 0.01 else {
             return false
