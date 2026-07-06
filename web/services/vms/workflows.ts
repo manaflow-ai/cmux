@@ -270,6 +270,15 @@ function waitForRunningStatus(
     if (!getStatus) return true;
     for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
       const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        Effect.timeoutFail({
+          duration: RESUME_STATUS_PROBE_TIMEOUT,
+          onTimeout: () =>
+            new VmProviderOperationError({
+              provider: vm.provider,
+              operation: `getStatus(${providerVmId})`,
+              cause: new Error("status probe timed out"),
+            }),
+        }),
         Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
       );
       if (status === "running") return true;
@@ -362,6 +371,14 @@ function preflightResumeIfSuspended(
           }),
         );
       }
+      // Persist the observed running state ourselves in case the resuming
+      // caller dies before its own durable write; a false return here means
+      // the row was already updated (or concurrently destroyed) and is fine.
+      yield* repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: "running",
+      });
       return;
     }
     if (status !== "paused") return;
@@ -397,6 +414,11 @@ function withResumeOnSuspendedAfterFailure<A, E extends VmWorkflowError>(
         if (status === "creating") {
           const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
           if (!settled) return yield* Effect.fail(originalError);
+          yield* repo.markProviderObservedStatus({
+            id: vm.id,
+            providerVmId,
+            status: "running",
+          }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           return yield* op;
         }
         if (status !== "paused") {
@@ -514,12 +536,13 @@ export function openAttachEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
-    yield* revokeActiveIdentities(vm);
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
-    // still says paused. Preflight-resume first; the after-failure recovery
-    // below stays as the backstop for a suspend racing the mint.
+    // still says paused. Preflight-resume first — and before revoking the
+    // user's existing identities, so a preflight failure never strands them
+    // with old credentials revoked and no replacement minted.
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
+    yield* revokeActiveIdentities(vm);
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -560,12 +583,13 @@ export function openSshEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
-    yield* revokeActiveIdentities(vm);
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
-    // still says paused. Preflight-resume first; the after-failure recovery
-    // below stays as the backstop for a suspend racing the mint.
+    // still says paused. Preflight-resume first — and before revoking the
+    // user's existing identities, so a preflight failure never strands them
+    // with old credentials revoked and no replacement minted.
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId);
+    yield* revokeActiveIdentities(vm);
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,

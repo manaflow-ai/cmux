@@ -908,7 +908,11 @@ describe("VM Effect workflows", () => {
     expect(execCalls).toBe(1);
     expect(resumeCalls).toBe(0);
     expect(statusCalls).toBe(2);
-    expect(observedStatuses).toEqual([]);
+    // The waiter persists the observed running state itself in case the
+    // resuming caller dies before its own durable write.
+    expect(observedStatuses).toEqual([
+      { id: vm.id, providerVmId: "provider-vm-exec-concurrent", status: "running" },
+    ]);
   });
 
   dbTest("does not block create when usage event recording fails", async () => {
