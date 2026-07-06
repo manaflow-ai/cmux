@@ -3376,6 +3376,17 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        // The default mobile-connect button is remotely toggleable; the flag
+        // is read when buttons are (re)applied, so a dashboard change lands
+        // on the next config reload or launch.
+        let buttons = CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
+            ? buttons
+            : buttons.filter { button in
+                if case .builtIn(let builtInAction) = button.action, builtInAction == .mobileConnect {
+                    return false
+                }
+                return true
+            }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
                 if button.terminalCommand != nil {
@@ -12958,6 +12969,8 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .mobileConnect:
+                MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

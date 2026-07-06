@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
 import { LanguageSwitcher } from "./language-switcher";
+import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 
 function isExternal(href: string) {
   return href.startsWith("http") || href.startsWith("mailto:");
@@ -14,6 +15,7 @@ export async function SiteFooter() {
     {
       heading: t("product"),
       links: [
+        { label: t("pricing"), href: "/pricing", proUpgrade: true },
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
@@ -57,27 +59,36 @@ export async function SiteFooter() {
                 {col.heading}
               </h3>
               <ul className="space-y-2">
-                {col.links.map((link) => (
-                  <li key={link.href}>
-                    {isExternal(link.href) ? (
-                      <a
-                        href={link.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-muted hover:text-foreground transition-colors"
-                      >
-                        {link.label}
-                      </a>
-                    ) : (
-                      <Link
-                        href={link.href}
-                        className="text-sm text-muted hover:text-foreground transition-colors"
-                      >
-                        {link.label}
-                      </Link>
-                    )}
-                  </li>
-                ))}
+                {col.links.map((link) => {
+                  const item = (
+                    <li key={link.href}>
+                      {isExternal(link.href) ? (
+                        <a
+                          href={link.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-muted hover:text-foreground transition-colors"
+                        >
+                          {link.label}
+                        </a>
+                      ) : (
+                        <Link
+                          href={link.href}
+                          className="text-sm text-muted hover:text-foreground transition-colors"
+                        >
+                          {link.label}
+                        </Link>
+                      )}
+                    </li>
+                  );
+                  return link.proUpgrade ? (
+                    <ProUpgradeVisibility key={link.href}>
+                      {item}
+                    </ProUpgradeVisibility>
+                  ) : (
+                    item
+                  );
+                })}
               </ul>
             </div>
           ))}
