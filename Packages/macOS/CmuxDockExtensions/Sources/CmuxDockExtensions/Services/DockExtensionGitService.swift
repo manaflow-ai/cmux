@@ -54,10 +54,13 @@ public actor DockExtensionGitService {
     /// servers that refuse SHA fetches.
     public func materializeCheckout(cloneURL: String, sha: String, into directory: URL) async throws {
         let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: directory.path) {
-            try? fileManager.removeItem(at: directory)
-        }
         do {
+            // A swallowed removal failure would resurface downstream as a
+            // misleading "remote origin already exists" git error; report the
+            // real staging problem instead.
+            if fileManager.fileExists(atPath: directory.path) {
+                try fileManager.removeItem(at: directory)
+            }
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         } catch {
             throw DockExtensionError.stagingFailed(detail: error.localizedDescription)
