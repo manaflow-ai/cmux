@@ -16,6 +16,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.name == rhs.name &&
             lhs.iconSymbol == rhs.iconSymbol &&
             lhs.tintHex == rhs.tintHex &&
+            lhs.storedColorHex == rhs.storedColorHex &&
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
@@ -46,6 +47,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let name: String
     let iconSymbol: String
     let tintHex: String?
+    /// The group's own stored color override (`WorkspaceGroup.customColor`),
+    /// independent of `tintHex` which already folds in the cwd-config fallback.
+    /// Drives whether the "Clear Color" action is offered.
+    let storedColorHex: String?
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
@@ -85,7 +90,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    /// Applies a palette/preset color (hex) or clears the override when nil.
+    let onSetColor: (String?) -> Void
+    /// Opens the custom-hex color prompt for the group.
+    let onChooseCustomColor: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
 
 #if DEBUG
@@ -107,6 +117,66 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     private var displayedIconSymbol: String {
         RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: iconSymbol, configured: nil)
+    }
+
+    /// Renders a palette swatch color, brightened for dark appearance to match
+    /// the per-workspace "Workspace Color" menu swatches.
+    private func groupColorSwatchNSColor(for hex: String) -> NSColor {
+        WorkspaceTabColorSettings.displayNSColor(hex: hex, colorScheme: colorScheme)
+            ?? NSColor(hex: hex)
+            ?? .gray
+    }
+
+    /// "Group Color" submenu, mirroring the per-workspace "Workspace Color"
+    /// menu: a custom-hex chooser, a clear action when an override exists, and
+    /// the shared palette swatches. Every action routes through `onSetColor` /
+    /// `onChooseCustomColor` so the group color mutation path stays shared with
+    /// the CLI/socket `workspace.group.set_color` command.
+    @ViewBuilder
+    private var groupColorMenu: some View {
+        Menu(
+            String(
+                localized: "workspaceGroup.contextMenu.color",
+                defaultValue: "Group Color"
+            )
+        ) {
+            // Item order mirrors the per-workspace "Workspace Color" submenu
+            // (ContentView): Clear (when an override exists), then the custom
+            // chooser, then the palette swatches.
+            if storedColorHex != nil {
+                Button {
+                    onSetColor(nil)
+                } label: {
+                    Label(
+                        String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"),
+                        systemImage: "xmark.circle"
+                    )
+                }
+            }
+            Button {
+                onChooseCustomColor()
+            } label: {
+                Label(
+                    String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"),
+                    systemImage: "paintpalette"
+                )
+            }
+            let palette = WorkspaceTabColorSettings.palette()
+            if !palette.isEmpty {
+                Divider()
+                ForEach(palette, id: \.id) { entry in
+                    Button {
+                        onSetColor(entry.hex)
+                    } label: {
+                        Label {
+                            Text(entry.name)
+                        } icon: {
+                            Image(nsImage: coloredCircleImage(color: groupColorSwatchNSColor(for: entry.hex)))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var shortcutHintPillText: String? {
@@ -347,6 +417,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                 action: onTogglePinned
             )
+            groupColorMenu
             Divider()
             Button(
                 String(

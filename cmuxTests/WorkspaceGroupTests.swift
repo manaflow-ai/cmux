@@ -973,6 +973,66 @@ struct WorkspaceGroupTests {
         #expect(restoredGroup.iconSymbol == "leaf.fill")
     }
 
+    @Test func setWorkspaceGroupColorAppliesPresetAndClearsOverride() throws {
+        let manager = makeTabManager()
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Colored", childWorkspaceIds: [manager.tabs[0].id])
+        )
+        func storedColor() -> String? {
+            manager.workspaceGroups.first { $0.id == groupId }?.customColor
+        }
+
+        // A fresh group has no override; the header tint falls back to the
+        // cwd-config color (or no tint).
+        #expect(storedColor() == nil)
+
+        // Applying a palette/preset hex (the swatch + custom-prompt path)
+        // records the override on the shared mutation path the context menu
+        // and the CLI/socket `workspace.group.set_color` both call.
+        manager.setWorkspaceGroupColor(groupId: groupId, hex: "#AABBCC")
+        #expect(storedColor() == "#AABBCC")
+
+        // Re-applying the same hex is idempotent and keeps the override.
+        manager.setWorkspaceGroupColor(groupId: groupId, hex: "#AABBCC")
+        #expect(storedColor() == "#AABBCC")
+
+        // Choosing a different preset replaces the override.
+        manager.setWorkspaceGroupColor(groupId: groupId, hex: "#1565C0")
+        #expect(storedColor() == "#1565C0")
+
+        // "Clear Color" removes the override entirely.
+        manager.setWorkspaceGroupColor(groupId: groupId, hex: nil)
+        #expect(storedColor() == nil)
+    }
+
+    @Test func groupColorClearedOverrideRoundTripsThroughSessionSnapshot() throws {
+        let manager = makeTabManager()
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Cleared", childWorkspaceIds: [manager.tabs[0].id])
+        )
+        manager.setWorkspaceGroupColor(groupId: groupId, hex: "#123456")
+        manager.setWorkspaceGroupColor(groupId: groupId, hex: nil)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredGroup = try #require(restored.workspaceGroups.first { $0.id == groupId })
+        #expect(restoredGroup.customColor == nil)
+    }
+
+    @Test func groupColorPromptNormalizesValidHexAndRejectsInvalidInput() {
+        // The "Choose Custom Color…" prompt only applies input accepted by
+        // WorkspaceTabColorSettings.normalizedHex; anything else surfaces the
+        // invalid-color warning and leaves the group's color unchanged.
+        #expect(WorkspaceTabColorSettings.normalizedHex("#aabbcc") == "#AABBCC")
+        #expect(WorkspaceTabColorSettings.normalizedHex("aabbcc") == "#AABBCC")
+        #expect(WorkspaceTabColorSettings.normalizedHex("  #A1B2C3  ") == "#A1B2C3")
+        #expect(WorkspaceTabColorSettings.normalizedHex("") == nil)
+        #expect(WorkspaceTabColorSettings.normalizedHex("nope") == nil)
+        #expect(WorkspaceTabColorSettings.normalizedHex("#12345") == nil)
+        #expect(WorkspaceTabColorSettings.normalizedHex("#1234567") == nil)
+    }
+
     @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: nil, configured: nil) == "folder.fill")
         #expect(RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: "   ", configured: "leaf.fill") == "leaf.fill")
