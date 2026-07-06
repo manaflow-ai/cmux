@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  DEFAULT_NATIVE_CALLBACK_SCHEME,
+  isAllowedNativeReturnTo,
+} from "../../lib/native-callback";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 
-const NATIVE_SCHEME = "cmux://";
-const NATIVE_SCHEMES = new Set(["cmux", "cmux-nightly"]);
 const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
 const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
+const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
 type AfterSignInMessages = {
   title: string;
   body: string;
   button: string;
+  switchAccountButton: string;
 };
 
 type LocalizedAfterSignInMessages = {
@@ -35,7 +39,9 @@ type StackAuthUserLike = {
 };
 
 type StackServerAppLike = {
-  getUser: (options: { or: "return-null" }) => Promise<StackAuthUserLike | null>;
+  getUser: (options: {
+    or: "return-null" | typeof ANONYMOUS_IF_EXISTS;
+  }) => Promise<StackAuthUserLike | null>;
 } | null;
 
 type AfterSignInHandlerDependencies = {
@@ -43,42 +49,6 @@ type AfterSignInHandlerDependencies = {
   stackServerApp: StackServerAppLike;
   getCookieStore: () => Promise<CookieStore>;
 };
-
-function isLocalRequest(request: NextRequest): boolean {
-  const hostHeader = request.headers.get("host");
-  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
-  return host === "localhost" || host === "127.0.0.1" || host === "::1";
-}
-
-function localAllowedNativeSchemes(): Set<string> {
-  const values = [
-    process.env.CMUX_AUTH_CALLBACK_SCHEME,
-    process.env.CMUX_ALLOWED_NATIVE_CALLBACK_SCHEMES,
-    process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES,
-  ];
-  const schemes = new Set<string>();
-  for (const value of values) {
-    for (const raw of value?.split(/[\s,]+/) ?? []) {
-      const scheme = raw.trim().replace(/:\/\/.*$/, "").replace(/:$/, "");
-      if (/^cmux-dev-[a-z0-9-]+$/.test(scheme)) schemes.add(scheme);
-    }
-  }
-  return schemes;
-}
-
-function isAllowedNativeReturnTo(href: string, request: NextRequest): boolean {
-  try {
-    const url = new URL(href);
-    if (url.hostname !== "auth-callback") return false;
-    if (url.pathname !== "" && url.pathname !== "/") return false;
-    const scheme = url.protocol.replace(":", "");
-    if (NATIVE_SCHEMES.has(scheme)) return true;
-    if (scheme === "cmux-dev") return isLocalRequest(request);
-    return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
-  } catch {
-    return false;
-  }
-}
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
@@ -138,14 +108,14 @@ function buildNativeHref(
   accessCookie: string | undefined
 ): string | null {
   if (!refreshToken || !accessCookie) return baseHref;
-  const href = baseHref ?? `${NATIVE_SCHEME}auth-callback`;
+  const href = baseHref ?? `${DEFAULT_NATIVE_CALLBACK_SCHEME}://auth-callback`;
   try {
     const url = new URL(href);
     url.searchParams.set("stack_refresh", refreshToken);
     url.searchParams.set("stack_access", accessCookie);
     return url.toString();
   } catch {
-    return `${NATIVE_SCHEME}auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
+    return `${DEFAULT_NATIVE_CALLBACK_SCHEME}://auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
   }
 }
 
@@ -210,17 +180,21 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  autoOpen: boolean
+  autoOpen: boolean,
+  switchAccountHref: string | null
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
   const scriptHref = JSON.stringify(href).replaceAll("<", "\\u003c");
+  const switchAccountAction = switchAccountHref
+    ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
+    : "";
+  const autoOpenScript = autoOpen
+    ? `  <script>\n    const cmuxAutoOpen = window.setTimeout(() => window.location.replace(${scriptHref}), 1200);\n    document.querySelectorAll("a").forEach((action) => action.addEventListener("click", () => window.clearTimeout(cmuxAutoOpen)));\n  </script>\n`
+    : "";
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
   const escapedButton = escapeHtml(messages.button);
-  const autoOpenScript = autoOpen
-    ? `  <script>\n    window.location.replace(${scriptHref});\n  </script>\n`
-    : "";
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -254,15 +228,26 @@ function nativeReturnResponse(
       line-height: 1.5;
       margin: 0 0 24px;
     }
+    .actions {
+      align-items: center;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
     a {
-      background: #111;
       border-radius: 8px;
-      color: #fff;
       display: inline-block;
       font-size: 14px;
       font-weight: 500;
       padding: 10px 18px;
       text-decoration: none;
+    }
+    a.primary {
+      background: #111;
+      color: #fff;
+    }
+    a.secondary {
+      color: #555;
     }
   </style>
 </head>
@@ -270,7 +255,9 @@ function nativeReturnResponse(
   <main>
     <h1>${escapedTitle}</h1>
     <p>${escapedBody}</p>
-    <a href="${escapedHref}">${escapedButton}</a>
+    <div class="actions">
+      <a class="primary" href="${escapedHref}">${escapedButton}</a>
+${switchAccountAction}    </div>
   </main>
 ${autoOpenScript}
 </body>
@@ -292,6 +279,23 @@ ${autoOpenScript}
     });
   }
   return response;
+}
+
+function currentAfterSignInPath(request: NextRequest): string {
+  const afterSignIn = new URL(request.nextUrl.pathname, request.nextUrl.origin);
+  const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
+  if (nativeReturnTo) afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+  return `${afterSignIn.pathname}${afterSignIn.search}`;
+}
+
+function switchAccountHref(request: NextRequest): string | null {
+  if (!request.nextUrl.searchParams.has("native_app_return_to")) return null;
+  const nativeSignIn = new URL("/handler/native-sign-in", request.nextUrl.origin);
+  nativeSignIn.searchParams.set("after_auth_return_to", currentAfterSignInPath(request));
+
+  const signOut = new URL("/handler/sign-out-and-sign-in", request.nextUrl.origin);
+  signOut.searchParams.set("after_auth_return_to", `${nativeSignIn.pathname}${nativeSignIn.search}`);
+  return `${signOut.pathname}${signOut.search}`;
 }
 
 function requestIsSecure(): boolean {
@@ -317,7 +321,9 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     let accessCookie = decodeCookieValue(rawAccessCookie);
 
     try {
-      const user = await authApp.getUser({ or: "return-null" });
+      const user =
+        (await authApp.getUser({ or: "return-null" })) ??
+        (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
       if (user) {
         const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
         const tokens = await session.getTokens();
@@ -342,7 +348,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen);
+          return nativeReturnResponse(href, localizedMessages, autoOpen, switchAccountHref(request));
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
@@ -355,7 +361,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false);
+      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false, switchAccountHref(request));
     }
 
     return NextResponse.redirect(new URL("/", request.url));

@@ -133,6 +133,9 @@ jobs:
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
 
+      - name: Validate external TestFlight group assignment helper
+        run: python3 tests/test_ios_testflight_external_distribution.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -201,11 +204,17 @@ jobs:
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate sidebar lazy-layout guard
+        run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
+
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+
+      - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
+        run: python3 scripts/lint-feature-flags.py
 
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
@@ -252,7 +261,11 @@ jobs:
         run: bun run typecheck
 
       - name: Web tests
-        run: bun test
+        # Explicit sorted file list: bun discovers test files in filesystem
+        # readdir order, which differs between Linux runners and local macOS,
+        # so an unpinned run exercises a file order no developer can
+        # reproduce. Sorted order makes CI failures replayable locally.
+        run: bun test $(ls tests/*.test.ts tests/*.test.tsx | sort)
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
@@ -344,10 +357,10 @@ jobs:
     if: ${{ needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions. Validated head-to-head that blacksmith-6vcpu-macos-15 runs the
-    # full app-host suite with 0 unexpected failures, identical to warp-15, so
-    # route through the shared MACOS_RUNNER_15 var like the other macOS jobs.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
+    # full app-host suite with 0 unexpected failures, so route through the
+    # shared MACOS_RUNNER_15 var like the other macOS jobs.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -645,10 +658,12 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_6714_zsh_shim_noclobber.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_push_notification.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
 
@@ -713,7 +728,7 @@ jobs:
   swift-package-tests:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -894,7 +909,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -904,7 +919,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1208,7 +1223,7 @@ jobs:
   release-ghostty-cli-helper:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1392,14 +1407,14 @@ jobs:
   ui-regressions:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1546,7 +1561,10 @@ jobs:
           DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
+          XCODEBUILD_LOG="/tmp/cmux-ui-test-display-${TOKEN}-xcodebuild.log"
+          BASELINE_READY_MARKER="CMUX_DISPLAY_CHURN_BASELINE_READY_${TOKEN}"
           HELPER_PID=""
+          START_SIGNAL_PID=""
           DISPLAY_LOCK_DIR=""
           DISPLAY_LOCK_TOKEN=""
 
@@ -1569,6 +1587,11 @@ jobs:
           }
 
           cleanup_attempt() {
+            if [ -n "${START_SIGNAL_PID:-}" ]; then
+              kill "$START_SIGNAL_PID" 2>/dev/null || true
+              wait "$START_SIGNAL_PID" 2>/dev/null || true
+              START_SIGNAL_PID=""
+            fi
             if [ -n "${HELPER_PID:-}" ]; then
               kill "$HELPER_PID" 2>/dev/null || true
               wait "$HELPER_PID" 2>/dev/null || true
@@ -1576,7 +1599,7 @@ jobs:
             fi
             release_display_lock
             pkill -x "cmux DEV" 2>/dev/null || true
-            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
+            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG" "$XCODEBUILD_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
           }
 
@@ -1608,18 +1631,17 @@ jobs:
             # this create on persistent self-hosted runners.
             scripts/ci/virtual-display-lock.sh reap-strays || true
 
-            # Launch display helper from shell (non-sandboxed).
-            # Use --start-delay-ms instead of --start-path because the XCTest
-            # runner is sandboxed and can't write to /tmp/ for the start signal.
-            # 10s delay gives the test time to capture baseline render stats.
+            # Launch display helper from shell (non-sandboxed). The helper waits
+            # on a shell-owned /tmp start file; XCTest prints a baseline-ready
+            # marker after sampling render stats, then the shell writes startPath.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
               --display-id-path "$DISPLAY_ID_PATH" \
+              --start-path "$DISPLAY_START" \
               --done-path "$DISPLAY_DONE" \
               --iterations 40 \
               --interval-ms 40 \
-              --start-delay-ms 10000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
             scripts/ci/virtual-display-lock.sh set-owner "$HELPER_PID"
@@ -1723,22 +1745,51 @@ jobs:
             # Write manifests so test can find the pre-launched state
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
             cat >"$MANIFEST_PATH" <<MANIFEST_EOF
-          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
+          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","startPath":"$DISPLAY_START","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
           MANIFEST_EOF
 
             PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
             cat >"$PRELAUNCH_PATH" <<PRELAUNCH_EOF
-          {"diagnosticsPath":"$DIAG_PATH"}
+          {"diagnosticsPath":"$DIAG_PATH","baselineReadyMarker":"$BASELINE_READY_MARKER"}
           PRELAUNCH_EOF
 
             # Run test — app is already launched from shell
+            (
+              for _ in $(seq 1 480); do
+                if grep -Fq "$BASELINE_READY_MARKER" "$XCODEBUILD_LOG" 2>/dev/null; then
+                  echo "XCTest baseline marker observed; starting display churn"
+                  printf 'start\n' > "$DISPLAY_START"
+                  exit 0
+                fi
+                sleep 0.25
+              done
+              echo "ERROR: XCTest baseline marker not observed before display-churn start timeout" >&2
+              echo "--- xcodebuild log tail ---" >&2
+              tail -80 "$XCODEBUILD_LOG" >&2 2>/dev/null || true
+              echo "--- diagnostics ---" >&2
+              cat "$DIAG_PATH" >&2 2>/dev/null || true
+              exit 1
+            ) &
+            START_SIGNAL_PID=$!
+
+            XCODEBUILD_OK=false
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-              test-without-building; then
+              test-without-building 2>&1 | tee "$XCODEBUILD_LOG"; then
+              XCODEBUILD_OK=true
+            fi
+
+            if [ -n "${START_SIGNAL_PID:-}" ]; then
+              kill "$START_SIGNAL_PID" 2>/dev/null || true
+              wait "$START_SIGNAL_PID" 2>/dev/null || true
+              START_SIGNAL_PID=""
+            fi
+
+            if [ "$XCODEBUILD_OK" = "true" ]; then
               cleanup_attempt
               exit 0
             fi

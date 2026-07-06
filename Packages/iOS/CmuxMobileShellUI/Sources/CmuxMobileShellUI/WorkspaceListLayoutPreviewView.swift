@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
@@ -11,6 +12,7 @@ import SwiftUI
 /// identical to the real shell.
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
+    @State private var macSelection: WorkspaceMacSelection = .all
 
     public init() {}
 
@@ -47,21 +49,30 @@ public struct WorkspaceListLayoutPreviewView: View {
     ]
 
     public var body: some View {
-        NavigationStack {
-            WorkspaceListView(
-                workspaces: workspaces,
-                selectedWorkspaceID: selectedWorkspaceID,
-                host: "Visual Mock Mac",
-                connectionStatus: .connected,
-                navigationStyle: .push,
-                wrapWorkspaceTitles: false,
-                previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
-                unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
-                selectWorkspace: { selectedWorkspaceID = $0 },
-                createWorkspace: {}
-            )
+        if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+            WorkspaceDetailCreateDelayedTerminalPreviewView()
+        } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
+            WorkspaceDetailDelayedTerminalPreviewView()
+        } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
+            WorkspaceDetailDelayedTerminalPreviewView()
+        } else {
+            NavigationStack {
+                WorkspaceListView(
+                    workspaces: workspaces,
+                    selectedWorkspaceID: selectedWorkspaceID,
+                    host: "Visual Mock Mac",
+                    connectionStatus: .connected,
+                    navigationStyle: .push,
+                    wrapWorkspaceTitles: false,
+                    previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
+                    unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+                    profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
+                    profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
+                    selectWorkspace: { selectedWorkspaceID = $0 },
+                    createWorkspace: {},
+                    macSelection: $macSelection
+                )
+            }
         }
     }
 }

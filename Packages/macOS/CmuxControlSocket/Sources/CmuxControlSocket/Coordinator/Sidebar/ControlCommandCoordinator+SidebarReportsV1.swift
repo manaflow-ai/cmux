@@ -4,11 +4,21 @@ internal import Foundation
 /// / `report_ports` / `report_pwd` / `report_shell_state` / `report_tty` /
 /// `ports_kick` / `sidebar_state` / `reset_sidebar` / `right_sidebar`), lifted
 /// byte-faithfully from the former `TerminalController` bodies.
+///
+/// The report/clear/kick family is `nonisolated` (the socket dispatcher's v1
+/// worker lane runs them on the connection thread): parse/validation runs on
+/// the calling thread, the explicit-scope hot paths enqueue on the ordered
+/// mutation bus with zero main hops, and each fallback path crosses to the
+/// main actor exactly once via
+/// ``ControlSidebarContext/controlSidebarOnMain(_:)`` for its synchronous
+/// resolution write. `sidebar_state` / `reset_sidebar` / `right_sidebar`
+/// stay on the main actor (unmigrated).
 extension ControlCommandCoordinator {
     // MARK: - Git branch
 
-    /// `report_git_branch` — record the reported git branch.
-    func sidebarReportGitBranch(_ args: String) -> String {
+    /// `report_git_branch` — record the reported git branch (scoped path:
+    /// parse + bus enqueue, zero hops; fallback path: one resolution hop).
+    nonisolated func sidebarReportGitBranch(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard let branch = parsed.positional.first else {
             return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty|clean|unknown] [--tab=X]"
@@ -29,29 +39,35 @@ extension ControlCommandCoordinator {
         // Keep this telemetry path off-main so wake/main-thread stalls don't
         // block socket handlers and starve subsequent branch updates.
         if let scope = sidebarExplicitScope(options: parsed.options) {
-            sidebarContext?.controlSidebarScheduleScopedGitBranchUpdate(scope: scope, branch: branch, isDirty: isDirty)
+            context?.controlSidebarScheduleScopedGitBranchUpdate(scope: scope, branch: branch, isDirty: isDirty)
             return "OK"
         }
 
-        guard sidebarContext?.controlSidebarUpdateGitBranch(
-            tabArg: parsed.options["tab"],
-            branch: branch,
-            isDirty: isDirty
-        ) ?? false else {
+        let tabArg = parsed.options["tab"]
+        let updated = context.map { seam in
+            seam.controlSidebarOnMain {
+                $0.controlSidebarUpdateGitBranch(tabArg: tabArg, branch: branch, isDirty: isDirty)
+            }
+        } ?? false
+        guard updated else {
             return parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
         }
         return "OK"
     }
 
     /// `clear_git_branch` — clear the reported git branch.
-    func sidebarClearGitBranch(_ args: String) -> String {
+    nonisolated func sidebarClearGitBranch(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
 
         if let scope = sidebarExplicitScope(options: parsed.options) {
-            sidebarContext?.controlSidebarScheduleScopedGitBranchClear(scope: scope)
+            context?.controlSidebarScheduleScopedGitBranchClear(scope: scope)
             return "OK"
         }
-        guard sidebarContext?.controlSidebarClearGitBranch(tabArg: parsed.options["tab"]) ?? false else {
+        let tabArg = parsed.options["tab"]
+        let cleared = context.map { seam in
+            seam.controlSidebarOnMain { $0.controlSidebarClearGitBranch(tabArg: tabArg) }
+        } ?? false
+        guard cleared else {
             return "ERROR: Tab not found"
         }
         return "OK"
@@ -59,8 +75,9 @@ extension ControlCommandCoordinator {
 
     // MARK: - Pull requests
 
-    /// `report_pr` / `report_review` — record a pull request on a panel.
-    func sidebarReportPullRequest(_ args: String) -> String {
+    /// `report_pr` / `report_review` — record a pull request on a panel
+    /// (parse + bus enqueue; zero main hops, replies are parse-only).
+    nonisolated func sidebarReportPullRequest(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard parsed.positional.count >= 2 else {
             return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
@@ -80,7 +97,7 @@ extension ControlCommandCoordinator {
         }
 
         let statusRaw = (parsed.options["state"] ?? "open").lowercased()
-        guard sidebarContext?.controlSidebarIsValidPullRequestState(statusRaw) ?? false else {
+        guard context?.controlSidebarIsValidPullRequestState(statusRaw) ?? false else {
             return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed"
         }
         let branch = sidebarNormalizedOptionValue(parsed.options["branch"])
@@ -103,7 +120,7 @@ extension ControlCommandCoordinator {
         guard let target = resolution.target else {
             return resolution.error ?? "ERROR: Tab not found"
         }
-        sidebarContext?.controlSidebarSchedulePanelPullRequestUpdate(
+        context?.controlSidebarSchedulePanelPullRequestUpdate(
             target: target,
             number: number,
             label: label,
@@ -114,8 +131,8 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
-    /// `clear_pr` — clear a panel's pull request.
-    func sidebarClearPullRequest(_ args: String) -> String {
+    /// `clear_pr` — clear a panel's pull request (parse + bus enqueue).
+    nonisolated func sidebarClearPullRequest(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         let resolution = sidebarPanelMutationTarget(
             options: parsed.options,
@@ -124,12 +141,13 @@ extension ControlCommandCoordinator {
         guard let target = resolution.target else {
             return resolution.error ?? "ERROR: Tab not found"
         }
-        sidebarContext?.controlSidebarSchedulePanelPullRequestClear(target: target)
+        context?.controlSidebarSchedulePanelPullRequestClear(target: target)
         return "OK"
     }
 
-    /// `report_pr_action` — record a PR command hint on a panel.
-    func sidebarReportPullRequestAction(_ args: String) -> String {
+    /// `report_pr_action` — record a PR command hint on a panel (parse + bus
+    /// enqueue).
+    nonisolated func sidebarReportPullRequestAction(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard let rawAction = parsed.positional.first, !rawAction.isEmpty else {
             return "ERROR: Missing PR action — usage: report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
@@ -149,7 +167,7 @@ extension ControlCommandCoordinator {
         guard let target = resolution.target else {
             return resolution.error ?? "ERROR: Tab not found"
         }
-        sidebarContext?.controlSidebarSchedulePanelPullRequestAction(
+        context?.controlSidebarSchedulePanelPullRequestAction(
             target: target,
             action: action,
             actionTarget: actionTarget
@@ -162,7 +180,7 @@ extension ControlCommandCoordinator {
     /// Maps the shared panel-write resolution to each command's legacy error
     /// strings (the panel-argument checks run app-side after tab resolution,
     /// preserving legacy ordering and prune side effects).
-    private func sidebarPanelWriteReply(
+    private nonisolated func sidebarPanelWriteReply(
         _ resolution: ControlSidebarPanelWriteResolution,
         hasTabOption: Bool,
         missingPanelUsage: String
@@ -183,8 +201,9 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// `report_ports` — record a surface's listening ports.
-    func sidebarReportPorts(_ args: String) -> String {
+    /// `report_ports` — record a surface's listening ports (port parsing
+    /// off-main, one resolution hop for the synchronous write + prune).
+    nonisolated func sidebarReportPorts(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard !parsed.positional.isEmpty else {
             return "ERROR: Missing ports — usage: report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
@@ -197,11 +216,13 @@ extension ControlCommandCoordinator {
             ports.append(port)
         }
 
-        let resolution = sidebarContext?.controlSidebarSetPorts(
-            tabArg: parsed.options["tab"],
-            panelArg: parsed.options["panel"] ?? parsed.options["surface"],
-            ports: ports
-        ) ?? .tabNotFound
+        let tabArg = parsed.options["tab"]
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let resolution = context.map { seam in
+            seam.controlSidebarOnMain {
+                $0.controlSidebarSetPorts(tabArg: tabArg, panelArg: panelArg, ports: ports)
+            }
+        } ?? .tabNotFound
         return sidebarPanelWriteReply(
             resolution,
             hasTabOption: parsed.options["tab"] != nil,
@@ -209,13 +230,17 @@ extension ControlCommandCoordinator {
         )
     }
 
-    /// `clear_ports` — clear a surface's (or all) listening ports.
-    func sidebarClearPorts(_ args: String) -> String {
+    /// `clear_ports` — clear a surface's (or all) listening ports (one
+    /// resolution hop).
+    nonisolated func sidebarClearPorts(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let resolution = sidebarContext?.controlSidebarClearPorts(
-            tabArg: parsed.options["tab"],
-            panelArg: parsed.options["panel"] ?? parsed.options["surface"]
-        ) ?? .tabNotFound
+        let tabArg = parsed.options["tab"]
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let resolution = context.map { seam in
+            seam.controlSidebarOnMain {
+                $0.controlSidebarClearPorts(tabArg: tabArg, panelArg: panelArg)
+            }
+        } ?? .tabNotFound
         return sidebarPanelWriteReply(
             resolution,
             hasTabOption: parsed.options["tab"] != nil,
@@ -223,35 +248,76 @@ extension ControlCommandCoordinator {
         )
     }
 
-    /// `report_pwd` — record a surface's working directory.
-    func sidebarReportPwd(_ args: String) -> String {
-        guard sidebarContext?.controlSidebarTabManagerAvailable() ?? false else {
-            return "ERROR: TabManager not available"
-        }
+    /// `report_pwd` — record a surface's working directory. The positional
+    /// argument is the real path unless `--path=` supplies one, in which case
+    /// the positional becomes a display-only sidebar label.
+    ///
+    /// The legacy body checks TabManager availability BEFORE any parse error,
+    /// so the reply is selected inside this command's single hop, over parse
+    /// results precomputed on the calling thread, in that exact order. The
+    /// explicit-scope enqueue also runs inside the hop (an enqueue from the
+    /// main actor, exactly as the legacy main-lane body did), keeping the
+    /// whole command to one hop instead of an availability hop plus a write
+    /// hop.
+    nonisolated func sidebarReportPwd(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        guard !parsed.positional.isEmpty else {
-            return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
-        }
 
-        let directory = parsed.positional.joined(separator: " ")
-        if let scope = sidebarExplicitScope(options: parsed.options) {
-            sidebarContext?.controlSidebarScheduleScopedDirectoryUpdate(scope: scope, directory: directory)
-            return "OK"
+        // Precomputed parse (legacy order preserved below): positional check,
+        // then the explicit `--path=` reconciliation.
+        let missingPathError = "ERROR: Missing path — usage: report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y]"
+        let missingFilesystemPathError = "ERROR: Missing filesystem path — usage: report_pwd <display-label> --path=/actual/path [--tab=X] [--panel=Y]"
+        let positional = parsed.positional.joined(separator: " ")
+        let explicitPath = parsed.options["path"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parseError: String?
+        if parsed.positional.isEmpty {
+            parseError = missingPathError
+        } else if let explicitPath, explicitPath.isEmpty {
+            parseError = missingFilesystemPathError
+        } else {
+            parseError = nil
         }
-        let resolution = sidebarContext?.controlSidebarUpdateDirectory(
-            tabArg: parsed.options["tab"],
-            panelArg: parsed.options["panel"] ?? parsed.options["surface"],
-            directory: directory
-        ) ?? .tabNotFound
-        return sidebarPanelWriteReply(
-            resolution,
-            hasTabOption: parsed.options["tab"] != nil,
-            missingPanelUsage: "report_pwd <path> [--tab=X] [--panel=Y]"
-        )
+        let directory = explicitPath ?? positional
+        let displayLabel = explicitPath == nil ? nil : positional
+        let scope = sidebarExplicitScope(options: parsed.options)
+        let tabArg = parsed.options["tab"]
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let hasTabOption = parsed.options["tab"] != nil
+
+        guard let context else { return "ERROR: TabManager not available" }
+        return context.controlSidebarOnMain { seam in
+            guard seam.controlSidebarTabManagerAvailable() else {
+                return "ERROR: TabManager not available"
+            }
+            if let parseError {
+                return parseError
+            }
+            if let scope {
+                seam.controlSidebarScheduleScopedDirectoryUpdate(
+                    scope: scope,
+                    directory: directory,
+                    displayLabel: displayLabel
+                )
+                return "OK"
+            }
+            return self.sidebarPanelWriteReply(
+                seam.controlSidebarUpdateDirectory(
+                    tabArg: tabArg,
+                    panelArg: panelArg,
+                    directory: directory,
+                    displayLabel: displayLabel
+                ),
+                hasTabOption: hasTabOption,
+                missingPanelUsage: "report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y]"
+            )
+        }
     }
 
-    /// `report_shell_state` — record a surface's shell activity state.
-    func sidebarReportShellState(_ args: String) -> String {
+    /// `report_shell_state` — record a surface's shell activity state. The
+    /// explicit-scope hot path (every shell prompt/command) is parse + dedupe
+    /// + bus enqueue with zero main hops; the fallback path folds the legacy
+    /// TabManager-availability guard and the synchronous write into one hop,
+    /// in the legacy order.
+    nonisolated func sidebarReportShellState(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard let rawState = parsed.positional.first, !rawState.isEmpty else {
             return "ERROR: Missing shell state — usage: report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
@@ -261,43 +327,55 @@ extension ControlCommandCoordinator {
         }
 
         if let scope = sidebarExplicitScope(options: parsed.options) {
-            sidebarContext?.controlSidebarScheduleScopedShellState(scope: scope, stateRawValue: stateRawValue)
+            context?.controlSidebarScheduleScopedShellState(scope: scope, stateRawValue: stateRawValue)
             return "OK"
         }
 
-        guard sidebarContext?.controlSidebarTabManagerAvailable() ?? false else {
-            return "ERROR: TabManager not available"
+        let tabArg = parsed.options["tab"]
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let hasTabOption = parsed.options["tab"] != nil
+        guard let context else { return "ERROR: TabManager not available" }
+        return context.controlSidebarOnMain { seam in
+            guard seam.controlSidebarTabManagerAvailable() else {
+                return "ERROR: TabManager not available"
+            }
+            return self.sidebarPanelWriteReply(
+                seam.controlSidebarUpdateShellState(
+                    tabArg: tabArg,
+                    panelArg: panelArg,
+                    stateRawValue: stateRawValue
+                ),
+                hasTabOption: hasTabOption,
+                missingPanelUsage: "report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
+            )
         }
-
-        let resolution = sidebarContext?.controlSidebarUpdateShellState(
-            tabArg: parsed.options["tab"],
-            panelArg: parsed.options["panel"] ?? parsed.options["surface"],
-            stateRawValue: stateRawValue
-        ) ?? .tabNotFound
-        return sidebarPanelWriteReply(
-            resolution,
-            hasTabOption: parsed.options["tab"] != nil,
-            missingPanelUsage: "report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
-        )
     }
 
-    /// `report_tty` — record a surface's TTY name.
-    func sidebarReportTTY(_ args: String) -> String {
+    /// `report_tty` — record a surface's TTY name. The explicit-scope path
+    /// enqueues on the ordered mutation bus (zero hops) — the same bus the
+    /// scoped `ports_kick` uses, so a kick enqueued after a TTY report drains
+    /// after the registration, preserving the report-then-kick dependency.
+    /// The fallback path (e.g. tmux, which omits `--panel`) keeps its
+    /// synchronous registration inside one hop so the reply is written only
+    /// after the registration is visible.
+    nonisolated func sidebarReportTTY(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard let ttyName = parsed.positional.first, !ttyName.isEmpty else {
             return "ERROR: Missing tty name — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
         }
 
         if let scope = sidebarExplicitScope(options: parsed.options) {
-            sidebarContext?.controlSidebarScheduleScopedTTY(scope: scope, ttyName: ttyName)
+            context?.controlSidebarScheduleScopedTTY(scope: scope, ttyName: ttyName)
             return "OK"
         }
 
-        let resolution = sidebarContext?.controlSidebarReportTTY(
-            tabArg: parsed.options["tab"],
-            panelArg: parsed.options["panel"] ?? parsed.options["surface"],
-            ttyName: ttyName
-        ) ?? .tabNotFound
+        let tabArg = parsed.options["tab"]
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let resolution = context.map { seam in
+            seam.controlSidebarOnMain {
+                $0.controlSidebarReportTTY(tabArg: tabArg, panelArg: panelArg, ttyName: ttyName)
+            }
+        } ?? .tabNotFound
         return sidebarPanelWriteReply(
             resolution,
             hasTabOption: parsed.options["tab"] != nil,
@@ -305,8 +383,9 @@ extension ControlCommandCoordinator {
         )
     }
 
-    /// `ports_kick` — kick the port scanner for a surface.
-    func sidebarPortsKick(_ args: String) -> String {
+    /// `ports_kick` — kick the port scanner for a surface (scoped path:
+    /// reason parse + bus enqueue, zero hops; fallback: one resolution hop).
+    nonisolated func sidebarPortsKick(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         let reasonRawValue: String
         if let rawReason = parsed.options["reason"], !rawReason.isEmpty {
@@ -319,15 +398,17 @@ extension ControlCommandCoordinator {
         }
 
         if let scope = sidebarExplicitScope(options: parsed.options) {
-            sidebarContext?.controlSidebarScheduleScopedPortsKick(scope: scope, reasonRawValue: reasonRawValue)
+            context?.controlSidebarScheduleScopedPortsKick(scope: scope, reasonRawValue: reasonRawValue)
             return "OK"
         }
 
-        let resolution = sidebarContext?.controlSidebarPortsKick(
-            tabArg: parsed.options["tab"],
-            panelArg: parsed.options["panel"] ?? parsed.options["surface"],
-            reasonRawValue: reasonRawValue
-        ) ?? .tabNotFound
+        let tabArg = parsed.options["tab"]
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let resolution = context.map { seam in
+            seam.controlSidebarOnMain {
+                $0.controlSidebarPortsKick(tabArg: tabArg, panelArg: panelArg, reasonRawValue: reasonRawValue)
+            }
+        } ?? .tabNotFound
         return sidebarPanelWriteReply(
             resolution,
             hasTabOption: parsed.options["tab"] != nil,

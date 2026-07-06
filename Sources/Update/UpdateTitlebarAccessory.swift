@@ -2274,12 +2274,14 @@ private struct NotificationsPopoverView: View {
             // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
+            // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
+            let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            tabTitle: tabTitle(for: notification.tabId),
+                            tabTitle: tabTitles[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -2307,6 +2309,7 @@ private struct NotificationsPopoverView: View {
                                 }
                             }
                         )
+                        .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
                         if index < lastIndex {
                             Divider()
                                 .opacity(0.4)
@@ -2336,9 +2339,6 @@ private struct NotificationsPopoverView: View {
         .padding(24)
     }
 
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId)
-    }
 
     private var jumpToUnreadShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
@@ -2370,7 +2370,12 @@ private struct NotificationsPopoverView: View {
     }
 }
 
-private struct NotificationPopoverRow: View {
+struct NotificationPopoverRow: View, Equatable {
+    // Closures excluded from ==; equality is the rendered snapshot only (#2586).
+    nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
+        lhs.notification == rhs.notification && lhs.tabTitle == rhs.tabTitle
+    }
+
     let notification: TerminalNotification
     let tabTitle: String?
     let onOpen: () -> Void
@@ -2671,6 +2676,7 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let mobileConnectIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarMobileConnect")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
@@ -2832,6 +2838,12 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == mobileConnectIdentifier }) {
+            let mobileConnect = MobileConnectTitlebarAccessoryViewController()
+            mobileConnect.view.identifier = mobileConnectIdentifier
+            window.addTitlebarAccessoryViewController(mobileConnect)
+        }
+
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
 
@@ -2853,7 +2865,8 @@ final class UpdateTitlebarAccessoryController {
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == controlsIdentifier
+                || accessory.view.identifier == mobileConnectIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -2868,7 +2881,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == controlsIdentifier || id == mobileConnectIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
