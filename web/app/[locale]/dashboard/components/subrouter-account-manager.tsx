@@ -1,4 +1,5 @@
 import { getTranslations } from "next-intl/server";
+import type { ReactNode } from "react";
 import { cloudDb } from "@/db/client";
 import { Link } from "@/i18n/navigation";
 import {
@@ -39,6 +40,8 @@ type SubrouterAccountManagerProps = {
   readonly description: string;
   readonly className: string;
 };
+
+type AiAccountsTranslations = Awaited<ReturnType<typeof getTranslations>>;
 
 export async function SubrouterAccountManager({
   locale,
@@ -118,51 +121,12 @@ export async function SubrouterAccountManager({
                 <p className="mt-2 text-sm text-muted">{t("emptyBody")}</p>
               </div>
             ) : (
-              <div className="overflow-hidden rounded-lg border border-border">
-                <div className="hidden grid-cols-[3rem_1.2fr_1fr_1fr_auto] gap-4 border-b border-border bg-muted/20 px-4 py-3 text-xs font-medium uppercase text-muted md:grid">
-                  <div>#</div>
-                  <div>{t("providerColumn")}</div>
-                  <div>{t("labelColumn")}</div>
-                  <div>{t("createdColumn")}</div>
-                  <div className="text-right">{t("actionsColumn")}</div>
-                </div>
-                {accountState.accounts.map((account, index) => {
-                  const accountNumber = index + 1;
-                  return (
-                    <div
-                      key={account.id}
-                      className="grid gap-3 border-b border-border px-4 py-3 text-sm last:border-b-0 md:grid-cols-[3rem_1.2fr_1fr_1fr_auto] md:items-center md:gap-4"
-                    >
-                      <div className="font-mono text-xs font-medium text-muted md:text-sm">
-                        <span className="md:hidden">#</span>
-                        {accountNumber}
-                      </div>
-                      <div>
-                        <div className="mb-1 text-xs font-medium uppercase text-muted md:hidden">
-                          {t("providerColumn")}
-                        </div>
-                        <div className="font-medium">{providerLabel(account.kind, t)}</div>
-                      </div>
-                      <div className="min-w-0 truncate text-muted">
-                        <div className="mb-1 text-xs font-medium uppercase text-muted md:hidden">
-                          {t("labelColumn")}
-                        </div>
-                        {account.label || t("unlabeledAccount")}
-                      </div>
-                      <div className="text-muted">
-                        <div className="mb-1 text-xs font-medium uppercase text-muted md:hidden">
-                          {t("createdColumn")}
-                        </div>
-                        {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
-                      </div>
-                      <DeleteAiAccountButton
-                        teamId={selectedTeam.id}
-                        accountId={account.id}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
+              <AccountTable
+                accounts={accountState.accounts}
+                dateFormatter={dateFormatter}
+                selectedTeamId={selectedTeam.id}
+                t={t}
+              />
             )}
           </section>
 
@@ -174,6 +138,72 @@ export async function SubrouterAccountManager({
           </aside>
         </div>
       )}
+    </div>
+  );
+}
+
+export function AccountTable({
+  accounts,
+  dateFormatter,
+  renderDeleteButton,
+  selectedTeamId,
+  t,
+}: {
+  readonly accounts: readonly SubrouterAccount[];
+  readonly dateFormatter: Intl.DateTimeFormat;
+  readonly renderDeleteButton?: (props: {
+    readonly accountId: string;
+    readonly teamId: string;
+  }) => ReactNode;
+  readonly selectedTeamId: string;
+  readonly t: AiAccountsTranslations;
+}) {
+  const deleteButton = renderDeleteButton ?? ((props) => <DeleteAiAccountButton {...props} />);
+  return (
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div className="hidden grid-cols-[3rem_1.2fr_1fr_1fr_auto] gap-4 border-b border-border bg-muted/20 px-4 py-3 text-xs font-medium uppercase text-muted md:grid">
+        <div>#</div>
+        <div>{t("providerColumn")}</div>
+        <div>{t("labelColumn")}</div>
+        <div>{t("createdColumn")}</div>
+        <div className="text-right">{t("actionsColumn")}</div>
+      </div>
+      {accounts.map((account, index) => {
+        const accountNumber = index + 1;
+        return (
+          <div
+            key={account.id}
+            className="grid gap-3 border-b border-border px-4 py-3 text-sm last:border-b-0 md:grid-cols-[3rem_1.2fr_1fr_1fr_auto] md:items-center md:gap-4"
+          >
+            <div className="font-mono text-xs font-medium text-muted md:text-sm">
+              <span className="md:hidden">#</span>
+              {accountNumber}
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-medium uppercase text-muted md:hidden">
+                {t("providerColumn")}
+              </div>
+              <div className="font-medium">{providerLabel(account.kind, t)}</div>
+            </div>
+            <div className="min-w-0 truncate text-muted">
+              <div className="mb-1 text-xs font-medium uppercase text-muted md:hidden">
+                {t("labelColumn")}
+              </div>
+              {account.label || t("unlabeledAccount")}
+            </div>
+            <div className="text-muted">
+              <div className="mb-1 text-xs font-medium uppercase text-muted md:hidden">
+                {t("createdColumn")}
+              </div>
+              {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
+            </div>
+            {deleteButton({
+              accountId: account.id,
+              teamId: selectedTeamId,
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
