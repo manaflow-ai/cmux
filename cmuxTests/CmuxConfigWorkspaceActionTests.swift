@@ -395,6 +395,7 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
         XCTAssertTrue(disclosure.contains("PATH=/tmp/bin"))
         XCTAssertTrue(disclosure.contains("cwd: ~/somewhere/else"))
         XCTAssertTrue(disclosure.contains("cwd /tmp/target: rm -rf ./scratch"))
+        XCTAssertTrue(disclosure.contains("url: https://example.com"))
 
         let plain = CmuxCommandDefinition(
             name: "Plain",

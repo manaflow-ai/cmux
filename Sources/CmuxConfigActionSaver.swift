@@ -86,15 +86,34 @@ enum CmuxConfigActionSaver {
         // the symlink path would replace the link with a regular file. Write
         // to the resolved target instead (a missing leaf resolves to itself).
         let configURL = URL(fileURLWithPath: globalConfigPath).resolvingSymlinksInPath()
+        let directoryURL = configURL.deletingLastPathComponent()
         try fileManager.createDirectory(
-            at: configURL.deletingLastPathComponent(),
+            at: directoryURL,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        try updated.write(to: configURL, atomically: true, encoding: .utf8)
-        // Saved actions can carry env values, URLs, and command lines; the
-        // atomic rewrite above resets permissions to the umask default, so
-        // re-tighten to owner-only every time.
+        // Saved actions can carry URLs and command lines: the replacement file
+        // must be owner-only from its very first byte, so create a 0600 temp
+        // in the same directory and rename(2) it into place — never a
+        // umask-permission window.
+        let tempURL = directoryURL.appendingPathComponent(".cmux.json.tmp-\(UUID().uuidString)")
+        guard fileManager.createFile(
+            atPath: tempURL.path,
+            contents: Data(updated.utf8),
+            attributes: [.posixPermissions: 0o600]
+        ) else {
+            throw SaveError.unreadableConfig(globalConfigPath)
+        }
+        let renameResult = tempURL.path.withCString { tempPath in
+            configURL.path.withCString { destinationPath in
+                rename(tempPath, destinationPath)
+            }
+        }
+        guard renameResult == 0 else {
+            try? fileManager.removeItem(at: tempURL)
+            throw SaveError.unreadableConfig(globalConfigPath)
+        }
+        // Also heal pre-existing loose permissions on the target.
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configURL.path)
         return SaveResult(actionID: actionID, configPath: globalConfigPath)
     }

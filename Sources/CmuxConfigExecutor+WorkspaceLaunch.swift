@@ -44,6 +44,11 @@ extension CmuxConfigExecutor {
                         lines.append(command)
                     }
                 }
+                if let url = surface.url {
+                    // Browser/project surfaces open these on run; URLs can
+                    // carry private query strings.
+                    lines.append("url: \(url)")
+                }
                 if let env = surface.env {
                     lines.append(contentsOf: envDisclosureLines(env))
                 }
