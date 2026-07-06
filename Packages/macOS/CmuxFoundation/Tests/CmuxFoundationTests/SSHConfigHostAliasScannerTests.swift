@@ -129,6 +129,17 @@ private struct InMemorySSHConfigFileReader: SSHConfigFileReading {
         #expect(aliases(config: config) == ["exact host"])
     }
 
+    @Test func negationOnTheSameLineExcludesMatchingAliases() {
+        // OpenSSH rejects the whole block for a target that matches any
+        // negated pattern, so `prod` and `app.corp` are not connectable
+        // through these blocks.
+        let config = """
+        Host !prod prod ok
+        Host !*.corp app.corp plain
+        """
+        #expect(aliases(config: config) == ["ok", "plain"])
+    }
+
     @Test func leadingDashAliasesAreExcluded() {
         // `cmux ssh` (like plain `ssh <destination>`) cannot take a
         // destination starting with `-`, so such aliases are not connectable.

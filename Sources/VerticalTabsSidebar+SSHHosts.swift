@@ -61,6 +61,9 @@ extension VerticalTabsSidebar {
     private func sshHostsSidebarItems() -> [SSHHostsSidebarItem] {
         // Track the remote-state revision so per-workspace connection
         // transitions (which do not flow through TabManager) re-derive items.
+        // Deriving from the live tabs on each (alias-filtered, rare) bump is
+        // intentional: an incrementally maintained active-alias snapshot would
+        // drift on paths that emit no transition (e.g. closing a workspace).
         _ = sshHostsSidebarModel.remoteStateRevision
         let activeAliases = Set(
             tabManager.tabs.compactMap { workspace -> String? in

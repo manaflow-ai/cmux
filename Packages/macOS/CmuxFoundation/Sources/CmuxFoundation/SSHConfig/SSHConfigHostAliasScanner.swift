@@ -7,7 +7,9 @@
 /// and collects every `Host` pattern that names a single real host:
 ///
 /// - Pattern entries containing `*` or `?` wildcards are skipped.
-/// - Negated (`!`) entries are skipped.
+/// - Negated (`!`) entries are skipped, and a concrete alias that matches a
+///   negated pattern on its own `Host` line is skipped too (OpenSSH rejects
+///   the whole block for such a target).
 /// - Entries starting with `-` are skipped (not connectable as an
 ///   `ssh <destination>` argument).
 /// - `Match` blocks and all other keywords are ignored.
@@ -109,7 +111,11 @@ public struct SSHConfigHostAliasScanner: Sendable {
             case .host(let patterns):
                 currentBlock = .host(patterns: patterns)
                 for pattern in patterns where Self.isConcreteAlias(pattern) {
-                    guard Self.alias(pattern, matchesEveryScopeIn: enclosingHostScopes) else { continue }
+                    // The alias must survive its own line's pattern list (a
+                    // same-line negation kills the block for that target)
+                    // and every enclosing conditional-include scope.
+                    guard Self.aliasMatchesPatternList(pattern, patterns: patterns),
+                          Self.alias(pattern, matchesEveryScopeIn: enclosingHostScopes) else { continue }
                     if seen.insert(pattern).inserted {
                         aliases.append(pattern)
                     }
