@@ -521,7 +521,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -548,6 +548,28 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
                 for h in cron_guard_hooks
             ),
             f"CronCreate guard should synchronously call hooks claude cron-create-guard, got {cron_guard_hooks}",
+            failures,
+        )
+
+    # PushNotification delivers via a raw OSC notification that cmux suppresses
+    # for agent surfaces and never fires the Notification hook, so a PostToolUse
+    # matcher is the only bridge into cmux notifications. Async: no decision.
+    post_tool_use_groups = hooks.get("PostToolUse", [])
+    push_notification_groups = [group for group in post_tool_use_groups if group.get("matcher") == "PushNotification"]
+    expect(
+        push_notification_groups,
+        f"PostToolUse should install a PushNotification bridge, got {post_tool_use_groups}",
+        failures,
+    )
+    if push_notification_groups:
+        push_hooks = push_notification_groups[0].get("hooks", [])
+        expect(
+            any(
+                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude push-notification'
+                and h.get("async") is True
+                for h in push_hooks
+            ),
+            f"PushNotification bridge should asynchronously call hooks claude push-notification, got {push_hooks}",
             failures,
         )
 
@@ -612,7 +634,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,

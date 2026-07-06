@@ -1,0 +1,11 @@
+[package]
+name = "ghostty-vt-sys"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Raw FFI bindings to libghostty-vt, built from the vendored ghostty submodule via zig"
+links = "ghostty-vt"
+
+[build-dependencies]
+bindgen = "0.71"

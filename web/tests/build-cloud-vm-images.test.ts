@@ -2,13 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { Freestyle } from "freestyle";
 import {
   cloudAgentToolPackageSpecs,
+  cloudImageRuntimeEnvironment,
   cloudImageSmokeTestCommands,
+  cloudShellPackageNames,
   cloudToolInstallCommands,
   findFreestyleSnapshotByName,
+  freestyleBaseDockerfileContent,
   freestyleRecoveryWindowStart,
   pinnedNpmPackageVersion,
   positiveIntFromEnv,
   semverFromEnv,
+  systemdEnvironmentLines,
   waitForFreestyleSnapshotByName,
   waitForRetryInterval,
 } from "../scripts/build-cloud-vm-images";
@@ -106,12 +110,97 @@ describe("Cloud VM image build helpers", () => {
     expect(bunInstall).toContain("sha256sum -c");
   });
 
+  test("base image installs native build and Python packaging apt tools", () => {
+    const packages = cloudShellPackageNames();
+
+    for (const packageName of [
+      "build-essential",
+      "pkg-config",
+      "python3-pip",
+      "python3-venv",
+      "golang-go",
+    ]) {
+      expect(packages.includes(packageName)).toBe(true);
+    }
+  });
+
+  test("GitHub CLI is installed from the official apt repository", () => {
+    const commands = cloudToolInstallCommands().join("\n");
+
+    expect(commands).toContain("https://cli.github.com/packages/githubcli-archive-keyring.gpg");
+    expect(commands).toContain("https://cli.github.com/packages stable main");
+    expect(commands).toContain("apt-get install -y --no-install-recommends gh nodejs");
+  });
+
+  test("mise installs Node LTS through system shims", () => {
+    const commands = cloudToolInstallCommands().join("\n");
+
+    expect(commands).toContain("MISE_INSTALL_PATH=/usr/local/bin/mise");
+    expect(commands).toContain("node = \"lts\"");
+    expect(commands).toContain("mise install --system node@lts");
+    expect(commands).toContain("MISE_DATA_DIR=/usr/local/share/mise mise reshim --force");
+    expect(cloudImageRuntimeEnvironment().PATH.split(":")).toContain("/usr/local/share/mise/shims");
+  });
+
+  test("rustup uses a minimal stable toolchain in the shared cargo path", () => {
+    const commands = cloudToolInstallCommands().join("\n");
+
+    expect(commands).toContain("https://sh.rustup.rs");
+    expect(commands).toContain("--profile minimal --default-toolchain stable --no-modify-path");
+    expect(commands).toContain("RUSTUP_HOME='/opt/rustup'");
+    expect(commands).toContain("CARGO_HOME='/opt/cargo'");
+    expect(cloudImageRuntimeEnvironment().PATH.split(":")).toContain("/opt/cargo/bin");
+    expect(cloudImageRuntimeEnvironment()).not.toHaveProperty("CARGO_HOME");
+  });
+
+  test("toolchain profile and environment are wired for non-login commands", () => {
+    const profileInstall = cloudToolInstallCommands().find((command) =>
+      command.includes("/etc/profile.d/cmux-toolchains.sh")
+    );
+
+    expect(profileInstall).toContain("/etc/environment");
+    expect(profileInstall).toContain("/usr/local/share/mise/shims:/opt/cargo/bin");
+    expect(cloudImageRuntimeEnvironment()).toMatchObject({
+      RUSTUP_HOME: "/opt/rustup",
+    });
+    expect(profileInstall).not.toContain("export CARGO_HOME=");
+  });
+
+  test("Freestyle systemd service inherits toolchain runtime environment", () => {
+    const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+    const systemdEnv = systemdEnvironmentLines(cloudImageRuntimeEnvironment());
+
+    for (const line of systemdEnv) {
+      expect(dockerfile).toContain(line);
+    }
+    expect(dockerfile).toContain("Environment=PATH=/usr/local/share/mise/shims:/opt/cargo/bin");
+    expect(dockerfile).toContain("Environment=RUSTUP_HOME=/opt/rustup");
+    expect(dockerfile).not.toContain("Environment=CARGO_HOME=");
+  });
+
   test("image smoke checks exercise the cmux browser entrypoint without a daemon", () => {
     const browserSmoke = cloudImageSmokeTestCommands().find((command) =>
       command.includes("cmux-browser-help.txt")
     );
     expect(browserSmoke).toContain("--socket /tmp/cmux-browser-smoke.sock browser");
     expect(browserSmoke).toContain("requires a subcommand");
+  });
+
+  test("image smoke checks cover baked toolchain commands", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+
+    expect(smoke).toContain("gcc /tmp/cmux-build-smoke.c -o /tmp/cmux-build-smoke");
+    expect(smoke).toContain("g++ --version");
+    expect(smoke).toContain("make --version");
+    expect(smoke).toContain("pkg-config --version");
+    expect(smoke).toContain("python3 -m pip --version");
+    expect(smoke).toContain("python3 -m venv /tmp/cmux-venv-smoke");
+    expect(smoke).toContain("test \"$(command -v node)\" = \"/usr/local/share/mise/shims/node\"");
+    expect(smoke).toContain("mise which node");
+    expect(smoke).toContain("go version");
+    expect(smoke).toContain("gh --version");
+    expect(smoke).toContain("rustup show active-toolchain");
+    expect(smoke).toContain("grep -q '^stable'");
   });
 
   test("snapshot recovery window tolerates provider clock skew", () => {
