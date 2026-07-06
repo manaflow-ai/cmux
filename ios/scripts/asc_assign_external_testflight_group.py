@@ -364,15 +364,14 @@ def _find_active_review_submission_on_sibling_build(
     return None
 
 
-def _pending_sibling_review_error(build_number: str, sibling_submission: Dict[str, str]) -> RuntimeError:
-    return RuntimeError(
-        "build "
-        f"{build_number} is still pending while sibling build {sibling_submission['build_id']} for "
+def _report_pending_sibling_review(build_number: str, sibling_submission: Dict[str, str]) -> None:
+    print(
+        "asc_assign_external_testflight_group: build "
+        f"{build_number} stays pending while sibling build {sibling_submission['build_id']} for "
         f"version {sibling_submission['pre_release_version'] or 'unknown'} remains in beta review "
         f"(submission {sibling_submission['submission_id']}, "
-        f"state={sibling_submission['beta_review_state']}); retry external assignment later"
+        f"state={sibling_submission['beta_review_state']})"
     )
-
 
 def _ensure_external_review_submission(
     token: str,
@@ -420,7 +419,8 @@ def _ensure_external_review_submission(
             )
 
         if sibling_submission is not None:
-            raise _pending_sibling_review_error(build_number, sibling_submission)
+            _report_pending_sibling_review(build_number, sibling_submission)
+            return
 
         if external_state == "READY_FOR_BETA_SUBMISSION":
             try:
@@ -444,7 +444,8 @@ def _ensure_external_review_submission(
                     )
                 sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
                 if sibling_submission is not None:
-                    raise _pending_sibling_review_error(build_number, sibling_submission)
+                    _report_pending_sibling_review(build_number, sibling_submission)
+                    return
                 last_submit_error = str(exc) or "submit beta app review did not succeed yet"
                 if time.time() >= deadline:
                     raise RuntimeError(
