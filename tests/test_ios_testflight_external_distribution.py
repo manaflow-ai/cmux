@@ -157,21 +157,29 @@ def main():
         "beta_review_state": "WAITING_FOR_REVIEW",
         "pre_release_version": "1.0.4",
     }
-    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
-    _check(
-        not submissions,
-        "same-version sibling builds already in beta review are left alone",
-    )
+    try:
+        module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    except RuntimeError as exc:
+        _check(
+            "still pending while sibling build build-2" in str(exc),
+            "same-version sibling builds already in beta review fail for later retry",
+        )
+    else:
+        _check(False, "same-version sibling builds already in beta review fail for later retry")
 
     module._build_beta_detail = lambda token, build_id: {
         "external_build_state": "",
         "internal_build_state": "READY_FOR_BETA_TESTING",
     }
-    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
-    _check(
-        not submissions,
-        "same-version sibling reviews short-circuit even before external state settles",
-    )
+    try:
+        module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    except RuntimeError as exc:
+        _check(
+            "still pending while sibling build build-2" in str(exc),
+            "same-version sibling reviews fail early even before external state settles",
+        )
+    else:
+        _check(False, "same-version sibling reviews fail early even before external state settles")
 
     module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
     try:
@@ -209,10 +217,26 @@ def main():
     module._find_active_review_submission_on_sibling_build = sibling_after_submit_failure
     module._beta_review_submission = lambda token, build_id: None
     module._submit_beta_review = lambda token, build_id: (_ for _ in ()).throw(RuntimeError("submit failed"))
+    try:
+        module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    except RuntimeError as exc:
+        _check(
+            "still pending while sibling build build-2" in str(exc),
+            "submit races against a sibling review fail for later retry",
+        )
+    else:
+        _check(False, "submit races against a sibling review fail for later retry")
+
+    module._submit_beta_review = lambda token, build_id: (_ for _ in ()).throw(RuntimeError("submit failed"))
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._beta_review_submission = lambda token, build_id: {
+        "id": "submission-1",
+        "beta_review_state": "WAITING_FOR_REVIEW",
+    }
     module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
     _check(
         not submissions,
-        "submit races against a sibling review are treated as pending instead of failing",
+        "submit races against current-build submission treat active submission as success",
     )
 
     module._submit_beta_review = fake_submit

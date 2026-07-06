@@ -364,6 +364,16 @@ def _find_active_review_submission_on_sibling_build(
     return None
 
 
+def _pending_sibling_review_error(build_number: str, sibling_submission: Dict[str, str]) -> RuntimeError:
+    return RuntimeError(
+        "build "
+        f"{build_number} is still pending while sibling build {sibling_submission['build_id']} for "
+        f"version {sibling_submission['pre_release_version'] or 'unknown'} remains in beta review "
+        f"(submission {sibling_submission['submission_id']}, "
+        f"state={sibling_submission['beta_review_state']}); retry external assignment later"
+    )
+
+
 def _ensure_external_review_submission(
     token: str,
     build_id: str,
@@ -376,51 +386,6 @@ def _ensure_external_review_submission(
         external_state = detail["external_build_state"]
         submission = _beta_review_submission(token, build_id)
         sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
-
-        if sibling_submission is not None:
-            print(
-                "asc_assign_external_testflight_group: build "
-                f"{build_number} stays pending while sibling build {sibling_submission['build_id']} "
-                f"for version {sibling_submission['pre_release_version'] or 'unknown'} remains in "
-                f"beta review (submission {sibling_submission['submission_id']}, "
-                f"state={sibling_submission['beta_review_state']})"
-            )
-            return
-
-        if external_state == "READY_FOR_BETA_SUBMISSION":
-            if submission is not None:
-                review_state = submission["beta_review_state"]
-                if review_state in ACTIVE_BETA_REVIEW_STATES:
-                    print(
-                        "asc_assign_external_testflight_group: build "
-                        f"{build_number} already has beta app review submission {submission['id']} "
-                        f"(state={review_state or 'unknown'})"
-                    )
-                    return
-                raise RuntimeError(
-                    "build "
-                    f"{build_number} has beta app review submission {submission['id']} "
-                    f"in unexpected betaReviewState={review_state or '<empty>'}"
-                )
-
-            try:
-                _submit_beta_review(token, build_id)
-            except RuntimeError:
-                sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
-                if sibling_submission is None:
-                    raise
-                print(
-                    "asc_assign_external_testflight_group: build "
-                    f"{build_number} stays pending while sibling build {sibling_submission['build_id']} "
-                    f"for version {sibling_submission['pre_release_version'] or 'unknown'} remains in "
-                    f"beta review (submission {sibling_submission['submission_id']}, "
-                    f"state={sibling_submission['beta_review_state']})"
-                )
-                return
-            print(
-                f"asc_assign_external_testflight_group: submitted build {build_number} for beta app review"
-            )
-            return
 
         if external_state in ACTIVE_EXTERNAL_BUILD_STATES:
             print(
@@ -443,6 +408,37 @@ def _ensure_external_review_submission(
                 f"{build_number} external state is {external_state or '<empty>'} with beta app review "
                 f"submission {submission['id']} in unexpected betaReviewState={review_state or '<empty>'}"
             )
+
+        if sibling_submission is not None:
+            raise _pending_sibling_review_error(build_number, sibling_submission)
+
+        if external_state == "READY_FOR_BETA_SUBMISSION":
+            try:
+                _submit_beta_review(token, build_id)
+            except RuntimeError:
+                submission = _beta_review_submission(token, build_id)
+                if submission is not None:
+                    review_state = submission["beta_review_state"]
+                    if review_state in ACTIVE_BETA_REVIEW_STATES:
+                        print(
+                            "asc_assign_external_testflight_group: build "
+                            f"{build_number} external state is READY_FOR_BETA_SUBMISSION with submission "
+                            f"{submission['id']} (state={review_state or 'unknown'})"
+                        )
+                        return
+                    raise RuntimeError(
+                        "build "
+                        f"{build_number} external state is READY_FOR_BETA_SUBMISSION with beta app review "
+                        f"submission {submission['id']} in unexpected betaReviewState={review_state or '<empty>'}"
+                    )
+                sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
+                if sibling_submission is not None:
+                    raise _pending_sibling_review_error(build_number, sibling_submission)
+                raise
+            print(
+                f"asc_assign_external_testflight_group: submitted build {build_number} for beta app review"
+            )
+            return
 
         if time.time() >= deadline:
             raise RuntimeError(
