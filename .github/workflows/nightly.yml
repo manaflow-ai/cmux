@@ -579,9 +579,7 @@ jobs:
             fi
             mv "$created_dmg" "$dmg_release"
             rm -rf "$dmg_tmp_dir"
-            hdiutil convert "$dmg_release" -format ULMO -o "${dmg_release%.dmg}-ulmo.dmg"
-            mv "${dmg_release%.dmg}-ulmo.dmg" "$dmg_release"
-            ls -la "$dmg_release"
+            ./scripts/convert-dmg-ulmo.sh "$dmg_release"
             /usr/bin/codesign --force --timestamp --keychain build.keychain \
               --sign "$APPLE_SIGNING_IDENTITY" \
               "$dmg_release"

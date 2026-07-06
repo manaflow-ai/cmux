@@ -458,9 +458,7 @@ jobs:
             "$APP_PATH" \
             ./
           mv ./cmux*.dmg "$DMG_RELEASE"
-          hdiutil convert "$DMG_RELEASE" -format ULMO -o "${DMG_RELEASE%.dmg}-ulmo.dmg"
-          mv "${DMG_RELEASE%.dmg}-ulmo.dmg" "$DMG_RELEASE"
-          ls -la "$DMG_RELEASE"
+          ./scripts/convert-dmg-ulmo.sh "$DMG_RELEASE"
           /usr/bin/codesign --force --timestamp --keychain build.keychain \
             --sign "$APPLE_SIGNING_IDENTITY" \
             "$DMG_RELEASE"

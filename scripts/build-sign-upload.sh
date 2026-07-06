@@ -116,12 +116,12 @@ echo "App notarized"
 
 # --- Create and notarize DMG ---
 echo "Creating DMG..."
-rm -f cmux-macos.dmg cmux-macos-ulmo.dmg
-create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
-hdiutil convert cmux-macos.dmg -format ULMO -o cmux-macos-ulmo.dmg
-mv cmux-macos-ulmo.dmg cmux-macos.dmg
+rm -f cmux-macos.dmg
+# No --codesign here: the ULMO conversion below invalidates the DMG signature,
+# so the DMG is signed once, after conversion.
+create-dmg cmux-macos.dmg "$APP_PATH"
+./scripts/convert-dmg-ulmo.sh cmux-macos.dmg
 codesign --force --timestamp --sign "$SIGN_HASH" cmux-macos.dmg
-ls -la cmux-macos.dmg
 echo "Notarizing DMG..."
 xcrun notarytool submit cmux-macos.dmg \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
