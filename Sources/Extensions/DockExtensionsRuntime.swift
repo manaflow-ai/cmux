@@ -12,9 +12,11 @@ import Observation
 final class DockExtensionsRuntime {
     static let shared = DockExtensionsRuntime()
 
-    /// The community marketplace gallery (auto-indexed from the
-    /// `cmux-extension` GitHub topic).
-    static let marketplaceURL = URL(string: "https://cmux.io/extensions")!
+    /// The community marketplace. Interim destination: the GitHub topic page
+    /// (the same source the gallery indexes), guaranteed live today. Flip to
+    /// `https://ncmux.com/extensions` once the gallery PR (#7416) deploys to
+    /// production — the site's canonical domain is ncmux.com (web/i18n/seo.ts).
+    static let marketplaceURL = URL(string: "https://github.com/topics/cmux-extension")!
 
     /// The extensions domain model every entrypoint funnels through.
     let store: DockExtensionsStore

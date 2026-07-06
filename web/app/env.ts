@@ -12,9 +12,13 @@ const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
   process.env.VERCEL_ENV === "preview";
 const allowPreviewStackPlaceholders = process.env.VERCEL_ENV === "preview";
+const isVercelNonPreviewDeployment =
+  process.env.VERCEL === "1" &&
+  typeof process.env.VERCEL_ENV === "string" &&
+  process.env.VERCEL_ENV !== "preview";
 const requireVercelNonPreviewValue = (name: string): z.ZodType<string | undefined> =>
   z.string().min(1).optional().superRefine((value, context) => {
-    if (process.env.VERCEL === "1" && process.env.VERCEL_ENV !== "preview" && !value) {
+    if (isVercelNonPreviewDeployment && !value) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${name} is required for deployed non-preview runtimes`,
