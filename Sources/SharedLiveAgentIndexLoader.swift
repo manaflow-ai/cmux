@@ -5,7 +5,8 @@ struct SharedLiveAgentIndexLoader {
     typealias LoadResult = (
         index: RestorableAgentSessionIndex,
         liveAgentProcessFingerprint: Set<String>,
-        processScopeFingerprint: Set<String>
+        processScopeFingerprint: Set<String>,
+        forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     )
 
     private let homeDirectory: String
@@ -15,6 +16,7 @@ struct SharedLiveAgentIndexLoader {
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
+    private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
 
     init(
         homeDirectory: String = NSHomeDirectory(),
@@ -32,7 +34,8 @@ struct SharedLiveAgentIndexLoader {
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
-        }
+        },
+        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator()
     ) {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
@@ -41,6 +44,7 @@ struct SharedLiveAgentIndexLoader {
         self.capturedAtProvider = capturedAtProvider
         self.processArgumentsProvider = processArgumentsProvider
         self.processIdentityProvider = processIdentityProvider
+        self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
 
     func loadSynchronously() -> RestorableAgentSessionIndex {
@@ -69,7 +73,13 @@ struct SharedLiveAgentIndexLoader {
         return (
             index: index,
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
-            processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot)
+            processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
+            forkValidatedPanels: Self.forkValidatedPanels(
+                in: index,
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: processIdentityProvider,
+                validator: cachedAgentProcessValidator
+            )
         )
     }
 
@@ -82,5 +92,45 @@ struct SharedLiveAgentIndexLoader {
                 String(process.parentPID)
             ].joined(separator: "|")
         })
+    }
+
+    private static func forkValidatedPanels(
+        in index: RestorableAgentSessionIndex,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
+        validator: CachedAgentProcessIdentityValidator
+    ) -> Set<RestorableAgentSessionIndex.PanelKey> {
+        Set(index.forkValidationEntries().compactMap { key, entry in
+            forkEntryIsValidForForkAvailability(
+                entry,
+                panelKey: key,
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: processIdentityProvider,
+                validator: validator
+            ) ? key : nil
+        })
+    }
+
+    private static func forkEntryIsValidForForkAvailability(
+        _ entry: RestorableAgentSessionIndex.Entry,
+        panelKey: RestorableAgentSessionIndex.PanelKey,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?,
+        validator: CachedAgentProcessIdentityValidator
+    ) -> Bool {
+        guard !entry.agentProcessIDs.isEmpty else { return true }
+        for processID in entry.agentProcessIDs {
+            guard let expectedIdentity = entry.agentProcessIdentities[processID],
+                  processIdentityProvider(processID) == expectedIdentity,
+                  let process = processArgumentsProvider(processID),
+                  process.matchesCMUXScope(
+                      workspaceId: panelKey.workspaceId,
+                      surfaceId: panelKey.panelId
+                  ),
+                  validator.currentProcess(process, matches: entry.snapshot) else {
+                return false
+            }
+        }
+        return true
     }
 }

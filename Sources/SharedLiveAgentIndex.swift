@@ -6,27 +6,13 @@ import Foundation
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
-    private struct ForkValidationKey: Hashable {
-        let workspaceId: UUID
-        let panelId: UUID
-        let kind: RestorableAgentKind
-        let sessionId: String
-
-        init(workspaceId: UUID, panelId: UUID, snapshot: SessionRestorableAgentSnapshot) {
-            self.workspaceId = workspaceId
-            self.panelId = panelId
-            self.kind = snapshot.kind
-            self.sessionId = snapshot.sessionId
-        }
-    }
-
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var forkAvailabilityProbeCompletedAt: Date?
-    private var validatedForkSnapshots = Set<ForkValidationKey>()
+    private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var processScopeFingerprint: Set<String> = []
@@ -43,14 +29,6 @@ final class SharedLiveAgentIndex {
     private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
-    private let processIsRunningProvider: @MainActor (Int) -> Bool
-    private let processMatchesCachedAgentProvider: @MainActor (
-        Int,
-        UUID,
-        UUID,
-        AgentPIDProcessIdentity?,
-        SessionRestorableAgentSnapshot
-    ) -> Bool
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
@@ -61,36 +39,11 @@ final class SharedLiveAgentIndex {
         },
         dateProvider: @escaping @MainActor () -> Date = {
             Date()
-        },
-        processIsRunningProvider: @escaping @MainActor (Int) -> Bool = { processId in
-            guard processId > 0, processId <= Int(Int32.max) else { return false }
-            let result = Darwin.kill(pid_t(processId), 0)
-            return result == 0 || errno == EPERM
-        },
-        processMatchesCachedAgentProvider: @escaping @MainActor (
-            Int,
-            UUID,
-            UUID,
-            AgentPIDProcessIdentity?,
-            SessionRestorableAgentSnapshot
-        ) -> Bool = { processId, workspaceId, panelId, expectedIdentity, snapshot in
-            guard let expectedIdentity,
-                  let currentIdentity = AgentPIDProcessIdentity(pid: pid_t(processId)),
-                  currentIdentity == expectedIdentity else {
-                return false
-            }
-            guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: processId) else {
-                return false
-            }
-            return process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId)
-                && CachedAgentProcessIdentityValidator().currentProcess(process, matches: snapshot)
         }
     ) {
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
-        self.processIsRunningProvider = processIsRunningProvider
-        self.processMatchesCachedAgentProvider = processMatchesCachedAgentProvider
     }
 
     deinit {
@@ -108,33 +61,14 @@ final class SharedLiveAgentIndex {
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         guard hasFreshForkAvailabilityProbe,
               !isForkAvailabilityRefreshInFlight,
-              let index else {
+              let index,
+              validatedForkPanels.contains(panelKey) else {
             return nil
         }
-        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
-            return nil
-        }
-        let processIDs = index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId)
-        let processIdentities = index.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId)
-        guard cachedLiveProcessIDsAreRunning(processIDs),
-              cachedLiveProcessIDsMatchSnapshot(
-                  processIDs,
-                  processIdentities: processIdentities,
-                  workspaceId: workspaceId,
-                  panelId: panelId,
-                  snapshot: snapshot
-              ) else {
-            return nil
-        }
-        if processIDs.isEmpty,
-           !validatedForkSnapshots.contains(
-               ForkValidationKey(workspaceId: workspaceId, panelId: panelId, snapshot: snapshot)
-           ) {
-            return nil
-        }
-        return snapshot
+        return index.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -147,7 +81,7 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
+        guard index.snapshot(workspaceId: workspaceId, panelId: panelId) != nil else {
             if let validatedAt = validatedMissingForkPanels[panelKey],
                dateProvider().timeIntervalSince(validatedAt) < Self.minEventReloadInterval {
                 return true
@@ -155,26 +89,7 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        let processIDs = index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId)
-        let processIdentities = index.agentProcessIdentities(workspaceId: workspaceId, panelId: panelId)
-        guard cachedLiveProcessIDsAreRunning(processIDs) else {
-            requestForkAvailabilityRefresh(validating: panelKey)
-            return false
-        }
-        guard cachedLiveProcessIDsMatchSnapshot(
-            processIDs,
-            processIdentities: processIdentities,
-            workspaceId: workspaceId,
-            panelId: panelId,
-            snapshot: snapshot
-        ) else {
-            requestForkAvailabilityRefresh(validating: panelKey)
-            return false
-        }
-        if processIDs.isEmpty,
-           !validatedForkSnapshots.contains(
-               ForkValidationKey(workspaceId: workspaceId, panelId: panelId, snapshot: snapshot)
-           ) {
+        guard validatedForkPanels.contains(panelKey) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
@@ -279,11 +194,13 @@ final class SharedLiveAgentIndex {
                 result.index,
                 loadedAt: loadedAt,
                 liveAgentProcessFingerprint: result.liveAgentProcessFingerprint,
-                processScopeFingerprint: result.processScopeFingerprint
+                processScopeFingerprint: result.processScopeFingerprint,
+                forkValidatedPanels: result.forkValidatedPanels
             )
         } else {
             self.loadedAt = loadedAt
             self.processScopeFingerprint = result.processScopeFingerprint
+            self.validatedForkPanels = result.forkValidatedPanels
         }
         applyPendingForkValidations()
     }
@@ -292,12 +209,13 @@ final class SharedLiveAgentIndex {
         _ newIndex: RestorableAgentSessionIndex,
         loadedAt: Date,
         liveAgentProcessFingerprint: Set<String>,
-        processScopeFingerprint: Set<String>
+        processScopeFingerprint: Set<String>,
+        forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
         index = newIndex
         self.loadedAt = loadedAt
         self.forkAvailabilityProbeCompletedAt = loadedAt
-        validatedForkSnapshots.removeAll()
+        validatedForkPanels = forkValidatedPanels
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
@@ -309,15 +227,7 @@ final class SharedLiveAgentIndex {
             return
         }
         for panelKey in pendingForkValidationPanels {
-            if let snapshot = index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) {
-                validatedForkSnapshots.insert(
-                    ForkValidationKey(
-                        workspaceId: panelKey.workspaceId,
-                        panelId: panelKey.panelId,
-                        snapshot: snapshot
-                    )
-                )
-            } else {
+            if index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) == nil {
                 validatedMissingForkPanels[panelKey] = dateProvider()
             }
         }
@@ -331,32 +241,6 @@ final class SharedLiveAgentIndex {
 
     private var isForkAvailabilityRefreshInFlight: Bool {
         refreshTask != nil || forkAvailabilityRefreshTask != nil
-    }
-
-    private func cachedLiveProcessIDsAreRunning(_ processIDs: Set<Int>) -> Bool {
-        for processID in processIDs {
-            guard processIsRunningProvider(processID) else { return false }
-        }
-        return true
-    }
-
-    private func cachedLiveProcessIDsMatchSnapshot(
-        _ processIDs: Set<Int>,
-        processIdentities: [Int: AgentPIDProcessIdentity],
-        workspaceId: UUID,
-        panelId: UUID,
-        snapshot: SessionRestorableAgentSnapshot
-    ) -> Bool {
-        for processID in processIDs {
-            guard processMatchesCachedAgentProvider(
-                processID,
-                workspaceId,
-                panelId,
-                processIdentities[processID],
-                snapshot
-            ) else { return false }
-        }
-        return true
     }
 
     private func handleHookStoreChange() {

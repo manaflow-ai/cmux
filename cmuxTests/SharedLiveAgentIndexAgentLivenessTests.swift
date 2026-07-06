@@ -77,7 +77,14 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             sampledAt: Date(timeIntervalSince1970: 42),
             includesProcessDetails: true
         )
-        let isAgentScopedToPanel = OSAllocatedUnfairLock(initialState: true)
+        let processArguments = OSAllocatedUnfairLock(initialState: CmuxTopProcessArguments(
+            arguments: [executable, "--session", sessionId],
+            environment: [
+                "PWD": cwd.path,
+                "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                "CMUX_SURFACE_ID": panelId.uuidString,
+            ]
+        ))
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 SharedLiveAgentIndexLoader(
@@ -88,10 +95,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                     capturedAtProvider: { 42 },
                     processArgumentsProvider: { pid in
                         guard pid == agentPID else { return nil }
-                        return CmuxTopProcessArguments(
-                            arguments: [executable, "--session", sessionId],
-                            environment: ["PWD": cwd.path]
-                        )
+                        return processArguments.withLock { $0 }
                     },
                     processIdentityProvider: { pid in
                         pid == agentPID ? agentIdentity : nil
@@ -101,19 +105,6 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
-            },
-            processIsRunningProvider: {
-                $0 == agentPID
-            },
-            processMatchesCachedAgentProvider: { pid, scopedWorkspaceId, scopedPanelId, identity, snapshot in
-                isAgentScopedToPanel.withLock { isScoped in
-                    isScoped
-                        && pid == agentPID
-                        && scopedWorkspaceId == workspaceId
-                        && scopedPanelId == panelId
-                        && identity == agentIdentity
-                        && snapshot.sessionId == sessionId
-                }
             }
         )
 
@@ -127,10 +118,110 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId
         )
 
-        isAgentScopedToPanel.withLock { $0 = false }
+        processArguments.withLock {
+            $0 = CmuxTopProcessArguments(
+                arguments: [executable, "--session", sessionId],
+                environment: [
+                    "PWD": cwd.path,
+                    "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                    "CMUX_SURFACE_ID": UUID().uuidString,
+                ]
+            )
+        }
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         #expect(
             !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
-            "An alive agent PID that moved to another panel must not keep the old panel forkable."
+            "An async validation pass should stop an agent PID that moved to another panel from keeping the old panel forkable."
+        )
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+    }
+
+    @Test
+    func forkAvailabilityReadsUseCachedValidationWithoutProcessInspection() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-agent-read-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let agentId = "forkable-read-cache-agent"
+        let sessionId = "read-cache-session"
+        let agentPID = 7_388
+        let executable = "/usr/local/bin/\(agentId)"
+        let identity = AgentPIDProcessIdentity(pid: pid_t(agentPID), startSeconds: 51, startMicroseconds: 9)
+        let registry = CmuxVaultAgentRegistry(registrations: [
+            CmuxVaultAgentRegistration(
+                id: agentId,
+                name: "Forkable Read Cache Agent",
+                detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "{{executable}} --session {{sessionId}}",
+                forkCommand: "{{executable}} --session {{sessionId}} --fork"
+            ),
+        ])
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: agentPID,
+                    parentPID: 1,
+                    name: agentId,
+                    path: executable,
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: workspaceId,
+                    cmuxSurfaceID: panelId,
+                    cmuxAttributionReason: "cmux-test",
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 51),
+            includesProcessDetails: true
+        )
+        let processArgumentReads = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                SharedLiveAgentIndexLoader(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: registry,
+                    processSnapshotProvider: { processSnapshot },
+                    capturedAtProvider: { 51 },
+                    processArgumentsProvider: { pid in
+                        guard pid == agentPID else { return nil }
+                        processArgumentReads.withLock { $0 += 1 }
+                        return CmuxTopProcessArguments(
+                            arguments: [executable, "--session", sessionId],
+                            environment: [
+                                "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                                "CMUX_SURFACE_ID": panelId.uuidString,
+                            ]
+                        )
+                    },
+                    processIdentityProvider: { pid in
+                        pid == agentPID ? identity : nil
+                    }
+                )
+                .loadResultSynchronously()
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(processArgumentReads.withLock { $0 } > 0)
+
+        processArgumentReads.withLock { $0 = 0 }
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId)
+        #expect(
+            processArgumentReads.withLock { $0 } == 0,
+            "Fork availability reads should use the cached off-main validation result."
         )
     }
 

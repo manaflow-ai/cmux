@@ -202,11 +202,7 @@ struct WorkspaceForkConversationContextMenuTests {
             },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
-            },
-            processIsRunningProvider: {
-                $0 == processId
-            },
-            processMatchesCachedAgentProvider: { $0 == processId && $1 == liveWorkspaceId && $2 == livePanelId && $3 == processIdentity && $4.sessionId == sessionId }
+            }
         )
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: staleWorkspaceId, panelId: stalePanelId)
