@@ -109,9 +109,8 @@ if op == "state" {
     var treeCharacters = 0
 
     func visit(_ element: AXUIElement, path: [Int], depth: Int) {
-        if nextIndex >= maxNodes { return }
+        if nextIndex >= maxNodes || treeCharacters >= maxTreeCharacters { return }
         let index = nextIndex
-        nextIndex += 1
         let role = stringAttr(element, kAXRoleAttribute as String)
         let subrole = stringAttr(element, kAXSubroleAttribute as String)
         let title = stringAttr(element, kAXTitleAttribute as String)
@@ -120,9 +119,6 @@ if op == "state" {
         let help = stringAttr(element, kAXHelpAttribute as String)
         let actions = actionsFor(element)
         let bounds = boundsFor(element)
-        var elementInfo = elementSnapshot(element, path: path, index: index)
-        if let bounds { elementInfo["bounds"] = bounds }
-        elements.append(elementInfo)
 
         let indent = String(repeating: "  ", count: depth)
         var line = "\(indent)[\(index)] \(role.isEmpty ? "AXElement" : role)"
@@ -133,12 +129,20 @@ if op == "state" {
         if !help.isEmpty { line += " help=\"\(clean(help))\"" }
         line += frameText(bounds)
         if !actions.isEmpty { line += " actions=\(actions)" }
-        if treeCharacters < maxTreeCharacters {
-            let remaining = maxTreeCharacters - treeCharacters
-            let clipped = line.count > remaining ? String(line.prefix(max(0, remaining))) + "…[truncated]" : line
-            lines.append(clipped)
-            treeCharacters += clipped.count + 1
+        guard treeCharacters + line.count + 1 <= maxTreeCharacters else {
+            if treeCharacters < maxTreeCharacters {
+                let marker = "…[truncated AX tree]"
+                lines.append(String(marker.prefix(maxTreeCharacters - treeCharacters)))
+                treeCharacters = maxTreeCharacters
+            }
+            return
         }
+        nextIndex += 1
+        var elementInfo = elementSnapshot(element, path: path, index: index)
+        if let bounds { elementInfo["bounds"] = bounds }
+        elements.append(elementInfo)
+        lines.append(line)
+        treeCharacters += line.count + 1
 
         if depth >= maxDepth { return }
         let children = childrenAttr(element)
