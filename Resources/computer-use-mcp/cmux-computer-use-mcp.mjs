@@ -37,6 +37,7 @@ const SAFE_CHILD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/lo
 const CHILD_ENV_ALLOW = new Set([
   "HOME", "TMPDIR", "USER", "LOGNAME", "SHELL", "TERM",
   "LANG", "LC_ALL", "TZ",
+  "DEVELOPER_DIR", "SDKROOT", "TOOLCHAINS", "SWIFT_EXEC", "MACOSX_DEPLOYMENT_TARGET",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
   "http_proxy", "https_proxy", "no_proxy", "all_proxy",
   "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
@@ -664,7 +665,7 @@ class MacComputerUseProvider {
     activeProviderDirs.add(dir);
     const binaryPath = join(dir, "cmux-computer-use-provider");
     try {
-      await execFileTool("/usr/bin/swiftc", ["-O", "-warnings-as-errors", "-o", binaryPath, ...sourcePaths], {
+      await execFileTool("/usr/bin/xcrun", ["swiftc", "-O", "-warnings-as-errors", "-o", binaryPath, ...sourcePaths], {
         timeout: TIMEOUT_MS,
         env: childEnv(),
       });
