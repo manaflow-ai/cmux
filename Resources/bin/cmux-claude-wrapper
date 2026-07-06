@@ -915,7 +915,7 @@ cmux_computer_use_mcp_config() {
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     bundled_mcp="$self_dir/cmux-computer-use-mcp"
     if [[ -x "$bundled_mcp" ]]; then
-        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":[]}}}' \
+        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":[],"env":{"NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
             "$(cmux_computer_use_json_escape "$bundled_mcp")"
         return 0
     fi
@@ -926,7 +926,7 @@ cmux_computer_use_mcp_config() {
         "$self_dir/../cmux-computer-use-mcp.mjs" \
         "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
         if [[ -f "$candidate" ]]; then
-            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"]}}}' \
+            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"],"env":{"NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
                 "$(cmux_computer_use_json_escape "$node_binary")" \
                 "$(cmux_computer_use_json_escape "$candidate")"
             return 0

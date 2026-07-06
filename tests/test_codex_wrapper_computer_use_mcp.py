@@ -35,6 +35,21 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
+def arg_value(args: list[str], prefix: str) -> str | None:
+    return next((arg.split("=", 1)[1] for arg in args if arg.startswith(prefix)), None)
+
+
+def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) -> None:
+    node_options = arg_value(args, "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=")
+    bun_options = arg_value(args, "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=")
+    expect(node_options is not None, f"{context}: missing NODE_OPTIONS scrub config in {args}", failures)
+    expect(bun_options is not None, f"{context}: missing BUN_OPTIONS scrub config in {args}", failures)
+    if node_options is not None:
+        expect(json.loads(node_options) == "", f"{context}: expected empty NODE_OPTIONS, got {node_options}", failures)
+    if bun_options is not None:
+        expect(json.loads(bun_options) == "", f"{context}: expected empty BUN_OPTIONS, got {bun_options}", failures)
+
+
 def run_wrapper(
     argv: list[str],
     *,
@@ -105,6 +120,8 @@ exit 1
             env["CMUX_SOCKET_PATH"] = str(socket_path)
             env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
+            env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
+            env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
             env.pop("CMUX_COMPUTER_USE_MCP_DISABLED", None)
 
@@ -153,6 +170,7 @@ def test_codex_gets_cmux_computer_use_mcp(failures: list[str]) -> None:
     if args_config is not None:
         mcp_args = json.loads(args_config.split("=", 1)[1])
         expect(mcp_args == [], f"expected no args for bundled MCP command, got {args_config}", failures)
+    expect_scrubbed_mcp_env(args, failures, "bundled MCP")
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
@@ -186,6 +204,7 @@ def test_codex_source_checkout_falls_back_to_mcp_script(failures: list[str]) -> 
             f"source fallback expected MCP server script path, got {args_config}",
             failures,
         )
+    expect_scrubbed_mcp_env(args, failures, "source fallback MCP")
 
 
 def main() -> int:

@@ -727,6 +727,25 @@ if (
   process.exit(1);
 }
 
+const localizedSuccessJa = await runCalls({
+  withElicitation: false,
+  extraEnv: { CMUX_CU_AUTO_APPROVE: "1", LC_ALL: "ja_JP.UTF-8" },
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_click", args: { app: "TestApp", element: 1 } },
+  ],
+});
+console.log(`localized success -> state=${localizedSuccessJa[0].isError} click=${localizedSuccessJa[1].text}`);
+if (
+  localizedSuccessJa[0].isError ||
+  localizedSuccessJa[1].isError ||
+  !localizedSuccessJa[1].text.includes("クリックしました") ||
+  localizedSuccessJa[1].text.includes("click")
+) {
+  console.error("FAIL: successful input actions should return localized catalog text, not raw provider English");
+  process.exit(1);
+}
+
 const shotAccepted = await run({
   withElicitation: true,
   tool: "computer_screenshot",

@@ -265,7 +265,11 @@ cmux_codex_emit_computer_use_args() {
             "-c" \
             "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$bundled_mcp")\"" \
             "-c" \
-            "mcp_servers.cmux-computer-use.args=[]"
+            "mcp_servers.cmux-computer-use.args=[]" \
+            "-c" \
+            "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
+            "-c" \
+            "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
         return 0
     fi
 
@@ -279,7 +283,11 @@ cmux_codex_emit_computer_use_args() {
                 "-c" \
                 "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$node_binary")\"" \
                 "-c" \
-                "mcp_servers.cmux-computer-use.args=[\"$(cmux_computer_use_json_escape "$candidate")\"]"
+                "mcp_servers.cmux-computer-use.args=[\"$(cmux_computer_use_json_escape "$candidate")\"]" \
+                "-c" \
+                "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=\"\"" \
+                "-c" \
+                "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
             return 0
         fi
     done

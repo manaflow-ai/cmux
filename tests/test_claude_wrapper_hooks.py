@@ -187,7 +187,11 @@ exit 0
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
-        if node_options is not None:
+        if node_options == "__CMUX_TEST_PRELOAD__":
+            preload_path = tmp / "cmux-test-preload.js"
+            preload_path.write_text("// benign preload used to test MCP env scrubbing\n", encoding="utf-8")
+            env["NODE_OPTIONS"] = f"--require={preload_path}"
+        elif node_options is not None:
             env["NODE_OPTIONS"] = node_options
         if setup_sandbox is not None:
             setup_sandbox(tmp, env)
@@ -915,6 +919,7 @@ def computer_use_sandbox(
     path_helper_trap: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
+        env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
         if bundled_server:
             make_executable(
                 tmp / "wrapper-bin" / "cmux-computer-use-mcp",
@@ -1039,10 +1044,20 @@ def extract_injected_mcp_config(argv: list[str]) -> dict | None:
     return json.loads(argv[index].split("=", 1)[1])
 
 
+def expect_computer_use_env_scrubbed(server: dict, failures: list[str], context: str) -> None:
+    env = server.get("env")
+    expect(
+        env == {"NODE_OPTIONS": "", "BUN_OPTIONS": ""},
+        f"{context}: expected runtime preload env scrub, got {server}",
+        failures,
+    )
+
+
 def test_live_socket_attaches_computer_use_mcp_when_provider_available(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
         argv=["hello"],
+        node_options="__CMUX_TEST_PRELOAD__",
         setup_sandbox=computer_use_sandbox(),
     )
     expect(code == 0, f"computer use inject: wrapper exited {code}: {stderr}", failures)
@@ -1063,11 +1078,7 @@ def test_live_socket_attaches_computer_use_mcp_when_provider_available(failures:
         )
         args = server.get("args", [])
         expect(args == [], f"computer use inject: expected no args for bundled MCP command, got {config}", failures)
-        expect(
-            "env" not in server,
-            f"computer use inject: expected no external runtime env pinning, got {config}",
-            failures,
-        )
+        expect_computer_use_env_scrubbed(server, failures, "computer use inject")
     inject_index = injected_mcp_config_index(real_argv)
     expect(
         inject_index is not None and inject_index < real_argv.index("hello"),
@@ -1102,6 +1113,7 @@ def test_computer_use_mcp_does_not_require_external_runtime_auth(failures: list[
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
+        node_options="__CMUX_TEST_PRELOAD__",
         setup_sandbox=computer_use_sandbox(),
     )
     expect(code == 0, f"computer use no external auth: wrapper exited {code}: {stderr}", failures)
@@ -1113,11 +1125,22 @@ def test_computer_use_mcp_does_not_require_external_runtime_auth(failures: list[
     )
     if config is not None:
         server = config.get("mcpServers", {}).get("cmux-computer-use", {})
-        expect(
-            "env" not in server,
-            f"computer use no external auth: expected no legacy env in injected config, got {config}",
-            failures,
-        )
+        expect_computer_use_env_scrubbed(server, failures, "computer use no external auth")
+
+
+def test_computer_use_source_fallback_scrubs_runtime_preloads(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options="__CMUX_TEST_PRELOAD__",
+        setup_sandbox=computer_use_sandbox(bundled_server=False),
+    )
+    expect(code == 0, f"computer use source fallback: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect(config is not None, f"computer use source fallback: expected MCP config, got {real_argv}", failures)
+    if config is not None:
+        server = config.get("mcpServers", {}).get("cmux-computer-use", {})
+        expect_computer_use_env_scrubbed(server, failures, "computer use source fallback")
 
 
 def test_computer_use_mcp_skips_workspace_node(failures: list[str]) -> None:
@@ -2236,6 +2259,7 @@ def main() -> int:
     test_live_socket_attaches_computer_use_mcp_when_provider_available(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_mcp_does_not_require_external_runtime_auth(failures)
+    test_computer_use_source_fallback_scrubs_runtime_preloads(failures)
     test_computer_use_mcp_skips_workspace_node(failures)
     test_computer_use_mcp_skips_workspace_root_node(failures)
     test_computer_use_mcp_skips_workspace_node_symlink_target(failures)

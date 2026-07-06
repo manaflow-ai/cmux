@@ -1255,8 +1255,7 @@ function err(message, stdout = "") {
 
 function passthrough(result, fallback) {
   if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
-  const body = firstText(result);
-  return ok([text(body || fallback)]);
+  return ok([text(fallback)]);
 }
 
 // Private capture dirs currently in flight, scrubbed synchronously on
