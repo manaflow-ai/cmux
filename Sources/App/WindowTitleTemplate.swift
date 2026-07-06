@@ -43,6 +43,8 @@ struct WindowTitleTemplate: Equatable, Sendable {
             ("windowId", context.windowId.uuidString.lowercased()),
             ("windowToken", Self.windowToken(for: context.windowId)),
             ("activeWorkspace", context.activeWorkspace),
+            ("activePanel", context.focusedPanel),
+            ("focusedPanel", context.focusedPanel),
             ("activeDirectory", context.activeDirectory),
             ("defaultTitle", context.defaultTitle),
             ("appName", context.appName),

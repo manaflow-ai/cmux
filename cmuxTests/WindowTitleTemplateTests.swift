@@ -17,18 +17,19 @@ struct WindowTitleTemplateTests {
     @Test func resolvesWindowPlaceholdersAndPreservesUnknownPlaceholders() throws {
         let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
         let template = WindowTitleTemplate(
-            rawValue: "[cmux:{windowToken}] {activeWorkspace} {activeDirectory} {windowId} {defaultTitle} {appName} {unknown}"
+            rawValue: "[cmux:{windowToken}] {activeWorkspace} {focusedPanel} {activePanel} {activeDirectory} {windowId} {defaultTitle} {appName} {unknown}"
         )
 
         let resolved = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: "Fallback",
             activeWorkspace: "Build",
+            focusedPanel: "Shell",
             activeDirectory: "/tmp/project",
             windowId: windowId,
             appName: "cmux"
         ))
 
-        #expect(resolved == "[cmux:01234567] Build /tmp/project 01234567-89ab-cdef-0123-456789abcdef Fallback cmux {unknown}")
+        #expect(resolved == "[cmux:01234567] Build Shell Shell /tmp/project 01234567-89ab-cdef-0123-456789abcdef Fallback cmux {unknown}")
     }
 
     @Test func configuredTemplateTreatsBlankDefaultsValueAsDisabled() throws {
@@ -45,6 +46,7 @@ struct WindowTitleTemplateTests {
         let resolved = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: "Fallback",
             activeWorkspace: "{windowId}",
+            focusedPanel: "{activeWorkspace}",
             activeDirectory: "{windowToken}",
             windowId: windowId,
             appName: "cmux"

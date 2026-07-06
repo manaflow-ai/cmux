@@ -3837,6 +3837,9 @@ final class Workspace: Identifiable, ObservableObject {
                 isLoading: loadingUpdate,
                 isAudioMuted: mutedUpdate
             )
+            if titleUpdate != nil {
+                self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: browserPanel.id)
+            }
         }
         panelSubscriptions[browserPanel.id] = subscription
         browserPanel.onMediaActivityChanged = { [weak self, weak browserPanel] _ in
@@ -3918,6 +3921,9 @@ final class Workspace: Identifiable, ObservableObject {
                     hasCustomTitle: self.panelCustomTitles[markdownPanel.id] != nil,
                     isDirty: dirtyUpdate
                 )
+                if titleUpdate != nil {
+                    self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: markdownPanel.id)
+                }
             }
         panelSubscriptions[markdownPanel.id] = subscription
     }
@@ -3955,6 +3961,9 @@ final class Workspace: Identifiable, ObservableObject {
                 hasCustomTitle: self.panelCustomTitles[filePreviewPanel.id] != nil,
                 isDirty: dirtyUpdate
             )
+            if titleUpdate != nil {
+                self.notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: filePreviewPanel.id)
+            }
         }
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
@@ -4243,6 +4252,7 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+        notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: panelId)
         // A remote tmux mirror tab rename propagates to `rename-window`.
         if isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
@@ -4337,6 +4347,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard let panel = panels[panelId] else { return nil }
         let fallback = panelTitles[panelId] ?? panel.displayTitle
         return resolvedPanelTitle(panelId: panelId, fallback: fallback)
+    }
+
+    private func notifyFocusedSurfaceTitleDidChangeIfNeeded(panelId: UUID) {
+        guard panelId == focusedPanelId else { return }
+        owningTabManager?.focusedSurfaceTitleDidChange(tabId: id)
     }
 
     func setPanelPinned(panelId: UUID, pinned: Bool) {
