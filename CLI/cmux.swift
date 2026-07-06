@@ -1550,14 +1550,15 @@ final class ClaudeHookSessionStore {
         }
         state.activeSessionsByWorkspace = state.activeSessionsByWorkspace.filter { workspaceId, active in
             guard active.updatedAt >= cutoff, let record = state.sessions[active.sessionId] else { return false }
-            // Self-heal cross-workspace pollution: a session may only be the active
-            // session for its own recorded workspace. Stale focused/TTY misroutes from
-            // older builds could register a session as active for an unrelated tab,
-            // which then stole that tab's notifications and suppressed its own session.
+            // Self-heal cross-workspace/pane pollution: a session may only be active
+            // for its own recorded workspace (and surface, below). Stale focused/TTY
+            // misroutes from older builds could register a session as active for an
+            // unrelated tab or pane, stealing its notifications (isCurrent trusts the
+            // surface slot first) and suppressing that pane's own session.
             return normalizeOptional(record.workspaceId) == workspaceId
         }
-        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { _, active in
-            active.updatedAt >= cutoff && state.sessions[active.sessionId] != nil
+        state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
+            active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
     }
 
