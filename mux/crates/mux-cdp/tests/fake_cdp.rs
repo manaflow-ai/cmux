@@ -126,7 +126,7 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
             assert_eq!(frame.data_b64, "iVBORw0KGgo=");
             assert_eq!(frame.css_width, 640);
             assert_eq!(frame.css_height, 480);
-            assert_eq!(frame.seq, 42);
+            assert_eq!(frame.ack_id, 42);
         }
         other => panic!("unexpected event: {other:?}"),
     }

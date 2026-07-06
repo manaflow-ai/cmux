@@ -50,6 +50,8 @@ pub struct SurfaceOptions {
     pub browser_discover_ports: Vec<u16>,
     /// Optional Chrome user data directory for launched browser runtime.
     pub browser_user_data_dir: Option<String>,
+    /// Session component for the default launched Chrome profile path.
+    pub browser_session_name: String,
     /// Use a temporary launched Chrome profile and delete it on shutdown.
     pub browser_ephemeral: bool,
     /// Maximum browser capture size before downscaling, in megapixels.
@@ -73,6 +75,7 @@ impl Default for SurfaceOptions {
             browser_discover: false,
             browser_discover_ports: vec![9222],
             browser_user_data_dir: None,
+            browser_session_name: "default".to_string(),
             browser_ephemeral: false,
             browser_max_capture_megapixels: 2.0,
             browser_capture_scale: None,

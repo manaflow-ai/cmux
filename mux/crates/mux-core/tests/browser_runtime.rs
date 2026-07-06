@@ -114,6 +114,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         let mut next_target = 1u32;
         let mut start_count = 0u32;
         let mut closed = 0u32;
+        let mut opener_second_frame_sent = false;
+        let mut opener_ack_count = 0u32;
 
         loop {
             let request = read_json(&mut ws);
@@ -154,6 +156,22 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                         json!({})
                     };
                     write_json(&mut ws, json!({"id": id, "result": result}));
+                    if url.contains("live.test") && !opener_second_frame_sent {
+                        frame_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+                        write_json(
+                            &mut ws,
+                            json!({
+                                "method": "Page.screencastFrame",
+                                "sessionId": "session-1",
+                                "params": {
+                                    "data": "c2Vjb25k",
+                                    "metadata": {"deviceWidth": 100, "deviceHeight": 50},
+                                    "sessionId": 77
+                                }
+                            }),
+                        );
+                        opener_second_frame_sent = true;
+                    }
                 }
                 "Page.getNavigationHistory" => {
                     write_json(
@@ -243,12 +261,17 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     }
                 }
                 "Page.screencastFrameAck" => {
+                    if request["sessionId"] == "session-1" {
+                        assert_eq!(request["params"]["sessionId"], 77);
+                        opener_ack_count += 1;
+                    }
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Target.closeTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
                     closed += 1;
                     if closed >= 2 {
+                        assert_eq!(opener_ack_count, 2);
                         break;
                     }
                 }
@@ -302,10 +325,30 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     frame_tx.send(()).unwrap();
     let frame = recv_attach_event(&mut attach_reader, "frame");
     assert_eq!(frame["surface"], surface);
-    assert_eq!(frame["seq"], 77);
+    assert_eq!(frame["seq"], 1);
     assert_eq!(frame["width"], 100);
     assert_eq!(frame["height"], 50);
     assert_eq!(frame["data"], "iVBORw0KGgo=");
+
+    let navigate = rpc(
+        &socket_path,
+        json!({"id": 101, "cmd": "browser-navigate", "surface": surface, "url": "live.test"}),
+    );
+    assert_eq!(navigate["ok"], true, "browser-navigate failed: {navigate}");
+    let live_state = recv_attach_event(&mut attach_reader, "browser-state");
+    assert_eq!(live_state["surface"], surface);
+    assert_eq!(live_state["url"], "https://live.test");
+    assert_eq!(live_state["status"], "live");
+    assert!(live_state.get("frame").is_none(), "state re-emit must not include frame payload");
+
+    frame_tx.send(()).unwrap();
+    let second_frame = recv_attach_event(&mut attach_reader, "frame");
+    assert_eq!(second_frame["surface"], surface);
+    assert_eq!(second_frame["seq"], 2);
+    assert_eq!(second_frame["width"], 100);
+    assert_eq!(second_frame["height"], 50);
+    assert_eq!(second_frame["data"], "c2Vjb25k");
+
     let dialog = recv_method(&seen_rx, "Page.handleJavaScriptDialog");
     assert_eq!(dialog["sessionId"], "session-1");
     assert_eq!(dialog["params"]["accept"], false);
@@ -335,12 +378,12 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     assert_eq!(popup_start["sessionId"], "session-popup");
     let opener_frame = mux.surface(surface).and_then(|surface| surface.browser_frame()).unwrap();
     assert_eq!(opener_frame.session_id, "session-1");
-    assert_eq!(opener_frame.seq, 77);
+    assert_eq!(opener_frame.seq, 2);
     let popup_frame = wait_for(
         || {
             mux.surface(popup_surface)
                 .and_then(|surface| surface.browser_frame())
-                .filter(|frame| frame.seq == 88)
+                .filter(|frame| frame.seq == 1)
         },
         Duration::from_secs(10),
     )
@@ -350,7 +393,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let opener_frame_after_popup =
         mux.surface(surface).and_then(|surface| surface.browser_frame()).unwrap();
     assert_eq!(opener_frame_after_popup.session_id, "session-1");
-    assert_eq!(opener_frame_after_popup.seq, 77);
+    assert_eq!(opener_frame_after_popup.seq, 2);
     while seen_rx.try_recv().is_ok() {}
     thread::sleep(Duration::from_millis(100));
     while let Ok(value) = seen_rx.try_recv() {

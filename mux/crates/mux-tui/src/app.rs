@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base64::Engine;
@@ -32,12 +33,30 @@ use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInp
 use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
-use crate::ui::graphics::{GraphicPlacement, GraphicsState};
+use crate::ui::graphics::GraphicPlacement;
+use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::thumb_geometry;
 
 pub enum AppEvent {
     Mux(MuxEvent),
     Input(Event),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderAction {
+    None,
+    Graphics,
+    Draw,
+}
+
+impl RenderAction {
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (RenderAction::Draw, _) | (_, RenderAction::Draw) => RenderAction::Draw,
+            (RenderAction::Graphics, _) | (_, RenderAction::Graphics) => RenderAction::Graphics,
+            (RenderAction::None, RenderAction::None) => RenderAction::None,
+        }
+    }
 }
 
 /// A clickable region of the current frame. The renderers rebuild the hit
@@ -335,8 +354,9 @@ pub struct App {
     pub config: Config,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
-    pub graphics: GraphicsState,
+    pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
+    stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pub prefix_armed: bool,
     pub session_label: String,
@@ -458,6 +478,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     });
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
+    let stdout_lock = Arc::new(Mutex::new(()));
 
     let (tx, rx) = channel::<AppEvent>();
 
@@ -477,13 +498,14 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     // Crossterm input → app channel.
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
+        let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
-        let _ = restore_terminal();
+        let _ = restore_terminal(Some(&stdout_lock));
         return Err(e);
     }
 
@@ -505,8 +527,9 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     })?;
     // Restore the host terminal even if we panic mid-frame.
     let default_hook = std::panic::take_hook();
+    let restore_lock = stdout_lock.clone();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal();
+        let _ = restore_terminal(Some(&restore_lock));
         default_hook(info);
     }));
 
@@ -514,18 +537,21 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
-            let _ = restore_terminal();
+            let _ = restore_terminal(Some(&stdout_lock));
             return Err(e.into());
         }
     };
+    let graphics_writer =
+        if graphics_supported { Some(GraphicsWriter::spawn(stdout_lock.clone())?) } else { None };
 
     let mut app = App {
         session,
         config,
         tree: TreeView::default(),
         render_states: HashMap::new(),
-        graphics: GraphicsState::default(),
+        graphics_writer,
         graphics_supported,
+        stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
         prefix_armed: false,
         session_label,
@@ -553,12 +579,16 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     };
 
     let result = app.event_loop(&mut terminal, rx);
+    if let Some(writer) = app.graphics_writer.as_mut() {
+        writer.shutdown(Duration::from_millis(200));
+    }
     let _ = std::panic::take_hook();
-    restore_terminal()?;
+    restore_terminal(Some(&stdout_lock))?;
     result
 }
 
-fn restore_terminal() -> anyhow::Result<()> {
+fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
+    let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
@@ -578,7 +608,7 @@ impl App {
         // Initial layout + draw.
         let size = terminal.size()?;
         self.sync_layout((size.width, size.height));
-        terminal.draw(|f| crate::ui::draw(self, f))?;
+        self.draw_terminal(terminal)?;
         self.emit_graphics()?;
 
         while !self.quit && !crate::shutdown_requested() {
@@ -589,41 +619,92 @@ impl App {
             } else {
                 Duration::from_millis(250)
             };
-            let mut needs_draw = false;
+            let mut action = RenderAction::None;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(RecvTimeoutError::Timeout) => {
-                    needs_draw = self.shake_frames > 0;
+                    if self.shake_frames > 0 {
+                        action = RenderAction::Draw;
+                    }
                     None
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
             if let Some(event) = first {
-                needs_draw |= self.handle(event)?;
+                action = action.merge(self.handle(event)?);
             }
             for _ in 0..256 {
                 match rx.try_recv() {
-                    Ok(event) => needs_draw |= self.handle(event)?,
+                    Ok(event) => action = action.merge(self.handle(event)?),
                     Err(_) => break,
                 }
             }
             if self.quit {
                 break;
             }
-            if needs_draw {
-                let size = terminal.size()?;
-                self.sync_layout((size.width, size.height));
-                terminal.draw(|f| crate::ui::draw(self, f))?;
-                self.emit_graphics()?;
+            match action {
+                RenderAction::Draw => {
+                    let size = terminal.size()?;
+                    self.sync_layout((size.width, size.height));
+                    self.draw_terminal(terminal)?;
+                    self.emit_graphics()?;
+                }
+                RenderAction::Graphics => {
+                    self.emit_graphics()?;
+                }
+                RenderAction::None => {}
             }
         }
         Ok(())
+    }
+
+    fn draw_terminal(
+        &mut self,
+        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+    ) -> anyhow::Result<()> {
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
+        terminal.draw(|f| crate::ui::draw(self, f))?;
+        Ok(())
+    }
+
+    fn frame_only_browser_update(&self, id: SurfaceId) -> bool {
+        if !self.graphics_supported {
+            return false;
+        }
+        let Some(area) = self.pane_areas.iter().find(|area| area.surface == id) else {
+            return false;
+        };
+        let Some(surface) = self.session.surface(id) else {
+            return false;
+        };
+        surface.kind() == SurfaceKind::Browser
+            && surface.browser_frame().is_some()
+            && area.content.width > 0
+            && area.content.height > 0
+    }
+
+    fn mark_graphics_clean(&self, placements: &[GraphicPlacement]) {
+        for placement in placements {
+            if let Some(surface) = self.session.surface(placement.surface) {
+                surface.take_dirty();
+            }
+        }
     }
 
     fn emit_graphics(&mut self) -> anyhow::Result<()> {
         if !self.graphics_supported {
             return Ok(());
         }
+        let placements = self.graphic_placements();
+        self.mark_graphics_clean(&placements);
+        if let Some(writer) = &self.graphics_writer {
+            writer.submit(placements);
+        }
+        Ok(())
+    }
+
+    fn graphic_placements(&self) -> Vec<GraphicPlacement> {
         let mut placements = Vec::new();
         for area in &self.pane_areas {
             let Some(surface) = self.session.surface(area.surface) else { continue };
@@ -641,13 +722,7 @@ impl App {
                 data_b64: frame.data_b64,
             });
         }
-        let bytes = self.graphics.frame_bytes(&placements);
-        if !bytes.is_empty() {
-            let mut stdout = std::io::stdout();
-            stdout.write_all(&bytes)?;
-            stdout.flush()?;
-        }
-        Ok(())
+        placements
     }
 
     fn browser_graphic_occluded(&self, rect: Rect) -> bool {
@@ -722,11 +797,11 @@ impl App {
         }
     }
 
-    fn handle(&mut self, event: AppEvent) -> anyhow::Result<bool> {
+    fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
         match event {
             AppEvent::Mux(MuxEvent::Empty) => {
                 self.quit = true;
-                Ok(false)
+                Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.render_states.remove(&id);
@@ -740,13 +815,20 @@ impl App {
                 if self.last_browser_hover.is_some_and(|(surface, _, _)| surface == id) {
                     self.last_browser_hover = None;
                 }
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::Status(message)) => {
                 self.status_message = Some(message);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
-            AppEvent::Mux(_) => Ok(true),
+            AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
+                if self.frame_only_browser_update(id) {
+                    Ok(RenderAction::Graphics)
+                } else {
+                    Ok(RenderAction::Draw)
+                }
+            }
+            AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::Input(Event::Key(key)) => self.handle_key(key),
             AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
             AppEvent::Input(Event::Paste(text)) => {
@@ -754,16 +836,16 @@ impl App {
                     clear_omnibar_selection(state);
                     state.buffer.insert_str(state.cursor, &text);
                     state.cursor += text.len();
-                    return Ok(true);
+                    return Ok(RenderAction::Draw);
                 }
                 self.paste(&text);
-                Ok(false)
+                Ok(RenderAction::None)
             }
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
-            AppEvent::Input(_) => Ok(false),
+            AppEvent::Input(_) => Ok(RenderAction::None),
         }
     }
 
@@ -816,9 +898,9 @@ impl App {
         self.session.new_screen(self.size_of_rect(self.content_area))
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         if key.kind == KeyEventKind::Release {
-            return Ok(false);
+            return Ok(RenderAction::None);
         }
         self.status_message = None;
         if self.prompt.is_some() {
@@ -836,12 +918,12 @@ impl App {
         }
         if self.config.keys.prefix.matches(&key) {
             self.prefix_armed = true;
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         // Typing replaces any selection highlight.
         self.selection = None;
         self.forward_key(&key);
-        Ok(false)
+        Ok(RenderAction::None)
     }
 
     /// Commit the open rename dialog (Enter or the OK button).
@@ -869,9 +951,9 @@ impl App {
         self.prompt = None;
     }
 
-    fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         if self.prompt.is_none() {
-            return Ok(false);
+            return Ok(RenderAction::None);
         }
         match key.code {
             KeyCode::Esc => {
@@ -890,31 +972,31 @@ impl App {
             }
             _ => {}
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
     /// Clicks while the rename dialog is open: OK commits, Cancel (or a
     /// click outside the dialog) dismisses; clicks inside are swallowed.
-    fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
-        let Some(prompt) = self.prompt.as_ref() else { return Ok(false) };
+    fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        let Some(prompt) = self.prompt.as_ref() else { return Ok(RenderAction::None) };
         if prompt.ok.contains(x, y) {
             self.commit_prompt();
         } else if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
             self.close_prompt();
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
-    fn handle_omnibar_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_omnibar_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         if matches!(key.code, KeyCode::Esc) {
             self.omnibar = None;
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         if matches!(key.code, KeyCode::Enter) {
-            let Some(state) = self.omnibar.take() else { return Ok(true) };
+            let Some(state) = self.omnibar.take() else { return Ok(RenderAction::Draw) };
             let input = state.buffer.trim();
             if input.is_empty() {
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
             let url = mux_core::normalize_url(input);
             match self.session.surface(state.surface) {
@@ -924,9 +1006,9 @@ impl App {
                 }
                 None => self.status_message = Some("unknown browser surface".to_string()),
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
-        let Some(state) = self.omnibar.as_mut() else { return Ok(false) };
+        let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
         match key.code {
             KeyCode::Backspace => {
                 clear_omnibar_selection(state);
@@ -978,48 +1060,48 @@ impl App {
             }
             _ => {}
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
-    fn handle_menu_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let Some(menu) = self.menu.as_mut() else { return Ok(false) };
+    fn handle_menu_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        let Some(menu) = self.menu.as_mut() else { return Ok(RenderAction::None) };
         match key.code {
             KeyCode::Esc => {
                 self.menu = None;
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             KeyCode::Up => {
                 menu.selected = menu.selected.saturating_sub(1);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             KeyCode::Down => {
                 menu.selected = (menu.selected + 1).min(menu.items.len().saturating_sub(1));
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             KeyCode::Enter => {
                 let action = menu.items[menu.selected];
                 self.menu = None;
                 self.activate_menu(action)?;
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
-            _ => Ok(true), // swallow while a menu is open
+            _ => Ok(RenderAction::Draw), // swallow while a menu is open
         }
     }
 
-    fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         // Prefix twice forwards the prefix chord literally.
         if self.config.keys.prefix.matches(&key) {
             self.forward_key(&key);
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         // 1-9 select a tab by number (fixed: they mirror the tab labels).
         if let KeyCode::Char(c @ '1'..='9') = key.code {
             let pane = self.active_pane();
             self.session.select_tab(pane, Some(c as usize - '1' as usize), None);
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         let Some(action) = self.config.keys.action_for(&key) else {
-            return Ok(true); // unknown prefix command: swallow, redraw indicator
+            return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
         if browser_only_action(action)
             && !self
@@ -1027,14 +1109,14 @@ impl App {
                 .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
         {
             self.forward_key(&key);
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         self.run_action(action)
     }
 
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
-    fn run_action(&mut self, action: Action) -> anyhow::Result<bool> {
+    fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
         let pane = self.active_pane();
         match action {
             Action::NewTab => {
@@ -1077,33 +1159,33 @@ impl App {
             Action::BrowserBack => {
                 let result = self.browser_back();
                 self.set_status_from_browser_result(result);
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
             Action::BrowserForward => {
                 let result = self.browser_forward();
                 self.set_status_from_browser_result(result);
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
             Action::BrowserReload => {
                 let result = self.browser_reload();
                 self.set_status_from_browser_result(result);
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
             Action::BrowserEditUrl => {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
                 }
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
             Action::Detach => {
                 // Local sessions end with the TUI; remote sessions keep
                 // running server-side (detach).
                 self.quit = true;
-                return Ok(false);
+                return Ok(RenderAction::None);
             }
         }
         self.status_message = None;
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
     fn set_status_from_browser_result(&mut self, result: anyhow::Result<()>) {
@@ -1443,7 +1525,7 @@ impl App {
         })
     }
 
-    fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<bool> {
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.handle_left_down(mouse.column, mouse.row)
@@ -1455,10 +1537,10 @@ impl App {
             MouseEventKind::Down(MouseButton::Right) => {
                 if self.prompt.is_some() {
                     self.shake_frames = 6;
-                    return Ok(true);
+                    return Ok(RenderAction::Draw);
                 }
                 self.open_context_menu(mouse.column, mouse.row);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
                 self.handle_right_drag(mouse.column, mouse.row)
@@ -1469,7 +1551,7 @@ impl App {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
                 self.handle_scroll(mouse.column, mouse.row, down)
             }
-            _ => Ok(false),
+            _ => Ok(RenderAction::None),
         }
     }
 
@@ -1503,6 +1585,8 @@ impl App {
         }
         self.pointer_shape = want_pointer;
         let shape = if want_pointer { "pointer" } else { "default" };
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]22;{shape}\x07");
         let _ = stdout.flush();
@@ -1512,15 +1596,15 @@ impl App {
     /// item, and track the mouse position so tab-bar controls (+, ‹, ›)
     /// and the scrollbar render a hover state. Only redraws when the
     /// hovered element actually changes.
-    fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
         if let Some(menu) = self.menu.as_mut() {
             if let Some(item) = menu.item_at(x, y) {
                 if item != menu.selected {
                     menu.selected = item;
-                    return Ok(true);
+                    return Ok(RenderAction::Draw);
                 }
-                return Ok(false);
+                return Ok(RenderAction::None);
             }
         }
         if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
@@ -1579,26 +1663,26 @@ impl App {
         let before = hoverable(self.hover);
         let after = hoverable(Some((x, y)));
         self.hover = Some((x, y));
-        Ok(before != after)
+        Ok(if before != after { RenderAction::Draw } else { RenderAction::None })
     }
 
-    fn handle_right_drag(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_right_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.hover = Some((x, y));
-        let Some(menu) = self.menu.as_mut() else { return Ok(false) };
+        let Some(menu) = self.menu.as_mut() else { return Ok(RenderAction::None) };
         if (x, y) != menu.right_press {
             menu.right_drag_moved = true;
         }
         if let Some(item) = menu.item_at(x, y) {
             if item != menu.selected {
                 menu.selected = item;
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
         }
-        Ok(false)
+        Ok(RenderAction::None)
     }
 
-    fn handle_right_up(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
-        let Some(menu) = self.menu.take() else { return Ok(false) };
+    fn handle_right_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        let Some(menu) = self.menu.take() else { return Ok(RenderAction::None) };
         let plain_open_click = !menu.right_drag_moved && (x, y) == menu.right_press;
         if plain_open_click {
             self.menu = Some(menu);
@@ -1608,10 +1692,10 @@ impl App {
         } else {
             self.menu = Some(menu);
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
-    fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.selection = None;
         self.drag = None;
 
@@ -1628,14 +1712,14 @@ impl App {
             } else if menu.rect.contains(x, y) {
                 self.menu = Some(menu); // padding click: keep it open
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
             self.session.focus_pane(pane);
             if let Some(state) = &self.omnibar {
                 if state.pane == pane {
-                    return Ok(true);
+                    return Ok(RenderAction::Draw);
                 }
                 self.omnibar = None;
             }
@@ -1659,7 +1743,7 @@ impl App {
                 }
                 OmnibarHit::Edit => self.focus_omnibar(pane),
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
 
         if let Some(state) = &self.omnibar {
@@ -1700,7 +1784,7 @@ impl App {
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
 
         if let Some(area) = self.pane_area_at(x, y).copied() {
@@ -1725,12 +1809,12 @@ impl App {
                     self.drag = Some(Drag::Select { content: area.content });
                 }
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
-        Ok(false)
+        Ok(RenderAction::None)
     }
 
-    fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         match &self.drag {
             Some(Drag::Select { content }) => {
                 let content = *content;
@@ -1739,7 +1823,7 @@ impl App {
                 if let Some(sel) = self.selection.as_mut() {
                     sel.head = (cx - content.x, cy - content.y);
                 }
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::Browser { surface, content }) => {
                 let (surface, content) = (*surface, *content);
@@ -1752,17 +1836,17 @@ impl App {
                     cy,
                     BrowserMouseDispatch::new("mouseMoved", Some("left"), Some(1)),
                 );
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset }) => {
                 let (surface, track, anchor_y, anchor_offset) =
                     (*surface, *track, *anchor_y, *anchor_offset);
                 self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::SidebarResize) => {
                 self.sidebar_width_override = Some(x.saturating_add(1).clamp(10, 60));
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
                 let (horizontal, vertical) = (*horizontal, *vertical);
@@ -1772,13 +1856,13 @@ impl App {
                 if let Some((pane, edge)) = vertical {
                     self.resize_split(pane, edge, x, y);
                 }
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
-            None => Ok(false),
+            None => Ok(RenderAction::None),
         }
     }
 
-    fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         if let Some(Drag::Browser { surface, content }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
@@ -1790,23 +1874,23 @@ impl App {
                 cy,
                 BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
             );
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
         let was_drag = self.drag.is_some();
         self.drag = None;
         if !was_select {
-            return Ok(was_drag);
+            return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
         match self.selection {
             Some(sel) if sel.anchor != sel.head => {
                 self.copy_selection(sel);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             _ => {
                 // A plain click: no selection to keep.
                 self.selection = None;
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
         }
     }
@@ -1827,6 +1911,8 @@ impl App {
 
     fn copy_text(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
@@ -1979,18 +2065,18 @@ impl App {
         }
     }
 
-    fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<bool> {
-        let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(false) };
+    fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<RenderAction> {
+        let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
         if self.active_pane() != Some(area.pane) {
             self.session.focus_pane(area.pane);
         }
         // Wheel over the tab bar scrolls the tabs, not the terminal.
         if area.bar.is_some_and(|bar| bar.contains(x, y)) {
             self.scroll_tabs(area.pane, if down { 1 } else { -1 });
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         let (surface_id, _) = (area.surface, area.pane);
-        let Some(surface) = self.session.surface(surface_id) else { return Ok(false) };
+        let Some(surface) = self.session.surface(surface_id) else { return Ok(RenderAction::None) };
         if surface.kind() == SurfaceKind::Browser {
             if area.content.contains(x, y) {
                 let (px, py) = self.browser_point(area.content, x, y);
@@ -2000,9 +2086,9 @@ impl App {
                     surface,
                     kind: BrowserInputKind::Wheel { x: px, y: py, delta_y: delta },
                 });
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
-            return Ok(false);
+            return Ok(RenderAction::None);
         }
         let Some(sent_arrows) = surface.with_terminal(|term| {
             if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
@@ -2013,7 +2099,7 @@ impl App {
                 false
             }
         }) else {
-            return Ok(false);
+            return Ok(RenderAction::None);
         };
         if sent_arrows {
             // Alt-screen apps without mouse support get arrow keys
@@ -2025,7 +2111,7 @@ impl App {
         if self.selection.is_some_and(|s| s.surface == surface_id) {
             self.selection = None;
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
     fn surface_kind(&self, surface: SurfaceId) -> SurfaceKind {

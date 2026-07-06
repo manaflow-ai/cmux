@@ -12,14 +12,15 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, Terminal};
-use mux_core::{BrowserFrame, BrowserStatus, DefaultColors, MuxEvent, Rgb, SurfaceId, SurfaceKind};
+use mux_core::{
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb, SurfaceId,
+    SurfaceKind,
+};
 use serde_json::{json, Value};
 
 use super::tree::{parse_tree, TreeView};
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[u64] = &[4, 5, 6];
-const BROWSER_STALL_THRESHOLD: Duration = Duration::from_secs(2);
-
 #[derive(Clone)]
 struct RemoteBrowserFrame {
     frame: BrowserFrame,
@@ -29,6 +30,7 @@ struct RemoteBrowserFrame {
 struct RemoteBrowserState {
     url: Option<String>,
     title: Option<String>,
+    source: Option<BrowserSource>,
     status: BrowserStatus,
     frames_stalled: bool,
     live_since: Option<Instant>,
@@ -41,6 +43,7 @@ impl Default for RemoteBrowserState {
         Self {
             url: None,
             title: None,
+            source: None,
             status: BrowserStatus::Starting,
             frames_stalled: false,
             live_since: None,
@@ -97,10 +100,17 @@ impl RemoteSurface {
         if browser.frames_stalled {
             return true;
         }
+        if browser.source == Some(BrowserSource::Launched) {
+            return false;
+        }
         let Some(since) = browser.last_frame_at.or(browser.live_since) else {
             return false;
         };
-        Instant::now().saturating_duration_since(since) > BROWSER_STALL_THRESHOLD
+        Instant::now().saturating_duration_since(since) > Duration::from_secs(2)
+    }
+
+    fn update_browser_source(&self, source: Option<BrowserSource>) {
+        self.browser.lock().unwrap().source = source;
     }
 
     fn update_browser_state(&self, value: &Value) {
@@ -257,6 +267,7 @@ impl RemoteSession {
                     surface.update_browser_state(&value);
                     surface.dirty.store(true, Ordering::Release);
                 }
+                self.emit(MuxEvent::TitleChanged(id));
                 self.emit(MuxEvent::SurfaceOutput(id));
             }
             Some("frame") => {
@@ -380,7 +391,10 @@ impl RemoteSession {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Some(surface.clone());
         }
-        let kind = self.surface_kind(id);
+        let (kind, source) = {
+            let tree = self.tree.lock().unwrap();
+            (tree.surface_kind(id), browser_source_from_tree(&tree, id))
+        };
         let (cols, rows) = size.unwrap_or((80, 24));
         if size.is_some() {
             let _ = self.request(
@@ -396,6 +410,7 @@ impl RemoteSession {
             size: Mutex::new((cols, rows)),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
+        surface.update_browser_source(source);
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         // The vt-state event that follows fills the mirror.
         if self.request(json!({"cmd": "attach-surface", "surface": id})).is_err() {
@@ -427,8 +442,22 @@ impl RemoteSession {
         };
         let tree = parse_tree(&data);
         *self.tree.lock().unwrap() = tree.clone();
+        let surfaces = self.surfaces.lock().unwrap().clone();
+        for (id, surface) in surfaces {
+            surface.update_browser_source(browser_source_from_tree(&tree, id));
+        }
         Ok(tree)
     }
+}
+
+fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSource> {
+    tree.workspaces
+        .iter()
+        .flat_map(|ws| ws.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .find(|tab| tab.surface == id)
+        .and_then(|tab| tab.browser_source)
 }
 
 fn hex_color(color: Rgb) -> String {
@@ -449,4 +478,45 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
             seq,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Mutex;
+
+    use ghostty_vt::{Callbacks, Terminal};
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn browser_state_without_frame_keeps_cached_frame() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            size: Mutex::new((10, 5)),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "Zmlyc3Q=",
+        }));
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+        }));
+
+        let frame = surface.browser_frame().expect("cached frame");
+        assert_eq!(frame.seq, 9);
+        assert_eq!(frame.data_b64, "Zmlyc3Q=");
+        assert_eq!(surface.browser_url().as_deref(), Some("https://next.test"));
+    }
 }

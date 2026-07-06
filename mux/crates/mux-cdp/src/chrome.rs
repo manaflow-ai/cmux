@@ -13,6 +13,7 @@ static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 pub struct ChromeLaunchOptions {
     pub binary: Option<String>,
     pub user_data_dir: Option<PathBuf>,
+    pub session_name: String,
     pub ephemeral: bool,
 }
 
@@ -31,6 +32,7 @@ impl Chrome {
         Chrome::launch_with(ChromeLaunchOptions {
             binary: explicit_binary.map(str::to_string),
             user_data_dir: None,
+            session_name: "default".to_string(),
             ephemeral: true,
         })
     }
@@ -213,7 +215,7 @@ fn profile_dir_for(options: &ChromeLaunchOptions) -> anyhow::Result<(PathBuf, bo
     if let Some(dir) = options.user_data_dir.clone() {
         return Ok((dir, false));
     }
-    Ok((default_user_data_dir()?, false))
+    Ok((default_user_data_dir()?.join(sanitize_session_name(&options.session_name)), false))
 }
 
 pub fn default_user_data_dir() -> anyhow::Result<PathBuf> {
@@ -230,6 +232,23 @@ pub fn default_user_data_dir() -> anyhow::Result<PathBuf> {
     }
     let home = std::env::var("HOME")?;
     Ok(PathBuf::from(home).join(".local/share/cmux-mux/chrome-profile"))
+}
+
+fn sanitize_session_name(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            out.push(ch);
+        } else {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "default".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn parse_devtools_url(line: &str) -> Option<String> {
@@ -263,6 +282,7 @@ mod tests {
         let options = ChromeLaunchOptions {
             binary: None,
             user_data_dir: Some(explicit_dir.clone()),
+            session_name: "ignored".to_string(),
             ephemeral: true,
         };
         let (selected, ephemeral) = profile_dir_for(&options).unwrap();
@@ -272,5 +292,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&selected);
         assert!(sentinel.exists());
         let _ = std::fs::remove_dir_all(&explicit_dir);
+    }
+
+    #[test]
+    fn default_profile_dir_is_scoped_by_session_name() {
+        let first = ChromeLaunchOptions {
+            binary: None,
+            user_data_dir: None,
+            session_name: "main".to_string(),
+            ephemeral: false,
+        };
+        let second = ChromeLaunchOptions {
+            binary: None,
+            user_data_dir: None,
+            session_name: "side/session".to_string(),
+            ephemeral: false,
+        };
+        let (first_dir, first_ephemeral) = profile_dir_for(&first).unwrap();
+        let (second_dir, second_ephemeral) = profile_dir_for(&second).unwrap();
+
+        assert!(!first_ephemeral);
+        assert!(!second_ephemeral);
+        assert_ne!(first_dir, second_dir);
+        assert_eq!(first_dir.file_name().and_then(|name| name.to_str()), Some("main"));
+        assert_eq!(second_dir.file_name().and_then(|name| name.to_str()), Some("side-session"));
+    }
+
+    #[test]
+    fn explicit_profile_dir_is_used_verbatim() {
+        let explicit_dir =
+            std::env::temp_dir().join(format!("cmux-mux-cdp-verbatim-{}", std::process::id()));
+        let options = ChromeLaunchOptions {
+            binary: None,
+            user_data_dir: Some(explicit_dir.clone()),
+            session_name: "main".to_string(),
+            ephemeral: false,
+        };
+        let (selected, ephemeral) = profile_dir_for(&options).unwrap();
+
+        assert!(!ephemeral);
+        assert_eq!(selected, explicit_dir);
     }
 }

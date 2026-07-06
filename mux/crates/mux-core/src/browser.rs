@@ -38,13 +38,19 @@ pub struct BrowserFrame {
 }
 
 pub struct BrowserFrameStream {
-    pub slot: Arc<Mutex<Option<BrowserFrame>>>,
+    pub slot: Arc<Mutex<BrowserAttachUpdate>>,
     pub notify: Receiver<()>,
 }
 
 struct BrowserFrameTap {
-    slot: Arc<Mutex<Option<BrowserFrame>>>,
+    slot: Arc<Mutex<BrowserAttachUpdate>>,
     notify: SyncSender<()>,
+}
+
+#[derive(Debug, Default)]
+pub struct BrowserAttachUpdate {
+    pub state: Option<BrowserAttachState>,
+    pub frame: Option<BrowserFrame>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +108,8 @@ struct BrowserState {
     capture_scale: f64,
     page_viewport: Option<(u32, u32)>,
     status: BrowserStatus,
+    source: Option<BrowserSource>,
+    next_frame_seq: u64,
     live_since: Option<Instant>,
     last_frame_at: Option<Instant>,
     stall_nudged: bool,
@@ -288,6 +296,8 @@ pub(crate) fn new_surface(
             capture_scale,
             page_viewport: None,
             status: BrowserStatus::Starting,
+            source: None,
+            next_frame_seq: 1,
             live_since: None,
             last_frame_at: None,
             stall_nudged: false,
@@ -365,6 +375,7 @@ fn runtime_endpoint(
     let chrome = Chrome::launch_with(ChromeLaunchOptions {
         binary: opts.chrome_binary.clone(),
         user_data_dir: opts.browser_user_data_dir.as_deref().map(PathBuf::from),
+        session_name: opts.browser_session_name.clone(),
         ephemeral: opts.browser_ephemeral,
     })?;
     let web_socket_url = chrome.web_socket_url().to_string();
@@ -447,7 +458,7 @@ fn start_surface_thread(
                         data_b64: frame.data_b64,
                         css_width: frame.css_width,
                         css_height: frame.css_height,
-                        seq: frame.seq,
+                        seq: 0,
                     };
                     browser.store_frame(frame);
                     if !browser.dirty.swap(true, Ordering::AcqRel) {
@@ -461,10 +472,10 @@ fn start_surface_thread(
                 }
                 CdpEvent::TargetInfoChanged(info) => {
                     let title = if info.title.is_empty() { info.url.clone() } else { info.title };
-                    if !info.url.is_empty() {
-                        browser.set_url(info.url);
-                    }
-                    if browser.set_title(title) {
+                    let url_changed =
+                        if info.url.is_empty() { false } else { browser.set_url(info.url) };
+                    let title_changed = browser.set_title(title);
+                    if url_changed || title_changed {
                         if let Some(mux) = mux.upgrade() {
                             mux.emit(MuxEvent::TitleChanged(id));
                         }
@@ -610,24 +621,16 @@ impl BrowserSurface {
 
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        let slot = Arc::new(Mutex::new(None));
+        let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
         let mut state = self.state.lock().unwrap();
-        let snapshot = BrowserAttachState {
-            url: state.url.clone(),
-            title: state.title.clone(),
-            cols: state.size.0,
-            rows: state.size.1,
-            status: state.status.clone(),
-            frame: state.latest_frame.clone(),
-            frames_stalled: frames_stalled_locked(&state, Instant::now(), self.is_dead()),
-        };
+        let snapshot = browser_attach_state_locked(&state, Instant::now(), self.is_dead(), true);
         if !self.is_dead() {
             state.taps.push(BrowserFrameTap { slot: slot.clone(), notify: tx });
         }
         (snapshot, BrowserFrameStream { slot, notify: rx })
     }
 
-    fn store_frame(&self, frame: BrowserFrame) {
+    fn store_frame(&self, mut frame: BrowserFrame) {
         let mut state = self.state.lock().unwrap();
         // Screencast frames keep streaming the previous page after a
         // failed navigation; they must not clear the Failed status. A
@@ -636,12 +639,14 @@ impl BrowserSurface {
         if !matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
         }
+        frame.seq = state.next_frame_seq;
+        state.next_frame_seq = state.next_frame_seq.saturating_add(1);
         state.last_frame_at = Some(Instant::now());
         state.stall_nudged = false;
         state.page_viewport = Some((frame.css_width.max(1), frame.css_height.max(1)));
         state.latest_frame = Some(frame.clone());
         state.taps.retain(|tap| {
-            *tap.slot.lock().unwrap() = Some(frame.clone());
+            tap.slot.lock().unwrap().frame = Some(frame.clone());
             match tap.notify.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => true,
                 Err(TrySendError::Disconnected(())) => false,
@@ -666,6 +671,7 @@ impl BrowserSurface {
         }
         *current_session = Some(session);
         let mut state = self.state.lock().unwrap();
+        state.source = current_session.as_ref().map(|session| session.runtime.source());
         if !matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
         }
@@ -673,6 +679,7 @@ impl BrowserSurface {
         state.live_since = Some(now);
         state.last_frame_at = None;
         state.stall_nudged = false;
+        Self::mark_state_dirty_locked(&mut state);
         Ok(())
     }
 
@@ -681,6 +688,7 @@ impl BrowserSurface {
         state.status = BrowserStatus::Failed(message.clone());
         state.title = format!("browser failed: {message}");
         state.stall_nudged = false;
+        Self::mark_state_dirty_locked(&mut state);
         self.dirty.store(true, Ordering::Release);
     }
 
@@ -688,6 +696,7 @@ impl BrowserSurface {
         let mut state = self.state.lock().unwrap();
         if matches!(state.status, BrowserStatus::Failed(_)) {
             state.status = BrowserStatus::Live;
+            Self::mark_state_dirty_locked(&mut state);
         }
     }
 
@@ -697,11 +706,18 @@ impl BrowserSurface {
             return false;
         }
         state.title = title;
+        Self::mark_state_dirty_locked(&mut state);
         true
     }
 
-    fn set_url(&self, url: String) {
-        self.state.lock().unwrap().url = url;
+    fn set_url(&self, url: String) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.url != url {
+            state.url = url;
+            Self::mark_state_dirty_locked(&mut state);
+            return true;
+        }
+        false
     }
 
     fn set_url_title(&self, url: String, title: String) {
@@ -710,6 +726,18 @@ impl BrowserSurface {
         state.title = title;
         state.status = BrowserStatus::Live;
         state.stall_nudged = false;
+        Self::mark_state_dirty_locked(&mut state);
+    }
+
+    fn mark_state_dirty_locked(state: &mut BrowserState) {
+        let snapshot = browser_attach_state_locked(state, Instant::now(), false, false);
+        state.taps.retain(|tap| {
+            tap.slot.lock().unwrap().state = Some(snapshot.clone());
+            match tap.notify.try_send(()) {
+                Ok(()) | Err(TrySendError::Full(())) => true,
+                Err(TrySendError::Disconnected(())) => false,
+            }
+        });
     }
 
     fn live_session(&self) -> anyhow::Result<Option<BrowserSession>> {
@@ -882,8 +910,28 @@ impl BrowserSurface {
     }
 }
 
+fn browser_attach_state_locked(
+    state: &BrowserState,
+    now: Instant,
+    dead: bool,
+    include_frame: bool,
+) -> BrowserAttachState {
+    BrowserAttachState {
+        url: state.url.clone(),
+        title: state.title.clone(),
+        cols: state.size.0,
+        rows: state.size.1,
+        status: state.status.clone(),
+        frame: include_frame.then(|| state.latest_frame.clone()).flatten(),
+        frames_stalled: frames_stalled_locked(state, now, dead),
+    }
+}
+
 fn frames_stalled_locked(state: &BrowserState, now: Instant, dead: bool) -> bool {
     if dead || !matches!(state.status, BrowserStatus::Live) {
+        return false;
+    }
+    if state.source == Some(BrowserSource::Launched) {
         return false;
     }
     let Some(since) = state.last_frame_at.or(state.live_since) else {
@@ -1237,17 +1285,39 @@ mod tests {
         browser.store_frame(test_frame(3));
 
         stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
-        let frame = stream.slot.lock().unwrap().take().expect("latest frame");
+        let frame = stream.slot.lock().unwrap().frame.take().expect("latest frame");
         assert_eq!(frame.seq, 3);
         assert!(stream.notify.try_recv().is_err());
 
         browser.store_frame(test_frame(4));
         stream.notify.recv_timeout(Duration::from_secs(1)).unwrap();
-        let frame = stream.slot.lock().unwrap().take().expect("next latest frame");
+        let frame = stream.slot.lock().unwrap().frame.take().expect("next latest frame");
         assert_eq!(frame.seq, 4);
 
         browser.kill();
         assert!(stream.notify.recv_timeout(Duration::from_secs(1)).is_err());
+    }
+
+    #[test]
+    fn launched_surfaces_never_report_frame_stalls() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        let now = Instant::now();
+        {
+            let mut state = browser.state.lock().unwrap();
+            state.status = BrowserStatus::Live;
+            state.source = Some(BrowserSource::Launched);
+            state.live_since = Some(now - Duration::from_secs(3));
+            state.last_frame_at = None;
+        }
+        assert!(!browser.frames_stalled_at(now));
+
+        {
+            let mut state = browser.state.lock().unwrap();
+            state.source = Some(BrowserSource::External);
+        }
+        assert!(browser.frames_stalled_at(now));
     }
 
     #[test]

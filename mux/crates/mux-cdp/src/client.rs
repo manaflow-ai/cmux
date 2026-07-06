@@ -16,7 +16,7 @@ pub struct ScreencastFrame {
     pub data_b64: String,
     pub css_width: u32,
     pub css_height: u32,
-    pub seq: u64,
+    pub ack_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -455,7 +455,7 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
         "Page.screencastFrame" => {
             if let Some(target_session) = session_id.as_deref() {
                 let Some(frame) = screencast_frame(&params, target_session) else { return };
-                ack_screencast_frame(inner, target_session, frame.seq);
+                ack_screencast_frame(inner, target_session, frame.ack_id);
                 let _ = inner.events.send(CdpEvent::ScreencastFrame(frame));
             }
         }
@@ -493,7 +493,7 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
 
 fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame> {
     let data_b64 = params.get("data")?.as_str()?.to_string();
-    let seq = params.get("sessionId")?.as_u64()?;
+    let ack_id = params.get("sessionId")?.as_u64()?;
     let metadata = params.get("metadata").unwrap_or(&Value::Null);
     let css_width = metadata
         .get("deviceWidth")
@@ -510,7 +510,7 @@ fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame>
         data_b64,
         css_width,
         css_height,
-        seq,
+        ack_id,
     })
 }
 

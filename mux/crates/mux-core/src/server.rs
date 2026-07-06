@@ -461,8 +461,12 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
     Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
 }
 
-fn browser_state_json(surface: SurfaceId, state: &crate::BrowserAttachState) -> Value {
-    json!({
+fn browser_state_json(
+    surface: SurfaceId,
+    state: &crate::BrowserAttachState,
+    include_frame: bool,
+) -> Value {
+    let mut value = json!({
         "event": "browser-state",
         "surface": surface,
         "cols": state.cols,
@@ -472,13 +476,19 @@ fn browser_state_json(surface: SurfaceId, state: &crate::BrowserAttachState) -> 
         "status": state.status.as_str(),
         "error": state.status.error(),
         "frames_stalled": state.frames_stalled,
-        "frame": state.frame.as_ref().map(|frame| json!({
-            "seq": frame.seq,
-            "width": frame.css_width,
-            "height": frame.css_height,
-            "data": frame.data_b64,
-        })),
-    })
+    });
+    if include_frame {
+        value["frame"] = match state.frame.as_ref() {
+            Some(frame) => json!({
+                "seq": frame.seq,
+                "width": frame.css_width,
+                "height": frame.css_height,
+                "data": frame.data_b64,
+            }),
+            None => Value::Null,
+        };
+    }
+    value
 }
 
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
@@ -766,23 +776,29 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             let surface = get_surface(mux, surface_id)?;
             if surface.kind() == SurfaceKind::Browser {
                 let (state, frames) = surface.attach_frames()?;
-                writer.send(&browser_state_json(surface_id, &state))?;
+                writer.send(&browser_state_json(surface_id, &state, true))?;
                 let writer = writer.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                     while frames.notify.recv().is_ok() {
-                        let Some(frame) = frames.slot.lock().unwrap().take() else {
-                            continue;
-                        };
-                        let value = json!({
-                            "event": "frame",
-                            "surface": surface_id,
-                            "seq": frame.seq,
-                            "width": frame.css_width,
-                            "height": frame.css_height,
-                            "data": frame.data_b64,
-                        });
-                        if writer.send(&value).is_err() {
-                            break;
+                        let update = std::mem::take(&mut *frames.slot.lock().unwrap());
+                        if let Some(state) = update.state {
+                            if writer.send(&browser_state_json(surface_id, &state, false)).is_err()
+                            {
+                                break;
+                            }
+                        }
+                        if let Some(frame) = update.frame {
+                            let value = json!({
+                                "event": "frame",
+                                "surface": surface_id,
+                                "seq": frame.seq,
+                                "width": frame.css_width,
+                                "height": frame.css_height,
+                                "data": frame.data_b64,
+                            });
+                            if writer.send(&value).is_err() {
+                                break;
+                            }
                         }
                     }
                     let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));

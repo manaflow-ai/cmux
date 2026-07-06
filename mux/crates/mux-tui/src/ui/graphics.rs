@@ -23,23 +23,27 @@ pub struct GraphicsState {
 }
 
 impl GraphicsState {
-    pub fn frame_bytes(&mut self, placements: &[GraphicPlacement]) -> Vec<u8> {
+    pub fn frame_batches(&mut self, placements: &[GraphicPlacement]) -> Vec<Vec<u8>> {
         let now_visible = placements.iter().map(|p| p.surface).collect::<HashSet<_>>();
         let mut out = Vec::new();
 
         for old in self.visible.difference(&now_visible) {
-            out.extend(delete_image(*old));
+            out.push(delete_image(*old));
             self.transmitted.remove(old);
         }
 
         for placement in placements {
+            let mut batch = Vec::new();
             let already_sent =
                 self.transmitted.get(&placement.surface).is_some_and(|seq| *seq == placement.seq);
             if !already_sent {
-                out.extend(transmit_png(placement.surface, &placement.data_b64));
+                batch.extend(transmit_png(placement.surface, &placement.data_b64));
                 self.transmitted.insert(placement.surface, placement.seq);
             }
-            out.extend(place_image(placement.surface, placement.rect));
+            batch.extend(place_image(placement.surface, placement.rect));
+            if !batch.is_empty() {
+                out.push(batch);
+            }
         }
 
         self.visible = now_visible;

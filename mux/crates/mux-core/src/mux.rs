@@ -43,6 +43,9 @@ pub struct Mux {
 
 impl Mux {
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
+        let session = session.into();
+        let mut surface_options = surface_options;
+        surface_options.browser_session_name = session.clone();
         Arc::new(Mux {
             state: Mutex::new(State {
                 workspaces: Vec::new(),
@@ -56,7 +59,7 @@ impl Mux {
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
-            session: session.into(),
+            session,
         })
     }
 
