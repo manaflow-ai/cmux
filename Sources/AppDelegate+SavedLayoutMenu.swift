@@ -24,7 +24,7 @@ extension AppDelegate {
         guard matchConfiguredShortcut(event: event, action: .saveLayoutTemplate) else {
             return false
         }
-        requestSavedLayoutSave(preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow)
+        requestSavedLayoutSave(preferredWindow: commandPaletteWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow)
         return true
     }
 
