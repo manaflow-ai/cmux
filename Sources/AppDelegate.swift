@@ -1109,6 +1109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
+    private var isMainWindowFrameReconcileScheduled = false
+    private var pendingMainWindowFrameReconcileSource: String?
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
@@ -3774,6 +3776,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
+    /// Decides how a live main-window frame should be corrected after a display
+    /// reconfiguration (monitor connect/disconnect, resolution change, lid
+    /// open/close). Returns `nil` when the window needs no change — either a
+    /// grabbable slice of its titlebar is already reachable on some display, or
+    /// there are no displays to reason about.
+    ///
+    /// This is the reactive counterpart to `CmuxMainWindow.constrainFrameRect`:
+    /// a cmux main window sets `isMovable = false` for its custom titlebar drag
+    /// handling, and a non-movable `NSWindow` is excluded from AppKit's automatic
+    /// on-screen constraining when displays change — so `constrainFrameRect` is
+    /// never invoked on that path and nothing pulls a stranded window back. When
+    /// an external monitor that sat above the built-in display is disconnected,
+    /// the window is left with its titlebar in the now-gone monitor's coordinate
+    /// space, above every remaining screen and unreachable (the user cannot drag
+    /// it back because the only drag affordance is that off-screen titlebar).
+    ///
+    /// Pure and `nonisolated` so it is unit-testable without live `NSScreen`s.
+    nonisolated static func reconciledFrameAfterScreenChange(
+        frame: CGRect,
+        availableDisplays: [SessionDisplayGeometry]
+    ) -> CGRect? {
+        guard frame.width.isFinite,
+              frame.height.isFinite,
+              frame.origin.x.isFinite,
+              frame.origin.y.isFinite,
+              frame.width > 0,
+              frame.height > 0,
+              !availableDisplays.isEmpty else {
+            return nil
+        }
+
+        // Already reachable on some display? Leave it untouched so windows on
+        // displays the reconfiguration did not affect are not disturbed.
+        for display in availableDisplays
+        where shouldPreserveAccessibleFrame(frame: frame, targetDisplay: display) {
+            return nil
+        }
+
+        // Clamp onto the display the window most overlaps (or is nearest to) so
+        // its titlebar becomes reachable again.
+        guard let targetDisplay = bestDisplayForFrame(frame, in: availableDisplays) else {
+            return nil
+        }
+        let clamped = clampFrame(
+            frame,
+            within: targetDisplay.visibleFrame,
+            minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+        )
+        // Avoid emitting a redundant setFrame.
+        return clamped.equalTo(frame.standardized) ? nil : clamped
+    }
+
+    private nonisolated static func bestDisplayForFrame(
+        _ frame: CGRect,
+        in displays: [SessionDisplayGeometry]
+    ) -> SessionDisplayGeometry? {
+        if let bestOverlap = displays
+            .map({ ($0, intersectionArea(frame, $0.visibleFrame)) })
+            .max(by: { $0.1 < $1.1 }), bestOverlap.1 > 0 {
+            return bestOverlap.0
+        }
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        return displays.min {
+            distanceSquared($0.visibleFrame, center) < distanceSquared($1.visibleFrame, center)
+        }
+    }
+
     private nonisolated static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
         let intersection = lhs.intersection(rhs)
         guard !intersection.isNull else { return 0 }
@@ -3910,6 +3980,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // Re-clamp main windows whose titlebar was stranded off-screen by a
+        // display reconfiguration (monitor connect/disconnect, resolution change,
+        // lid open/close). Non-movable windows are skipped by AppKit's automatic
+        // constraining, so `CmuxMainWindow.constrainFrameRect` never fires on this
+        // path — this observer is the reactive replacement. See
+        // `reconciledFrameAfterScreenChange`.
+        let screenParamsObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleMainWindowFrameReconcile(source: "didChangeScreenParameters")
+            }
+        }
+        lifecycleSnapshotObservers.append(screenParamsObserver)
+    }
+
+    /// Coalesces bursts of `didChangeScreenParametersNotification` into a single
+    /// reconcile pass, run after a short settle delay so `NSScreen.screens`
+    /// geometry is current when read back.
+    private func scheduleMainWindowFrameReconcile(source: String) {
+        pendingMainWindowFrameReconcileSource = source
+        guard !isMainWindowFrameReconcileScheduled else { return }
+        isMainWindowFrameReconcileScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            self.isMainWindowFrameReconcileScheduled = false
+            let source = self.pendingMainWindowFrameReconcileSource ?? "unknown"
+            self.pendingMainWindowFrameReconcileSource = nil
+            self.reconcileMainWindowFramesAfterScreenChange(source: source)
+        }
+    }
+
+    /// Re-clamps every main window whose titlebar is no longer reachable onto a
+    /// currently-connected display. A no-op for windows that already fit.
+    private func reconcileMainWindowFramesAfterScreenChange(source: String) {
+        let displays = currentDisplayGeometries()
+        guard !displays.available.isEmpty else { return }
+        for window in mainWindowsForVisibilityController() {
+            let currentFrame = window.frame
+            guard let corrected = Self.reconciledFrameAfterScreenChange(
+                frame: currentFrame,
+                availableDisplays: displays.available
+            ) else { continue }
+#if DEBUG
+            cmuxDebugLog(
+                "window.reconcile source=\(source) " +
+                    "from={\(debugNSRectDescription(currentFrame))} " +
+                    "to={\(debugNSRectDescription(corrected))}"
+            )
+#endif
+            window.setFrame(corrected, display: true)
+        }
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
