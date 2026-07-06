@@ -5,8 +5,14 @@ const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
 
+// bun's mock.module replaces these modules process-wide, so each mock must
+// carry every export another test in the suite might import.
 mock.module("next/navigation", () => ({
   redirect,
+  notFound: () => {
+    throw new Error("notFound");
+  },
+  permanentRedirect: redirect,
 }));
 
 mock.module("next/headers", () => ({
@@ -14,11 +20,18 @@ mock.module("next/headers", () => ({
     new Headers({
       host: "localhost:9210",
     }),
+  cookies: async () => ({
+    get: () => undefined,
+    getAll: () => [],
+    has: () => false,
+  }),
+  draftMode: async () => ({ isEnabled: false }),
 }));
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser: async () => null }),
   isStackConfigured: () => false,
+  stackServerApp: null,
 }));
 
 const { default: AppPricingPage } = await import("../app/app-pricing/page");
