@@ -127,26 +127,6 @@ extension Workspace {
     }
 
     @discardableResult
-    func splitPaneWithBrowserFile(
-        targetPane paneId: PaneID,
-        orientation: SplitOrientation,
-        insertFirst: Bool,
-        filePath: String
-    ) -> BrowserPanel? {
-        guard let targetPanelId = bonsplitController.selectedTab(inPane: paneId).flatMap({ panelIdFromSurfaceId($0.id) }),
-              let fileURL = LocalFileSurfaceRouting.browserFileURL(forFilePath: filePath) else {
-            return nil
-        }
-        return newBrowserSplit(
-            from: targetPanelId,
-            orientation: orientation,
-            insertFirst: insertFirst,
-            url: fileURL,
-            creationPolicy: .automationPreload
-        )
-    }
-
-    @discardableResult
     func splitPaneWithLocalFile(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
@@ -197,8 +177,8 @@ extension Workspace {
     }
 
     func openLocalFilePanelInBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
-        guard let filePath = localFilePathForPanel(panelId: panelId),
-              LocalFileSurfaceRouting.browserFileURL(forFilePath: filePath) != nil,
+        guard browserFileURLForPanel(panelId: panelId) != nil,
+              let filePath = localFilePathForPanel(panelId: panelId),
               let anchorTabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else {
             return nil

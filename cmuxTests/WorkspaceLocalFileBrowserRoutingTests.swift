@@ -151,6 +151,27 @@ final class WorkspaceLocalFileBrowserRoutingTests: XCTestCase {
         XCTAssertNil(workspace.openLocalFilePanelInBrowserToRight(panelId: filePreviewPanel.id))
     }
 
+    func testOpenLocalFilePanelInBrowserRejectsDirtyMarkdownPanels() throws {
+        let workspace = try XCTUnwrap(TabManager().tabs.first)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let markdownURL = try temporaryFile(extension: "md", contents: "# Original\n")
+        defer { try? FileManager.default.removeItem(at: markdownURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSurface(
+                inPane: paneId,
+                filePath: markdownURL.path,
+                focus: true
+            )
+        )
+
+        markdownPanel.updateTextContent("# Edited\n")
+
+        XCTAssertTrue(markdownPanel.isDirty)
+        XCTAssertNil(workspace.browserFileURLForPanel(panelId: markdownPanel.id))
+        XCTAssertNil(workspace.openLocalFilePanelInBrowserToRight(panelId: markdownPanel.id))
+    }
+
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-file-\(UUID().uuidString)")
