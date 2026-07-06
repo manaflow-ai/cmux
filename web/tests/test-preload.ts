@@ -11,3 +11,6 @@
 // these at their own top level.
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.CMUX_PUSH_RATE_LIMIT_ID ??= "cmux-push-test";
+process.env.RESEND_API_KEY ??= "cmux-feedback-test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback-from@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "cmux-feedback-test";
