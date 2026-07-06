@@ -385,7 +385,7 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
 
-### I have a feature request or found a bug?
+### I have a feature request or a bug to report?
 
 We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) or [pull request](https://github.com/manaflow-ai/cmux/pulls) on GitHub, or [email us](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
