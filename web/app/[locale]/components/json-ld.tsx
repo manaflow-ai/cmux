@@ -56,6 +56,7 @@ export function articleSchema(opts: {
   headline: string;
   description: string;
   datePublished: string;
+  dateModified?: string;
   authorName?: string;
 }) {
   return {
@@ -64,6 +65,7 @@ export function articleSchema(opts: {
     headline: opts.headline,
     description: opts.description,
     datePublished: opts.datePublished,
+    ...(opts.dateModified ? { dateModified: opts.dateModified } : {}),
     author: { "@type": "Organization", name: opts.authorName ?? "cmux" },
     publisher: { "@type": "Organization", name: "cmux", url: BASE },
     mainEntityOfPage: localizedUrl(opts.locale, opts.path),

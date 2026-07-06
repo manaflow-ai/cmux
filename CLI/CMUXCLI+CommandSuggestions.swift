@@ -52,6 +52,7 @@ extension CMUXCLI {
 
     static let topLevelCommandNames: Set<String> = [
         "__codex-teams-watch",
+        "__internal_flags",
         "__tmux-compat",
         "agent-hibernation",
         "ai-accounts",

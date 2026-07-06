@@ -242,6 +242,7 @@ class TerminalController {
     }
 
     private nonisolated static let focusIntentV1Commands: Set<String> = [
+        "__internal_flags",
         "focus_window",
         "select_workspace",
         "focus_surface",
@@ -1924,6 +1925,11 @@ class TerminalController {
 
         case "auth":
             return "OK: Authentication not required"
+
+        case "__internal_flags":
+            // UI-opening support command: presentation must run on the main actor.
+            InternalFlagsPresenter.present()
+            return "OK"
 
         case "list_windows":
             return listWindows()
