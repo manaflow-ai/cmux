@@ -98,7 +98,7 @@ final class SharedLiveAgentIndex {
         guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
             return nil
         }
-        let processIDs = index.processIDs(workspaceId: workspaceId, panelId: panelId)
+        let processIDs = index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId)
         guard cachedLiveProcessIDsAreRunning(processIDs) else {
             return nil
         }
@@ -129,7 +129,7 @@ final class SharedLiveAgentIndex {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
-        let processIDs = index.processIDs(workspaceId: workspaceId, panelId: panelId)
+        let processIDs = index.agentProcessIDs(workspaceId: workspaceId, panelId: panelId)
         guard cachedLiveProcessIDsAreRunning(processIDs) else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
@@ -354,6 +354,11 @@ final class SharedLiveAgentIndex {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
+        if refreshTask == nil {
+            startReload()
+        } else {
+            changePending = true
+        }
     }
 }
 

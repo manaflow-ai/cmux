@@ -110,7 +110,8 @@ struct SharedLiveAgentIndexAgentLivenessTests {
 
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
 
-        #expect(sharedIndex.index?.processIDs(workspaceId: workspaceId, panelId: panelId) == [agentPID])
+        #expect(sharedIndex.index?.processIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID, childPID]))
+        #expect(sharedIndex.index?.agentProcessIDs(workspaceId: workspaceId, panelId: panelId) == Set([agentPID]))
         #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
         #expect(
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId

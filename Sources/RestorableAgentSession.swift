@@ -929,6 +929,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         let processIDs: Set<Int>
+        let agentProcessIDs: Set<Int>
     }
 
     enum ProcessDetectedSessionIDSource: Sendable {
@@ -940,6 +941,7 @@ struct RestorableAgentSessionIndex: Sendable {
         snapshot: SessionRestorableAgentSnapshot,
         updatedAt: TimeInterval,
         processIDs: Set<Int>,
+        agentProcessIDs: Set<Int>,
         sessionIDSource: ProcessDetectedSessionIDSource
     )
 
@@ -976,19 +978,24 @@ struct RestorableAgentSessionIndex: Sendable {
         entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
     }
 
+    func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIDs ?? []
+    }
+
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
     func liveAgentProcessFingerprint() -> Set<String> {
         Set(entriesByPanel.compactMap { key, entry in
-            guard !entry.processIDs.isEmpty else { return nil }
+            let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
+            guard !processIDs.isEmpty else { return nil }
             return [
                 key.workspaceId.uuidString,
                 key.panelId.uuidString,
                 entry.snapshot.kind.rawValue,
                 entry.snapshot.sessionId,
-                entry.processIDs.sorted().map(String.init).joined(separator: ",")
+                processIDs.sorted().map(String.init).joined(separator: ",")
             ].joined(separator: "|")
         })
     }
@@ -1131,7 +1138,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
-                    processIDs: liveProcessID.map { [$0] } ?? []
+                    processIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIDs: liveProcessID.map { [$0] } ?? []
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
@@ -1170,7 +1178,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs
                 )
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindPanelCandidate {
@@ -1180,14 +1189,16 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: panelCandidate.snapshot,
                     lifecycle: panelCandidate.lifecycle,
                     updatedAt: panelCandidate.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs
                 )
             } else {
                 resolved[key] = Entry(
                     snapshot: detected.snapshot,
                     lifecycle: nil,
                     updatedAt: 0,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs
                 )
             }
         }

@@ -65,10 +65,12 @@ extension RestorableAgentSessionIndex {
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
-            fileManager: fileManager
+            fileManager: fileManager,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey
         )
 
         guard !registry.registrations.isEmpty else { return resolved }
@@ -131,7 +133,8 @@ extension RestorableAgentSessionIndex {
             resolved[key] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
-                processIDs: [process.pid],
+                processIDs: scopedProcessIDsByPanelKey[key] ?? [],
+                agentProcessIDs: [process.pid],
                 sessionIDSource: sessionIDResolution.source
             )
         }
@@ -221,7 +224,8 @@ extension RestorableAgentSessionIndex {
     private static func processDetectedOpenCodeSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        fileManager: FileManager
+        fileManager: FileManager,
+        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>]
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
@@ -320,7 +324,8 @@ extension RestorableAgentSessionIndex {
             resolved[process.panelKey] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
-                processIDs: [process.processID],
+                processIDs: scopedProcessIDsByPanelKey[process.panelKey] ?? [],
+                agentProcessIDs: [process.processID],
                 sessionIDSource: .explicit
             )
         }
@@ -901,6 +906,17 @@ private extension CmuxVaultAgentSessionIDSource {
     }
 }
 
+private extension CmuxTopProcessSnapshot {
+    func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
+        var result: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
+        for process in cmuxScopedProcesses() {
+            if let workspaceId = process.cmuxWorkspaceID, let panelId = process.cmuxSurfaceID {
+                result[.init(workspaceId: workspaceId, panelId: panelId), default: []].insert(process.pid)
+            }
+        }
+        return result
+    }
+}
 private extension Array where Element == String {
     var hasOpenCodeForkFlag: Bool {
         contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
