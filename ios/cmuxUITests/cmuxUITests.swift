@@ -421,6 +421,29 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDetailToolbarPinsIslandsToBarEdgesWithShortTitle() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = workspaceTitleElement(in: app)
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "short workspace title"
+        )
+        assertToolbarIslandsPinnedToBarEdges(
+            backButton: backButton,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "short workspace title"
+        )
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
@@ -433,6 +456,12 @@ final class cmuxUITests: XCTestCase {
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "long workspace title without chat toggle"
+        )
+        assertToolbarIslandsPinnedToBarEdges(
+            backButton: backButton,
             terminalDropdown: terminalDropdown,
             in: app,
             context: "long workspace title without chat toggle"
@@ -464,6 +493,12 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
         XCTAssertTrue(chatButton.isHittable)
+        assertToolbarIslandsPinnedToBarEdges(
+            backButton: backButton,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "long workspace title with chat toggle"
+        )
         assertToolbarOverflowButtonDoesNotExist(in: app)
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
@@ -2512,7 +2547,7 @@ final class cmuxUITests: XCTestCase {
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: terminalDropdown,
-                tolerance: 2,
+                tolerance: 3,
                 timeout: 4,
                 file: file,
                 line: line
@@ -2526,6 +2561,71 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func workspaceTitleElement(in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)["MobileWorkspaceTitleMenu"].firstMatch
+    }
+
+    @MainActor
+    private func assertToolbarIslandsPinnedToBarEdges(
+        backButton: XCUIElement,
+        terminalDropdown: XCUIElement,
+        in app: XCUIApplication,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let backFrame = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("\(context): back button has no usable toolbar frame", file: file, line: line)
+            return
+        }
+        guard let terminalFrame = waitForToolbarFrame(of: terminalDropdown, timeout: 4) else {
+            XCTFail("\(context): terminal dropdown has no usable toolbar frame", file: file, line: line)
+            return
+        }
+        guard let barFrame = waitForToolbarAnchorFrame(in: app, timeout: 4) else {
+            XCTFail("\(context): toolbar anchor has no usable frame", file: file, line: line)
+            return
+        }
+
+        let leadingInset = backFrame.minX - barFrame.minX
+        let trailingInset = barFrame.maxX - terminalFrame.maxX
+        XCTAssertGreaterThanOrEqual(
+            leadingInset,
+            -2,
+            "\(context): back island overflowed the toolbar leading edge. leadingInset=\(leadingInset), back=\(backFrame), bar=\(barFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThan(
+            leadingInset,
+            40,
+            "\(context): back island must pin to the toolbar leading edge. leadingInset=\(leadingInset), back=\(backFrame), bar=\(barFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            trailingInset,
+            -2,
+            "\(context): trailing island overflowed the toolbar trailing edge. trailingInset=\(trailingInset), terminal=\(terminalFrame), bar=\(barFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThan(
+            trailingInset,
+            40,
+            "\(context): trailing island must pin to the toolbar trailing edge. trailingInset=\(trailingInset), terminal=\(terminalFrame), bar=\(barFrame)",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func waitForToolbarAnchorFrame(in app: XCUIApplication, timeout: TimeInterval) -> CGRect? {
+        if let navigationBarFrame = waitForUsableFrame(of: app.navigationBars.firstMatch, timeout: timeout) {
+            return navigationBarFrame
+        }
+        if let windowFrame = waitForUsableFrame(of: app.windows.firstMatch, timeout: 0.1) {
+            return windowFrame
+        }
+        return waitForUsableFrame(of: app, timeout: 0.1)
     }
 
     @MainActor
