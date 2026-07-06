@@ -72,16 +72,15 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
-        let globalConfigPath = cmuxConfigStore.globalConfigPath
         // Capture reads the live agent index; refresh it first so running
         // agents aren't silently dropped from the saved action when the
         // cache is cold or stale.
-        Task { @MainActor [weak self, weak workspace, weak window] in
+        Task { @MainActor [weak self, weak workspace, weak window, weak cmuxConfigStore] in
             await SharedLiveAgentIndex.shared.waitForFreshIndex()
-            guard let self, let workspace, let window else { return }
+            guard let self, let workspace, let window, let cmuxConfigStore else { return }
             self.presentSaveWorkspaceActionDialog(
                 workspace: workspace,
-                globalConfigPath: globalConfigPath,
+                cmuxConfigStore: cmuxConfigStore,
                 window: window
             )
         }
@@ -89,10 +88,11 @@ extension AppDelegate {
 
     private func presentSaveWorkspaceActionDialog(
         workspace: Workspace,
-        globalConfigPath: String,
+        cmuxConfigStore: CmuxConfigStore,
         window: NSWindow
     ) {
         let snapshot = workspace.captureConfigActionSnapshot()
+        let globalConfigPath = cmuxConfigStore.globalConfigPath
 
         let alert = NSAlert()
         alert.messageText = String(
@@ -134,7 +134,7 @@ extension AppDelegate {
             defaultValue: "Cancel"
         ))
 
-        alert.beginSheetModal(for: window) { [weak window] response in
+        alert.beginSheetModal(for: window) { [weak window, weak cmuxConfigStore] response in
             guard response == .alertFirstButtonReturn else { return }
             let typedTitle = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = typedTitle.isEmpty
@@ -146,6 +146,9 @@ extension AppDelegate {
                     definition: snapshot.definition,
                     globalConfigPath: globalConfigPath
                 )
+                // The app's store runs without file watchers; reload explicitly
+                // so the saved action shows up in the menus right away.
+                cmuxConfigStore?.loadAll()
 #if DEBUG
                 cmuxDebugLog("saveWorkspaceAction.saved id=\(result.actionID)")
 #endif
