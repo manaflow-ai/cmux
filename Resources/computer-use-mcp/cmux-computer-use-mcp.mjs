@@ -734,12 +734,12 @@ function elementFromSnapshot(snapshot, index) {
 }
 
 async function approveAppControl(app) {
-  const result = await forwardElicitationToClient({
-    message: localizedMessage("appControlApproval", app),
-    mode: "form",
-    requestedSchema: { type: "object", properties: {} },
-  });
-  return result.action === "accept";
+  const normalizedApp = normalizeAppName(app);
+  if (!normalizedApp) return false;
+  return approveLocalCapability(
+    `app-control:${normalizedApp}`,
+    localizedMessage("appControlApproval", normalizedApp)
+  );
 }
 
 function providerError(error) {
