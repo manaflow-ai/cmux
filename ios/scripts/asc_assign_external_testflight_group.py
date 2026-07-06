@@ -381,6 +381,7 @@ def _ensure_external_review_submission(
     deadline: float,
     poll_seconds: int,
 ) -> None:
+    last_submit_error = ""
     while True:
         detail = _build_beta_detail(token, build_id)
         external_state = detail["external_build_state"]
@@ -415,7 +416,8 @@ def _ensure_external_review_submission(
         if external_state == "READY_FOR_BETA_SUBMISSION":
             try:
                 _submit_beta_review(token, build_id)
-            except RuntimeError:
+                last_submit_error = ""
+            except RuntimeError as exc:
                 submission = _beta_review_submission(token, build_id)
                 if submission is not None:
                     review_state = submission["beta_review_state"]
@@ -434,13 +436,25 @@ def _ensure_external_review_submission(
                 sibling_submission = _find_active_review_submission_on_sibling_build(token, build_id)
                 if sibling_submission is not None:
                     raise _pending_sibling_review_error(build_number, sibling_submission)
-                raise
+                last_submit_error = str(exc) or "submit beta app review did not succeed yet"
+                if time.time() >= deadline:
+                    raise RuntimeError(
+                        f"build {build_number} failed to submit beta app review within the timeout window"
+                    )
+                time.sleep(max(1, poll_seconds))
+                token = _token()
+                continue
             print(
                 f"asc_assign_external_testflight_group: submitted build {build_number} for beta app review"
             )
             return
 
         if time.time() >= deadline:
+            if last_submit_error:
+                raise RuntimeError(
+                    f"build {build_number} did not become externally reviewable within the timeout window "
+                    f"({last_submit_error})"
+                )
             raise RuntimeError(
                 "build "
                 f"{build_number} is in unexpected externalBuildState={external_state or '<empty>'} "
@@ -509,7 +523,7 @@ def main() -> int:
             token,
             build_id,
             args.build_number,
-            deadline,
+            time.time() + max(0, args.timeout_seconds),
             args.poll_seconds,
         )
         return 0
@@ -524,7 +538,7 @@ def main() -> int:
             token,
             build_id,
             args.build_number,
-            deadline,
+            time.time() + max(0, args.timeout_seconds),
             args.poll_seconds,
         )
         return 0
@@ -540,7 +554,7 @@ def main() -> int:
         token,
         build_id,
         args.build_number,
-        deadline,
+        time.time() + max(0, args.timeout_seconds),
         args.poll_seconds,
     )
     return 0

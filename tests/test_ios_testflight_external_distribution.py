@@ -201,6 +201,28 @@ def main():
         "external_build_state": "READY_FOR_BETA_SUBMISSION",
         "internal_build_state": "READY_FOR_BETA_TESTING",
     }
+    submit_attempts = {"count": 0}
+
+    def flaky_submit_then_success(token, build_id):
+        submit_attempts["count"] += 1
+        if submit_attempts["count"] == 1:
+            raise RuntimeError("temporary ASC failure")
+        submissions.append((token, build_id))
+
+    module._find_active_review_submission_on_sibling_build = lambda token, build_id: None
+    module._beta_review_submission = lambda token, build_id: None
+    module._submit_beta_review = flaky_submit_then_success
+    module._ensure_external_review_submission("jwt", "build-1", "42", real_time() + 1, 1)
+    _check(
+        submissions == [("jwt", "build-1")],
+        "transient submit failures are retried until submission succeeds",
+    )
+
+    submissions.clear()
+    module._build_beta_detail = lambda token, build_id: {
+        "external_build_state": "READY_FOR_BETA_SUBMISSION",
+        "internal_build_state": "READY_FOR_BETA_TESTING",
+    }
     calls = {"count": 0}
 
     def sibling_after_submit_failure(token, build_id):
