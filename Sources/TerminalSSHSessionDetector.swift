@@ -120,6 +120,104 @@ extension DetectedSSHSession {
         }
     }
 
+    private func scpArguments(localPath: String, remotePath: String) -> [String] {
+        var args: [String] = [
+            "-q",
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "BatchMode=yes",
+            "-o", "ControlMaster=no",
+        ]
+
+        if useIPv4 {
+            args.append("-4")
+        } else if useIPv6 {
+            args.append("-6")
+        }
+        if forwardAgent {
+            args.append("-A")
+        }
+        if compressionEnabled {
+            args.append("-C")
+        }
+        if let configFile, !configFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-F", configFile]
+        }
+        if let jumpHost, !jumpHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-J", jumpHost]
+        }
+        if let port {
+            args += ["-P", String(port)]
+        }
+        if let identityFile, !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        if let controlPath,
+           !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
+            args += ["-o", "ControlPath=\(controlPath)"]
+        }
+        if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        for option in sshOptions {
+            args += ["-o", option]
+        }
+
+        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
+        return args
+    }
+
+    private func sshArguments(command: String) -> [String] {
+        var args: [String] = ["-T"] + SSHHostConfiguredRemoteCommand().overrideArguments
+        args += [
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "BatchMode=yes",
+            "-o", "ControlMaster=no",
+        ]
+
+        if useIPv4 {
+            args.append("-4")
+        } else if useIPv6 {
+            args.append("-6")
+        }
+        if forwardAgent {
+            args.append("-A")
+        }
+        if compressionEnabled {
+            args.append("-C")
+        }
+        if let configFile, !configFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-F", configFile]
+        }
+        if let jumpHost, !jumpHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-J", jumpHost]
+        }
+        if let port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile, !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        if let controlPath,
+           !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
+            args += ["-o", "ControlPath=\(controlPath)"]
+        }
+        if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        for option in sshOptions {
+            args += ["-o", option]
+        }
+
+        args += [destination, command]
+        return args
+    }
+
     private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
