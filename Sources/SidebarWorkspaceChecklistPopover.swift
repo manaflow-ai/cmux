@@ -27,11 +27,10 @@ struct SidebarWorkspaceChecklistPopover: View {
     let onClose: @MainActor () -> Void
 
     @State private var showsAllItems = false
-    @State private var pendingItemText = ""
-    @FocusState private var addFieldFocused: Bool
+    /// Bumped after each add / on the add-item activation token to recreate the
+    /// AppKit add field, which re-focuses itself (and clears) on appear.
+    @State private var addFieldGeneration = 0
     @State private var editingItemId: UUID?
-    @State private var editingText = ""
-    @FocusState private var editFieldFocused: Bool
     /// The keyboard-highlighted item (Up/Down from the add field); Cmd+Return
     /// toggles it between completed and pending.
     @State private var highlightedItemId: UUID?
@@ -70,12 +69,12 @@ struct SidebarWorkspaceChecklistPopover: View {
         }
         .frame(width: 320, alignment: .leading)
         .background(toggleHighlightedShortcutButton(visible: clamped.visible))
-        // The add field is always armed: focus it on open so the user can
-        // type a new item with zero extra clicks.
-        .onAppear { addFieldFocused = true }
+        // Re-arm (and re-focus) the add field when the context-menu / palette
+        // "Add Checklist Item" activation token bumps. The AppKit field focuses
+        // itself on open, so no explicit focus call is needed on plain open.
         .task(id: model.addFieldActivationToken) {
             guard model.addFieldActivationToken > 0 else { return }
-            addFieldFocused = true
+            addFieldGeneration += 1
         }
         .accessibilityIdentifier("SidebarWorkspaceChecklistPopover")
     }
@@ -118,16 +117,15 @@ struct SidebarWorkspaceChecklistPopover: View {
                     : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
             )
             if editingItemId == item.id {
-                TextField(
-                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    text: $editingText
+                ChecklistInputField(
+                    initialText: item.text,
+                    placeholder: String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                    fontSize: Self.itemFontSize,
+                    onCommit: { commitItemEdit(item.id, text: $0) },
+                    onCancel: cancelItemEdit,
+                    selectsAllOnFocus: true
                 )
-                .textFieldStyle(.plain)
-                .font(.system(size: Self.itemFontSize))
-                .foregroundColor(.primary)
-                .focused($editFieldFocused)
-                .onSubmit { commitItemEdit(item.id) }
-                .onExitCommand(perform: cancelItemEdit)
+                .frame(height: Self.itemFontSize + 5)
                 .accessibilityIdentifier("SidebarChecklistPopoverEditItemField")
             } else {
                 Text(item.text)
@@ -201,25 +199,29 @@ struct SidebarWorkspaceChecklistPopover: View {
     // MARK: Add-item row (always armed — typing needs zero extra clicks)
 
     private func addItemRow(visible: [WorkspaceChecklistItem]) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        let placeholder = String(
+            localized: "sidebar.checklist.addItemPlaceholder",
+            defaultValue: "New checklist item"
+        )
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
             CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
                 .foregroundColor(.secondary)
-            TextField(
-                String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
-                text: $pendingItemText
+            // AppKit field (not SwiftUI TextField): it calls
+            // `window.makeFirstResponder(self)` on appear, so it wins first
+            // responder inside the NSPopover window even while the terminal is
+            // the focused pane behind it (a SwiftUI TextField never does, so
+            // keystrokes fell through to the terminal).
+            ChecklistInputField(
+                initialText: "",
+                placeholder: placeholder,
+                fontSize: Self.itemFontSize,
+                onCommit: { commitAddField($0) },
+                onCancel: { onClose() }
             )
-            .textFieldStyle(.plain)
-            .font(.system(size: Self.itemFontSize))
-            .foregroundColor(.primary)
-            .focused($addFieldFocused)
-            .onSubmit(commitPendingItem)
-            .onExitCommand(perform: cancelPendingItem)
-            // Up/Down move the item highlight even while the always-armed add
-            // field holds focus (a single-line field ignores vertical arrows).
-            .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
-            .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
+            .id(addFieldGeneration)
+            .frame(height: Self.itemFontSize + 5)
             .accessibilityIdentifier("SidebarChecklistPopoverAddItemField")
         }
         .padding(.horizontal, 4)
@@ -242,14 +244,6 @@ struct SidebarWorkspaceChecklistPopover: View {
             .accessibilityHidden(true)
     }
 
-    private func moveHighlight(_ delta: Int, in visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
-        guard !visible.isEmpty else { return .ignored }
-        let currentIndex = visible.firstIndex(where: { $0.id == highlightedItemId })
-            ?? (delta > 0 ? -1 : visible.count)
-        let next = min(max(currentIndex + delta, 0), visible.count - 1)
-        highlightedItemId = visible[next].id
-        return .handled
-    }
 
     /// Cmd+Return toggles the highlighted item; no-op when nothing is
     /// highlighted.
@@ -259,36 +253,23 @@ struct SidebarWorkspaceChecklistPopover: View {
         actions.setItemState(item.id, item.state == .completed ? .pending : .completed)
     }
 
-    /// Enter commits the trimmed text and re-arms the field for the next item.
-    private func commitPendingItem() {
-        let text = pendingItemText
-        pendingItemText = ""
+    /// Enter (or focus-loss) commits the trimmed text and re-arms the field
+    /// (a fresh, empty, focused add field) for the next item.
+    private func commitAddField(_ text: String) {
+        addFieldGeneration += 1
+        onConsumeAddFieldActivation()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.addItem(text)
-        addFieldFocused = true
-    }
-
-    /// Esc clears a partial entry, or closes the popover when already empty.
-    private func cancelPendingItem() {
-        if pendingItemText.isEmpty {
-            onConsumeAddFieldActivation()
-            onClose()
-        } else {
-            pendingItemText = ""
-        }
     }
 
     // MARK: Item text editing
 
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
-        editingText = item.text
-        editFieldFocused = true
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
-    private func commitItemEdit(_ id: UUID) {
-        let text = editingText
+    private func commitItemEdit(_ id: UUID, text: String) {
         cancelItemEdit()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
@@ -296,8 +277,6 @@ struct SidebarWorkspaceChecklistPopover: View {
 
     private func cancelItemEdit() {
         editingItemId = nil
-        editingText = ""
-        editFieldFocused = false
     }
 
     // MARK: Footer
