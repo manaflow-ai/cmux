@@ -8,8 +8,14 @@ import AppKit
 
 struct ChatBlockDetailSheetView: View {
     let detail: ChatBlockDetail
+    let onOpenTerminal: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+
+    init(detail: ChatBlockDetail, onOpenTerminal: (() -> Void)? = nil) {
+        self.detail = detail
+        self.onOpenTerminal = onOpenTerminal
+    }
 
     var body: some View {
         NavigationStack {
@@ -40,13 +46,36 @@ struct ChatBlockDetailSheetView: View {
                     .accessibilityIdentifier("ChatBlockDetailDoneButton")
                 }
                 #if os(iOS)
-                ToolbarItem(placement: .topBarTrailing) { copyAllButton }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    openTerminalButton
+                    copyAllButton
+                }
                 #else
-                ToolbarItem(placement: .confirmationAction) { copyAllButton }
+                ToolbarItemGroup(placement: .confirmationAction) {
+                    openTerminalButton
+                    copyAllButton
+                }
                 #endif
             }
         }
         .accessibilityIdentifier("ChatBlockDetailSheet")
+    }
+
+    @ViewBuilder
+    private var openTerminalButton: some View {
+        if let onOpenTerminal {
+            Button(action: onOpenTerminal) {
+                Label(
+                    String(
+                        localized: "chat.terminal.open_in_terminal",
+                        defaultValue: "Open in terminal",
+                        bundle: .module
+                    ),
+                    systemImage: "terminal"
+                )
+            }
+            .accessibilityIdentifier("ChatBlockDetailOpenTerminalButton")
+        }
     }
 
     private var copyAllButton: some View {

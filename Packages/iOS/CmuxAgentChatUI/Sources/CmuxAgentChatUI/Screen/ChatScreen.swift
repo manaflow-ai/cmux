@@ -18,6 +18,7 @@ public struct ChatScreen: View {
     @State private var contentCache = ChatContentCache()
     @State private var selectedBlockSelection: ChatBlockSelection?
 
+    private let detailBuilder = ChatBlockDetailBuilder()
     @Binding private var draft: String
     private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
     private let accessoryShortcuts: [ChatAccessoryShortcut]
@@ -84,7 +85,10 @@ public struct ChatScreen: View {
         ))
         .sheet(item: $selectedBlockSelection) { selection in
             if let detail = blockDetail(for: selection) {
-                ChatBlockDetailSheetView(detail: detail)
+                ChatBlockDetailSheetView(
+                    detail: detail,
+                    onOpenTerminal: openTerminalAction(for: selection)
+                )
             }
         }
         .task {
@@ -219,10 +223,10 @@ public struct ChatScreen: View {
         switch selection {
         case .message(let id):
             guard let message = currentMessage(id: id) else { return nil }
-            return makeChatBlockDetail(message: message)
+            return detailBuilder.detail(message: message)
         case .terminalCommand(let id):
             guard let block = currentTerminalBlock(id: id) else { return nil }
-            return makeChatBlockDetail(block: block)
+            return detailBuilder.detail(block: block)
         case .codeBlock(let messageID, let segmentIndex):
             guard let message = currentMessage(id: messageID),
                   case .prose(let prose) = message.kind,
@@ -231,7 +235,7 @@ public struct ChatScreen: View {
                       .first(where: { $0.index == segmentIndex }),
                   case .code(let language) = segment.kind
             else { return nil }
-            return makeCodeBlockDetail(
+            return detailBuilder.codeBlock(
                 id: "code-\(messageID)-\(segmentIndex)",
                 code: segment.content,
                 language: language
@@ -257,6 +261,27 @@ public struct ChatScreen: View {
             }
         }
         return nil
+    }
+
+    private func openTerminalAction(for selection: ChatBlockSelection) -> (() -> Void)? {
+        guard selectionCanOpenTerminal(selection) else { return nil }
+        return {
+            selectedBlockSelection = nil
+            onOpenTerminal()
+        }
+    }
+
+    private func selectionCanOpenTerminal(_ selection: ChatBlockSelection) -> Bool {
+        switch selection {
+        case .terminalCommand:
+            return true
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return false }
+            if case .terminal = message.kind { return true }
+            return false
+        case .codeBlock:
+            return false
+        }
     }
 
     private var rowActions: ChatRowActions {

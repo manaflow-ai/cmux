@@ -63,7 +63,7 @@ public struct ChatProseBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: hasInteractiveCodeBlocks ? .contain : .combine)
             .accessibilityAction(
                 named: Text(
                     String(localized: "chat.bubble.copy", defaultValue: "Copy", bundle: .module)
@@ -76,6 +76,14 @@ public struct ChatProseBubbleView: View {
     }
 
     private var isUser: Bool { message.role == .user }
+
+    private var hasInteractiveCodeBlocks: Bool {
+        guard !isUser else { return false }
+        return proseSegments.contains { segment in
+            if case .code = segment.kind { return true }
+            return false
+        }
+    }
 
     /// Copies the bubble's full prose text to the system pasteboard; shared
     /// by the context menu and the VoiceOver custom action.

@@ -5,6 +5,8 @@ import Testing
 @testable import CmuxAgentChatUI
 
 struct ChatBlockDetailTests {
+    private let detailBuilder = ChatBlockDetailBuilder()
+
     @Test func toolDetailPreservesInputAndOutput() {
         let message = ChatMessage(
             id: "tool-1",
@@ -20,7 +22,7 @@ struct ChatBlockDetailTests {
             ))
         )
 
-        let detail = makeChatBlockDetail(message: message)
+        let detail = detailBuilder.detail(message: message)
 
         #expect(detail?.id == "msg-tool-1")
         #expect(detail?.sections.map(\.id) == ["input", "output"])
@@ -34,7 +36,7 @@ struct ChatBlockDetailTests {
             .map { "line \($0)" }
             .joined(separator: "\n")
 
-        let detail = makeCodeBlockDetail(id: "code-1", code: code, language: "swift")
+        let detail = detailBuilder.codeBlock(id: "code-1", code: code, language: "swift")
 
         #expect(detail.id == "code-1")
         #expect(detail.subtitle == "swift")
@@ -52,7 +54,7 @@ struct ChatBlockDetailTests {
             isRunning: false
         )
 
-        let detail = makeChatBlockDetail(block: block)
+        let detail = detailBuilder.detail(block: block)
 
         #expect(detail.id == "term-42")
         #expect(detail.sections.map(\.id) == ["command", "output"])
