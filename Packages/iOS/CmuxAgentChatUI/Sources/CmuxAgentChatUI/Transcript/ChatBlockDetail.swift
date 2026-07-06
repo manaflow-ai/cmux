@@ -108,10 +108,15 @@ extension ChatBlockDetail {
                 style: .prose
             ))
         }
+        let status = statusLabel(toolUse.status)
         return ChatBlockDetail(
             id: id,
             title: String(localized: "chat.detail.tool.title", defaultValue: "Tool Details", bundle: .module),
-            subtitle: "\(toolUse.toolName) - \(statusLabel(toolUse.status))",
+            subtitle: String(
+                localized: "chat.detail.tool.subtitle",
+                defaultValue: "\(toolUse.toolName) - \(status)",
+                bundle: .module
+            ),
             sections: sections
         )
     }
@@ -149,7 +154,13 @@ extension ChatBlockDetail {
         ]
         .compactMap(\.self)
         .joined(separator: " ")
-        let subtitle = details.isEmpty ? edit.filePath : "\(edit.filePath) - \(details)"
+        let subtitle = details.isEmpty
+            ? edit.filePath
+            : String(
+                localized: "chat.detail.file.subtitle",
+                defaultValue: "\(edit.filePath) - \(details)",
+                bundle: .module
+            )
         let text = nonEmpty(edit.unifiedDiff)
             ?? String(localized: "chat.detail.empty", defaultValue: "No details available", bundle: .module)
         return ChatBlockDetail(

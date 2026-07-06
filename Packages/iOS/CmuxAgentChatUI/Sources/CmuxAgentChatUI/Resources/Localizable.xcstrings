@@ -171,23 +171,6 @@
         }
       }
     },
-    "chat.detail.copied" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copied"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コピー済み"
-          }
-        }
-      }
-    },
     "chat.detail.copy_all" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -273,6 +256,23 @@
         }
       }
     },
+    "chat.detail.file.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ - %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@（%@）"
+          }
+        }
+      }
+    },
     "chat.detail.operation.delete" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -337,23 +337,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "出力"
-          }
-        }
-      }
-    },
-    "chat.detail.show.accessibility" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show details"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "詳細を表示"
           }
         }
       }
@@ -524,6 +507,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "概要"
+          }
+        }
+      }
+    },
+    "chat.detail.tool.subtitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ - %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@（%@）"
           }
         }
       }

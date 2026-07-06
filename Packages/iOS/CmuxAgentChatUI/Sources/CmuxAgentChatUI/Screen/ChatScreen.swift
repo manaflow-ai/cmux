@@ -6,6 +6,23 @@ import Accessibility
 import UIKit
 #endif
 
+private enum ChatBlockSelection: Identifiable, Equatable {
+    case message(id: String)
+    case terminalCommand(id: Int)
+    case codeBlock(messageID: String, segmentIndex: Int)
+
+    var id: String {
+        switch self {
+        case .message(let id):
+            return "msg-\(id)"
+        case .terminalCommand(let id):
+            return "term-\(id)"
+        case .codeBlock(let messageID, let segmentIndex):
+            return "code-\(messageID)-\(segmentIndex)"
+        }
+    }
+}
+
 /// The full conversation surface: header state, transcript, typing
 /// indicator, and the keyboard-attached composer.
 ///
@@ -16,7 +33,7 @@ public struct ChatScreen: View {
     @State private var store: ChatConversationStore
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
-    @State private var selectedBlockDetail: ChatBlockDetail?
+    @State private var selectedBlockSelection: ChatBlockSelection?
 
     @Binding private var draft: String
     private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
@@ -82,8 +99,10 @@ public struct ChatScreen: View {
             providesOwnChrome: providesOwnChrome,
             onOpenTerminal: onOpenTerminal
         ))
-        .sheet(item: $selectedBlockDetail) { detail in
-            ChatBlockDetailSheetView(detail: detail)
+        .sheet(item: $selectedBlockSelection) { selection in
+            if let detail = blockDetail(for: selection) {
+                ChatBlockDetailSheetView(detail: detail)
+            }
         }
         .task {
             guard runsStoreTask else { return }
@@ -213,6 +232,50 @@ public struct ChatScreen: View {
     }
     #endif
 
+    private func blockDetail(for selection: ChatBlockSelection) -> ChatBlockDetail? {
+        switch selection {
+        case .message(let id):
+            guard let message = currentMessage(id: id) else { return nil }
+            return ChatBlockDetail.make(message: message)
+        case .terminalCommand(let id):
+            guard let block = currentTerminalBlock(id: id) else { return nil }
+            return ChatBlockDetail.make(block: block)
+        case .codeBlock(let messageID, let segmentIndex):
+            guard let message = currentMessage(id: messageID),
+                  case .prose(let prose) = message.kind,
+                  let segment = contentCache
+                      .proseSegments(messageID: messageID, text: prose.text)
+                      .first(where: { $0.index == segmentIndex }),
+                  case .code(let language) = segment.kind
+            else { return nil }
+            return ChatBlockDetail.codeBlock(
+                id: "code-\(messageID)-\(segmentIndex)",
+                code: segment.content,
+                language: language
+            )
+        }
+    }
+
+    private func currentMessage(id: String) -> ChatMessage? {
+        for row in store.rows {
+            if case .message(let snapshot) = row,
+               snapshot.message.id == id {
+                return snapshot.message
+            }
+        }
+        return nil
+    }
+
+    private func currentTerminalBlock(id: Int) -> TerminalCommandBlock? {
+        for row in store.rows {
+            if case .terminalCommand(let block) = row,
+               block.id == id {
+                return block
+            }
+        }
+        return nil
+    }
+
     private var rowActions: ChatRowActions {
         ChatRowActions(
             answerOption: { index in
@@ -226,17 +289,13 @@ public struct ChatScreen: View {
             },
             openTerminal: onOpenTerminal,
             showMessageDetail: { message in
-                selectedBlockDetail = ChatBlockDetail.make(message: message)
+                selectedBlockSelection = .message(id: message.id)
             },
             showTerminalCommandDetail: { block in
-                selectedBlockDetail = ChatBlockDetail.make(block: block)
+                selectedBlockSelection = .terminalCommand(id: block.id)
             },
-            showCodeBlockDetail: { id, code, language in
-                selectedBlockDetail = ChatBlockDetail.codeBlock(
-                    id: "code-\(id)",
-                    code: code,
-                    language: language
-                )
+            showCodeBlockDetail: { messageID, segmentIndex in
+                selectedBlockSelection = .codeBlock(messageID: messageID, segmentIndex: segmentIndex)
             }
         )
     }
