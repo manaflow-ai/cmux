@@ -168,10 +168,25 @@ struct WorkspaceDetailView: View {
                     // composer owns or intentionally withholds the keyboard.
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                         && !store.isComposerPresented,
-                    isComposerActive: store.isComposerPresented
+                    isComposerActive: store.isComposerPresented,
+                    // Drives the live recolor: when the synced theme changes the
+                    // shell bumps this, and the representable rebuilds the runtime
+                    // config + recolors the mounted surface in place (background,
+                    // letterbox, default cell colors) without a remount, so
+                    // scrollback survives a theme change.
+                    themeGeneration: store.terminalThemeGeneration
                 )
-                // Identity must track the selected terminal because the
-                // coordinator binds its byte sink to the surfaceID at make time.
+                // Identity must track the selected terminal. The representable's
+                // coordinator binds its byte sink to the surfaceID at make time and
+                // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
+                // reuses the first terminal's surface and the dropdown never switches.
+                // Keying on terminalID tears down the old surface (unregistering its
+                // sink via dismantleUIView) and builds the newly-selected one.
+                //
+                // The theme is NOT folded into the identity: a theme change recolors
+                // the live surface in place (config rebuild + view recolor driven by
+                // `themeGeneration`), so remounting would only throw away scrollback
+                // for no visual benefit.
                 .id(terminalID)
                 .onAppear {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
