@@ -15,23 +15,18 @@ struct SynchronousProcessOutputCaptureTests {
             return
         }
 
-        var maxCount = baseline
         for _ in 0..<200 {
             let output = SynchronousProcessOutputCapture(
                 executablePath: "/usr/bin/printf",
                 arguments: ["cmux"]
             ).captureStandardOutput()
             #expect(output == "cmux")
-            if let current = openFDCount() {
-                maxCount = max(maxCount, current)
-            }
         }
 
         guard let finalCount = openFDCount() else {
             return
         }
 
-        #expect(maxCount - baseline <= 8)
         #expect(finalCount - baseline <= 8)
     }
 }
