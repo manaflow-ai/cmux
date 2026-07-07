@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,8 +7,9 @@ import XCTest
 @testable import cmux
 #endif
 
-final class FullWidthTabPersistenceTests: XCTestCase {
-    func testSessionPaneLayoutSnapshotPreservesFullWidthTabModeFlag() throws {
+@Suite
+struct FullWidthTabPersistenceTests {
+    @Test func sessionPaneLayoutSnapshotPreservesFullWidthTabModeFlag() throws {
         let panelId = UUID()
         let source = SessionPaneLayoutSnapshot(
             panelIds: [panelId],
@@ -19,12 +20,12 @@ final class FullWidthTabPersistenceTests: XCTestCase {
         let data = try JSONEncoder().encode(source)
         let decoded = try JSONDecoder().decode(SessionPaneLayoutSnapshot.self, from: data)
 
-        XCTAssertEqual(decoded.panelIds, [panelId])
-        XCTAssertEqual(decoded.selectedPanelId, panelId)
-        XCTAssertEqual(decoded.isFullWidthTabMode, true)
+        #expect(decoded.panelIds == [panelId])
+        #expect(decoded.selectedPanelId == panelId)
+        #expect(decoded.isFullWidthTabMode == true)
     }
 
-    func testSessionPaneLayoutSnapshotDecodesLegacyFullWidthTabModeAsNil() throws {
+    @Test func sessionPaneLayoutSnapshotDecodesLegacyFullWidthTabModeAsNil() throws {
         let panelId = UUID()
         let json = """
         {
@@ -38,31 +39,34 @@ final class FullWidthTabPersistenceTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertEqual(decoded.panelIds, [panelId])
-        XCTAssertEqual(decoded.selectedPanelId, panelId)
-        XCTAssertNil(decoded.isFullWidthTabMode)
+        #expect(decoded.panelIds == [panelId])
+        #expect(decoded.selectedPanelId == panelId)
+        #expect(decoded.isFullWidthTabMode == nil)
     }
 
     @MainActor
-    func testWorkspaceSessionSnapshotRestoresFullWidthTabMode() throws {
+    @Test func workspaceSessionSnapshotRestoresFullWidthTabMode() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: panelId))
+        let panelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: panelId))
 
-        XCTAssertTrue(workspace.toggleFullWidthTabMode(panelId: panelId))
-        XCTAssertTrue(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId))
+        #expect(workspace.toggleFullWidthTabMode(panelId: panelId))
+        #expect(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId))
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        guard case .pane(let paneSnapshot) = snapshot.layout else {
-            return XCTFail("Expected single-pane layout")
-        }
-        XCTAssertEqual(paneSnapshot.isFullWidthTabMode, true)
+        let paneSnapshot = try #require({
+            if case .pane(let paneSnapshot) = snapshot.layout {
+                return paneSnapshot
+            }
+            return nil
+        }())
+        #expect(paneSnapshot.isFullWidthTabMode == true)
 
         let restored = Workspace()
         let restoredIds = restored.restoreSessionSnapshot(snapshot)
-        let restoredPanelId = try XCTUnwrap(restoredIds[panelId])
-        let restoredPaneId = try XCTUnwrap(restored.paneId(forPanelId: restoredPanelId))
+        let restoredPanelId = try #require(restoredIds[panelId])
+        let restoredPaneId = try #require(restored.paneId(forPanelId: restoredPanelId))
 
-        XCTAssertTrue(restored.bonsplitController.isFullWidthTabMode(inPane: restoredPaneId))
+        #expect(restored.bonsplitController.isFullWidthTabMode(inPane: restoredPaneId))
     }
 }

@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,22 +8,20 @@ import XCTest
 #endif
 
 @MainActor
-final class FullWidthTabCommandTests: XCTestCase {
-    func testToggleFocusedFullWidthTabTogglesFocusedPane() {
+@Suite
+struct FullWidthTabCommandTests {
+    @Test func toggleFocusedFullWidthTabTogglesFocusedPane() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let paneId = workspace.paneId(forPanelId: panelId) else {
-            XCTFail("Expected selected workspace with focused panel")
-            return
-        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: panelId))
 
-        XCTAssertTrue(manager.toggleFocusedFullWidthTab())
-        XCTAssertEqual(workspace.focusedPanelId, panelId)
-        XCTAssertTrue(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId))
+        #expect(manager.toggleFocusedFullWidthTab())
+        #expect(workspace.focusedPanelId == panelId)
+        #expect(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId))
 
-        XCTAssertTrue(manager.toggleFocusedFullWidthTab())
-        XCTAssertEqual(workspace.focusedPanelId, panelId)
-        XCTAssertFalse(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId))
+        #expect(manager.toggleFocusedFullWidthTab())
+        #expect(workspace.focusedPanelId == panelId)
+        #expect(!workspace.bonsplitController.isFullWidthTabMode(inPane: paneId))
     }
 }
