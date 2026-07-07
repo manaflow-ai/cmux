@@ -1,5 +1,6 @@
 import CmuxMobileShellModel
 import Foundation
+import SwiftUI
 
 extension WorkspaceListView {
     var hasPendingWorkspaceMove: Bool {
