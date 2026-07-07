@@ -318,16 +318,9 @@ struct UserDefaultsSettingsStoreTests {
         await store.set(.dark, for: key, source: source)
 
         var iterator = stream.makeAsyncIterator()
-        var taggedEvent: UserDefaultsSettingsValueEvent<AppearanceMode>?
-        for _ in 0..<2 {
-            guard let event = await iterator.next() else { break }
-            if event.value == .dark {
-                taggedEvent = event
-                break
-            }
-        }
-        #expect(taggedEvent?.value == .dark)
-        #expect(taggedEvent?.mutationSource == source)
+        let firstEvent = await iterator.next()
+        let taggedEvent = firstEvent?.value == .dark ? firstEvent : await iterator.next()
+        #expect(taggedEvent?.value == .dark && taggedEvent?.mutationSource == source)
     }
 
     @Test func valueEventsDeliverMutationSourceToEveryActiveObserver() async {
