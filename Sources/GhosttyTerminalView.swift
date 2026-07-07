@@ -3418,6 +3418,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    /// Per-`keyDown` gate for broadcast input (pane synchronization). Primed
+    /// once at the top of `keyDown` via `resolveBroadcastInputActive()` and
+    /// reset by that scope's `defer`, so the hot `sendGhosttyKeyToFocusedSurface`
+    /// path only reads a bool. `false` whenever the focused workspace is not in
+    /// broadcast mode — the overwhelmingly common case.
+    var broadcastInputActive: Bool = false
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
@@ -5706,6 +5712,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
 #endif
         }
+        // Prime the broadcast-input gate once for this keystroke. Every send
+        // path below reads `broadcastInputActive`; the `defer` clears it so the
+        // flag can never leak into a later, non-keyDown `sendGhosttyKey` caller.
+        broadcastInputActive = resolveBroadcastInputActive()
+        defer { broadcastInputActive = false }
         let flags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
         if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
@@ -5773,7 +5784,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                handled = ghostty_surface_key(surface, keyEvent)
+                handled = sendGhosttyKeyToFocusedSurface(surface, keyEvent)
                 #endif
             } else {
                 #if DEBUG
@@ -5782,7 +5793,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
-                    return ghostty_surface_key(surface, keyEvent)
+                    return sendGhosttyKeyToFocusedSurface(surface, keyEvent)
                 }
                 #if DEBUG
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -5975,7 +5986,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKeyToFocusedSurface(surface, keyEvent)
                     #endif
                 }
             }
@@ -5996,7 +6007,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKeyToFocusedSurface(surface, keyEvent)
 #endif
             }
         } else {
@@ -6057,7 +6068,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKeyToFocusedSurface(surface, keyEvent)
                     #endif
                 }
             } else {
@@ -6073,7 +6084,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKeyToFocusedSurface(surface, keyEvent)
                 #endif
             }
         }
@@ -6086,7 +6097,58 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
 #endif
-        return ghostty_surface_key(surface, keyEvent)
+        return sendGhosttyKeyToFocusedSurface(surface, keyEvent)
+    }
+
+    /// Delivers a key event to the focused surface and, when broadcast input
+    /// (pane synchronization) is active for this workspace, fans the identical
+    /// event out to the other visible panes. This is the single choke point for
+    /// the fan-out: every keyDown send path funnels through here (directly or
+    /// via `sendGhosttyKey`).
+    ///
+    /// Kept distinct from `sendGhosttyKey` so the DEBUG key-event observer's
+    /// call count is unchanged for the raw `ghostty_surface_key` fast paths —
+    /// many IME/forwarding tests assert on that observer, and only
+    /// `sendGhosttyKey` should invoke it.
+    @discardableResult
+    private func sendGhosttyKeyToFocusedSurface(
+        _ surface: ghostty_surface_t,
+        _ keyEvent: ghostty_input_key_s
+    ) -> Bool {
+        let handled = ghostty_surface_key(surface, keyEvent)
+        if broadcastInputActive {
+            broadcastKeyEventToVisibleSiblings(keyEvent)
+        }
+        return handled
+    }
+
+    /// Resolves whether broadcast input is enabled for the focused surface's
+    /// workspace. Called once at the top of `keyDown` to prime
+    /// `broadcastInputActive`; the O(1) `workspacesById` lookup keeps the hot
+    /// path free of per-keystroke `tabs` scans.
+    private func resolveBroadcastInputActive() -> Bool {
+        guard let source = terminalSurface,
+              let manager = AppDelegate.shared?.tabManagerFor(tabId: source.tabId) else {
+            return false
+        }
+        return manager.isBroadcastInputEnabled(forTabId: source.tabId)
+    }
+
+    /// Fans `keyEvent` out to every visible pane in the focused surface's
+    /// workspace except the source. Runs only while `broadcastInputActive`, so
+    /// the per-pane walk never touches the common (broadcast-off) keystroke.
+    /// The `keyEvent`'s `text` pointer is still valid here because callers
+    /// invoke this synchronously from inside the originating `withCString`
+    /// scope.
+    private func broadcastKeyEventToVisibleSiblings(_ keyEvent: ghostty_input_key_s) {
+        guard let source = terminalSurface,
+              let manager = AppDelegate.shared?.tabManagerFor(tabId: source.tabId),
+              let workspace = manager.workspace(withId: source.tabId) else {
+            return
+        }
+        for panel in workspace.visibleTerminalPanels where panel.surface.id != source.id {
+            _ = panel.surface.replayBroadcastKeyEvent(keyEvent)
+        }
     }
 
 #if DEBUG

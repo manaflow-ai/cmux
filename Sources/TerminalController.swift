@@ -4441,7 +4441,8 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color",
+            "toggle_sync"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4496,6 +4497,16 @@ class TerminalController {
             case "unpin":
                 tabManager.setPinned(workspace, pinned: false)
                 finish(["pinned": false])
+
+            case "toggle_sync":
+                // Broadcast input (pane synchronization): fan keystrokes typed
+                // in the focused pane out to every other visible pane in the
+                // workspace. Routes through the shared `TabManager` writer so
+                // the CLI, keyboard shortcut, command palette, and menu all
+                // mutate one source of truth.
+                let enabled = tabManager.toggleBroadcastInput(forTabId: workspace.id)
+                    ?? workspace.broadcastInputEnabled
+                finish(["broadcast_input": enabled])
 
             case "rename":
                 guard let titleRaw = v2String(params, "title"),

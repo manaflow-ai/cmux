@@ -1957,6 +1957,13 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
+    /// When enabled, keystrokes typed in the focused pane are broadcast to every
+    /// other visible pane in this workspace (tmux `synchronize-panes` / iTerm2
+    /// "Broadcast Input"). Scoped per workspace and deliberately not persisted,
+    /// so a broadcast session never outlives the window. Mutate through the
+    /// shared `setBroadcastInputEnabled(_:)` / `toggleBroadcastInput()` path so
+    /// every entrypoint (shortcut, command palette, menu, CLI) stays in sync.
+    @Published var broadcastInputEnabled: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
@@ -2165,6 +2172,23 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panel
+    }
+
+    /// One terminal panel per currently-visible pane: the selected surface in
+    /// each split pane of the main area. These are the fan-out targets for
+    /// broadcast input (see ``broadcastInputEnabled``). Background surface-tabs
+    /// and the right-Dock tree are intentionally excluded — broadcast is
+    /// "visible panes only". Mirrors the pane-walk in
+    /// ``backgroundPrimeTerminalPanels``.
+    var visibleTerminalPanels: [TerminalPanel] {
+        var seenPanelIds = Set<UUID>()
+        return bonsplitController.allPaneIds.compactMap { paneId -> TerminalPanel? in
+            guard let surfaceId = bonsplitController.selectedTab(inPane: paneId)?.id
+                    ?? bonsplitController.tabs(inPane: paneId).first?.id,
+                  let panelId = panelIdFromSurfaceId(surfaceId),
+                  seenPanelIds.insert(panelId).inserted else { return nil }
+            return panels[panelId] as? TerminalPanel
+        }
     }
 
     /// Forwards to

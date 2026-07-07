@@ -7407,6 +7407,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleBroadcastInput",
+                title: constant(String(localized: "command.toggleBroadcastInput.title", defaultValue: "Toggle Broadcast Input")),
+                subtitle: constant(String(localized: "command.toggleBroadcastInput.subtitle", defaultValue: "Terminal Input")),
+                keywords: ["broadcast", "sync", "synchronize", "panes", "input", "type", "all"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
                 subtitle: workspaceSubtitle,
@@ -8095,6 +8107,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleFullWidthTab") {
             if !tabManager.toggleFocusedFullWidthTab() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.toggleBroadcastInput") {
+            if tabManager.toggleBroadcastInput() == nil {
                 NSSound.beep()
             }
         }
