@@ -5,6 +5,7 @@ import {
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   withAuthedVmApiRoute,
+  vmRequiresProResponse,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import {
@@ -16,6 +17,7 @@ import {
 } from "../../../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../../../services/vms/entitlements";
 import { forkVm, runVmWorkflow } from "../../../../../services/vms/workflows";
@@ -56,6 +58,9 @@ export async function POST(
       } catch (err) {
         if (isVmBillingTeamResolutionError(err)) return billingTeamErrorResponse(err);
         throw err;
+      }
+      if (isVmProGateBlocked(entitlements)) {
+        return vmRequiresProResponse();
       }
       const idempotencyKey = idempotencyKeyFromRequest(request);
       const name = stringField(body, "name");

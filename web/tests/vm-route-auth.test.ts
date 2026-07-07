@@ -27,6 +27,7 @@ const VM_ENV_KEYS = [
   "CMUX_VM_FREE_MAX_ACTIVE_VMS",
   "CMUX_VM_PAID_MAX_ACTIVE_VMS",
   "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
+  "CMUX_VM_REQUIRE_PRO",
   "VERCEL",
   "VERCEL_ENV",
 ] as const;
@@ -313,6 +314,56 @@ describe("VM REST auth", () => {
       billingPlanId: "pro",
       maxActiveVms: 25,
     }));
+  });
+
+  test("blocks a free plan from provisioning when CMUX_VM_REQUIRE_PRO is enforced", async () => {
+    process.env.CMUX_VM_REQUIRE_PRO = "1";
+    getUser.mockResolvedValue(freePlanStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    expect((await response.json() as { error: string }).error).toBe("vm_requires_pro");
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
+  test("lets a pro plan provision even when CMUX_VM_REQUIRE_PRO is enforced", async () => {
+    process.env.CMUX_VM_REQUIRE_PRO = "1";
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-pro-gate-ok",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalled();
+  });
+
+  test("still lists VMs for a free plan under Pro enforcement (management is not gated)", async () => {
+    process.env.CMUX_VM_REQUIRE_PRO = "1";
+    getUser.mockResolvedValue(freePlanStackUser());
+    runVmWorkflow.mockResolvedValue([]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    expect(createVm).not.toHaveBeenCalled();
   });
 
   test("includes original failed create cause in the idempotency failure response", async () => {
@@ -1258,6 +1309,22 @@ function authedStackUser() {
     listTeams: async () => [{
       id: "team-1",
       clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+    }],
+  };
+}
+
+function freePlanStackUser() {
+  return {
+    id: "user-1",
+    displayName: null,
+    primaryEmail: "user@example.com",
+    selectedTeam: {
+      id: "team-1",
+      clientReadOnlyMetadata: { cmuxVmPlan: "free" },
+    },
+    listTeams: async () => [{
+      id: "team-1",
+      clientReadOnlyMetadata: { cmuxVmPlan: "free" },
     }],
   };
 }

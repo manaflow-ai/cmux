@@ -21,6 +21,7 @@ import {
 } from "../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
 import {
@@ -35,6 +36,7 @@ import {
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
+  vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
   createVm,
@@ -286,6 +288,10 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.billing.requested_team_id_set": !!requestedBillingTeamId,
           "cmux.vm.max_active": entitlements.maxActiveVms,
         });
+
+        if (isVmProGateBlocked(entitlements)) {
+          return vmRequiresProResponse();
+        }
 
         let created;
         try {

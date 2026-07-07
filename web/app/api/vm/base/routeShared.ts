@@ -3,6 +3,7 @@ import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../../services/vms/entitlements";
 import {
@@ -23,6 +24,7 @@ import {
   vmBillingTeamErrorResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
+  vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import {
@@ -53,6 +55,10 @@ export async function runBaseRoute(input: {
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
     throw err;
+  }
+
+  if (isVmProGateBlocked(entitlements)) {
+    return vmRequiresProResponse();
   }
 
   const provider = parsed.body.provider ?? defaultProviderId();

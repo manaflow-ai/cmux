@@ -233,6 +233,15 @@ export function vmBillingTeamErrorResponse(err: {
   });
 }
 
+export function vmRequiresProResponse(): Response {
+  return vmErrorResponse({
+    error: "vm_requires_pro",
+    status: 402,
+    message: "Cloud VMs require a cmux Pro plan.",
+    action: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs.",
+  });
+}
+
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
   if (isVmProviderOperationError(workflowError)) {
