@@ -77,67 +77,68 @@ def main() -> int:
         _must(bool(ws), f"workspace.create returned no workspace_id: {created}")
         c._call("workspace.select", {"workspace_id": ws})
 
-        surfaces_payload = c._call("surface.list", {"workspace_id": ws}) or {}
-        surfaces = surfaces_payload.get("surfaces") or []
-        _must(bool(surfaces), f"Expected at least one surface in workspace: {surfaces_payload}")
-        sf = str(surfaces[0].get("id") or "")
-        _must(bool(sf), f"surface.list returned surface without id: {surfaces_payload}")
+        try:
+            surfaces_payload = c._call("surface.list", {"workspace_id": ws}) or {}
+            surfaces = surfaces_payload.get("surfaces") or []
+            _must(bool(surfaces), f"Expected at least one surface in workspace: {surfaces_payload}")
+            sf = str(surfaces[0].get("id") or "")
+            _must(bool(sf), f"surface.list returned surface without id: {surfaces_payload}")
 
-        # 1) Fresh terminal: no active selection.
-        payload = c._call("surface.read_selection", {"workspace_id": ws, "surface_id": sf}) or {}
-        _must(payload.get("has_selection") is False, f"Expected has_selection false on fresh terminal: {payload}")
-        _must(str(payload.get("text") or "") == "", f"Expected empty text without selection: {payload}")
+            # 1) Fresh terminal: no active selection.
+            payload = c._call("surface.read_selection", {"workspace_id": ws, "surface_id": sf}) or {}
+            _must(payload.get("has_selection") is False, f"Expected has_selection false on fresh terminal: {payload}")
+            _must(str(payload.get("text") or "") == "", f"Expected empty text without selection: {payload}")
 
-        # 2) CLI without selection: non-zero exit + explicit error.
-        no_sel = subprocess.run(
-            [cli, "--socket", SOCKET_PATH, "read-screen", "--workspace", ws, "--surface", sf, "--selection"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        _must(no_sel.returncode != 0, "Expected read-screen --selection to fail without a selection")
-        _must("no active selection" in f"{no_sel.stdout}\n{no_sel.stderr}", f"Unexpected no-selection error: {no_sel.stderr!r}")
+            # 2) CLI without selection: non-zero exit + explicit error.
+            no_sel = subprocess.run(
+                [cli, "--socket", SOCKET_PATH, "read-screen", "--workspace", ws, "--surface", sf, "--selection"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            _must(no_sel.returncode != 0, "Expected read-screen --selection to fail without a selection")
+            _must("no active selection" in f"{no_sel.stdout}\n{no_sel.stderr}", f"Unexpected no-selection error: {no_sel.stderr!r}")
 
-        # 3) --selection is incompatible with --scrollback/--lines.
-        bad_combo = subprocess.run(
-            [cli, "--socket", SOCKET_PATH, "read-screen", "--workspace", ws, "--surface", sf, "--selection", "--scrollback"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        _must(bad_combo.returncode != 0, "Expected --selection --scrollback to fail")
-        _must("cannot be combined" in f"{bad_combo.stdout}\n{bad_combo.stderr}", f"Unexpected combo error: {bad_combo.stderr!r}")
+            # 3) --selection is incompatible with --scrollback/--lines.
+            bad_combo = subprocess.run(
+                [cli, "--socket", SOCKET_PATH, "read-screen", "--workspace", ws, "--surface", sf, "--selection", "--scrollback"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            _must(bad_combo.returncode != 0, "Expected --selection --scrollback to fail")
+            _must("cannot be combined" in f"{bad_combo.stdout}\n{bad_combo.stderr}", f"Unexpected combo error: {bad_combo.stderr!r}")
 
-        # 4) Put a token on screen, select all, and read the selection back.
-        token = f"CMUX_READ_SELECTION_{int(time.time() * 1000)}"
-        c._call("surface.send_text", {"workspace_id": ws, "surface_id": sf, "text": f"echo {token}\n"})
+            # 4) Put a token on screen, select all, and read the selection back.
+            token = f"CMUX_READ_SELECTION_{int(time.time() * 1000)}"
+            c._call("surface.send_text", {"workspace_id": ws, "surface_id": sf, "text": f"echo {token}\n"})
 
-        def has_token() -> bool:
-            read = c._call("surface.read_text", {"workspace_id": ws, "surface_id": sf}) or {}
-            return token in str(read.get("text") or "")
+            def has_token() -> bool:
+                read = c._call("surface.read_text", {"workspace_id": ws, "surface_id": sf}) or {}
+                return token in str(read.get("text") or "")
 
-        _wait_for(has_token, timeout_s=5.0)
+            _wait_for(has_token, timeout_s=5.0)
 
-        selected = c._call("debug.terminal.select_all", {"surface_id": sf}) or {}
-        _must(selected.get("selected") is True, f"debug.terminal.select_all failed: {selected}")
+            selected = c._call("debug.terminal.select_all", {"surface_id": sf}) or {}
+            _must(selected.get("selected") is True, f"debug.terminal.select_all failed: {selected}")
 
-        sel_payload = c._call("surface.read_selection", {"workspace_id": ws, "surface_id": sf}) or {}
-        _must(sel_payload.get("has_selection") is True, f"Expected has_selection true after select_all: {sel_payload}")
-        sel_text = str(sel_payload.get("text") or "")
-        _must(token in sel_text, f"surface.read_selection missing token {token!r}: {sel_payload}")
-        decoded = base64.b64decode(str(sel_payload.get("base64") or "")).decode("utf-8")
-        _must(decoded == sel_text, "base64 payload does not round-trip to text")
+            sel_payload = c._call("surface.read_selection", {"workspace_id": ws, "surface_id": sf}) or {}
+            _must(sel_payload.get("has_selection") is True, f"Expected has_selection true after select_all: {sel_payload}")
+            sel_text = str(sel_payload.get("text") or "")
+            _must(token in sel_text, f"surface.read_selection missing token {token!r}: {sel_payload}")
+            decoded = base64.b64decode(str(sel_payload.get("base64") or "")).decode("utf-8")
+            _must(decoded == sel_text, "base64 payload does not round-trip to text")
 
-        # 5) CLI --selection prints the selection.
-        cli_sel = _run_cli(cli, ["read-screen", "--workspace", ws, "--surface", sf, "--selection"])
-        _must(token in cli_sel, f"cmux read-screen --selection output missing token {token!r}: {cli_sel!r}")
+            # 5) CLI --selection prints the selection.
+            cli_sel = _run_cli(cli, ["read-screen", "--workspace", ws, "--surface", sf, "--selection"])
+            _must(token in cli_sel, f"cmux read-screen --selection output missing token {token!r}: {cli_sel!r}")
 
-        # 6) --json passes the payload through (has_selection + text).
-        cli_json = json.loads(_run_cli(cli, ["--json", "read-screen", "--workspace", ws, "--surface", sf, "--selection"]) or "{}")
-        _must(cli_json.get("has_selection") is True, f"--json missing has_selection: {cli_json}")
-        _must(token in str(cli_json.get("text") or ""), f"--json missing token: {cli_json}")
-
-        c.close_workspace(ws)
+            # 6) --json passes the payload through (has_selection + text).
+            cli_json = json.loads(_run_cli(cli, ["--json", "read-screen", "--workspace", ws, "--surface", sf, "--selection"]) or "{}")
+            _must(cli_json.get("has_selection") is True, f"--json missing has_selection: {cli_json}")
+            _must(token in str(cli_json.get("text") or ""), f"--json missing token: {cli_json}")
+        finally:
+            c.close_workspace(ws)
 
     print("PASS: surface.read_selection + read-screen --selection")
     return 0
