@@ -316,10 +316,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 workspaceSelection: workspaceSelection.value
             )
         case "workspace.move", "workspace.group.action":
-            return !ticketCoverage.ticketCoversWorkspaceRequest(
-                ticket: ticket,
-                workspaceSelection: nil
-            )
+            // These mutations are Mac-scoped. Always preserve the attach-ticket
+            // context when one exists so the host can reject workspace-scoped
+            // tickets instead of receiving a Stack-only request.
+            return false
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.input", "terminal.input",

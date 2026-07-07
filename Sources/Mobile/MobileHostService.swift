@@ -1296,11 +1296,11 @@ final class MobileHostService {
         // pairing is bound to "who is signed in on this Mac" rather than a stored
         // ticket, so it survives Mac restarts and ticket expiry.
         if devStackTokenAuthorized(request) {
-            return nil
+            return ticketAuthorizationResultIfNeeded(for: request)
         }
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
-            return nil
+            return ticketAuthorizationResultIfNeeded(for: request)
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different
             // account than the one signed in on this Mac. Surface a distinct code
@@ -1318,6 +1318,20 @@ final class MobileHostService {
                 message: "Mobile sync authorization failed."
             ))
         }
+    }
+
+    private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+        guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachToken.isEmpty else {
+            return nil
+        }
+        guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
+            return .failure(Self.scopedTicketError)
+        }
+        guard let error = Self.ticketAuthorizationError(authorization: authorization, request: request) else {
+            return nil
+        }
+        return .failure(error)
     }
 
     private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {

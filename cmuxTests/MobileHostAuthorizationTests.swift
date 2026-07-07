@@ -115,6 +115,33 @@ struct MobileHostAuthorizationTests {
         let result = await service.debugAuthorizationError(for: request)
         #expect(result == nil)
     }
+    @Test func testLiveAuthorizationRejectsWorkspaceScopedAttachTokenForMacScopedMutations() async throws {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: 61234)
+        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil); service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: nil) }
+        let payload = try await service.createAttachTicket(workspaceID: "workspace-main", terminalID: nil, ttl: 3600)
+        let attachToken = try #require((try #require(payload["ticket"] as? [String: Any]))["auth_token"] as? String)
+        for (method, params) in [
+            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
+            (
+                "workspace.group.action",
+                ["group_id": "group-main", "action": "rename"]
+            ),
+        ] {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: params,
+                auth: MobileHostRPCAuth(attachToken: attachToken, stackAccessToken: "cmux-dev-token")
+            )
+            let result = await service.debugAuthorizationError(for: request)
+            guard case let .failure(error) = result else {
+                return #expect(Bool(false), "workspace-scoped attach token should reject \(method)")
+            }
+            #expect(error.code == "forbidden")
+        }
+    }
     #endif
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)

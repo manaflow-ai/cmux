@@ -657,6 +657,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    public var usesLocalWorkspaceCreationFallback: Bool {
+        remoteClient == nil && connectionState == .connected
+    }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
     /// Identity token that changes when the paired Mac chat event source is rebuilt.

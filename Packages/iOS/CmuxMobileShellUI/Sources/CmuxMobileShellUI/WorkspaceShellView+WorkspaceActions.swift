@@ -134,6 +134,11 @@ extension WorkspaceShellView {
         guard canCreateWorkspaceForMacSelection else { return }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
+        if store.usesLocalWorkspaceCreationFallback {
+            store.createWorkspace(inGroup: groupID)
+            clearPendingCompactCreateNavigationIfSettled(existingWorkspaceIDs: existingWorkspaceIDs)
+            return
+        }
         Task { @MainActor in
             let result = await store.createWorkspaceRequest(inGroup: groupID)
             handleWorkspaceActionResult(
@@ -142,15 +147,9 @@ extension WorkspaceShellView {
             )
             if case .failure = result {
                 pendingCompactCreateNavigationWorkspaceIDs = nil
+                return
             }
-            if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
-                currentPath: compactNavigationPath,
-                selectedWorkspaceID: store.selectedWorkspaceID,
-                existingWorkspaceIDs: existingWorkspaceIDs
-            ) {
-                pendingCompactCreateNavigationWorkspaceIDs = nil
-                compactNavigationPath = createdPath
-            }
+            clearPendingCompactCreateNavigationIfSettled(existingWorkspaceIDs: existingWorkspaceIDs)
         }
     }
 
@@ -160,12 +159,31 @@ extension WorkspaceShellView {
 
     func createWorkspaceIfConnected(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
         guard canCreateWorkspaceForMacSelection else { return }
+        if store.usesLocalWorkspaceCreationFallback {
+            store.createWorkspace(inGroup: groupID)
+            return
+        }
         Task { @MainActor in
             let result = await store.createWorkspaceRequest(inGroup: groupID)
             handleWorkspaceActionResult(
                 result,
                 action: groupID == nil ? .createWorkspace : .createWorkspaceInGroup
             )
+        }
+    }
+
+    private func clearPendingCompactCreateNavigationIfSettled(
+        existingWorkspaceIDs: Set<MobileWorkspacePreview.ID>
+    ) {
+        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
+            currentPath: compactNavigationPath,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            existingWorkspaceIDs: existingWorkspaceIDs
+        ) {
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            compactNavigationPath = createdPath
+        } else {
+            pendingCompactCreateNavigationWorkspaceIDs = nil
         }
     }
 }
