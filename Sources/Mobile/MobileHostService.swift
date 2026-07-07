@@ -1323,6 +1323,9 @@ final class MobileHostService {
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
         guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
+            if request.method == "workspace.move" || request.method == "workspace.group.action" {
+                return .failure(Self.scopedTicketError)
+            }
             return nil
         }
         guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {

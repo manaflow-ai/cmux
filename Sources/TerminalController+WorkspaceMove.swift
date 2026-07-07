@@ -33,6 +33,10 @@ extension TerminalController {
                 data: nil
             )
         }
+        if v2HasNonNullParam(params, "move_group"), v2Bool(params, "move_group") == nil {
+            return .err(code: "invalid_params", message: "move_group must be a boolean", data: nil)
+        }
+        let moveGroup = v2Bool(params, "move_group") ?? false
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
@@ -62,6 +66,44 @@ extension TerminalController {
                     code: "not_found",
                     message: "Before workspace not found",
                     data: ["before_workspace_id": beforeWorkspaceID.uuidString]
+                )
+                return
+            }
+
+            if moveGroup {
+                guard tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspaceID }) else {
+                    mutationError = .err(
+                        code: "invalid_request",
+                        message: "Workspace is not a group anchor",
+                        data: ["workspace_id": workspaceID.uuidString]
+                    )
+                    return
+                }
+                if targetGroupID != nil {
+                    mutationError = .err(
+                        code: "invalid_request",
+                        message: "move_group cannot change group membership",
+                        data: ["workspace_id": workspaceID.uuidString]
+                    )
+                    return
+                }
+                let topLevelIds = tabManager.sidebarReorderWorkspaceIds(
+                    forDraggedWorkspaceId: workspaceID,
+                    targetWorkspaceId: beforeWorkspaceID,
+                    usesTopLevelRows: true
+                )
+                let targetTopLevelIndex = mobileWorkspaceMoveTopLevelTargetIndex(
+                    workspaceID: workspaceID,
+                    beforeWorkspaceID,
+                    targetIndex: targetIndex,
+                    topLevelIds: topLevelIds,
+                    tabManager: tabManager
+                )
+                _ = tabManager.reorderSidebarWorkspace(
+                    tabId: workspaceID,
+                    toIndex: targetTopLevelIndex,
+                    isDragOperation: true,
+                    usesTopLevelRows: true
                 )
                 return
             }
@@ -136,5 +178,42 @@ extension TerminalController {
             return false
         }
         return v2UUID(params, "group_id") == nil
+    }
+
+    private func mobileWorkspaceMoveTopLevelTargetIndex(
+        workspaceID: UUID,
+        _ beforeWorkspaceID: UUID?,
+        targetIndex: Int?,
+        topLevelIds: [UUID],
+        tabManager: TabManager
+    ) -> Int {
+        guard let targetIndex else {
+            let insertionPosition = mobileWorkspaceMoveTopLevelBeforeID(
+                beforeWorkspaceID,
+                tabManager: tabManager
+            ).flatMap { topLevelIds.firstIndex(of: $0) } ?? topLevelIds.count
+            guard let sourceIndex = topLevelIds.firstIndex(of: workspaceID) else {
+                return insertionPosition
+            }
+            let clampedInsertion = max(0, min(insertionPosition, topLevelIds.count))
+            let adjustedIndex = clampedInsertion > sourceIndex ? clampedInsertion - 1 : clampedInsertion
+            return max(0, min(adjustedIndex, max(0, topLevelIds.count - 1)))
+        }
+        return targetIndex
+    }
+
+    private func mobileWorkspaceMoveTopLevelBeforeID(
+        _ beforeWorkspaceID: UUID?,
+        tabManager: TabManager
+    ) -> UUID? {
+        guard let beforeWorkspaceID,
+              let beforeWorkspace = tabManager.tabs.first(where: { $0.id == beforeWorkspaceID }) else {
+            return beforeWorkspaceID
+        }
+        guard let groupID = beforeWorkspace.groupId,
+              let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {
+            return beforeWorkspaceID
+        }
+        return group.anchorWorkspaceId
     }
 }

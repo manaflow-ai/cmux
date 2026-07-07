@@ -78,8 +78,8 @@ struct WorkspaceListView: View {
     /// native row drag/drop is enabled while the list is unfiltered.
     var moveWorkspace: ((
         _ id: MobileWorkspacePreview.ID,
-        _ groupID: MobileWorkspaceGroupPreview.ID?,
-        _ beforeWorkspaceID: MobileWorkspacePreview.ID?
+        _ groupID: MobileWorkspaceGroupPreview.ID?, _ beforeWorkspaceID: MobileWorkspacePreview.ID?,
+        _ movesGroup: Bool
     ) async -> Void)? = nil
     /// Optional: rename a workspace group on the Mac.
     var renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil

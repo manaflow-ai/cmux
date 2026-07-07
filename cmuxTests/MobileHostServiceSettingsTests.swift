@@ -107,3 +107,32 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
     }
 }
+
+#if DEBUG
+@Suite(.serialized)
+@MainActor
+struct MobileHostMacScopedMutationAuthorizationTests {
+    @Test func rejectsMacScopedMutationsWithoutAttachToken() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
+        let cases: [(String, [String: String])] = [
+            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
+            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
+        ]
+        for (method, params) in cases {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: params,
+                auth: MobileHostRPCAuth(attachToken: nil, stackAccessToken: "cmux-dev-token")
+            )
+            let result = await service.debugAuthorizationError(for: request)
+            guard case let .failure(error) = result else {
+                return #expect(Bool(false), "missing attach token should reject \(method)")
+            }
+            #expect(error.code == "forbidden")
+        }
+    }
+}
+#endif

@@ -127,13 +127,15 @@ extension MobileShellComposite {
     ///   - id: The workspace to move.
     ///   - groupID: The target group, or `nil` to ungroup.
     ///   - beforeWorkspaceID: The workspace that should follow the moved row.
+    ///   - movesGroup: Whether the moved row is a group header.
     /// - Returns: `success` when the Mac accepted the move, otherwise the
     ///   failure the UI should surface.
     @discardableResult
     public func moveWorkspace(
         id: MobileWorkspacePreview.ID,
         toGroup groupID: MobileWorkspaceGroupPreview.ID?,
-        before beforeWorkspaceID: MobileWorkspacePreview.ID?
+        before beforeWorkspaceID: MobileWorkspacePreview.ID?,
+        movesGroup: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard workspaceActionCapabilities(for: id).supportsMoveActions else {
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
@@ -144,6 +146,9 @@ extension MobileShellComposite {
         }
         if let beforeWorkspaceID {
             params["before_workspace_id"] = remoteWorkspaceID(for: beforeWorkspaceID).rawValue
+        }
+        if movesGroup {
+            params["move_group"] = true
         }
         return await sendWorkspaceMutation(
             method: "workspace.move",

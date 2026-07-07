@@ -399,7 +399,7 @@ import Testing
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
     }
 
-    @Test func listMoveIntentMovesGroupHeaderAsAnchorWorkspace() {
+    @Test func listMoveIntentRejectsGroupHeaderNoOpMove() {
         let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g")]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
@@ -410,7 +410,36 @@ import Testing
             sourceOffsets: IndexSet(integer: 0),
             destination: 3
         )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
+        #expect(intent == nil)
+    }
+
+    @Test func listMoveIntentMovesGroupHeaderAsGroupBlock() throws {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = try #require(MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 0),
+            destination: 4
+        ))
+        #expect(intent == MobileWorkspaceMoveIntent(
+            groupID: nil,
+            beforeWorkspaceID: nil,
+            movesGroup: true
+        ))
+        let moved = MobileWorkspaceListItem.workspacesApplying(
+            intent,
+            movedWorkspaceID: "anchor",
+            workspaces: workspaces
+        )
+        #expect(moved.map(\.id) == ["tail", "anchor", "member"])
+        #expect(moved.suffix(2).allSatisfy { $0.groupID == "g" })
     }
 
     @Test func listMoveIntentRejectsFooterRowMove() {

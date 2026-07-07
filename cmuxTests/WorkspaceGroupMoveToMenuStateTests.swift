@@ -55,4 +55,37 @@ struct WorkspaceGroupMoveToMenuStateTests {
         }
         #expect(manager.tabs.first { $0.id == movingWorkspaceID }?.groupId == nil)
     }
+
+    @Test func mobileWorkspaceMoveGroupHeaderPreservesGroupMembership() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let memberID = originalIds[2]
+
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let result = TerminalController.shared.v2MobileWorkspaceMove(params: [
+            "workspace_id": group.anchorWorkspaceId.uuidString,
+            "move_group": true,
+        ])
+
+        guard case .ok = result else {
+            return #expect(Bool(false), "group-header move should be accepted")
+        }
+        #expect(manager.workspaceGroups.contains { $0.id == groupId })
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            memberID,
+        ])
+        #expect(manager.tabs.suffix(2).map(\.id) == [group.anchorWorkspaceId, memberID])
+    }
 }

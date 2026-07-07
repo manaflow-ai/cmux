@@ -49,7 +49,7 @@ extension WorkspaceListView {
             return
         }
         Task { @MainActor in
-            await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID)
+            await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup)
             syncOptimisticWorkspaceOrder()
         }
     }
@@ -87,7 +87,7 @@ extension WorkspaceListView {
         optimisticGroupedWorkspaces = movedWorkspaces
         optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)
         Task { @MainActor in
-            await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID)
+            await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup)
             syncOptimisticWorkspaceOrder()
         }
     }

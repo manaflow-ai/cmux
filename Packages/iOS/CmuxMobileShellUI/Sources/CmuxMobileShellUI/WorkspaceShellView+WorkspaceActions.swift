@@ -56,11 +56,17 @@ extension WorkspaceShellView {
     var moveWorkspaceClosure: ((
         _ id: MobileWorkspacePreview.ID,
         _ groupID: MobileWorkspaceGroupPreview.ID?,
-        _ beforeWorkspaceID: MobileWorkspacePreview.ID?
+        _ beforeWorkspaceID: MobileWorkspacePreview.ID?,
+        _ movesGroup: Bool
     ) async -> Void)? {
         let store = store
-        return { id, groupID, beforeWorkspaceID in
-            let result = await store.moveWorkspace(id: id, toGroup: groupID, before: beforeWorkspaceID)
+        return { id, groupID, beforeWorkspaceID, movesGroup in
+            let result = await store.moveWorkspace(
+                id: id,
+                toGroup: groupID,
+                before: beforeWorkspaceID,
+                movesGroup: movesGroup
+            )
             await MainActor.run {
                 handleWorkspaceActionResult(result, action: .moveWorkspace)
             }

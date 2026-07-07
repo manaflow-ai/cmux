@@ -52,23 +52,46 @@ public extension MobileWorkspaceListItem {
             ? remainingItems[insertionIndex]
             : nil
 
-        let proposed = proposedIntent(
-            previousItem: previousItem,
-            nextItem: nextItem,
-            workspaces: orderedWithoutMoved,
-            groups: groups,
-            knownGroupIDs: knownGroupIDs
-        )
+        let movesGroup = isGroupHeader(items[sourceIndex])
+        let proposed = movesGroup
+            ? rootLevelIntent(
+                nextItem: nextItem,
+                workspaces: orderedWithoutMoved,
+                groups: groups,
+                knownGroupIDs: knownGroupIDs
+            )
+            : proposedIntent(
+                previousItem: previousItem,
+                nextItem: nextItem,
+                workspaces: orderedWithoutMoved,
+                groups: groups,
+                knownGroupIDs: knownGroupIDs
+            )
 
         guard let intent = proposed else { return nil }
-        guard intent.groupID != currentGroupID || changesOrder(
-            draggedWorkspaceID: movedWorkspace.id,
-            beforeWorkspaceID: intent.beforeWorkspaceID,
-            workspaces: workspaces
-        ) else {
+        let changesWorkspaceOrder = if movesGroup {
+            currentGroupID.map {
+                changesGroupOrder(
+                    movedGroupID: $0,
+                    beforeWorkspaceID: intent.beforeWorkspaceID,
+                    workspaces: workspaces
+                )
+            } ?? false
+        } else {
+            intent.groupID != currentGroupID || changesOrder(
+                draggedWorkspaceID: movedWorkspace.id,
+                beforeWorkspaceID: intent.beforeWorkspaceID,
+                workspaces: workspaces
+            )
+        }
+        guard changesWorkspaceOrder else {
             return nil
         }
-        return intent
+        return MobileWorkspaceMoveIntent(
+            groupID: intent.groupID,
+            beforeWorkspaceID: intent.beforeWorkspaceID,
+            movesGroup: movesGroup
+        )
     }
 
     private static func movedWorkspace(
@@ -83,6 +106,13 @@ public extension MobileWorkspaceListItem {
         case .groupFooter:
             return nil
         }
+    }
+
+    private static func isGroupHeader(_ item: MobileWorkspaceListItem) -> Bool {
+        if case .groupHeader = item {
+            return true
+        }
+        return false
     }
 
     private static func proposedIntent(
@@ -195,6 +225,14 @@ public extension MobileWorkspaceListItem {
         movedWorkspaceID: MobileWorkspacePreview.ID,
         workspaces: [MobileWorkspacePreview]
     ) -> [MobileWorkspacePreview] {
+        if intent.movesGroup,
+           let movedGroupID = workspaces.first(where: { $0.id == movedWorkspaceID })?.groupID {
+            return workspacesApplyingGroupMove(
+                movedGroupID: movedGroupID,
+                beforeWorkspaceID: intent.beforeWorkspaceID,
+                workspaces: workspaces
+            )
+        }
         guard let currentIndex = workspaces.firstIndex(where: { $0.id == movedWorkspaceID }) else {
             return workspaces
         }
@@ -213,6 +251,32 @@ public extension MobileWorkspaceListItem {
             insertionIndex = remaining.endIndex
         }
         remaining.insert(moved, at: insertionIndex)
+        return remaining
+    }
+
+    private static func workspacesApplyingGroupMove(
+        movedGroupID: MobileWorkspaceGroupPreview.ID,
+        beforeWorkspaceID: MobileWorkspacePreview.ID?,
+        workspaces: [MobileWorkspacePreview]
+    ) -> [MobileWorkspacePreview] {
+        let movedGroup = workspaces.filter { $0.groupID == movedGroupID }
+        guard !movedGroup.isEmpty else { return workspaces }
+        var remaining = workspaces.filter { $0.groupID != movedGroupID }
+        let insertionIndex: Int
+        if let beforeWorkspaceID,
+           let beforeWorkspace = remaining.first(where: { $0.id == beforeWorkspaceID }) {
+            let beforeGroupID = beforeWorkspace.groupID
+            insertionIndex = remaining.firstIndex {
+                if let beforeGroupID {
+                    $0.groupID == beforeGroupID
+                } else {
+                    $0.id == beforeWorkspaceID
+                }
+            } ?? remaining.endIndex
+        } else {
+            insertionIndex = remaining.endIndex
+        }
+        remaining.insert(contentsOf: movedGroup, at: insertionIndex)
         return remaining
     }
 
@@ -319,5 +383,17 @@ public extension MobileWorkspaceListItem {
         let targetIndex = beforeWorkspaceID.flatMap { ids.firstIndex(of: $0) } ?? ids.endIndex
         ids.insert(draggedWorkspaceID, at: targetIndex)
         return ids != workspaces.map(\.id)
+    }
+
+    private static func changesGroupOrder(
+        movedGroupID: MobileWorkspaceGroupPreview.ID,
+        beforeWorkspaceID: MobileWorkspacePreview.ID?,
+        workspaces: [MobileWorkspacePreview]
+    ) -> Bool {
+        workspacesApplyingGroupMove(
+            movedGroupID: movedGroupID,
+            beforeWorkspaceID: beforeWorkspaceID,
+            workspaces: workspaces
+        ).map(\.id) != workspaces.map(\.id)
     }
 }
