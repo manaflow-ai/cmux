@@ -134,7 +134,7 @@ Environment:
 | `select-workspace` | Select a workspace. |
 | `rename-workspace`, `rename-window` | Rename a workspace. `rename-window` is a compatibility alias. |
 | `current-workspace` | Print current workspace information. |
-| `read-screen` | Read terminal text from a surface. |
+| `read-screen` | Read terminal text from a surface. `--selection` reads only the active selection (socket method `surface.read_selection`). |
 | `send` | Send text to a terminal surface. |
 | `send-key` | Send one key to a terminal surface. |
 | `send-panel` | Send text to a panel/surface. |

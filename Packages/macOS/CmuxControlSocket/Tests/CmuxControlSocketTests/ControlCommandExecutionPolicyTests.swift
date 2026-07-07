@@ -133,6 +133,7 @@ struct ControlCommandExecutionPolicyTests {
         // that formatting inline on the main thread, which is exactly the
         // stall the lane move removes, and no in-process caller needs it.
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_selection") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }
 

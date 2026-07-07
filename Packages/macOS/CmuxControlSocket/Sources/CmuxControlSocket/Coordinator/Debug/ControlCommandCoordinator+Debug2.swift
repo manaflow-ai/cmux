@@ -232,6 +232,18 @@ extension ControlCommandCoordinator {
         return .ok(.object(["base64": .string(b64)]))
     }
 
+    /// `debug.terminal.select_all` — selects the surface's entire screen via
+    /// the `select_all` binding (test hook for selection reads).
+    func debugSelectAllTerminal(_ params: [String: JSONValue]) -> ControlCallResult {
+        let surfaceArg = string(params, "surface_id") ?? ""
+        let resp = debugContext?.controlDebugSelectAllTerminal(surfaceArgument: surfaceArg)
+            ?? Self.debugContextUnavailableResponse
+        guard resp.hasPrefix("OK") else {
+            return .err(code: "internal_error", message: resp, data: nil)
+        }
+        return .ok(.object(["selected": .bool(true)]))
+    }
+
     /// `debug.terminal.render_stats` — renderer stats (shared v1 body's JSON,
     /// decoded exactly as the legacy wrapper did).
     func debugRenderStats(_ params: [String: JSONValue]) -> ControlCallResult {

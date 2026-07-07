@@ -71,6 +71,15 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response (`"OK <base64>"` or an `ERROR:` line).
     func controlDebugReadTerminalText(surfaceArgument: String) -> String
 
+    /// Runs the shared v1 `select_all` body for `debug.terminal.select_all`
+    /// (a test hook that selects the surface's entire screen so selection
+    /// reads such as `surface.read_selection` can be exercised end-to-end).
+    ///
+    /// - Parameter surfaceArgument: The surface id/index argument (may be
+    ///   empty for the focused surface).
+    /// - Returns: The raw v1 response (`"OK"` or an `ERROR:` line).
+    func controlDebugSelectAllTerminal(surfaceArgument: String) -> String
+
     /// Runs the shared v1 `render_stats` body for `debug.terminal.render_stats`.
     ///
     /// - Parameter surfaceArgument: The surface id/index argument.

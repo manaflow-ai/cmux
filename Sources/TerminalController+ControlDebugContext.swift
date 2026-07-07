@@ -82,6 +82,10 @@ extension TerminalController: ControlDebugContext {
         readTerminalText(surfaceArgument)
     }
 
+    func controlDebugSelectAllTerminal(surfaceArgument: String) -> String {
+        selectAllTerminalText(surfaceArgument)
+    }
+
     func controlDebugRenderStats(surfaceArgument: String) -> String {
         renderStats(surfaceArgument)
     }

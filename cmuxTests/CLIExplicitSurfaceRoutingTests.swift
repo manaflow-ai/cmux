@@ -39,6 +39,102 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
+    @Test func readScreenSelectionFlagRoutesToReadSelection() throws {
+        let socketPath = Self.makeSocketPath("readsel")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.read_selection":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["has_selection": true, "text": "selected text\n"]
+                )
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--selection"],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.contains("selected text"), Comment(rawValue: result.stdout))
+
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["surface_id"] as? String == Self.targetSurfaceRef)
+        #expect(params["scrollback"] == nil)
+        #expect(params["lines"] == nil)
+    }
+
+    @Test func readScreenSelectionWithoutActiveSelectionFails() throws {
+        let socketPath = Self.makeSocketPath("nosel")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.read_selection":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["has_selection": false, "text": ""]
+                )
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--selection"],
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stderr.contains("no active selection"), Comment(rawValue: result.stderr))
+    }
+
     @Test func numericSurfaceHandleStillInheritsCallerWorkspaceForIndexResolution() throws {
         let socketPath = Self.makeSocketPath("numeric")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)

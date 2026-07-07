@@ -4545,9 +4545,13 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let (linesArg, rem3) = parseOption(rem2, name: "--lines")
-            let trailing = rem3.filter { $0 != "--scrollback" }
+            let selectionOnly = rem3.contains("--selection")
+            let trailing = rem3.filter { $0 != "--scrollback" && $0 != "--selection" }
             if !trailing.isEmpty {
                 throw CLIError(message: "read-screen: unexpected arguments: \(trailing.joined(separator: " "))")
+            }
+            if selectionOnly, rem3.contains("--scrollback") || linesArg != nil {
+                throw CLIError(message: "read-screen: --selection cannot be combined with --scrollback or --lines")
             }
 
             let windowRaw = windowOpt ?? windowId
@@ -4574,11 +4578,23 @@ struct CMUXCLI {
                 params["scrollback"] = true
             }
 
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
-            if jsonOutput {
-                print(jsonString(payload))
+            if selectionOnly {
+                let payload = try client.sendV2(method: "surface.read_selection", params: params)
+                if jsonOutput {
+                    print(jsonString(payload))
+                } else {
+                    guard (payload["has_selection"] as? Bool) == true else {
+                        throw CLIError(message: "read-screen: no active selection")
+                    }
+                    print((payload["text"] as? String) ?? "")
+                }
             } else {
-                print((payload["text"] as? String) ?? "")
+                let payload = try client.sendV2(method: "surface.read_text", params: params)
+                if jsonOutput {
+                    print(jsonString(payload))
+                } else {
+                    print((payload["text"] as? String) ?? "")
+                }
             }
 
         case "send":
@@ -15508,10 +15524,13 @@ struct CMUXCLI {
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
               --scrollback           Include scrollback (not just visible viewport)
               --lines <n>            Limit to the last n lines (implies --scrollback)
+              --selection            Read only the active selection (fails when there
+                                     is no selection; not combinable with --scrollback/--lines)
 
             Example:
               cmux read-screen
               cmux read-screen --surface surface:2 --scrollback --lines 200
+              cmux read-screen --selection
             """
         case "send":
             return """
@@ -34311,7 +34330,7 @@ export default CMUXSessionRestore;
           rename-workspace [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
           rename-window [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
           current-workspace [--window <id|ref|index>]
-          read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
+          read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]
           send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
           send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
           send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>

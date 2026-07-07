@@ -74,6 +74,8 @@ extension ControlCommandCoordinator {
             return debugSimulateTerminalFileDrop(request.params)
         case "debug.terminal.read_text":
             return debugReadTerminalText(request.params)
+        case "debug.terminal.select_all":
+            return debugSelectAllTerminal(request.params)
         case "debug.terminal.render_stats":
             return debugRenderStats(request.params)
         case "debug.layout":

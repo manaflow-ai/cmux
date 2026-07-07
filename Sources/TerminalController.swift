@@ -1360,6 +1360,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "surface.read_selection":
+            return v2Result(id: request.id, v2SurfaceReadSelection(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
@@ -2469,6 +2471,7 @@ class TerminalController {
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
+            "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
             "pane.list",
@@ -5261,6 +5264,38 @@ class TerminalController {
         return String(decoding: rawData, as: UTF8.self)
     }
 
+    private enum TerminalUserSelectionRead: Equatable {
+        /// The surface is gone or hibernated; the read cannot run.
+        case unavailable
+        /// The surface has no active selection.
+        case none
+        /// The live selection contents (empty string is a valid selection).
+        case text(String)
+    }
+
+    /// Reads the user's live selection. Distinct from
+    /// `readTerminalSelectionText(terminalPanel:pointTag:)`, which despite its
+    /// name reads a whole point-tag region via `ghostty_surface_read_text`;
+    /// this one wraps `ghostty_surface_read_selection`, which fails cleanly
+    /// when no selection is active.
+    private func readTerminalUserSelection(terminalPanel: TerminalPanel) -> TerminalUserSelectionRead {
+        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalUserSelection") else {
+            return .unavailable
+        }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else {
+            return .none
+        }
+        defer {
+            ghostty_surface_free_text(surface, &text)
+        }
+        guard let ptr = text.text, text.text_len > 0 else {
+            return .text("")
+        }
+        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        return .text(String(decoding: rawData, as: UTF8.self))
+    }
+
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
         guard terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
             return "ERROR: Terminal surface not found"
@@ -5528,6 +5563,145 @@ class TerminalController {
             case .failure(let error):
                 return .err(code: "internal_error", message: error.message, data: nil)
             }
+        }
+    }
+
+    private struct ReadSelectionCapture {
+        /// `nil` when the surface has no active selection.
+        let selection: String?
+        let workspaceID: UUID
+        let surfaceID: UUID
+        let windowID: UUID?
+        let workspaceRef: Any
+        let surfaceRef: Any
+        let windowRef: Any
+    }
+
+    private enum ReadSelectionCaptureOutcome {
+        /// An error fully resolved on the main actor, returned verbatim.
+        case finished(V2CallResult)
+        /// The captured selection and identity; the caller encodes it off-main.
+        case captured(ReadSelectionCapture)
+    }
+
+    /// `surface.read_selection` worker body. Routing and the lane split mirror
+    /// `v2SurfaceReadText`: target resolution and the
+    /// `ghostty_surface_read_selection` FFI capture take one `v2MainSync` hop,
+    /// and the base64 encoding runs on the socket worker. Unlike `read_text`
+    /// there is no scrollback/lines shaping — the payload is the user's live
+    /// selection, or `has_selection: false` when none is active.
+    private nonisolated func v2SurfaceReadSelection(params: [String: Any]) -> V2CallResult {
+        let outcome: ReadSelectionCaptureOutcome = v2MainSync {
+            // Mint refs for current topology so caller-supplied `kind:N` refs
+            // resolve, exactly as v2SurfaceReadText does.
+            self.v2RefreshKnownRefs()
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: self.v2HasNonNullParam(params, "window_id"),
+                windowID: self.v2UUID(params, "window_id"),
+                groupID: self.v2UUID(params, "group_id"),
+                workspaceID: self.v2UUID(params, "workspace_id"),
+                surfaceID: self.v2UUID(params, "surface_id")
+                    ?? self.v2UUID(params, "terminal_id")
+                    ?? self.v2UUID(params, "tab_id"),
+                paneID: self.v2UUID(params, "pane_id")
+            )
+            guard let tabManager = self.resolveTabManager(routing: routing) else {
+                return .finished(.err(code: "unavailable", message: "TabManager not available", data: nil))
+            }
+            let explicitSurfaceID = self.v2UUID(params, "surface_id")
+            let hasSurfaceIDParam = params["surface_id"] != nil
+            let workspaceID: UUID
+            let surfaceId: UUID
+            let terminalPanel: TerminalPanel
+            let resolvedWindowID: UUID?
+            if let dock = self.windowDockForRouting(routing, tabManager: tabManager) {
+                let target = self.terminalPanel(
+                    in: dock,
+                    explicitSurfaceID: explicitSurfaceID,
+                    hasSurfaceIDParam: hasSurfaceIDParam,
+                    routing: routing
+                )
+                if target.invalidSurfaceID {
+                    return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
+                }
+                guard let dockSurfaceId = target.surfaceID else {
+                    return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
+                }
+                guard let dockPanel = target.terminalPanel else {
+                    return .finished(.err(
+                        code: "invalid_params",
+                        message: "Surface is not a terminal",
+                        data: ["surface_id": dockSurfaceId.uuidString]
+                    ))
+                }
+                workspaceID = dock.workspaceId
+                surfaceId = dockSurfaceId
+                terminalPanel = dockPanel
+                resolvedWindowID = self.dockResultWindowId(for: dock, tabManager: tabManager)
+            } else {
+                guard let ws = self.resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
+                    return .finished(.err(code: "not_found", message: "Workspace not found", data: nil))
+                }
+                if hasSurfaceIDParam {
+                    guard let id = explicitSurfaceID else {
+                        return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
+                    }
+                    surfaceId = id
+                } else {
+                    guard let focused = ws.focusedPanelId else {
+                        return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
+                    }
+                    surfaceId = focused
+                }
+                guard let wsPanel = ws.terminalPanel(for: surfaceId) else {
+                    return .finished(.err(
+                        code: "invalid_params",
+                        message: "Surface is not a terminal",
+                        data: ["surface_id": surfaceId.uuidString]
+                    ))
+                }
+                workspaceID = ws.id
+                terminalPanel = wsPanel
+                resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
+            }
+            let selection: String?
+            switch self.readTerminalUserSelection(terminalPanel: terminalPanel) {
+            case .unavailable:
+                return .finished(.err(code: "internal_error", message: "Failed to read terminal selection", data: nil))
+            case .none:
+                selection = nil
+            case .text(let text):
+                selection = text
+            }
+            // Refs mint in the success payload's literal order (workspace,
+            // surface, window) for `kind:N` ordinal parity with read_text.
+            return .captured(ReadSelectionCapture(
+                selection: selection,
+                workspaceID: workspaceID,
+                surfaceID: surfaceId,
+                windowID: resolvedWindowID,
+                workspaceRef: self.v2Ref(kind: .workspace, uuid: workspaceID),
+                surfaceRef: self.v2Ref(kind: .surface, uuid: surfaceId),
+                windowRef: self.v2Ref(kind: .window, uuid: resolvedWindowID)
+            ))
+        }
+
+        switch outcome {
+        case let .finished(result):
+            return result
+        case let .captured(capture):
+            let text = capture.selection ?? ""
+            return .ok([
+                "has_selection": capture.selection != nil,
+                "text": text,
+                "base64": Data(text.utf8).base64EncodedString(),
+                "workspace_id": capture.workspaceID.uuidString,
+                "workspace_ref": capture.workspaceRef,
+                "surface_id": capture.surfaceID.uuidString,
+                "surface_ref": capture.surfaceRef,
+                "window_id": v2OrNull(capture.windowID?.uuidString),
+                "window_ref": capture.windowRef,
+            ])
         }
     }
 
@@ -11665,6 +11839,40 @@ class TerminalController {
 
     func readTerminalText(_ args: String) -> String {
         readTerminalTextBase64(surfaceArg: args)
+    }
+
+    /// Shared v1 body for `debug.terminal.select_all`: selects the surface's
+    /// entire screen via the `select_all` binding so selection reads
+    /// (`surface.read_selection`) can be exercised without mouse input.
+    func selectAllTerminalText(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var result = "ERROR: No tab selected"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            let panelId: UUID?
+            if panelArg.isEmpty {
+                panelId = tab.focusedPanelId
+            } else {
+                panelId = resolveSurfaceId(from: panelArg, tab: tab)
+            }
+
+            guard let panelId,
+                  let terminalPanel = tab.terminalPanel(for: panelId) else {
+                result = "ERROR: Terminal surface not found"
+                return
+            }
+            result = terminalPanel.performBindingAction("select_all")
+                ? "OK"
+                : "ERROR: select_all binding action failed"
+        }
+        return result
     }
 
     private struct RenderStatsResponse: Codable {

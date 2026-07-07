@@ -22,6 +22,7 @@ extension TerminalController {
         "debug.sidebar.visible",
         "debug.terminal.is_focused",
         "debug.terminal.read_text",
+        "debug.terminal.select_all",
         "debug.terminal.render_stats",
         "debug.layout",
         "debug.portal.stats",

@@ -110,6 +110,14 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // `surface.read_selection` reads the user's live selection via the
+        // same capture-on-main / encode-off-main split as `surface.read_text`
+        // (routing + `ghostty_surface_read_selection` behind one `v2MainSync`
+        // hop, base64 encoding on the worker). Selections are small, but the
+        // method shares the read_text worker body shape and the coordinator
+        // seam restriction, so it stays app-side on the worker lane
+        // (`TerminalController.v2SurfaceReadSelection`).
+        "surface.read_selection",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
