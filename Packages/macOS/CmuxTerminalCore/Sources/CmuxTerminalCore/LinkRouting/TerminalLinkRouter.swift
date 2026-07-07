@@ -111,9 +111,14 @@ public struct TerminalLinkRouter: Sendable {
               let colon = value.lastIndex(of: ":"),
               colon < value.index(before: value.endIndex),
               value[value.index(after: colon)...].allSatisfy(\.isNumber),
-              hasKnownFileExtension(value[..<colon]) else {
+              let fileExtension = knownFileExtension(value[..<colon]) else {
             return false
         }
+        let fileReference = value[..<colon]
+        if fileReference.contains("/") { return true }
+        if fileReference.contains(where: \.isUppercase) { return true }
+        if Self.commonSourceBasenames.contains(stem(fileReference)) { return true }
+        if Self.fileExtensionTopLevelDomains.contains(fileExtension) { return false }
         return true
     }
 
@@ -135,21 +140,35 @@ public struct TerminalLinkRouter: Sendable {
         } ?? value.endIndex
         let path = value[pathStart..<pathEnd]
         let lastComponentStart = path.lastIndex(of: "/").map(path.index(after:)) ?? path.startIndex
-        return hasKnownFileExtension(path[lastComponentStart...])
+        return knownFileExtension(path[lastComponentStart...]) != nil
     }
 
-    private static func hasKnownFileExtension(_ value: some StringProtocol) -> Bool {
+    private static func knownFileExtension(_ value: some StringProtocol) -> String? {
         guard let dot = value.lastIndex(of: "."),
               dot < value.index(before: value.endIndex) else {
-            return false
+            return nil
         }
-        switch value[value.index(after: dot)...].lowercased() {
+        let fileExtension = value[value.index(after: dot)...].lowercased()
+        switch fileExtension {
         case "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java",
              "js", "jsx", "json", "m", "md", "mm", "php", "py", "rb", "rs",
              "sh", "swift", "toml", "ts", "tsx", "txt", "yaml", "yml", "zsh":
-            return true
+            return fileExtension
         default:
-            return false
+            return nil
         }
     }
+
+    private static func stem(_ value: some StringProtocol) -> String {
+        guard let dot = value.lastIndex(of: ".") else { return value.lowercased() }
+        return value[..<dot].lowercased()
+    }
+
+    private static let commonSourceBasenames: Set<String> = [
+        "app", "config", "index", "main", "package", "readme", "server",
+    ]
+
+    private static let fileExtensionTopLevelDomains: Set<String> = [
+        "cc", "md", "mm", "py", "rs", "sh",
+    ]
 }
