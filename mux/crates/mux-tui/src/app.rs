@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -23,16 +24,18 @@ use crossterm::terminal::{
 use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
 use mux_core::{
-    directional_neighbor, layout_screen, split_for_pane_edge, split_sides, MuxEvent, PaneId, Rect,
-    SplitDir, SplitEdge, SurfaceId, SurfaceKind, WorkspaceId,
+    layout_screen, split_for_pane_edge, split_sides, BrowserSource, BrowserStatus, MuxEvent,
+    PaneId, Rect, SplitDir, SplitEdge, SurfaceId, SurfaceKind, WorkspaceId,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
 
+use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
-use crate::ui::graphics::{GraphicPlacement, GraphicsState};
+use crate::ui::graphics::GraphicPlacement;
+use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
@@ -41,14 +44,20 @@ pub enum AppEvent {
     Input(Event),
 }
 
-struct HandleOutcome {
-    needs_draw: bool,
-    user_interaction: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderAction {
+    None,
+    Graphics,
+    Draw,
 }
 
-impl HandleOutcome {
-    fn new(needs_draw: bool, user_interaction: bool) -> Self {
-        HandleOutcome { needs_draw, user_interaction }
+impl RenderAction {
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (RenderAction::Draw, _) | (_, RenderAction::Draw) => RenderAction::Draw,
+            (RenderAction::Graphics, _) | (_, RenderAction::Graphics) => RenderAction::Graphics,
+            (RenderAction::None, RenderAction::None) => RenderAction::None,
+        }
     }
 }
 
@@ -116,9 +125,18 @@ pub struct PaneArea {
     pub surface: SurfaceId,
     pub rect: Rect,
     pub bar: Option<Rect>,
+    pub omnibar: Option<Rect>,
     pub content: Rect,
     /// Scrollbar track (inside the box or on the right border).
     pub track: Option<Rect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OmnibarHit {
+    Back,
+    Forward,
+    Reload,
+    Edit,
 }
 
 /// A context-menu entry: what activating it does (the label is derived).
@@ -129,6 +147,12 @@ pub enum MenuAction {
     CloseWorkspace(WorkspaceId),
     RenameScreen(mux_core::ScreenId),
     CloseScreen(mux_core::ScreenId),
+    BrowserBack(PaneId),
+    BrowserForward(PaneId),
+    BrowserReload(PaneId),
+    BrowserEditUrl(PaneId),
+    BrowserCopyUrl(PaneId),
+    BrowserActivate(PaneId),
     RenameTab(PaneId),
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
@@ -148,6 +172,12 @@ impl MenuAction {
             MenuAction::CloseWorkspace(_) => "Close workspace",
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
+            MenuAction::BrowserBack(_) => "Back",
+            MenuAction::BrowserForward(_) => "Forward",
+            MenuAction::BrowserReload(_) => "Reload",
+            MenuAction::BrowserEditUrl(_) => "Edit URL",
+            MenuAction::BrowserCopyUrl(_) => "Copy URL",
+            MenuAction::BrowserActivate(_) => "Show in Chrome",
             MenuAction::RenameTab(_) => "Rename tab",
             MenuAction::CopyTabId(_) => "Copy tab id",
             MenuAction::CopyPaneId(_) => "Copy pane id",
@@ -216,12 +246,11 @@ pub enum PromptTarget {
     Workspace(WorkspaceId),
     Screen(mux_core::ScreenId),
     Surface(SurfaceId),
-    BrowserTab { pane: Option<PaneId> },
 }
 
-/// Centered prompt dialog: a readline-capable text input plus buttons.
-/// The renderer writes the final geometry back so mouse hit-testing
-/// (input, buttons, dismiss-outside) matches what is drawn.
+/// Centered rename dialog: a text input with OK/Cancel buttons. The
+/// renderer writes the final geometry back so mouse hit-testing (buttons,
+/// dismiss-outside) matches what is drawn.
 pub struct Prompt {
     pub label: &'static str,
     pub input: TextInput,
@@ -235,9 +264,34 @@ pub struct Prompt {
     pub cancel: Rect,
 }
 
+#[derive(Debug, Clone)]
+pub struct OmnibarState {
+    pub pane: PaneId,
+    pub surface: SurfaceId,
+    pub input: TextInput,
+    pub select_all: bool,
+}
+
 pub struct Toast {
     pub text: String,
     deadline: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BrowserMouseDispatch {
+    event_type: &'static str,
+    button: Option<&'static str>,
+    click_count: Option<u32>,
+}
+
+impl BrowserMouseDispatch {
+    const fn new(
+        event_type: &'static str,
+        button: Option<&'static str>,
+        click_count: Option<u32>,
+    ) -> Self {
+        Self { event_type, button, click_count }
+    }
 }
 
 impl Prompt {
@@ -331,10 +385,12 @@ pub struct App {
     pub config: Config,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
-    pub graphics: GraphicsState,
+    pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
+    stdout_lock: Arc<Mutex<()>>,
     pub pane_areas: Vec<PaneArea>,
     pub prefix_armed: bool,
+    pub session_label: String,
     pub sidebar_visible: bool,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
@@ -351,6 +407,7 @@ pub struct App {
     pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
+    pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
@@ -359,6 +416,10 @@ pub struct App {
     /// Whether the terminal pointer is currently the hand shape (over a
     /// clickable element); tracked to avoid re-emitting OSC 22.
     pointer_shape: bool,
+    last_browser_hover: Option<(SurfaceId, u16, u16)>,
+    /// Off-loop forwarder for browser input: CDP/socket round trips must
+    /// never run on the event-loop thread (see `browser_input`).
+    browser_input: BrowserInputDispatcher,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
@@ -393,15 +454,8 @@ fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16
 }
 
 fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
-    if rect.width > 2 && rect.height > 2 {
-        let reserved_cols = match scrollbar {
-            ScrollbarPosition::Column => 3,
-            ScrollbarPosition::Border => 2,
-        };
-        Some((rect.width.saturating_sub(reserved_cols).max(1), rect.height - 2))
-    } else {
-        (rect.width > 0 && rect.height > 0).then_some((rect.width, rect.height))
-    }
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, false);
+    (content.width > 0 && content.height > 0).then_some((content.width, content.height))
 }
 
 fn cell_height_width_ratio(cell_pixels: (u16, u16)) -> u16 {
@@ -448,7 +502,51 @@ fn smart_split_target(
         .map(|(_, pane, dir)| (pane, dir))
 }
 
-pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
+fn browser_content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
+    let (_, _, content, _) = pane_parts_for_rect(rect, scrollbar, true);
+    (content.width > 0 && content.height > 0).then_some((content.width, content.height))
+}
+
+fn pane_parts_for_rect(
+    rect: Rect,
+    scrollbar: ScrollbarPosition,
+    browser_omnibar: bool,
+) -> (Option<Rect>, Option<Rect>, Rect, Option<Rect>) {
+    let (bar, mut content, track) = if rect.width > 2 && rect.height > 2 {
+        let reserved_cols = match scrollbar {
+            ScrollbarPosition::Column => 3,
+            ScrollbarPosition::Border => 2,
+        };
+        let right_border_x = rect.x + rect.width - 1;
+        let track_x = match scrollbar {
+            ScrollbarPosition::Column => right_border_x.saturating_sub(1),
+            ScrollbarPosition::Border => right_border_x,
+        };
+        (
+            Some(Rect { height: 1, ..rect }),
+            Rect {
+                x: rect.x + 1,
+                y: rect.y + 1,
+                width: rect.width.saturating_sub(reserved_cols).max(1),
+                height: rect.height - 2,
+            },
+            Some(Rect { x: track_x, y: rect.y + 1, width: 1, height: rect.height - 2 }),
+        )
+    } else {
+        (None, rect, None)
+    };
+    let omnibar = if browser_omnibar && content.height >= 2 {
+        let row = Rect { height: 1, ..content };
+        content.y = content.y.saturating_add(1);
+        content.height = content.height.saturating_sub(1);
+        Some(row)
+    } else {
+        None
+    };
+    (bar, omnibar, content, track)
+}
+
+pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     let config = crate::config::load();
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
@@ -467,6 +565,7 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
     });
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
+    let stdout_lock = Arc::new(Mutex::new(()));
 
     let (tx, rx) = channel::<AppEvent>();
 
@@ -486,6 +585,7 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
     // Crossterm input → app channel.
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
+        let _guard = stdout_lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
@@ -493,7 +593,7 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
-        let _ = restore_terminal();
+        let _ = restore_terminal(Some(&stdout_lock));
         return Err(e);
     }
 
@@ -515,8 +615,9 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
     })?;
     // Restore the host terminal even if we panic mid-frame.
     let default_hook = std::panic::take_hook();
+    let restore_lock = stdout_lock.clone();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal();
+        let _ = restore_terminal(Some(&restore_lock));
         default_hook(info);
     }));
 
@@ -524,20 +625,24 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
-            let _ = restore_terminal();
+            let _ = restore_terminal(Some(&stdout_lock));
             return Err(e.into());
         }
     };
+    let graphics_writer =
+        if graphics_supported { Some(GraphicsWriter::spawn(stdout_lock.clone())?) } else { None };
 
     let mut app = App {
         session,
         config,
         tree: TreeView::default(),
         render_states: HashMap::new(),
-        graphics: GraphicsState::default(),
+        graphics_writer,
         graphics_supported,
+        stdout_lock: stdout_lock.clone(),
         pane_areas: Vec::new(),
         prefix_armed: false,
+        session_label,
         sidebar_visible: true,
         sidebar_width: 0,
         sidebar_width_override: None,
@@ -547,12 +652,15 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
         hover: None,
         menu: None,
         prompt: None,
+        omnibar: None,
         toast: None,
         shake_frames: 0,
         selection: None,
         status_message: None,
         cell_pixels,
         pointer_shape: false,
+        last_browser_hover: None,
+        browser_input: BrowserInputDispatcher::spawn()?,
         drag: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
@@ -560,12 +668,16 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
     };
 
     let result = app.event_loop(&mut terminal, rx);
+    if let Some(writer) = app.graphics_writer.as_mut() {
+        writer.shutdown(Duration::from_millis(200));
+    }
     let _ = std::panic::take_hook();
-    restore_terminal()?;
+    restore_terminal(Some(&stdout_lock))?;
     result
 }
 
-fn restore_terminal() -> anyhow::Result<()> {
+fn restore_terminal(stdout_lock: Option<&Arc<Mutex<()>>>) -> anyhow::Result<()> {
+    let _guard = stdout_lock.map(|lock| lock.lock().unwrap());
     let mut stdout = std::io::stdout();
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
@@ -586,10 +698,10 @@ impl App {
         // Initial layout + draw.
         let size = terminal.size()?;
         self.sync_layout((size.width, size.height));
-        terminal.draw(|f| crate::ui::draw(self, f))?;
+        self.draw_terminal(terminal)?;
         self.emit_graphics()?;
 
-        while !self.quit {
+        while !self.quit && !crate::shutdown_requested() {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0
@@ -600,54 +712,101 @@ impl App {
             } else {
                 Duration::from_millis(250)
             };
-            let mut needs_draw = false;
+            let mut action = RenderAction::None;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(RecvTimeoutError::Timeout) => {
-                    needs_draw = self.shake_frames > 0;
-                    needs_draw |= self.auto_scroll_selection_tick();
-                    needs_draw |= self.expire_toast();
+                    if self.shake_frames > 0 {
+                        action = RenderAction::Draw;
+                    }
+                    if self.auto_scroll_selection_tick() {
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if self.expire_toast() {
+                        action = action.merge(RenderAction::Draw);
+                    }
                     None
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
-            let mut user_interaction = false;
             if let Some(event) = first {
-                let outcome = self.handle(event)?;
-                needs_draw |= outcome.needs_draw;
-                user_interaction |= outcome.user_interaction;
+                action = action.merge(self.handle(event)?);
             }
             for _ in 0..256 {
                 match rx.try_recv() {
-                    Ok(event) => {
-                        let outcome = self.handle(event)?;
-                        needs_draw |= outcome.needs_draw;
-                        user_interaction |= outcome.user_interaction;
-                    }
+                    Ok(event) => action = action.merge(self.handle(event)?),
                     Err(_) => break,
                 }
             }
             if self.quit {
                 break;
             }
-            needs_draw |= self.expire_toast();
-            if needs_draw {
-                let size = terminal.size()?;
-                self.sync_layout((size.width, size.height));
-                if user_interaction {
-                    self.reassert_visible_surface_sizes();
+            if self.expire_toast() {
+                action = action.merge(RenderAction::Draw);
+            }
+            match action {
+                RenderAction::Draw => {
+                    let size = terminal.size()?;
+                    self.sync_layout((size.width, size.height));
+                    self.draw_terminal(terminal)?;
+                    self.emit_graphics()?;
                 }
-                terminal.draw(|f| crate::ui::draw(self, f))?;
-                self.emit_graphics()?;
+                RenderAction::Graphics => {
+                    self.emit_graphics()?;
+                }
+                RenderAction::None => {}
             }
         }
         Ok(())
+    }
+
+    fn draw_terminal(
+        &mut self,
+        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+    ) -> anyhow::Result<()> {
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
+        terminal.draw(|f| crate::ui::draw(self, f))?;
+        Ok(())
+    }
+
+    fn frame_only_browser_update(&self, id: SurfaceId) -> bool {
+        if !self.graphics_supported {
+            return false;
+        }
+        let Some(area) = self.pane_areas.iter().find(|area| area.surface == id) else {
+            return false;
+        };
+        let Some(surface) = self.session.surface(id) else {
+            return false;
+        };
+        surface.kind() == SurfaceKind::Browser
+            && surface.browser_frame().is_some()
+            && area.content.width > 0
+            && area.content.height > 0
+    }
+
+    fn mark_graphics_clean(&self, placements: &[GraphicPlacement]) {
+        for placement in placements {
+            if let Some(surface) = self.session.surface(placement.surface) {
+                surface.take_dirty();
+            }
+        }
     }
 
     fn emit_graphics(&mut self) -> anyhow::Result<()> {
         if !self.graphics_supported {
             return Ok(());
         }
+        let placements = self.graphic_placements();
+        self.mark_graphics_clean(&placements);
+        if let Some(writer) = &self.graphics_writer {
+            writer.submit(placements);
+        }
+        Ok(())
+    }
+
+    fn graphic_placements(&self) -> Vec<GraphicPlacement> {
         let mut placements = Vec::new();
         for area in &self.pane_areas {
             let Some(surface) = self.session.surface(area.surface) else { continue };
@@ -665,13 +824,7 @@ impl App {
                 data_b64: frame.data_b64,
             });
         }
-        let bytes = self.graphics.frame_bytes(&placements);
-        if !bytes.is_empty() {
-            let mut stdout = std::io::stdout();
-            stdout.write_all(&bytes)?;
-            stdout.flush()?;
-        }
-        Ok(())
+        placements
     }
 
     fn browser_graphic_occluded(&self, rect: Rect) -> bool {
@@ -717,35 +870,16 @@ impl App {
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
-            let (bar, content, track) = if rect.width >= 3 && rect.height >= 3 {
-                // The border box: top row is the tab bar. The scrollbar
-                // either overlays the right border or gets a dedicated
-                // column just inside it.
-                let inner_height = rect.height - 2;
-                let track_y = rect.y + 1;
-                let right_border_x = rect.x + rect.width - 1;
-                let content_w = match self.config.scrollbar.position {
-                    ScrollbarPosition::Column => rect.width.saturating_sub(3),
-                    ScrollbarPosition::Border => rect.width - 2,
-                };
-                let track_x = match self.config.scrollbar.position {
-                    ScrollbarPosition::Column => right_border_x.saturating_sub(1),
-                    ScrollbarPosition::Border => right_border_x,
-                };
-                (
-                    Some(Rect { height: 1, ..rect }),
-                    Rect { x: rect.x + 1, y: rect.y + 1, width: content_w, height: inner_height },
-                    Some(Rect { x: track_x, y: track_y, width: 1, height: inner_height }),
-                )
-            } else {
-                // Degenerate rect: no box, content fills it.
-                (None, rect, None)
-            };
+            let has_browser_omnibar =
+                pane.tabs.get(pane.active_tab).is_some_and(|tab| tab.kind == SurfaceKind::Browser);
+            let (bar, omnibar, content, track) =
+                pane_parts_for_rect(rect, self.config.scrollbar.position, has_browser_omnibar);
             self.pane_areas.push(PaneArea {
                 pane: pane_id,
                 surface: surface_id,
                 rect,
                 bar,
+                omnibar,
                 content,
                 track,
             });
@@ -765,11 +899,11 @@ impl App {
         }
     }
 
-    fn handle(&mut self, event: AppEvent) -> anyhow::Result<HandleOutcome> {
+    fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
         match event {
             AppEvent::Mux(MuxEvent::Empty) => {
                 self.quit = true;
-                Ok(HandleOutcome::new(false, false))
+                Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.render_states.remove(&id);
@@ -777,61 +911,60 @@ impl App {
                 if self.selection.is_some_and(|s| s.surface == id) {
                     self.selection = None;
                 }
-                Ok(HandleOutcome::new(true, false))
+                if self.omnibar.as_ref().is_some_and(|state| state.surface == id) {
+                    self.omnibar = None;
+                }
+                if self.last_browser_hover.is_some_and(|(surface, _, _)| surface == id) {
+                    self.last_browser_hover = None;
+                }
+                Ok(RenderAction::Draw)
             }
-            AppEvent::Mux(MuxEvent::SurfaceResized { surface, .. }) => {
-                self.render_states.remove(&surface);
-                Ok(HandleOutcome::new(true, false))
+            AppEvent::Mux(MuxEvent::Status(message)) => {
+                self.status_message = Some(message);
+                Ok(RenderAction::Draw)
             }
-            AppEvent::Mux(_) => Ok(HandleOutcome::new(true, false)),
+            AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
+                if self.frame_only_browser_update(id) {
+                    Ok(RenderAction::Graphics)
+                } else {
+                    Ok(RenderAction::Draw)
+                }
+            }
+            AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::Input(Event::Key(key)) => {
-                let user_interaction = key.kind != KeyEventKind::Release;
-                if user_interaction {
+                if key.kind != KeyEventKind::Release {
                     self.reassert_visible_surface_sizes();
                 }
-                let needs_draw = self.handle_key(key)?;
-                Ok(HandleOutcome::new(needs_draw, user_interaction))
+                self.handle_key(key)
             }
             AppEvent::Input(Event::Mouse(mouse)) => {
                 self.reassert_visible_surface_sizes();
-                let needs_draw = self.handle_mouse(mouse)?;
-                Ok(HandleOutcome::new(needs_draw, true))
+                self.handle_mouse(mouse)
             }
             AppEvent::Input(Event::Paste(text)) => {
                 self.reassert_visible_surface_sizes();
-                let needs_draw = if let Some(prompt) = self.prompt.as_mut() {
+                if let Some(prompt) = self.prompt.as_mut() {
                     prompt.input.insert_str(&text);
-                    true
+                    Ok(RenderAction::Draw)
+                } else if let Some(state) = self.omnibar.as_mut() {
+                    clear_omnibar_selection(state);
+                    state.input.insert_str(&text);
+                    Ok(RenderAction::Draw)
                 } else {
                     self.paste(&text);
-                    false
-                };
-                Ok(HandleOutcome::new(needs_draw, true))
+                    Ok(RenderAction::None)
+                }
             }
             AppEvent::Input(Event::FocusGained) => {
                 self.reassert_visible_surface_sizes();
-                Ok(HandleOutcome::new(true, true))
+                Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
                 self.render_states.clear();
-                Ok(HandleOutcome::new(true, true))
+                Ok(RenderAction::Draw)
             }
-            AppEvent::Input(_) => Ok(HandleOutcome::new(false, false)),
-        }
-    }
-
-    fn reassert_visible_surface_sizes(&self) {
-        for area in &self.pane_areas {
-            if area.content.width == 0 || area.content.height == 0 {
-                continue;
-            }
-            if let Some(surface) = self
-                .session
-                .surface_sized(area.surface, Some((area.content.width, area.content.height)))
-            {
-                surface.reassert_size(area.content.width, area.content.height);
-            }
+            AppEvent::Input(_) => Ok(RenderAction::None),
         }
     }
 
@@ -847,8 +980,27 @@ impl App {
         self.active_surface().and_then(|id| self.session.surface(id))
     }
 
+    fn active_surface_with_handle(&self) -> Option<(SurfaceId, SurfaceHandle)> {
+        let id = self.active_surface()?;
+        Some((id, self.session.surface(id)?))
+    }
+
     fn active_screen_id(&self) -> Option<mux_core::ScreenId> {
         self.tree.active_screen().map(|screen| screen.id)
+    }
+
+    fn reassert_visible_surface_sizes(&self) {
+        for area in &self.pane_areas {
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
+            if let Some(surface) = self
+                .session
+                .surface_sized(area.surface, Some((area.content.width, area.content.height)))
+            {
+                surface.reassert_size(area.content.width, area.content.height);
+            }
+        }
     }
 
     pub fn dragging_scrollbar(&self) -> Option<SurfaceId> {
@@ -940,9 +1092,9 @@ impl App {
         self.session.new_screen(self.size_of_rect(self.content_area))
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         if key.kind == KeyEventKind::Release {
-            return Ok(false);
+            return Ok(RenderAction::None);
         }
         self.status_message = None;
         if self.prompt.is_some() {
@@ -950,6 +1102,9 @@ impl App {
         }
         if self.menu.is_some() {
             return self.handle_menu_key(key);
+        }
+        if self.omnibar.is_some() {
+            return self.handle_omnibar_key(key);
         }
         if let Some(action) = self.config.keys.modeless_action_for(&key) {
             return self.run_action(action);
@@ -960,15 +1115,15 @@ impl App {
         }
         if self.config.keys.prefix.matches(&key) {
             self.prefix_armed = true;
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         // Typing replaces any selection highlight.
         self.selection = None;
         self.forward_key(&key);
-        Ok(false)
+        Ok(RenderAction::None)
     }
 
-    /// Commit the open prompt (Enter or the OK button).
+    /// Commit the open rename dialog (Enter or the OK button).
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
         let input = prompt.input.as_str().to_string();
@@ -981,15 +1136,6 @@ impl App {
             // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, input),
             PromptTarget::Surface(id) => self.session.rename_surface(id, input),
-            PromptTarget::BrowserTab { pane } => {
-                if !input.trim().is_empty() {
-                    if let Err(e) = self.create_browser_tab(pane, &input) {
-                        self.status_message = Some(e.to_string());
-                    } else {
-                        self.status_message = None;
-                    }
-                }
-            }
         }
     }
 
@@ -1003,24 +1149,22 @@ impl App {
         self.prompt = None;
     }
 
-    fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let Some(prompt) = self.prompt.as_mut() else { return Ok(false) };
+    fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
         match prompt.input.handle_key(&key) {
             InputEvent::Commit => self.commit_prompt(),
             InputEvent::Cancel => self.close_prompt(),
             InputEvent::Changed | InputEvent::None => {}
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
-    /// Clicks while the prompt is open: OK commits, Clear empties the
-    /// input, Cancel (or a click outside the dialog) dismisses, and
-    /// input-row clicks move the cursor.
-    fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
-        let Some(prompt) = self.prompt.as_mut() else { return Ok(false) };
+    /// Clicks while the rename dialog is open: OK commits, Cancel (or a
+    /// click outside the dialog) dismisses; clicks inside are swallowed.
+    fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
         if prompt.ok.contains(x, y) {
             self.commit_prompt();
-            return Ok(true);
         } else if prompt.clear.contains(x, y) {
             prompt.input.clear();
         } else if prompt.input_rect.contains(x, y) {
@@ -1028,64 +1172,127 @@ impl App {
             prompt.input.set_cursor_from_visible_column(column, prompt.input_rect.width as usize);
         } else if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
             self.close_prompt();
-            return Ok(true);
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
-    fn handle_menu_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let Some(menu) = self.menu.as_mut() else { return Ok(false) };
+    fn handle_omnibar_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        let Some(state) = self.omnibar.as_mut() else { return Ok(RenderAction::None) };
+        let replace_selection = state.select_all
+            && matches!(
+                key.code,
+                KeyCode::Backspace
+                    | KeyCode::Delete
+                    | KeyCode::Char(_)
+                        if !key.modifiers.intersects(
+                            KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER
+                        )
+            );
+        if replace_selection {
+            state.input.clear();
+            state.select_all = false;
+        } else if matches!(
+            key.code,
+            KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::Backspace
+                | KeyCode::Delete
+        ) {
+            state.select_all = false;
+        }
+        if matches!(key.code, KeyCode::Char('a') | KeyCode::Char('A'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            state.select_all = true;
+            state.input.cursor = state.input.buffer.len();
+            return Ok(RenderAction::Draw);
+        }
+        match state.input.handle_key(&key) {
+            InputEvent::Cancel => {
+                self.omnibar = None;
+            }
+            InputEvent::Commit => {
+                let Some(state) = self.omnibar.take() else { return Ok(RenderAction::Draw) };
+                let input = state.input.as_str().trim();
+                if input.is_empty() {
+                    return Ok(RenderAction::Draw);
+                }
+                let url = mux_core::normalize_url(input);
+                match self.session.surface(state.surface) {
+                    Some(handle) => {
+                        self.status_message =
+                            handle.browser_navigate(&url).err().map(|e| e.to_string());
+                    }
+                    None => self.status_message = Some("unknown browser surface".to_string()),
+                }
+            }
+            InputEvent::Changed | InputEvent::None => {}
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn handle_menu_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        let Some(menu) = self.menu.as_mut() else { return Ok(RenderAction::None) };
         match key.code {
             KeyCode::Esc => {
                 self.menu = None;
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             KeyCode::Up => {
                 menu.selected = menu.selected.saturating_sub(1);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             KeyCode::Down => {
                 menu.selected = (menu.selected + 1).min(menu.items.len().saturating_sub(1));
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             KeyCode::Enter => {
                 let action = menu.items[menu.selected];
                 self.menu = None;
                 self.activate_menu(action)?;
-                self.status_message = None;
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
-            _ => Ok(true), // swallow while a menu is open
+            _ => Ok(RenderAction::Draw), // swallow while a menu is open
         }
     }
 
-    fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         // Prefix twice forwards the prefix chord literally.
         if self.config.keys.prefix.matches(&key) {
             self.forward_key(&key);
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         // 1-9 select a tab by number (fixed: they mirror the tab labels).
         if let KeyCode::Char(c @ '1'..='9') = key.code {
             let pane = self.active_pane();
             self.session.select_tab(pane, Some(c as usize - '1' as usize), None);
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         let Some(action) = self.config.keys.action_for(&key) else {
-            return Ok(true); // unknown prefix command: swallow, redraw indicator
+            return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
         };
+        if browser_only_action(action)
+            && !self
+                .active_surface_handle()
+                .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+        {
+            self.forward_key(&key);
+            return Ok(RenderAction::Draw);
+        }
         self.run_action(action)
     }
 
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
-    fn run_action(&mut self, action: Action) -> anyhow::Result<bool> {
+    fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
         let pane = self.active_pane();
         match action {
             Action::NewTab => {
                 self.session.new_tab(pane, None)?;
             }
-            Action::NewBrowserTab => self.open_browser_tab_prompt(pane),
+            Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
             Action::NewPaneSmart => self.new_pane_smart()?,
             Action::NextTab => self.session.select_tab(pane, None, Some(1)),
             Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
@@ -1134,15 +1341,40 @@ impl App {
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
+            Action::BrowserBack => {
+                let result = self.browser_back();
+                self.set_status_from_browser_result(result);
+                return Ok(RenderAction::Draw);
+            }
+            Action::BrowserForward => {
+                let result = self.browser_forward();
+                self.set_status_from_browser_result(result);
+                return Ok(RenderAction::Draw);
+            }
+            Action::BrowserReload => {
+                let result = self.browser_reload();
+                self.set_status_from_browser_result(result);
+                return Ok(RenderAction::Draw);
+            }
+            Action::BrowserEditUrl => {
+                if let Some(pane) = pane {
+                    self.focus_omnibar(pane);
+                }
+                return Ok(RenderAction::Draw);
+            }
             Action::Detach => {
                 // Local sessions end with the TUI; remote sessions keep
                 // running server-side (detach).
                 self.quit = true;
-                return Ok(false);
+                return Ok(RenderAction::None);
             }
         }
         self.status_message = None;
-        Ok(true)
+        Ok(RenderAction::Draw)
+    }
+
+    fn set_status_from_browser_result(&mut self, result: anyhow::Result<()>) {
+        self.status_message = result.err().map(|err| err.to_string());
     }
 
     fn open_rename_tab_prompt(&mut self, pane: Option<PaneId>) {
@@ -1167,34 +1399,115 @@ impl App {
         self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(screen.id)));
     }
 
-    fn open_browser_tab_prompt(&mut self, pane: Option<PaneId>) {
-        self.prompt = Some(Prompt::new(
-            "New browser tab",
-            "https://".to_string(),
-            PromptTarget::BrowserTab { pane },
-        ));
-    }
-
     fn browser_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
         match pane {
-            Some(pane) => self
-                .pane_areas
-                .iter()
-                .find(|area| area.pane == pane)
-                .map(|area| (area.content.width.max(1), area.content.height.max(1))),
+            Some(pane) => self.pane_areas.iter().find(|area| area.pane == pane).and_then(|area| {
+                browser_content_size_for_rect(area.rect, self.config.scrollbar.position)
+            }),
             None => self
                 .active_pane()
                 .and_then(|pane| self.browser_tab_size_hint(Some(pane)))
-                .or_else(|| self.size_of_rect(self.content_area)),
+                .or_else(|| {
+                    browser_content_size_for_rect(self.content_area, self.config.scrollbar.position)
+                }),
         }
     }
 
-    fn create_browser_tab(&mut self, pane: Option<PaneId>, input: &str) -> anyhow::Result<()> {
+    fn create_browser_tab_for_edit(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
         self.session.new_browser_tab(
-            input.trim().to_string(),
+            "about:blank".to_string(),
             pane,
             self.browser_tab_size_hint(pane),
-        )
+        )?;
+        self.tree = self.session.tree();
+        let target_pane = pane.or_else(|| self.active_pane());
+        if let Some(pane) = target_pane {
+            self.focus_omnibar_with_buffer(pane, String::new(), false);
+        }
+        Ok(())
+    }
+
+    fn active_browser_handle(&self) -> anyhow::Result<SurfaceHandle> {
+        let Some(surface) = self.active_surface_handle() else {
+            anyhow::bail!("no active surface");
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            anyhow::bail!("active surface is not a browser");
+        }
+        Ok(surface)
+    }
+
+    fn browser_back(&mut self) -> anyhow::Result<()> {
+        self.active_browser_handle()?.browser_back()
+    }
+
+    fn browser_forward(&mut self) -> anyhow::Result<()> {
+        self.active_browser_handle()?.browser_forward()
+    }
+
+    fn browser_reload(&mut self) -> anyhow::Result<()> {
+        self.active_browser_handle()?.browser_reload()
+    }
+
+    fn focus_omnibar(&mut self, pane: PaneId) {
+        let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
+            return;
+        };
+        let Some(surface) = self.session.surface(surface_id) else { return };
+        if surface.kind() != SurfaceKind::Browser {
+            return;
+        }
+        let buffer = surface.browser_url().unwrap_or_default();
+        self.focus_omnibar_with_buffer(pane, buffer, true);
+    }
+
+    fn focus_omnibar_with_buffer(&mut self, pane: PaneId, buffer: String, select_all: bool) {
+        let Some(surface) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
+            return;
+        };
+        if self.tree.surface_kind(surface) != SurfaceKind::Browser {
+            return;
+        }
+        let Some(area) = self.pane_areas.iter().find(|area| area.pane == pane) else {
+            return;
+        };
+        let has_omnibar = if area.surface == surface {
+            area.omnibar.is_some()
+        } else {
+            let (_, omnibar, _, _) =
+                pane_parts_for_rect(area.rect, self.config.scrollbar.position, true);
+            omnibar.is_some()
+        };
+        if !has_omnibar {
+            return;
+        }
+        self.omnibar =
+            Some(OmnibarState { pane, surface, input: TextInput::new(buffer), select_all });
+    }
+
+    fn browser_handle_for_pane(&self, pane: PaneId) -> anyhow::Result<SurfaceHandle> {
+        let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
+            anyhow::bail!("pane has no active surface");
+        };
+        let Some(surface) = self.session.surface(surface_id) else {
+            anyhow::bail!("unknown surface {surface_id}");
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            anyhow::bail!("active surface is not a browser");
+        }
+        Ok(surface)
+    }
+
+    fn browser_copy_url(&mut self, pane: PaneId) {
+        let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
+            return;
+        };
+        let Some(url) = self.session.surface(surface_id).and_then(|surface| surface.browser_url())
+        else {
+            return;
+        };
+        self.copy_text_to_clipboard(&url);
+        self.show_toast("Copied URL".to_string());
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
@@ -1230,6 +1543,28 @@ impl App {
                 self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
+            MenuAction::BrowserBack(id) => {
+                let result =
+                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_back());
+                self.set_status_from_browser_result(result);
+            }
+            MenuAction::BrowserForward(id) => {
+                let result =
+                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_forward());
+                self.set_status_from_browser_result(result);
+            }
+            MenuAction::BrowserReload(id) => {
+                let result =
+                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_reload());
+                self.set_status_from_browser_result(result);
+            }
+            MenuAction::BrowserEditUrl(id) => self.focus_omnibar(id),
+            MenuAction::BrowserCopyUrl(id) => self.browser_copy_url(id),
+            MenuAction::BrowserActivate(id) => {
+                let result =
+                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_activate());
+                self.set_status_from_browser_result(result);
+            }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::CopyTabId(id) => {
                 if let Some(short_id) = self
@@ -1247,7 +1582,7 @@ impl App {
                 }
             }
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
-            MenuAction::NewBrowserTab(id) => self.open_browser_tab_prompt(Some(id)),
+            MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
             MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
             MenuAction::CloseTab(id) => {
@@ -1263,8 +1598,11 @@ impl App {
 
     fn move_focus(&self, dx: i32, dy: i32) {
         let Some(active) = self.active_pane() else { return };
-        let panes = self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect::<Vec<_>>();
-        if let Some(next) = directional_neighbor(&panes, active, dx, dy) {
+        // Re-derive the layout geometry from the frame's pane areas.
+        let layout = mux_core::LayoutResult {
+            panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
+        };
+        if let Some(next) = layout.neighbor(active, dx, dy) {
             self.session.focus_pane(next);
         }
     }
@@ -1303,28 +1641,61 @@ impl App {
     }
 
     fn forward_browser_key(&mut self, key: &KeyEvent) {
-        let Some(surface) = self.active_surface_handle() else { return };
+        if matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            if let Some(pane) = self.active_pane() {
+                self.focus_omnibar(pane);
+            }
+            return;
+        }
+        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         if let KeyCode::Char(c) = key.code {
             if !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
             {
-                let _ = surface.browser_insert_text(&c.to_string());
+                self.browser_input.enqueue(BrowserInputEvent {
+                    surface_id,
+                    surface,
+                    kind: BrowserInputKind::InsertText(c.to_string()),
+                });
                 return;
             }
         }
         let Some((key_name, code, vk, text)) = browser_key_mapping(key.code) else { return };
         let modifiers = browser_modifiers(key.modifiers);
-        let _ = surface.browser_key_event("keyDown", key_name, code, vk, modifiers, text);
+        let key_event =
+            |event_type: &'static str, text: Option<&'static str>| BrowserInputKind::Key {
+                event_type,
+                key: key_name,
+                code,
+                windows_virtual_key_code: vk,
+                modifiers,
+                text,
+            };
+        self.browser_input.enqueue(BrowserInputEvent {
+            surface_id,
+            surface: surface.clone(),
+            kind: key_event("keyDown", text),
+        });
         if key.kind == KeyEventKind::Press {
-            let _ = surface.browser_key_event("keyUp", key_name, code, vk, modifiers, None);
+            self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: key_event("keyUp", None),
+            });
         }
     }
 
     fn paste(&mut self, text: &str) {
-        let Some(surface) = self.active_surface_handle() else { return };
+        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         if surface.kind() == SurfaceKind::Browser {
-            let _ = surface.browser_insert_text(text);
+            self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: BrowserInputKind::InsertText(text.to_string()),
+            });
             return;
         }
         let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
@@ -1347,6 +1718,20 @@ impl App {
 
     fn hit_at(&self, x: u16, y: u16) -> Option<Hit> {
         self.hits.iter().find(|(rect, _)| rect.contains(x, y)).map(|(_, hit)| *hit)
+    }
+
+    fn omnibar_hit_at(&self, x: u16, y: u16) -> Option<(PaneId, OmnibarHit)> {
+        self.pane_areas.iter().find_map(|area| {
+            let rect = area.omnibar?;
+            if self.surface_kind(area.surface) != SurfaceKind::Browser {
+                return None;
+            }
+            let editing = self
+                .omnibar
+                .as_ref()
+                .is_some_and(|state| state.pane == area.pane && state.surface == area.surface);
+            crate::ui::omnibar::hit(rect, x, y, editing).map(|hit| (area.pane, hit))
+        })
     }
 
     fn tab_drop_target_at(&self, x: u16, y: u16) -> Option<(PaneId, usize)> {
@@ -1414,7 +1799,7 @@ impl App {
         self.tree.workspaces.iter().position(|ws| ws.id == workspace)
     }
 
-    fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<bool> {
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.handle_left_down(mouse.column, mouse.row)
@@ -1426,10 +1811,10 @@ impl App {
             MouseEventKind::Down(MouseButton::Right) => {
                 if self.prompt.is_some() {
                     self.shake_frames = 6;
-                    return Ok(true);
+                    return Ok(RenderAction::Draw);
                 }
                 self.open_context_menu(mouse.column, mouse.row);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
                 self.handle_right_drag(mouse.column, mouse.row)
@@ -1440,7 +1825,7 @@ impl App {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
                 self.handle_scroll(mouse.column, mouse.row, down)
             }
-            _ => Ok(false),
+            _ => Ok(RenderAction::None),
         }
     }
 
@@ -1461,6 +1846,9 @@ impl App {
                 return menu.item_at(x, y).is_some();
             }
         }
+        if self.omnibar_hit_at(x, y).is_some() {
+            return true;
+        }
         self.hit_at(x, y).is_some()
     }
 
@@ -1474,6 +1862,8 @@ impl App {
         }
         self.pointer_shape = want_pointer;
         let shape = if want_pointer { "pointer" } else { "default" };
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]22;{shape}\x07");
         let _ = stdout.flush();
@@ -1483,45 +1873,93 @@ impl App {
     /// item, and track the mouse position so tab-bar controls (+, ‹, ›)
     /// and the scrollbar render a hover state. Only redraws when the
     /// hovered element actually changes.
-    fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
         if let Some(menu) = self.menu.as_mut() {
             if let Some(item) = menu.item_at(x, y) {
                 if item != menu.selected {
                     menu.selected = item;
-                    return Ok(true);
+                    return Ok(RenderAction::Draw);
                 }
-                return Ok(false);
+                return Ok(RenderAction::None);
+            }
+        }
+        if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
+            let mut over_browser = false;
+            if let Some(area) = self
+                .pane_areas
+                .iter()
+                .find(|area| {
+                    area.content.contains(x, y)
+                        && self.surface_kind(area.surface) == SurfaceKind::Browser
+                })
+                .copied()
+            {
+                over_browser = true;
+                let editing_same_pane =
+                    self.omnibar.as_ref().is_some_and(|state| state.pane == area.pane);
+                let status = self.session.surface(area.surface).and_then(|surface| {
+                    (surface.kind() == SurfaceKind::Browser).then(|| surface.browser_status())
+                });
+                if browser_hover_forward_allowed(status.flatten(), editing_same_pane) {
+                    let cell = (x.saturating_sub(area.content.x), y.saturating_sub(area.content.y));
+                    let next = (area.surface, cell.0, cell.1);
+                    if self.last_browser_hover != Some(next) {
+                        self.send_browser_mouse(
+                            area.surface,
+                            area.content,
+                            x,
+                            y,
+                            BrowserMouseDispatch::new("mouseMoved", Some("none"), None),
+                        );
+                        self.last_browser_hover = Some(next);
+                    }
+                }
+            }
+            if !over_browser {
+                self.last_browser_hover = None;
             }
         }
         let hoverable = |pos: Option<(u16, u16)>| {
-            pos.and_then(|(px, py)| self.hit_at(px, py)).filter(|hit| {
-                matches!(hit, Hit::NewTab { .. } | Hit::TabScroll { .. } | Hit::Scrollbar { .. })
+            pos.and_then(|(px, py)| {
+                self.hit_at(px, py)
+                    .filter(|hit| {
+                        matches!(
+                            hit,
+                            Hit::NewTab { .. } | Hit::TabScroll { .. } | Hit::Scrollbar { .. }
+                        )
+                    })
+                    .map(|hit| format!("{hit:?}"))
+                    .or_else(|| {
+                        self.omnibar_hit_at(px, py)
+                            .filter(|(_, hit)| *hit != OmnibarHit::Edit)
+                            .map(|(_, hit)| format!("{hit:?}"))
+                    })
             })
         };
         let before = hoverable(self.hover);
         let after = hoverable(Some((x, y)));
         self.hover = Some((x, y));
-        Ok(before != after)
+        Ok(if before != after { RenderAction::Draw } else { RenderAction::None })
     }
 
-    fn handle_right_drag(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_right_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.hover = Some((x, y));
-        let Some(menu) = self.menu.as_mut() else { return Ok(false) };
+        let Some(menu) = self.menu.as_mut() else { return Ok(RenderAction::None) };
         if (x, y) != menu.right_press {
             menu.right_drag_moved = true;
         }
         if let Some(item) = menu.item_at(x, y) {
             if item != menu.selected {
                 menu.selected = item;
-                return Ok(true);
+                return Ok(RenderAction::Draw);
             }
         }
-        Ok(false)
+        Ok(RenderAction::None)
     }
 
-    fn handle_right_up(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
-        let Some(menu) = self.menu.take() else { return Ok(false) };
+    fn handle_right_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        let Some(menu) = self.menu.take() else { return Ok(RenderAction::None) };
         let plain_open_click = !menu.right_drag_moved && (x, y) == menu.right_press;
         if plain_open_click {
             self.menu = Some(menu);
@@ -1531,10 +1969,10 @@ impl App {
         } else {
             self.menu = Some(menu);
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
-    fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         self.selection = None;
         self.drag = None;
 
@@ -1551,7 +1989,49 @@ impl App {
             } else if menu.rect.contains(x, y) {
                 self.menu = Some(menu); // padding click: keep it open
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
+        }
+
+        if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
+            self.session.focus_pane(pane);
+            if let Some(state) = &self.omnibar {
+                if state.pane == pane {
+                    return Ok(RenderAction::Draw);
+                }
+                self.omnibar = None;
+            }
+            match hit {
+                OmnibarHit::Back => {
+                    let result =
+                        self.browser_handle_for_pane(pane).and_then(|handle| handle.browser_back());
+                    self.set_status_from_browser_result(result);
+                }
+                OmnibarHit::Forward => {
+                    let result = self
+                        .browser_handle_for_pane(pane)
+                        .and_then(|handle| handle.browser_forward());
+                    self.set_status_from_browser_result(result);
+                }
+                OmnibarHit::Reload => {
+                    let result = self
+                        .browser_handle_for_pane(pane)
+                        .and_then(|handle| handle.browser_reload());
+                    self.set_status_from_browser_result(result);
+                }
+                OmnibarHit::Edit => self.focus_omnibar(pane),
+            }
+            return Ok(RenderAction::Draw);
+        }
+
+        if let Some(state) = &self.omnibar {
+            let editing_rect = self
+                .pane_areas
+                .iter()
+                .find(|area| area.pane == state.pane && area.surface == state.surface)
+                .and_then(|area| area.omnibar);
+            if !editing_rect.is_some_and(|rect| rect.contains(x, y)) {
+                self.omnibar = None;
+            }
         }
 
         if let Some(hit) = self.hit_at(x, y) {
@@ -1587,14 +2067,20 @@ impl App {
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
 
         if let Some(area) = self.pane_area_at(x, y).copied() {
             self.session.focus_pane(area.pane);
             if area.content.contains(x, y) {
                 if self.surface_kind(area.surface) == SurfaceKind::Browser {
-                    self.send_browser_mouse(area.surface, area.content, x, y, "mousePressed")?;
+                    self.send_browser_mouse(
+                        area.surface,
+                        area.content,
+                        x,
+                        y,
+                        BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
+                    );
                     self.drag =
                         Some(Drag::Browser { surface: area.surface, content: area.content });
                 } else {
@@ -1611,40 +2097,40 @@ impl App {
                     });
                 }
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
-        Ok(false)
+        Ok(RenderAction::None)
     }
 
-    fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         match &self.drag {
-            Some(Drag::TabArm { surface, at, .. }) => {
+            Some(Drag::TabArm { surface, at }) => {
                 let (surface, at) = (*surface, *at);
                 if (x, y) != at {
                     let target = self.tab_drop_target_at(x, y);
                     self.drag = Some(Drag::Tab { surface, target });
                 }
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::Tab { surface, .. }) => {
                 let surface = *surface;
                 let target = self.tab_drop_target_at(x, y);
                 self.drag = Some(Drag::Tab { surface, target });
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
-            Some(Drag::WorkspaceArm { workspace, at, .. }) => {
+            Some(Drag::WorkspaceArm { workspace, at }) => {
                 let (workspace, at) = (*workspace, *at);
                 if (x, y) != at {
                     let target = self.workspace_drop_target_at(x, y);
                     self.drag = Some(Drag::Workspace { workspace, target });
                 }
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::Workspace { workspace, .. }) => {
                 let workspace = *workspace;
                 let target = self.workspace_drop_target_at(x, y);
                 self.drag = Some(Drag::Workspace { workspace, target });
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::Select { content, .. }) => {
                 let content = *content;
@@ -1663,20 +2149,26 @@ impl App {
                     None
                 };
                 self.drag = Some(Drag::Select { content, auto_scroll, col: cx - content.x });
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::Browser { surface, content }) => {
                 let (surface, content) = (*surface, *content);
                 let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
                 let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
-                self.send_browser_mouse(surface, content, cx, cy, "mouseMoved")?;
-                Ok(true)
+                self.send_browser_mouse(
+                    surface,
+                    content,
+                    cx,
+                    cy,
+                    BrowserMouseDispatch::new("mouseMoved", Some("left"), Some(1)),
+                );
+                Ok(RenderAction::Draw)
             }
             Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset }) => {
                 let (surface, track, anchor_y, anchor_offset) =
                     (*surface, *track, *anchor_y, *anchor_offset);
                 self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::SidebarResize) => {
                 if let Some(width) =
@@ -1684,7 +2176,7 @@ impl App {
                 {
                     self.sidebar_width_override = Some(width);
                 }
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
                 let (horizontal, vertical) = (*horizontal, *vertical);
@@ -1694,64 +2186,70 @@ impl App {
                 if let Some((pane, edge)) = vertical {
                     self.resize_split(pane, edge, x, y);
                 }
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
-            None => Ok(false),
+            None => Ok(RenderAction::None),
         }
     }
 
-    fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
         if let Some(Drag::TabArm { surface, .. }) = self.drag {
             self.drag = None;
             if let Some((pane, index)) = self.tab_location(surface) {
                 self.session.focus_pane(pane);
                 self.session.select_tab(Some(pane), Some(index), None);
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         if let Some(Drag::Tab { surface, .. }) = self.drag {
             self.drag = None;
             if let Some((pane, index)) = self.tab_drop_target_at(x, y) {
                 self.session.move_tab(surface, pane, index);
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         if let Some(Drag::WorkspaceArm { workspace, .. }) = self.drag {
             self.drag = None;
             if let Some(index) = self.workspace_index(workspace) {
                 self.session.select_workspace(Some(index), None);
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
             if let Some(index) = self.workspace_drop_target_at(x, y) {
                 self.session.move_workspace(workspace, index);
             }
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         if let Some(Drag::Browser { surface, content }) = self.drag {
             self.drag = None;
             let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
             let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
-            self.send_browser_mouse(surface, content, cx, cy, "mouseReleased")?;
-            return Ok(true);
+            self.send_browser_mouse(
+                surface,
+                content,
+                cx,
+                cy,
+                BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
+            );
+            return Ok(RenderAction::Draw);
         }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
         let was_drag = self.drag.is_some();
         self.drag = None;
         if !was_select {
-            return Ok(was_drag);
+            return Ok(if was_drag { RenderAction::Draw } else { RenderAction::None });
         }
         match self.selection {
             Some(sel) if sel.anchor != sel.head => {
                 self.copy_selection(sel);
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
             _ => {
                 // A plain click: no selection to keep.
                 self.selection = None;
-                Ok(true)
+                Ok(RenderAction::Draw)
             }
         }
     }
@@ -1774,6 +2272,8 @@ impl App {
 
     fn copy_text_to_clipboard(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
@@ -1791,9 +2291,10 @@ impl App {
     fn expire_toast(&mut self) -> bool {
         if self.toast.as_ref().is_some_and(|toast| Instant::now() >= toast.deadline) {
             self.toast = None;
-            return true;
+            true
+        } else {
+            false
         }
-        false
     }
 
     /// Shift a pane's tab bar left/right. The renderer clamps to the
@@ -1937,6 +2438,7 @@ impl App {
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
         self.menu = None;
+        self.omnibar = None;
         match self.hit_at(x, y) {
             Some(Hit::Workspace { id, .. }) => {
                 self.menu = Some(ContextMenu::at(
@@ -1961,44 +2463,58 @@ impl App {
             _ => {}
         }
         if let Some(area) = self.pane_area_at(x, y) {
-            self.menu = Some(ContextMenu::at(
-                x,
-                y,
-                vec![
-                    MenuAction::RenameTab(area.pane),
-                    MenuAction::CopyTabId(area.pane),
-                    MenuAction::CopyPaneId(area.pane),
-                    MenuAction::NewTab(area.pane),
-                    MenuAction::NewBrowserTab(area.pane),
-                    MenuAction::SplitRight(area.pane),
-                    MenuAction::SplitDown(area.pane),
-                    MenuAction::CloseTab(area.pane),
-                    MenuAction::ClosePane(area.pane),
-                ],
-            ));
+            let mut items = Vec::new();
+            if self.surface_kind(area.surface) == SurfaceKind::Browser {
+                items.extend([
+                    MenuAction::BrowserBack(area.pane),
+                    MenuAction::BrowserForward(area.pane),
+                    MenuAction::BrowserReload(area.pane),
+                    MenuAction::BrowserEditUrl(area.pane),
+                    MenuAction::BrowserCopyUrl(area.pane),
+                ]);
+                if self.browser_source(area.surface) == Some(BrowserSource::External) {
+                    items.push(MenuAction::BrowserActivate(area.pane));
+                }
+            }
+            items.extend([
+                MenuAction::RenameTab(area.pane),
+                MenuAction::CopyTabId(area.pane),
+                MenuAction::CopyPaneId(area.pane),
+                MenuAction::NewTab(area.pane),
+                MenuAction::NewBrowserTab(area.pane),
+                MenuAction::SplitRight(area.pane),
+                MenuAction::SplitDown(area.pane),
+                MenuAction::CloseTab(area.pane),
+                MenuAction::ClosePane(area.pane),
+            ]);
+            self.menu = Some(ContextMenu::at(x, y, items));
         }
     }
 
-    fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<bool> {
-        let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(false) };
+    fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<RenderAction> {
+        let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
         if self.active_pane() != Some(area.pane) {
             self.session.focus_pane(area.pane);
         }
         // Wheel over the tab bar scrolls the tabs, not the terminal.
         if area.bar.is_some_and(|bar| bar.contains(x, y)) {
             self.scroll_tabs(area.pane, if down { 1 } else { -1 });
-            return Ok(true);
+            return Ok(RenderAction::Draw);
         }
         let (surface_id, _) = (area.surface, area.pane);
-        let Some(surface) = self.session.surface(surface_id) else { return Ok(false) };
+        let Some(surface) = self.session.surface(surface_id) else { return Ok(RenderAction::None) };
         if surface.kind() == SurfaceKind::Browser {
             if area.content.contains(x, y) {
                 let (px, py) = self.browser_point(area.content, x, y);
                 let delta = if down { 3.0 } else { -3.0 } * f64::from(self.cell_pixels.1);
-                let _ = surface.browser_wheel(px, py, delta);
-                return Ok(true);
+                self.browser_input.enqueue(BrowserInputEvent {
+                    surface_id,
+                    surface,
+                    kind: BrowserInputKind::Wheel { x: px, y: py, delta_y: delta },
+                });
+                return Ok(RenderAction::Draw);
             }
-            return Ok(false);
+            return Ok(RenderAction::None);
         }
         let Some(sent_arrows) = surface.with_terminal(|term| {
             if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
@@ -2009,7 +2525,7 @@ impl App {
                 false
             }
         }) else {
-            return Ok(false);
+            return Ok(RenderAction::None);
         };
         if sent_arrows {
             // Alt-screen apps without mouse support get arrow keys
@@ -2017,11 +2533,22 @@ impl App {
             let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
             surface.write_bytes(seq);
         }
-        Ok(true)
+        Ok(RenderAction::Draw)
     }
 
     fn surface_kind(&self, surface: SurfaceId) -> SurfaceKind {
         self.session.surface(surface).map(|surface| surface.kind()).unwrap_or(SurfaceKind::Pty)
+    }
+
+    fn browser_source(&self, surface: SurfaceId) -> Option<BrowserSource> {
+        self.tree
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == surface)
+            .and_then(|tab| tab.browser_source)
     }
 
     fn browser_point(&self, content: Rect, x: u16, y: u16) -> (f64, f64) {
@@ -2030,17 +2557,29 @@ impl App {
         (col * f64::from(self.cell_pixels.0), row * f64::from(self.cell_pixels.1))
     }
 
+    /// Queue a mouse event for the off-loop browser input worker; the
+    /// event loop never waits on the CDP/socket round trip.
     fn send_browser_mouse(
         &self,
         surface_id: SurfaceId,
         content: Rect,
         x: u16,
         y: u16,
-        event_type: &str,
-    ) -> anyhow::Result<()> {
-        let Some(surface) = self.session.surface(surface_id) else { return Ok(()) };
+        dispatch: BrowserMouseDispatch,
+    ) {
+        let Some(surface) = self.session.surface(surface_id) else { return };
         let (px, py) = self.browser_point(content, x, y);
-        surface.browser_mouse_event(event_type, px, py, Some("left"), Some(1))
+        self.browser_input.enqueue(BrowserInputEvent {
+            surface_id,
+            surface,
+            kind: BrowserInputKind::Mouse {
+                event_type: dispatch.event_type,
+                x: px,
+                y: py,
+                button: dispatch.button,
+                click_count: dispatch.click_count,
+            },
+        });
     }
 }
 
@@ -2059,6 +2598,27 @@ fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
         out |= 8;
     }
     out
+}
+
+fn browser_only_action(action: Action) -> bool {
+    matches!(
+        action,
+        Action::BrowserBack
+            | Action::BrowserForward
+            | Action::BrowserReload
+            | Action::BrowserEditUrl
+    )
+}
+
+fn browser_hover_forward_allowed(status: Option<BrowserStatus>, editing_same_pane: bool) -> bool {
+    !editing_same_pane && matches!(status, Some(BrowserStatus::Live))
+}
+
+fn clear_omnibar_selection(state: &mut OmnibarState) {
+    if state.select_all {
+        state.input.clear();
+        state.select_all = false;
+    }
 }
 
 fn rects_intersect(a: Rect, b: Rect) -> bool {
@@ -2092,36 +2652,46 @@ fn browser_key_mapping(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
+    };
+    use crate::config::ScrollbarPosition;
+    use mux_core::{BrowserStatus, Rect};
 
-    fn area(pane: PaneId, width: u16, height: u16) -> PaneArea {
-        PaneArea {
-            pane,
-            surface: pane,
-            rect: Rect { x: 0, y: 0, width, height },
-            bar: None,
-            content: Rect { x: 0, y: 0, width, height },
-            track: None,
-        }
+    #[test]
+    fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
+        let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
+        let (_bar, omnibar, content, track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Column, true);
+        assert_eq!(omnibar, Some(Rect { x: 11, y: 5, width: 77, height: 1 }));
+        assert_eq!(content, Rect { x: 11, y: 6, width: 77, height: 21 });
+        assert_eq!(track, Some(Rect { x: 88, y: 5, width: 1, height: 22 }));
     }
 
     #[test]
-    fn zellij_smart_direction_uses_cell_ratio_and_minimums() {
-        assert_eq!(
-            zellij_smart_direction(Rect { x: 0, y: 0, width: 80, height: 21 }, 4),
-            Some(SplitDir::Down)
-        );
-        assert_eq!(
-            zellij_smart_direction(Rect { x: 0, y: 0, width: 80, height: 20 }, 4),
-            Some(SplitDir::Right)
-        );
-        assert_eq!(zellij_smart_direction(Rect { x: 0, y: 0, width: 60, height: 20 }, 4), None);
-        assert_eq!(cell_height_width_ratio((0, 0)), 4);
+    fn browser_omnibar_degrades_gracefully_with_one_content_row() {
+        let rect = Rect { x: 0, y: 0, width: 20, height: 3 };
+        let (_bar, omnibar, content, _track) =
+            pane_parts_for_rect(rect, ScrollbarPosition::Border, true);
+        assert_eq!(omnibar, None);
+        assert_eq!(content, Rect { x: 1, y: 1, width: 18, height: 1 });
     }
 
     #[test]
-    fn smart_split_falls_back_to_largest_selectable_pane() {
-        let areas = [area(1, 40, 10), area(2, 80, 10), area(3, 30, 30)];
-        assert_eq!(smart_split_target(&areas, Some(1), (8, 16)), Some((3, SplitDir::Down)));
+    fn browser_tab_size_hint_uses_omnibar_reduced_content() {
+        let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
+        assert_eq!(browser_content_size_for_rect(rect, ScrollbarPosition::Column), Some((77, 21)));
+    }
+
+    #[test]
+    fn hover_forwarding_only_runs_for_live_non_editing_browser() {
+        assert!(browser_hover_forward_allowed(Some(BrowserStatus::Live), false));
+        assert!(!browser_hover_forward_allowed(Some(BrowserStatus::Live), true));
+        assert!(!browser_hover_forward_allowed(Some(BrowserStatus::Starting), false));
+        assert!(!browser_hover_forward_allowed(
+            Some(BrowserStatus::Failed("boom".to_string())),
+            false
+        ));
+        assert!(!browser_hover_forward_allowed(None, false));
     }
 }

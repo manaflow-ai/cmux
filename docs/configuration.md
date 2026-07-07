@@ -163,6 +163,61 @@ Action fields:
 - `imagePath`: optional PNG or image path for the submit button.
 - `backgroundColorHex`: action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states.
 
+## `terminal.uploadCommands`
+
+Replace the built-in `scp` for terminal file drops and pastes over SSH with a
+command you choose. When you drop or paste a file into a terminal running an SSH
+session, cmux normally `scp`s it to `/tmp/cmux-drop-<uuid>` on the host and types
+the remote path. `terminal.uploadCommands` is an ordered list of host-scoped
+rules; when the ssh destination matches a rule, cmux runs that rule's command
+instead and inserts what the command prints.
+
+```json
+{
+  "terminal": {
+    "uploadCommands": [
+      {
+        "hostPattern": "*.example.com",
+        "command": "my-upload \"$CMUX_UPLOAD_LOCAL_PATH\" \"$CMUX_UPLOAD_DESTINATION:$CMUX_UPLOAD_REMOTE_PATH\""
+      }
+    ]
+  }
+}
+```
+
+- `hostPattern`: an fnmatch glob matched against the ssh destination (`user@` and
+  IPv6 brackets stripped, then lowercased) — the same glob style as a single
+  `ssh_config` `Host` pattern (`*`, `?`; no pattern lists or `!` negation). Omit
+  it, or set it to `null`, for a catch-all.
+- `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
+  endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
+  (the `/tmp/cmux-drop-<uuid>` path cmux picked), `CMUX_UPLOAD_DESTINATION`,
+  `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE`, and `CMUX_UPLOAD_SSH_OPTIONS`
+  (newline-separated; the last three are unset when the session has none). The
+  rest of the environment is inherited, so a one-liner resolves tools on `PATH`.
+- `enabled`: set to `false` to keep a rule in the list but skip it. Defaults to
+  `true`.
+
+**First matching enabled rule wins.** If no rule matches, the built-in `scp` runs
+unchanged, so other hosts are untouched.
+
+### How the command's output is used
+
+cmux inserts the command's **stdout** at the cursor:
+
+- Non-empty stdout is inserted **verbatim** (with control characters stripped),
+  so a rule can emit a remote path, a URL, or any reference — for example a line
+  an agent in the terminal will read.
+- If the command prints **nothing**, cmux inserts the shell-escaped remote path it
+  chose, so the simplest rule just moves the file and behaves like the built-in.
+- For a multi-file drop, each file's output is joined with spaces.
+
+The output is **inserted, not executed** — nothing auto-submits, and you review it
+before pressing Enter. Because it is inserted verbatim (rather than shell-escaped
+like the built-in path), a rule's stdout should be trusted: it can land at a shell
+prompt. A non-zero exit, a timeout, or cancelling from the transfer indicator
+inserts nothing — exactly like an `scp` failure.
+
 ## `automation.workspaceAutoNaming`
 
 Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.

@@ -23,6 +23,7 @@ const STRICT_SEMVER_RE =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const CLOUD_SHELL_PACKAGES = [
   "bash",
+  "build-essential",
   "btop",
   "ca-certificates",
   "curl",
@@ -30,12 +31,16 @@ const CLOUD_SHELL_PACKAGES = [
   "gh",
   "git",
   "gnupg",
+  "golang-go",
   "gpg-agent",
   "htop",
   "libssl3t64",
   "locales",
   "openssl",
+  "pkg-config",
   "python3",
+  "python3-pip",
+  "python3-venv",
   "sudo",
   "tmux",
   "unzip",
@@ -43,6 +48,19 @@ const CLOUD_SHELL_PACKAGES = [
   "zsh",
   "zsh-autosuggestions",
 ];
+const TOOLCHAIN_SHIMS_DIR = "/usr/local/share/mise/shims";
+const RUSTUP_HOME = "/opt/rustup";
+const CARGO_HOME = "/opt/cargo";
+const TOOLCHAIN_PATH = [
+  TOOLCHAIN_SHIMS_DIR,
+  `${CARGO_HOME}/bin`,
+  "/usr/local/sbin",
+  "/usr/local/bin",
+  "/usr/sbin",
+  "/usr/bin",
+  "/sbin",
+  "/bin",
+].join(":");
 const PRIMARY_LINUX_USER = "cmux";
 const NODE_MAJOR = String(positiveIntFromEnv("CMUX_CLOUD_IMAGE_NODE_MAJOR", 22));
 const BUN_VERSION = semverFromEnv("CMUX_CLOUD_IMAGE_BUN_VERSION", "1.3.13");
@@ -192,7 +210,7 @@ async function buildE2BTemplate(
   const template = Template({ fileContextPath })
     .fromUbuntuImage("24.04")
     .aptInstall(CLOUD_SHELL_PACKAGES, { noInstallRecommends: true })
-    .setEnvs({ LANG: UTF8_LOCALE, LC_ALL: UTF8_LOCALE, LANGUAGE: UTF8_LOCALE })
+    .setEnvs(cloudImageRuntimeEnvironment())
     .copy(path.basename(daemonPath), "/usr/local/bin/cmuxd-remote", {
       forceUpload: true,
       mode: 0o755,
@@ -542,7 +560,9 @@ export function cloudImageSmokeTestCommands(): string[] {
   const agentToolVersionChecks = cloudAgentToolPackageSpecs().flatMap((tool) =>
     tool.binaries.map((binary) => `${binary} --version >/tmp/cmux-${tool.name}-version.txt 2>&1`)
   );
+  const toolchainEnv = toolchainSmokeEnvironmentPrefix();
   return [
+    "printf 'int main(void) { return 0; }\\n' >/tmp/cmux-build-smoke.c && gcc /tmp/cmux-build-smoke.c -o /tmp/cmux-build-smoke && /tmp/cmux-build-smoke && g++ --version >/dev/null && make --version >/dev/null && pkg-config --version >/dev/null && rm -f /tmp/cmux-build-smoke.c /tmp/cmux-build-smoke",
     "openssl version -a >/tmp/cmux-openssl-version.txt 2>&1",
     "gh --version >/tmp/cmux-gh-version.txt 2>&1",
     "htop --version >/tmp/cmux-htop-version.txt 2>&1",
@@ -552,9 +572,15 @@ export function cloudImageSmokeTestCommands(): string[] {
     "test -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh",
     "python3 -X faulthandler -c 'import ssl; print(ssl.OPENSSL_VERSION)'",
     "python3 -m http.server --help >/dev/null",
-    "node --version >/tmp/cmux-node-version.txt 2>&1",
+    "python3 -m pip --version >/tmp/cmux-pip-version.txt 2>&1",
+    "python3 -m venv /tmp/cmux-venv-smoke && rm -rf /tmp/cmux-venv-smoke",
+    `${toolchainEnv} test "$(command -v node)" = "${TOOLCHAIN_SHIMS_DIR}/node" && node --version >/tmp/cmux-node-version.txt 2>&1 && mise which node >/tmp/cmux-mise-node-path.txt 2>&1`,
     "npm --version >/tmp/cmux-npm-version.txt 2>&1",
     "bun --version >/tmp/cmux-bun-version.txt 2>&1",
+    "go version >/tmp/cmux-go-version.txt 2>&1",
+    "gh --version >/tmp/cmux-gh-version.txt 2>&1",
+    `${toolchainEnv} rustup show active-toolchain >/tmp/cmux-rustup-toolchain.txt 2>&1 && grep -q '^stable' /tmp/cmux-rustup-toolchain.txt && rustc --version >/tmp/cmux-rustc-version.txt 2>&1 && cargo --version >/tmp/cmux-cargo-version.txt 2>&1`,
+    "mise --version >/tmp/cmux-mise-version.txt 2>&1",
     "test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux",
     "cmux --help >/tmp/cmux-cli-help.txt 2>&1",
     "cmux --socket /tmp/cmux-browser-smoke.sock browser >/tmp/cmux-browser-help.txt 2>&1; status=$?; test \"$status\" -eq 2 && grep -q 'requires a subcommand' /tmp/cmux-browser-help.txt",
@@ -602,8 +628,11 @@ export function cloudToolInstallCommands(): string[] {
     "rm -f /etc/apt/keyrings/nodesource.gpg",
     "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg",
     `printf '%s\\n' ${shellQuote(`deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main`)} > /etc/apt/sources.list.d/nodesource.list`,
+    "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg",
+    "chmod 0644 /etc/apt/keyrings/githubcli-archive-keyring.gpg",
+    "printf '%s\\n' \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" > /etc/apt/sources.list.d/github-cli.list",
     "apt-get update",
-    "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs",
+    "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gh nodejs",
     "npm config set fund false",
     "npm config set audit false",
     bunInstallCommand(),
@@ -611,6 +640,9 @@ export function cloudToolInstallCommands(): string[] {
     toolPackages.length > 0
       ? `npm install -g --omit=dev --no-audit --fund=false ${toolPackages.map((tool) => shellQuote(tool.packageSpec)).join(" ")} >/tmp/cmux-npm-install.txt 2>&1`
       : "true",
+    miseInstallCommand(),
+    rustupInstallCommand(),
+    toolchainProfileCommand(),
     "rm -rf /root/.npm/_cacache /var/lib/apt/lists/*",
   ];
 }
@@ -642,6 +674,57 @@ function bunInstallCommand(): string {
   return `{ ${commands.join(" && ")}; } >/tmp/cmux-bun-install.txt 2>&1`;
 }
 
+function miseInstallCommand(): string {
+  const commands = [
+    "set -eu",
+    "install -d -m 0755 /etc/mise /usr/local/share/mise",
+    "printf '[tools]\\nnode = \"lts\"\\n' >/etc/mise/config.toml",
+    "curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh",
+    "MISE_YES=1 mise install --system node@lts",
+    "MISE_DATA_DIR=/usr/local/share/mise mise reshim --force",
+    "chmod -R a+rX /etc/mise /usr/local/share/mise",
+    "rm -rf /root/.cache/mise /usr/local/share/mise/downloads",
+  ];
+  return `{ ${commands.join(" && ")}; } >/tmp/cmux-mise-install.txt 2>&1`;
+}
+
+function rustupInstallCommand(): string {
+  const commands = [
+    "set -eu",
+    `export RUSTUP_HOME=${shellQuote(RUSTUP_HOME)}`,
+    `export CARGO_HOME=${shellQuote(CARGO_HOME)}`,
+    "curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/cmux-rustup-init.sh",
+    "sh /tmp/cmux-rustup-init.sh -y --profile minimal --default-toolchain stable --no-modify-path",
+    "rm -f /tmp/cmux-rustup-init.sh",
+    "rm -rf \"$RUSTUP_HOME/downloads\" \"$RUSTUP_HOME/tmp\" \"$CARGO_HOME/registry\"",
+    "chmod -R a+rX \"$RUSTUP_HOME\" \"$CARGO_HOME\"",
+  ];
+  return `{ ${commands.join(" && ")}; } >/tmp/cmux-rustup-install.txt 2>&1`;
+}
+
+function toolchainProfileCommand(): string {
+  const envLines = Object.entries(cloudImageRuntimeEnvironment())
+    .map(([key, value]) => `${key}="${value}"`)
+    .join("\\n");
+  const profile = [
+    `export RUSTUP_HOME=${RUSTUP_HOME}`,
+    `case ":\${PATH:-}:" in *":${TOOLCHAIN_SHIMS_DIR}:"*) ;; *) PATH="${TOOLCHAIN_SHIMS_DIR}:${CARGO_HOME}/bin:\${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}" ;; esac`,
+    "export PATH",
+  ].join("\\n");
+  return [
+    `printf '%b\\n' ${shellQuote(envLines)} >/etc/environment`,
+    `printf '%b\\n' ${shellQuote(profile)} >/etc/profile.d/cmux-toolchains.sh`,
+    "chmod 0644 /etc/environment /etc/profile.d/cmux-toolchains.sh",
+  ].join(" && ");
+}
+
+function toolchainSmokeEnvironmentPrefix(): string {
+  return [
+    `export PATH=${shellQuote(TOOLCHAIN_PATH)}`,
+    `RUSTUP_HOME=${shellQuote(RUSTUP_HOME)}`,
+  ].join(" ") + "; ";
+}
+
 function freestylePythonOpenSSLCommands(): string[] {
   return [
     "apt-get update",
@@ -660,7 +743,7 @@ function freestylePythonOpenSSLCommands(): string[] {
 export function freestyleBaseDockerfileContent(daemonURL: string): string {
   return [
     "FROM ubuntu:24.04",
-    `ENV LANG=${UTF8_LOCALE} LC_ALL=${UTF8_LOCALE} LANGUAGE=${UTF8_LOCALE}`,
+    dockerEnvLine(cloudImageRuntimeEnvironment()),
     `RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
     ...freestylePythonOpenSSLCommands().map((command) => `RUN ${command}`),
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
@@ -669,7 +752,60 @@ export function freestyleBaseDockerfileContent(daemonURL: string): string {
     ...cloudShellProfileCommands().map((command) => `RUN ${command}`),
     ...freestyleSignedAdminServiceCommands().map((command) => `RUN ${command}`),
     ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
+    "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",
+    `RUN ${freestyleSystemdServiceCommand()}`,
+    "RUN ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
   ].join("\n");
+}
+
+export function cloudImageRuntimeEnvironment(): Record<string, string> {
+  return {
+    LANG: UTF8_LOCALE,
+    LC_ALL: UTF8_LOCALE,
+    LANGUAGE: UTF8_LOCALE,
+    PATH: TOOLCHAIN_PATH,
+    RUSTUP_HOME,
+  };
+}
+
+export function cloudShellPackageNames(): readonly string[] {
+  return CLOUD_SHELL_PACKAGES;
+}
+
+function dockerEnvLine(env: Record<string, string>): string {
+  return `ENV ${Object.entries(env).map(([key, value]) => `${key}=${dockerEnvValue(value)}`).join(" ")}`;
+}
+
+function dockerEnvValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\s/g, "\\$&");
+}
+
+function freestyleSystemdServiceCommand(): string {
+  const service = [
+    "[Unit]",
+    "Description=cmuxd websocket daemon",
+    "After=network.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "User=root",
+    ...systemdEnvironmentLines(cloudImageRuntimeEnvironment()),
+    "ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash",
+    "Restart=always",
+    "RestartSec=1",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n");
+  return `cat <<'EOF' >/etc/systemd/system/cmuxd-ws.service\n${service}\nEOF`;
+}
+
+export function systemdEnvironmentLines(env: Record<string, string>): string[] {
+  return Object.entries(env).map(([key, value]) => `Environment=${key}=${systemdEnvironmentValue(value)}`);
+}
+
+function systemdEnvironmentValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }
 
 async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<string> {
@@ -838,7 +974,8 @@ function abortError(): Error {
 function imageNotes(metadata: ImageBuildMetadata): string {
   return [
     `binarySha256=${metadata.binarySha256}`,
-    `nodeMajor=${metadata.nodeMajor}`,
+    `nodeSourceMajor=${metadata.nodeMajor}`,
+    "nodeDefault=mise-node-lts-shim",
     `agentTools=${metadata.agentToolPackageSpecs.join(",")}`,
   ].join(" ");
 }

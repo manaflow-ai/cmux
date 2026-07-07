@@ -6,7 +6,7 @@ import SwiftUI
 /// Shows the cmux Pro pitch (one title line + one price/value subtitle)
 /// with a trailing button that asks the host to open the pricing page in
 /// the default browser via ``AccountFlow/openProUpgrade()`` or the billing
-/// portal via ``AccountFlow/openBillingPortal()`` for active subscribers.
+/// portal via ``AccountFlow/openBillingPortal()`` for Stripe-managed subscribers.
 @MainActor
 struct ProUpgradeCard: View {
     let flow: AccountFlow?
@@ -26,16 +26,18 @@ struct ProUpgradeCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            Button {
-                if flow?.isProActive == true {
-                    flow?.openBillingPortal()
-                } else {
-                    flow?.openProUpgrade()
+            if shouldShowAction {
+                Button {
+                    if flow?.canManageBilling == true {
+                        flow?.openBillingPortal()
+                    } else {
+                        flow?.openProUpgrade()
+                    }
+                } label: {
+                    Text(buttonTitle)
                 }
-            } label: {
-                Text(buttonTitle)
+                .controlSize(.small)
             }
-            .controlSize(.small)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -46,9 +48,15 @@ struct ProUpgradeCard: View {
 
     private var subtitleText: String {
         if flow?.isProActive == true {
+            if flow?.canManageBilling == true {
+                return String(
+                    localized: "settings.account.pro.activeSubtitle",
+                    defaultValue: "Your Pro subscription is active. Manage billing or cancel in Stripe."
+                )
+            }
             return String(
-                localized: "settings.account.pro.activeSubtitle",
-                defaultValue: "Your Pro subscription is active. Manage billing or cancel in Stripe."
+                localized: "settings.account.pro.externalSubtitle",
+                defaultValue: "Your subscription is managed by our previous billing system. Contact support to make changes."
             )
         }
         return String(
@@ -58,9 +66,13 @@ struct ProUpgradeCard: View {
     }
 
     private var buttonTitle: String {
-        if flow?.isProActive == true {
+        if flow?.canManageBilling == true {
             return String(localized: "settings.account.pro.manageBilling", defaultValue: "Manage billing")
         }
         return String(localized: "settings.account.pro.upgrade", defaultValue: "Upgrade…")
+    }
+
+    private var shouldShowAction: Bool {
+        flow?.isProActive != true || flow?.canManageBilling == true
     }
 }

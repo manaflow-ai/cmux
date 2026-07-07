@@ -25,11 +25,13 @@ export function ProWelcomeBanner() {
               ? t("billingError")
               : billing === "unavailable"
                 ? t("billingUnavailable")
-                : billing === "cancelled"
-                  ? t("billingCancelled")
-                  : billing === "invalid_plan"
-                    ? t("billingInvalidPlan")
-                    : null;
+                : billing === "external"
+                  ? t("billingExternal")
+                  : billing === "cancelled"
+                    ? t("billingCancelled")
+                    : billing === "invalid_plan"
+                      ? t("billingInvalidPlan")
+                      : null;
   if (!message) return null;
 
   return (
@@ -43,7 +45,7 @@ export function ProWelcomeBanner() {
           {" "}
           <a
             href="/api/billing/confirm"
-            className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors"
+            className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
           >
             {t("welcomePendingAction")}
           </a>

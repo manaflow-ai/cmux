@@ -244,8 +244,8 @@ private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> St
 struct VMSummary {
     let id: String
     let provider: String
+    let status: String
     let image: String
-    let status: String?
     let createdAt: Int64
     let base: VMBaseSummary?
 }
@@ -377,10 +377,11 @@ actor VMClient {
             guard let image = dict["image"] as? String, !image.isEmpty else {
                 throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
+            let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            let status = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
+            return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
         }
     }
 
@@ -414,8 +415,9 @@ actor VMClient {
         let serverCreatedAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, image: imageValue, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
+        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
+        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
     }
 
     func openBase(name: String? = nil) async throws -> VMSummary {
@@ -451,8 +453,9 @@ actor VMClient {
         let serverCreatedAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, image: imageValue, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
+        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
     }
 
     func status(id: String) async throws -> VMSummary {
@@ -468,8 +471,9 @@ actor VMClient {
         }
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
-        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
+        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+        return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
     }
 
     func destroy(id: String) async throws {
@@ -530,7 +534,7 @@ actor VMClient {
         let snapshotID = obj["snapshotId"] as? String
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: VMSummary(id: vmID, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
+            vm: VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
         )
     }
 
@@ -555,7 +559,7 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt, base: nil)
+        return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {

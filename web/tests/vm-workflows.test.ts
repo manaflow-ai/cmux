@@ -39,6 +39,7 @@ import {
   openSshEndpoint,
   resetBaseVm,
   restoreVm,
+  reconcileVmProviderStatuses,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -947,6 +948,7 @@ describe("VM Effect workflows", () => {
       markBaseCreateFailed: () => Effect.void,
       activeLimitCandidates: () => Effect.succeed([]),
       reservePausedResume: () => Effect.succeed(null),
+      reconciliationCandidates: () => Effect.succeed([]),
       markProviderObservedStatus: () => Effect.succeed(false),
       markCreateRunning: () => Effect.succeed(running),
       markCreateFailed: () => Effect.void,
@@ -2372,6 +2374,118 @@ describe("VM Effect workflows", () => {
     expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
   });
 
+  dbTest("cron reconcile updates drifted rows from provider status", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, updated_at)
+      values ('user-workflow-reconcile-drift', 'team-workflow-reconcile-drift', 'free', 'freestyle', 'provider-vm-reconcile-drift', 'snapshot-test', 'running', now() - interval '10 minutes')
+    `;
+
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("paused" as const),
+    };
+
+    const result = await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(result).toEqual({
+      checked: 1,
+      updated: 1,
+      destroyed: 0,
+      skipped: 0,
+      skippedNoGetStatus: false,
+    });
+
+    const [vm] = await sql<{ status: string }[]>`
+      select status from cloud_vms
+      where provider_vm_id = 'provider-vm-reconcile-drift'
+    `;
+    expect(vm?.status).toBe("paused");
+  });
+
+  dbTest("cron reconcile skips destroyed rows", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, destroyed_at, updated_at)
+      values
+        ('user-workflow-reconcile-live', 'team-workflow-reconcile-skip', 'free', 'freestyle', 'provider-vm-reconcile-live', 'snapshot-test', 'running', null, now() - interval '10 minutes'),
+        ('user-workflow-reconcile-destroyed', 'team-workflow-reconcile-skip', 'free', 'freestyle', 'provider-vm-reconcile-destroyed', 'snapshot-test', 'destroyed', now(), now() - interval '20 minutes')
+    `;
+
+    const statusCalls: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: (_provider, vmId) =>
+        Effect.sync(() => {
+          statusCalls.push(vmId);
+          return "paused" as const;
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(result.checked).toBe(1);
+    expect(statusCalls).toEqual(["provider-vm-reconcile-live"]);
+    const [destroyedVm] = await sql<{ status: string }[]>`
+      select status from cloud_vms
+      where provider_vm_id = 'provider-vm-reconcile-destroyed'
+    `;
+    expect(destroyedVm?.status).toBe("destroyed");
+  });
+
+  dbTest("cron reconcile respects the batch limit and oldest-updated ordering", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    for (let index = 0; index < 5; index += 1) {
+      await sql`
+        insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, updated_at)
+        values (
+          ${`user-workflow-reconcile-batch-${index}`},
+          'team-workflow-reconcile-batch',
+          'free',
+          'freestyle',
+          ${`provider-vm-reconcile-batch-${index}`},
+          'snapshot-test',
+          'running',
+          now() - (${5 - index}::text || ' minutes')::interval
+        )
+      `;
+    }
+
+    const statusCalls: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: (_provider, vmId) =>
+        Effect.sync(() => {
+          statusCalls.push(vmId);
+          return "paused" as const;
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      reconcileVmProviderStatuses({ limit: 2 }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(result.checked).toBe(2);
+    expect(result.updated).toBe(2);
+    expect(statusCalls).toEqual([
+      "provider-vm-reconcile-batch-0",
+      "provider-vm-reconcile-batch-1",
+    ]);
+    const [{ pausedCount }] = await sql<{ pausedCount: string }[]>`
+      select count(*)::text as "pausedCount" from cloud_vms
+      where billing_team_id = 'team-workflow-reconcile-batch'
+        and status = 'paused'
+    `;
+    expect(pausedCount).toBe("2");
+  });
+
   dbTest("returns in-progress for concurrent same-key creates before active limit checks", async () => {
     if (!sql) throw new Error("test database not initialized");
     const testSql = sql;
@@ -3440,6 +3554,7 @@ function testWorkflowRepo(input: {
         ...input.vm,
         status: "running" as const,
       }),
+    reconciliationCandidates: () => Effect.succeed([]),
     markProviderObservedStatus: (update) =>
       input.markProviderObservedStatus
         ? input.markProviderObservedStatus(update)

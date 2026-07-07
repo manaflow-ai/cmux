@@ -28,10 +28,12 @@
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 //!     "cdp_url": "http://127.0.0.1:9222",
-//!     "discover": true,
+//!     "discover": false,
 //!     "discover_ports": [9222],
 //!     "user_data_dir": "/Users/me/Library/Application Support/cmux-mux/chrome-profile",
-//!     "ephemeral": false
+//!     "ephemeral": false,
+//!     "max_capture_megapixels": 2.0,
+//!     "capture_scale": null
 //!   },
 //!   "scrollbar": {
 //!     "position": "column"
@@ -41,7 +43,8 @@
 //!     "alt_shortcuts": true,
 //!     "new-tab": ["t", "alt+t"],
 //!     "next-tab": "tab",
-//!     "prev-tab": "backtab"
+//!     "prev-tab": "backtab",
+//!     "browser-edit-url": "u"
 //!   }
 //! }
 //! ```
@@ -52,12 +55,24 @@
 //! (`selection-background`/`selection-foreground`), then the built-in
 //! default.
 
+use std::collections::HashMap;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mux_core::platform;
 use ratatui::style::Color;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use std::collections::HashMap;
+
+/// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
+/// input deserialize to `Some(None)` rather than the `None` an absent key
+/// also produces, so callers can tell "not set" from "set to null".
+fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,7 +98,11 @@ struct RawConfig {
 #[serde(deny_unknown_fields)]
 struct RawTheme {
     selection_background: Option<ColorValue>,
-    selection_foreground: Option<ColorValue>,
+    /// Distinguishes an absent key (keep the Ghostty-seeded value) from an
+    /// explicit `null` (clear it back to "no override"), which `Option`
+    /// alone cannot: serde maps both to `None`.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    selection_foreground: Option<Option<ColorValue>>,
     sidebar_rail: Option<ColorValue>,
     sidebar_active_bg: Option<ColorValue>,
     tab_rail: Option<ColorValue>,
@@ -118,6 +137,8 @@ struct RawBrowser {
     discover_ports: Option<Vec<u16>>,
     user_data_dir: Option<String>,
     ephemeral: Option<bool>,
+    max_capture_megapixels: Option<f64>,
+    capture_scale: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -241,6 +262,8 @@ pub struct Browser {
     pub discover_ports: Vec<u16>,
     pub user_data_dir: Option<String>,
     pub ephemeral: bool,
+    pub max_capture_megapixels: f64,
+    pub capture_scale: Option<f64>,
 }
 
 impl Default for Browser {
@@ -248,10 +271,12 @@ impl Default for Browser {
         Browser {
             chrome_binary: None,
             cdp_url: None,
-            discover: true,
+            discover: false,
             discover_ports: vec![9222],
             user_data_dir: None,
             ephemeral: false,
+            max_capture_megapixels: 2.0,
+            capture_scale: None,
         }
     }
 }
@@ -286,6 +311,10 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    BrowserBack,
+    BrowserForward,
+    BrowserReload,
+    BrowserEditUrl,
     Detach,
 }
 
@@ -293,7 +322,7 @@ impl Action {
     fn config_key(&self) -> &'static str {
         match self {
             Action::NewTab => "new-tab",
-            Action::NewBrowserTab => "new_browser_tab",
+            Action::NewBrowserTab => "new-browser-tab",
             Action::NewPaneSmart => "new-pane-smart",
             Action::NextTab => "next-tab",
             Action::PrevTab => "prev-tab",
@@ -319,6 +348,10 @@ impl Action {
             Action::ResizeShrink => "resize-shrink",
             Action::ScrollUp => "scroll-up",
             Action::ScrollDown => "scroll-down",
+            Action::BrowserBack => "browser-back",
+            Action::BrowserForward => "browser-forward",
+            Action::BrowserReload => "browser-reload",
+            Action::BrowserEditUrl => "browser-edit-url",
             Action::Detach => "detach",
         }
     }
@@ -338,8 +371,9 @@ impl Chord {
         let mods_match = if matches!(self.code, KeyCode::Char(_)) {
             key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
         } else {
-            key.modifiers & (KeyModifiers::CONTROL | KeyModifiers::ALT)
-                == self.mods & (KeyModifiers::CONTROL | KeyModifiers::ALT)
+            const TRACKED: KeyModifiers =
+                KeyModifiers::CONTROL.union(KeyModifiers::ALT).union(KeyModifiers::SHIFT);
+            key.modifiers & TRACKED == self.mods & TRACKED
         };
         self.code == key.code && mods_match
     }
@@ -400,6 +434,10 @@ impl Default for Keys {
                 alt(KeyCode::Char('-'), Action::ResizeShrink),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                bind(KeyCode::Char('<'), Action::BrowserBack),
+                bind(KeyCode::Char('>'), Action::BrowserForward),
+                bind(KeyCode::Char('r'), Action::BrowserReload),
+                bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
         }
@@ -444,7 +482,9 @@ impl Keys {
                 continue;
             }
             match all_actions().iter().find(|a| {
-                a.config_key() == name || (**a == Action::RenameTab && name == "rename-pane")
+                a.config_key() == name
+                    || (**a == Action::RenameTab && name == "rename-pane")
+                    || (**a == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
                 Some(action) => {
                     self.bindings.retain(|(_, a)| a != action);
@@ -458,6 +498,7 @@ impl Keys {
                             );
                             continue;
                         };
+                        self.bindings.retain(|(existing, _)| existing != &chord);
                         self.bindings.push((chord, *action));
                     }
                 }
@@ -504,6 +545,10 @@ fn all_actions() -> &'static [Action] {
         Action::ResizeShrink,
         Action::ScrollUp,
         Action::ScrollDown,
+        Action::BrowserBack,
+        Action::BrowserForward,
+        Action::BrowserReload,
+        Action::BrowserEditUrl,
         Action::Detach,
     ]
 }
@@ -578,8 +623,14 @@ pub fn load() -> Config {
     if let Some(c) = t.selection_background.as_ref().and_then(ColorValue::to_color) {
         config.theme.selection_bg = c;
     }
-    if let Some(c) = t.selection_foreground.as_ref().and_then(ColorValue::to_color) {
-        config.theme.selection_fg = Some(c);
+    match t.selection_foreground.as_ref() {
+        None => {}
+        Some(None) => config.theme.selection_fg = None,
+        Some(Some(c)) => {
+            if let Some(color) = c.to_color() {
+                config.theme.selection_fg = Some(color);
+            }
+        }
     }
     if let Some(c) = t.sidebar_rail.as_ref().and_then(ColorValue::to_color) {
         config.theme.sidebar_rail = c;
@@ -631,6 +682,24 @@ pub fn load() -> Config {
     config.browser.user_data_dir = raw.browser.user_data_dir.filter(|s| !s.trim().is_empty());
     if let Some(ephemeral) = raw.browser.ephemeral {
         config.browser.ephemeral = ephemeral;
+    }
+    if let Some(megapixels) = raw.browser.max_capture_megapixels {
+        if megapixels.is_finite() && megapixels > 0.0 {
+            config.browser.max_capture_megapixels = megapixels;
+        } else {
+            eprintln!(
+                "cmux-mux: ignoring browser.max_capture_megapixels={megapixels:?}; expected > 0"
+            );
+        }
+    }
+    if let Some(scale) = raw.browser.capture_scale {
+        if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
+            config.browser.capture_scale = Some(scale);
+        } else {
+            eprintln!(
+                "cmux-mux: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
+            );
+        }
     }
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
@@ -725,6 +794,11 @@ fn ghostty_selection_colors() -> Option<(Option<Color>, Option<Color>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// `CMUX_MUX_CONFIG` is process-global state; tests that set it must not
+    /// run concurrently with each other.
+    static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn parses_hex_and_indexed_colors() {
@@ -755,24 +829,8 @@ mod tests {
     }
 
     #[test]
-    fn default_key_table_has_no_duplicate_chords_or_reserved_alt_words() {
-        let keys = Keys::default();
-        for (i, (left, _)) in keys.bindings.iter().enumerate() {
-            assert!(
-                !keys.bindings.iter().skip(i + 1).any(|(right, _)| left == right),
-                "duplicate default chord: {left:?}"
-            );
-        }
-        for c in ['b', 'f', 'd', '.'] {
-            assert_eq!(
-                keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
-                None
-            );
-        }
-    }
-
-    #[test]
     fn config_overrides_defaults() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!("mux-config-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("mux.json");
@@ -792,7 +850,8 @@ mod tests {
                     "alt_shortcuts": false,
                     "rename-pane": "r",
                     "focus-left": ["left", "alt+h"],
-                    "next-tab": "none"
+                    "next-tab": "none",
+                    "browser-edit-url": "u"
                 }
             }"##,
         )
@@ -816,6 +875,10 @@ mod tests {
         );
         assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
         assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE)),
+            Some(Action::BrowserEditUrl)
+        );
+        assert_eq!(
             config.keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)),
             None
         );
@@ -825,5 +888,97 @@ mod tests {
         );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
+    }
+
+    #[test]
+    fn default_key_table_has_no_duplicate_chords_or_reserved_alt_words() {
+        let keys = Keys::default();
+        for (i, (left, _)) in keys.bindings.iter().enumerate() {
+            assert!(
+                !keys.bindings.iter().skip(i + 1).any(|(right, _)| left == right),
+                "duplicate default chord: {left:?}"
+            );
+        }
+        for c in ['b', 'f', 'd', '.'] {
+            assert_eq!(
+                keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn chord_matches_requires_shift_for_non_char_codes() {
+        let shift_left = Chord { code: KeyCode::Left, mods: KeyModifiers::SHIFT };
+        assert!(shift_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+        assert!(!shift_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
+
+        let plain_left = Chord { code: KeyCode::Left, mods: KeyModifiers::NONE };
+        assert!(plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)));
+        assert!(!plain_left.matches(&KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT)));
+    }
+
+    #[test]
+    fn selection_foreground_absent_vs_null_are_distinct() {
+        // Absent key: `Option<Option<_>>` outer is None, meaning "no
+        // override" (the Ghostty-seeded value, if any, is kept).
+        let absent: RawConfig = serde_json::from_str(r##"{"theme": {}}"##).unwrap();
+        assert!(absent.theme.selection_foreground.is_none());
+
+        // Explicit `null`: outer is `Some(None)`, meaning "clear it".
+        let explicit_null: RawConfig =
+            serde_json::from_str(r##"{"theme": {"selection_foreground": null}}"##).unwrap();
+        assert!(matches!(explicit_null.theme.selection_foreground, Some(None)));
+    }
+
+    #[test]
+    fn selection_foreground_null_clears_ghostty_seeded_default() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("mux-config-test-selfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(&path, r##"{"theme": {"selection_foreground": null}}"##).unwrap();
+        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        // `load()` always seeds `selection_fg` from the Ghostty selection
+        // colors (or leaves it `None` if there aren't any) before applying
+        // this override, so regardless of the ambient Ghostty config, an
+        // explicit `null` here must land back on `None`.
+        let config = load();
+        std::env::remove_var("CMUX_MUX_CONFIG");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(config.theme.selection_fg, None);
+    }
+
+    #[test]
+    fn browser_capture_config_validates_bounds() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-browser-capture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
+        )
+        .unwrap();
+        std::env::set_var("CMUX_MUX_CONFIG", &path);
+        let config = load();
+        assert_eq!(config.browser.max_capture_megapixels, 3.5);
+        assert_eq!(config.browser.capture_scale, Some(0.5));
+
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 0, "capture_scale": 1.5}}"##,
+        )
+        .unwrap();
+        let config = load();
+        std::env::remove_var("CMUX_MUX_CONFIG");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            config.browser.max_capture_megapixels,
+            Browser::default().max_capture_megapixels
+        );
+        assert_eq!(config.browser.capture_scale, None);
     }
 }
