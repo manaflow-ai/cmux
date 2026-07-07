@@ -621,3 +621,17 @@ export const cloudVmNotificationDeliveries = pgTable(
       .on(table.eventId, table.status),
   ],
 );
+
+export const cloudVmProbeState = pgTable(
+  "cloud_vm_probe_state",
+  {
+    key: text("key").primaryKey(),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
