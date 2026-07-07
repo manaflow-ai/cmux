@@ -518,7 +518,11 @@ public final class MuxClient implements AutoCloseable {
             while (true) {
                 Map<String, Object> response = connection.recv(timeout);
                 if (response.containsKey("event")) {
-                    buffered.add(MuxEvent.from(response));
+                    MuxEvent event = MuxEvent.from(response);
+                    buffered.add(event);
+                    if ("attach-surface".equals(request.get("cmd")) && event instanceof VtStateEvent) {
+                        return new MuxStream(connection, buffered);
+                    }
                     continue;
                 }
                 if (response.containsKey("id") && !idsEqual(response.get("id"), id)) {

@@ -39,13 +39,23 @@ run_lang() {
   local lang="$1"
   shift
   local reason
-  if ! reason="$("$@" check 2>&1)"; then
-    if is_required "$lang"; then
-      echo "FAIL $lang: required toolchain missing: $reason"
-      failed=$((failed + 1))
+  local status
+  set +e
+  reason="$("$@" check 2>&1)"
+  status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
+    if [[ "$status" -eq 127 ]]; then
+      if is_required "$lang"; then
+        echo "FAIL $lang: required toolchain missing: $reason"
+        failed=$((failed + 1))
+      else
+        echo "SKIP $lang: $reason"
+        skipped=$((skipped + 1))
+      fi
     else
-      echo "SKIP $lang: $reason"
-      skipped=$((skipped + 1))
+      echo "FAIL $lang: build failed: $reason"
+      failed=$((failed + 1))
     fi
     return
   fi
@@ -92,7 +102,7 @@ run_lang() {
 
 python_cmd() {
   case "$1" in
-    check) command -v python3 >/dev/null || { echo "python3 not found"; return 1; } ;;
+    check) command -v python3 >/dev/null || { echo "python3 not found"; return 127; } ;;
     run) python3 "$ROOT/mux/bindings/python/e2e.py" ;;
   esac
 }
@@ -100,9 +110,9 @@ python_cmd() {
 typescript_cmd() {
   case "$1" in
     check)
-      command -v node >/dev/null || { echo "node not found"; return 1; }
-      command -v npm >/dev/null || { echo "npm not found"; return 1; }
-      (cd "$ROOT/mux/bindings/typescript" && [[ -d node_modules ]] || npm install --silent --no-package-lock)
+      command -v node >/dev/null || { echo "node not found"; return 127; }
+      command -v npm >/dev/null || { echo "npm not found"; return 127; }
+      (cd "$ROOT/mux/bindings/typescript" && npm ci --silent --no-audit --no-fund)
       (cd "$ROOT/mux/bindings/typescript" && npm run build --silent)
       ;;
     run) (cd "$ROOT/mux/bindings/typescript" && node dist/e2e/e2e.js) ;;
@@ -112,7 +122,7 @@ typescript_cmd() {
 rust_cmd() {
   case "$1" in
     check)
-      command -v cargo >/dev/null || { echo "cargo not found"; return 1; }
+      command -v cargo >/dev/null || { echo "cargo not found"; return 127; }
       (cd "$MUX_DIR" && cargo build -p cmux-mux-client --example e2e --locked)
       ;;
     run) (cd "$MUX_DIR" && cargo run -p cmux-mux-client --example e2e --locked --quiet) ;;
@@ -122,7 +132,7 @@ rust_cmd() {
 go_cmd() {
   case "$1" in
     check)
-      command -v go >/dev/null || { echo "go not found"; return 1; }
+      command -v go >/dev/null || { echo "go not found"; return 127; }
       (cd "$ROOT/mux/bindings/go" && go build ./...)
       ;;
     run) (cd "$ROOT/mux/bindings/go" && go run ./cmd/e2e) ;;
@@ -132,9 +142,11 @@ go_cmd() {
 java_cmd() {
   case "$1" in
     check)
-      command -v javac >/dev/null || { echo "javac not found"; return 1; }
-      command -v java >/dev/null || { echo "java not found"; return 1; }
-      (cd "$ROOT/mux/bindings/java" && bash scripts/build.sh && java -cp out com.manaflow.cmux.mux.JsonTest)
+      command -v javac >/dev/null || { echo "javac not found"; return 127; }
+      command -v java >/dev/null || { echo "java not found"; return 127; }
+      javac -version >/dev/null 2>&1 || { javac -version 2>&1; return 127; }
+      java -version >/dev/null 2>&1 || { java -version 2>&1; return 127; }
+      (cd "$ROOT/mux/bindings/java" && bash scripts/build.sh && java -cp out com.manaflow.cmux.mux.JsonTest && java -cp out com.manaflow.cmux.mux.StreamOpenTest)
       ;;
     run) (cd "$ROOT/mux/bindings/java" && java -cp out com.manaflow.cmux.mux.E2e) ;;
   esac
