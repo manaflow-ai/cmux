@@ -2,23 +2,21 @@ import CmuxTerminalCore
 
 extension GhosttyNSView {
     func terminalPointerShouldForwardActivation() -> Bool {
-        TerminalPointerFocusActivationPolicy().shouldForwardToTerminal(
-            wasFocusedBeforePointerDown: terminalWasFocusedBeforePointerDown()
-        )
-    }
-
-    private func terminalWasFocusedBeforePointerDown() -> Bool {
-        guard let terminalSurface else { return true }
+        guard let terminalSurface else { return false }
         guard desiredFocus else { return false }
 
+        let policy = TerminalPointerFocusActivationPolicy()
         switch terminalSurface.focusPlacement {
         case .workspace:
-            return terminalSurface.owningWorkspace().map { $0.focusedPanelId == terminalSurface.id } ?? true
+            return policy.shouldForwardToTerminal(
+                currentPanelId: terminalSurface.id,
+                focusedPanelId: terminalSurface.owningWorkspace()?.focusedPanelId
+            )
         case .rightSidebarDock:
-            guard let dock = AppDelegate.shared?.windowDockContainingPanel(terminalSurface.id) else {
-                return true
-            }
-            return dock.focusedPanelId == terminalSurface.id
+            return policy.shouldForwardToTerminal(
+                currentPanelId: terminalSurface.id,
+                focusedPanelId: AppDelegate.shared?.windowDockContainingPanel(terminalSurface.id)?.focusedPanelId
+            )
         }
     }
 }

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -20,5 +21,27 @@ struct TerminalPointerFocusActivationPolicyTests {
         let policy = TerminalPointerFocusActivationPolicy()
 
         #expect(policy.shouldForwardToTerminal(wasFocusedBeforePointerDown: true))
+    }
+
+    @Test
+    func matchingFocusedPanelForwardsToTerminal() {
+        let panelId = UUID()
+        let policy = TerminalPointerFocusActivationPolicy()
+
+        #expect(policy.shouldForwardToTerminal(currentPanelId: panelId, focusedPanelId: panelId))
+    }
+
+    @Test
+    func differentFocusedPanelDoesNotForwardToTerminal() {
+        let policy = TerminalPointerFocusActivationPolicy()
+
+        #expect(!policy.shouldForwardToTerminal(currentPanelId: UUID(), focusedPanelId: UUID()))
+    }
+
+    @Test
+    func missingFocusedPanelDoesNotForwardToTerminal() {
+        let policy = TerminalPointerFocusActivationPolicy()
+
+        #expect(!policy.shouldForwardToTerminal(currentPanelId: UUID(), focusedPanelId: nil))
     }
 }
