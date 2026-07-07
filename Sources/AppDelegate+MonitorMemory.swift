@@ -192,6 +192,26 @@ extension AppDelegate {
         return (snapshot?.frame, snapshot?.display)
     }
 
+    nonisolated static func displayMatchingSnapshotGeometry(
+        for snapshot: SessionDisplaySnapshot,
+        in displays: [SessionDisplayGeometry]
+    ) -> SessionDisplayGeometry? {
+        guard let referenceRect = (snapshot.visibleFrame ?? snapshot.frame)?.cgRect else {
+            return nil
+        }
+        let overlaps = displays.map { display -> (display: SessionDisplayGeometry, area: CGFloat) in
+            (display, intersectionArea(referenceRect, display.visibleFrame))
+        }
+        if let bestOverlap = overlaps.max(by: { $0.area < $1.area }), bestOverlap.area > 0 {
+            return bestOverlap.display
+        }
+
+        let referenceCenter = CGPoint(x: referenceRect.midX, y: referenceRect.midY)
+        return displays.min { lhs, rhs in
+            distanceSquared(lhs.visibleFrame, referenceCenter) < distanceSquared(rhs.visibleFrame, referenceCenter)
+        }
+    }
+
     /// Records `window`'s current frame under the current display signature —
     /// unless a guard forbids it. The guards are the corruption firewall for
     /// issue #2135: a window's good frame must never be overwritten by a
@@ -200,7 +220,9 @@ extension AppDelegate {
         // 1. Never capture a deliberately-applied restore frame or a teardown
         //    frame, and never during the settling window after a screen change
         //    (except the leading-edge capture, which runs before settling arms).
-        guard !isApplyingSessionRestore, !isTerminatingApp, !isSettlingScreenChange else {
+        guard !isApplyingSessionRestore,
+              (!isTerminatingApp || reason == "sessionSnapshot"),
+              !isSettlingScreenChange else {
             logCaptureSkipped(window, reason: reason, guardName: "settling/restore/teardown")
             return
         }

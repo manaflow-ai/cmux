@@ -3661,30 +3661,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> SessionDisplayGeometry? {
         guard let snapshot else { return nil }
         if let stableID = snapshot.stableID, !stableID.isEmpty {
-            return displays.first { $0.stableID == stableID }
+            let matches = displays.filter { $0.stableID == stableID }
+            if matches.count == 1 { return matches[0] }
+            return displayMatchingSnapshotGeometry(for: snapshot, in: matches)
         }
         if let displayID = snapshot.displayID,
            let exact = displays.first(where: { $0.displayID == displayID }) {
             return exact
         }
-
-        guard let referenceRect = (snapshot.visibleFrame ?? snapshot.frame)?.cgRect else {
-            return nil
-        }
-
-        let overlaps = displays.map { display -> (display: SessionDisplayGeometry, area: CGFloat) in
-            (display, intersectionArea(referenceRect, display.visibleFrame))
-        }
-        if let bestOverlap = overlaps.max(by: { $0.area < $1.area }), bestOverlap.area > 0 {
-            return bestOverlap.display
-        }
-
-        let referenceCenter = CGPoint(x: referenceRect.midX, y: referenceRect.midY)
-        return displays.min { lhs, rhs in
-            let lhsDistance = distanceSquared(lhs.visibleFrame, referenceCenter)
-            let rhsDistance = distanceSquared(rhs.visibleFrame, referenceCenter)
-            return lhsDistance < rhsDistance
-        }
+        return displayMatchingSnapshotGeometry(for: snapshot, in: displays)
     }
 
     private nonisolated static func remappedFrame(

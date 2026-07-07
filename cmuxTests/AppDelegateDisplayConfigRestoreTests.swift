@@ -177,6 +177,33 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
         XCTAssertFalse(builtInVisible.intersects(restored))
     }
 
+    func testDuplicateStableDisplayIdentityUsesSavedGeometryTieBreak() throws {
+        let leftFrame = CGRect(x: -1_920, y: 0, width: 1_920, height: 1_080)
+        let rightFrame = CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080)
+        let left = geometry("uuid:SAME", leftFrame, leftFrame, displayID: 7)
+        let right = geometry("uuid:SAME", rightFrame, rightFrame, displayID: 8)
+        let savedFrame = CGRect(x: 1_700, y: 120, width: 900, height: 650)
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 42,
+            stableID: "uuid:SAME",
+            frame: SessionRectSnapshot(rightFrame),
+            visibleFrame: SessionRectSnapshot(rightFrame)
+        )
+
+        let restored = try XCTUnwrap(
+            AppDelegate.resolvedWindowFrame(
+                from: SessionRectSnapshot(savedFrame),
+                display: savedDisplay,
+                availableDisplays: [left, right],
+                fallbackDisplay: builtIn
+            )
+        )
+
+        XCTAssertEqual(restored, savedFrame)
+        XCTAssertTrue(rightFrame.intersects(restored))
+        XCTAssertFalse(leftFrame.intersects(restored))
+    }
+
     func testRestorePrefersCurrentConfigurationFrameEntry() throws {
         let dockedSignature = try XCTUnwrap([builtIn, external].displayConfigurationSignature())
         let laptopFrame = CGRect(x: 256, y: 122, width: 900, height: 600)
