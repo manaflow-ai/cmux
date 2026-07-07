@@ -686,10 +686,15 @@ final class DockSplitStore: BonsplitDelegate {
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
     private func seed(definitions: [DockControlDefinition], baseDirectory: String) {
+        let browserProfileIDsByDisplayName = browserProfileIDIndex()
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         let created: [(definition: DockControlDefinition, panel: any Panel)] = definitions.compactMap { definition in
-            guard let panel = makePanel(for: definition, baseDirectory: baseDirectory) else { return nil }
+            guard let panel = makePanel(
+                for: definition,
+                baseDirectory: baseDirectory,
+                browserProfileIDsByDisplayName: browserProfileIDsByDisplayName
+            ) else { return nil }
             return (definition: definition, panel: panel)
         }
         guard !created.isEmpty else { return }

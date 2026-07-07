@@ -40,7 +40,11 @@ extension DockSplitStore {
         }
     }
 
-    func makePanel(for def: DockControlDefinition, baseDirectory: String) -> (any Panel)? {
+    func makePanel(
+        for def: DockControlDefinition,
+        baseDirectory: String,
+        browserProfileIDsByDisplayName: [String: UUID]
+    ) -> (any Panel)? {
         switch def.variant {
         case .command(let command):
             let workingDirectory = Self.resolvedWorkingDirectory(def.cwd, baseDirectory: baseDirectory)
@@ -66,7 +70,10 @@ extension DockSplitStore {
             guard isBrowserPanelAvailable() else { return nil }
             return makeBrowserPanel(
                 url: URL(string: url),
-                preferredProfileID: browserProfileID(displayName: profile)
+                preferredProfileID: browserProfileID(
+                    displayName: profile,
+                    in: browserProfileIDsByDisplayName
+                )
             )
         }
     }
@@ -111,10 +118,23 @@ extension DockSplitStore {
         }
     }
 
-    private func browserProfileID(displayName: String?) -> UUID? {
+    func browserProfileIDIndex() -> [String: UUID] {
+        var index: [String: UUID] = [:]
+        for profile in BrowserProfileStore.shared.profiles {
+            let key = Self.browserProfileLookupKey(profile.displayName)
+            if index[key] == nil {
+                index[key] = profile.id
+            }
+        }
+        return index
+    }
+
+    private func browserProfileID(displayName: String?, in index: [String: UUID]) -> UUID? {
         guard let displayName else { return nil }
-        return BrowserProfileStore.shared.profiles.first {
-            $0.displayName.compare(displayName, options: [.caseInsensitive]) == .orderedSame
-        }?.id
+        return index[Self.browserProfileLookupKey(displayName)]
+    }
+
+    private static func browserProfileLookupKey(_ displayName: String) -> String {
+        displayName.folding(options: [.caseInsensitive], locale: nil)
     }
 }
