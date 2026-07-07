@@ -5,16 +5,14 @@ import SwiftUI
 struct WorkspaceTitleMenuContent: View {
     let workspace: MobileWorkspacePreview
     let canCloseWorkspace: Bool
-    let presentRename: () -> Void
-    let toggleReadState: () -> Void
+    let presentRename: (() -> Void)?
+    let toggleReadState: (() -> Void)?
     let requestClose: () -> Void
 
     var body: some View {
-        if workspace.actionCapabilities.supportsWorkspaceActions
-            || workspace.actionCapabilities.supportsReadStateActions
-            || canCloseWorkspace {
+        if presentRename != nil || toggleReadState != nil || canCloseWorkspace {
             Section(workspace.name) {
-                if workspace.actionCapabilities.supportsWorkspaceActions {
+                if let presentRename {
                     Button(action: presentRename) {
                         Label(
                             L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
@@ -24,7 +22,7 @@ struct WorkspaceTitleMenuContent: View {
                     .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                 }
 
-                if workspace.actionCapabilities.supportsReadStateActions {
+                if let toggleReadState {
                     Button(action: toggleReadState) {
                         Label(
                             workspace.hasUnread

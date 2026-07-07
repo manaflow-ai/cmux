@@ -388,6 +388,9 @@ struct WorkspaceShellView: View {
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            renameWorkspace: renameWorkspaceClosure,
+            setWorkspaceUnread: setWorkspaceUnreadClosure,
+            closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
             signOut: signOut
