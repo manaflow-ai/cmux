@@ -70,12 +70,6 @@ final class TerminalLinkHoverIndicatorView: NSView {
         label.setAccessibilityLabel(url)
         isHidden = url == nil
     }
-
-#if DEBUG
-    var debugURLString: String? {
-        isHidden ? nil : label.stringValue
-    }
-#endif
 }
 
 extension GhosttySurfaceScrollView {
@@ -86,12 +80,6 @@ extension GhosttySurfaceScrollView {
         }
         linkHoverIndicatorView.setURL(url)
     }
-
-#if DEBUG
-    func debugLinkHoverURL() -> String? {
-        linkHoverIndicatorView.debugURLString
-    }
-#endif
 }
 
 func shouldAllowEnsureFocusWindowActivation(
