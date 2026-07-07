@@ -273,8 +273,9 @@ struct ProBadgeView: View {
                 .accessibilityIdentifier("ProBadgeButton")
 
                 // Only mount the dismiss glyph while hovered. A zero-width
-                // Image(systemName:) frame crashes AppKit restoration layout on
-                // macOS 26 (CUINamedVectorGlyph requires targetSize > 0).
+                // Image(systemName:) frame crashes AppKit restoration layout
+                // when CUINamedVectorGlyph requires targetSize > 0 (reproduced on
+                // macOS 27 beta).
                 Group {
                     if isHovered {
                         Button {
