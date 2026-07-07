@@ -772,7 +772,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                 key: (
                     snapshot: detectedSnapshot,
                     updatedAt: 99,
-                    processIDs: Set([123]),
+                    processIDs: Set([123]), agentProcessIDs: Set([123]),
                     sessionIDSource: .inferredLatestSessionFile
                 ),
             ],
