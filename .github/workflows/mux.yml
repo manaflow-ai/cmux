@@ -154,6 +154,47 @@ jobs:
         working-directory: mux
         run: python3 scripts/smoke-attach.py
 
+  bindings-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Java version
+        run: |
+          echo "JAVA_HOME_17_X64=$JAVA_HOME_17_X64"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          export PATH="$JAVA_HOME_17_X64/bin:$PATH"
+          java -version
+          javac -version
+
+      - name: Python conformance fixtures
+        run: python3 mux/bindings/conformance/runner.py
+
+      - name: Binding e2e
+        run: bash mux/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
+
   windows-experimental:
     name: windows experimental (x86_64-gnu)
     runs-on: windows-latest
