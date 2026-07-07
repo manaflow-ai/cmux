@@ -10,7 +10,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         let targetGroupID = mobileWorkspaceMoveGroupID(params: params)
-        if v2HasNonNullParam(params, "group_id"), targetGroupID == nil {
+        if mobileWorkspaceMoveHasInvalidGroupID(params: params) {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
         let beforeWorkspaceID: UUID?
@@ -123,5 +123,18 @@ extension TerminalController {
             return nil
         }
         return v2UUID(params, "group_id")
+    }
+
+    private func mobileWorkspaceMoveHasInvalidGroupID(params: [String: Any]) -> Bool {
+        guard v2HasNonNullParam(params, "group_id") else {
+            return false
+        }
+        guard let rawGroupID = v2RawString(params, "group_id")?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return true
+        }
+        guard !rawGroupID.isEmpty else {
+            return false
+        }
+        return v2UUID(params, "group_id") == nil
     }
 }

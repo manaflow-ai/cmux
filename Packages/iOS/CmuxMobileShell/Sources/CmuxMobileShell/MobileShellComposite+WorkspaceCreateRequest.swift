@@ -12,13 +12,11 @@ extension MobileShellComposite {
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard remoteClient != nil else {
-            guard groupID == nil else {
-                return .failure(.notConnected(hostDisplayName: connectedHostName))
-            }
-            createWorkspace(inGroup: nil)
-            return .success(())
+            return createWorkspace(inGroup: groupID)
         }
-        guard createWorkspaceTask == nil else { return .success(()) }
+        if let createWorkspaceTask {
+            return await createWorkspaceTask.value
+        }
         let taskID = UUID()
         createWorkspaceTaskID = taskID
         let task = Task<Result<Void, MobileWorkspaceMutationFailure>, Never> { @MainActor [weak self] in
