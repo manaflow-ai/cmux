@@ -1127,8 +1127,20 @@
 		C7B0FACE0000000000000018 /* SleepyStatusProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */; };
 		C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000017 /* SleepyStatusSample.swift */; };
 		5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */; };
-		5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
-		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
+			5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
+			5834C0065834C0065834C006 /* SocketCommandCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0065834B0065834B006 /* SocketCommandCompletion.swift */; };
+			5834C0035834C0035834C003 /* SocketCommandCompletionThread.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0035834B0035834B003 /* SocketCommandCompletionThread.swift */; };
+			5834C0025834C0025834C002 /* SocketCommandExecutionLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0025834B0025834B002 /* SocketCommandExecutionLane.swift */; };
+			5834A0065834A0065834A006 /* SocketCommandObservability+Sampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834A0055834A0055834A005 /* SocketCommandObservability+Sampling.swift */; };
+			5834A0025834A0025834A002 /* SocketCommandObservability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834A0015834A0015834A001 /* SocketCommandObservability.swift */; };
+			5834C0055834C0055834C005 /* SocketCommandObservabilityCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0055834B0055834B005 /* SocketCommandObservabilityCommand.swift */; };
+			5834A0045834A0045834A004 /* SocketCommandObservabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834A0035834A0035834A003 /* SocketCommandObservabilityTests.swift */; };
+			5834C0015834C0015834C001 /* SocketCommandProtocolName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0015834B0015834B001 /* SocketCommandProtocolName.swift */; };
+			5834C0045834C0045834C004 /* SocketCommandResponseStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0045834B0045834B004 /* SocketCommandResponseStatus.swift */; };
+			5834C0075834C0075834C007 /* SocketCommandWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0075834B0075834B007 /* SocketCommandWatchdog.swift */; };
+			5834C0095834C0095834C009 /* SocketCommandWatchdogDeadline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0095834B0095834B009 /* SocketCommandWatchdogDeadline.swift */; };
+			5834C0085834C0085834C008 /* SocketCommandWatchdogSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B0085834B0085834B008 /* SocketCommandWatchdogSample.swift */; };
+			A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
 		F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
@@ -1320,6 +1332,7 @@
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
+			5834C00A5834C00A5834C00A /* WatchdogSampleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834B00A5834B00A5834B00A /* WatchdogSampleCoordinator.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
@@ -2554,8 +2567,20 @@
 		C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusProviding.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000017 /* SleepyStatusSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusSample.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiter.swift; sourceTree = "<group>"; };
-		5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
-		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
+			5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
+			5834B0065834B0065834B006 /* SocketCommandCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandCompletion.swift; sourceTree = "<group>"; };
+			5834B0035834B0035834B003 /* SocketCommandCompletionThread.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandCompletionThread.swift; sourceTree = "<group>"; };
+			5834B0025834B0025834B002 /* SocketCommandExecutionLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandExecutionLane.swift; sourceTree = "<group>"; };
+			5834A0055834A0055834A005 /* SocketCommandObservability+Sampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketCommandObservability+Sampling.swift"; sourceTree = "<group>"; };
+			5834A0015834A0015834A001 /* SocketCommandObservability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandObservability.swift; sourceTree = "<group>"; };
+			5834B0055834B0055834B005 /* SocketCommandObservabilityCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandObservabilityCommand.swift; sourceTree = "<group>"; };
+			5834A0035834A0035834A003 /* SocketCommandObservabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandObservabilityTests.swift; sourceTree = "<group>"; };
+			5834B0015834B0015834B001 /* SocketCommandProtocolName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandProtocolName.swift; sourceTree = "<group>"; };
+			5834B0045834B0045834B004 /* SocketCommandResponseStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandResponseStatus.swift; sourceTree = "<group>"; };
+			5834B0075834B0075834B007 /* SocketCommandWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandWatchdog.swift; sourceTree = "<group>"; };
+			5834B0095834B0095834B009 /* SocketCommandWatchdogDeadline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandWatchdogDeadline.swift; sourceTree = "<group>"; };
+			5834B0085834B0085834B008 /* SocketCommandWatchdogSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandWatchdogSample.swift; sourceTree = "<group>"; };
+			A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 			C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
@@ -2742,6 +2767,7 @@
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMDefaultCloudCommandTests.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
+			5834B00A5834B00A5834B00A /* WatchdogSampleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchdogSampleCoordinator.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
@@ -3458,8 +3484,20 @@
 				A5001019 /* TerminalController.swift */,
 				5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */,
 				E7E000000000000000000002 /* CmuxEventStream.swift */,
-				E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
-				A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
+					E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
+					5834A0055834A0055834A005 /* SocketCommandObservability+Sampling.swift */,
+					5834A0015834A0015834A001 /* SocketCommandObservability.swift */,
+					5834B0065834B0065834B006 /* SocketCommandCompletion.swift */,
+					5834B0035834B0035834B003 /* SocketCommandCompletionThread.swift */,
+					5834B0025834B0025834B002 /* SocketCommandExecutionLane.swift */,
+					5834B0055834B0055834B005 /* SocketCommandObservabilityCommand.swift */,
+					5834B0015834B0015834B001 /* SocketCommandProtocolName.swift */,
+					5834B0045834B0045834B004 /* SocketCommandResponseStatus.swift */,
+					5834B0095834B0095834B009 /* SocketCommandWatchdogDeadline.swift */,
+					5834B0085834B0085834B008 /* SocketCommandWatchdogSample.swift */,
+					5834B0075834B0075834B007 /* SocketCommandWatchdog.swift */,
+					5834B00A5834B00A5834B00A /* WatchdogSampleCoordinator.swift */,
+					A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
 				D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */,
 				C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */,
 				C0DE00000000000000000C31 /* TerminalControllerControlCommandContext.swift */,
@@ -4222,6 +4260,7 @@
 					C0DE6495000000000000000C /* CMUXCLISessionsListTranscriptPidTests.swift */,
 					C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */,
 					C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */,
+					5834A0035834A0035834A003 /* SocketCommandObservabilityTests.swift */,
 				C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */,
 				F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */,
 				E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */,
@@ -5475,8 +5514,19 @@
 				C7B0FACE000000000000001A /* SleepyStatusProvider.swift in Sources */,
 				C7B0FACE0000000000000018 /* SleepyStatusProviding.swift in Sources */,
 				C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */,
-				5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */,
-				A5001226 /* SocketControlMode+Display.swift in Sources */,
+					5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */,
+					5834C0065834C0065834C006 /* SocketCommandCompletion.swift in Sources */,
+					5834C0035834C0035834C003 /* SocketCommandCompletionThread.swift in Sources */,
+					5834C0025834C0025834C002 /* SocketCommandExecutionLane.swift in Sources */,
+					5834A0065834A0065834A006 /* SocketCommandObservability+Sampling.swift in Sources */,
+					5834A0025834A0025834A002 /* SocketCommandObservability.swift in Sources */,
+					5834C0055834C0055834C005 /* SocketCommandObservabilityCommand.swift in Sources */,
+					5834C0015834C0015834C001 /* SocketCommandProtocolName.swift in Sources */,
+					5834C0045834C0045834C004 /* SocketCommandResponseStatus.swift in Sources */,
+					5834C0075834C0075834C007 /* SocketCommandWatchdog.swift in Sources */,
+					5834C0095834C0095834C009 /* SocketCommandWatchdogDeadline.swift in Sources */,
+					5834C0085834C0085834C008 /* SocketCommandWatchdogSample.swift in Sources */,
+					A5001226 /* SocketControlMode+Display.swift in Sources */,
 				E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
@@ -5611,6 +5661,7 @@
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+					5834C00A5834C00A5834C00A /* WatchdogSampleCoordinator.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,
@@ -6106,6 +6157,7 @@
 				C0DE56010000000000000001 /* SidebarWorkspaceSelectionAnchorPolicyTests.swift in Sources */,
 					62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
+				5834A0045834A0045834A004 /* SocketCommandObservabilityTests.swift in Sources */,
 						F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
 						6E8B6A69A468EF938B9AD8C2 /* SSHPTYAttachReconnectInputFilter.swift in Sources */,
