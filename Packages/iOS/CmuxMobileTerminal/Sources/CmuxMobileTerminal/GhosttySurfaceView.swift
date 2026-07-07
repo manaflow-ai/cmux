@@ -305,6 +305,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var surface: ghostty_surface_t?
     private var surfaceGeneration: UInt64 = 0
     private var lastReportedSize: TerminalGridSize?
+    /// Local natural grid waiting for the Mac's effective-grid echo.
+    private var awaitingViewportEcho: TerminalGridSize?
+    private var hasConfirmedViewportReport = false
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
     /// `viewportReportSettleThreshold` frames. Reporting every intermediate
@@ -319,10 +322,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// render stays pinned to the prior `effectiveGrid` and looks frozen even
     /// though the main thread is fine. On a no-effective result we re-arm the
     /// report (display-link driven, no timers) up to `maxViewportReportRetries`
-    /// so a transient drop self-heals; a confirmed result resets the count.
+    /// so a transient drop self-heals; a matching confirmed result resets the count.
     private var viewportReportRetries = 0
     private static let maxViewportReportRetries = 3
-    /// Monotonic stamp for each natural-grid report handed to the delegate.
+    /// Monotonic stamp for each natural-grid report queued for the delegate.
     /// `applyConfirmedViewSize(cols:rows:reportID:)` applies an echo only when
     /// its ID is still the newest, so an out-of-order RPC reply for an older
     /// (e.g. keyboard-up) report cannot re-pin a grid the surface outgrew —
@@ -355,6 +358,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
+    /// Whether `lastRenderRect` came from an effective-grid letterbox and should
+    /// keep using the large-gap top-anchor correction during viewport-only relayouts.
+    private var lastRenderRectAllowsTopGapCorrection = false
+    /// Whether the current effective grid came from this surface's confirmed
+    /// viewport-report echo. Daemon-pushed remote grids are bottom-attached; only
+    /// confirmed local viewport negotiation may use the large-gap top anchor.
+    private var effectiveGridAllowsTopGapCorrection = false
+    /// Placement intent from the currently active remote-grid policy. `nil`
+    /// means no output-stream remote grid has seeded the effective grid yet, so
+    /// a confirmed viewport echo may use the direct-open top-anchor default.
+    private var remoteGridAllowsTopGapCorrection: Bool?
     private var lastRenderLayoutViewportHeight: CGFloat?
     private var lastRenderHasSourceLayoutViewport = false
     private var viewportCoordinator = TerminalViewportCoordinator()
@@ -924,6 +938,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
+    private let renderPlacement = TerminalRenderPlacement()
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
@@ -979,6 +994,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportSnapshot().layoutViewportRect
     }
 
+    /// Place the rendered terminal inside the live viewport.
+    ///
+    /// During keyboard show the old render layer is taller than the shrinking
+    /// viewport, so it remains bottom-pinned and clips from the top. A fresh
+    /// effective-grid letterbox may top-anchor when it is substantially shorter
+    /// than the viewport, but stale natural render sizes stay bottom-attached
+    /// while async geometry catches up to live viewport transitions.
+    private func renderRectAlignedToCurrentViewport(
+        size: CGSize,
+        allowsLargeTopGapCorrection: Bool,
+        using snapshot: TerminalViewportSnapshot
+    ) -> CGRect {
+        let viewport = snapshot.renderViewportRect(
+            forRenderSize: size,
+            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
+        )
+        return renderPlacement.renderRect(
+            in: viewport,
+            size: size,
+            allowsLargeTopGapCorrection: allowsLargeTopGapCorrection
+        )
+    }
+
     private func viewportSnapshot() -> TerminalViewportSnapshot {
         viewportCoordinator.snapshot(inputs: TerminalViewportInputs(
             bounds: bounds.size,
@@ -1007,9 +1045,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func layoutRenderedTerminalForCurrentViewport(using snapshot: TerminalViewportSnapshot) {
         snapshotFallbackView.frame = snapshot.layoutViewportRect
         guard !lastRenderRect.isEmpty else { return }
-        let renderRect = snapshot.renderRect(
-            forRenderSize: lastRenderRect.size,
-            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
+        let renderRect = renderRectAlignedToCurrentViewport(
+            size: lastRenderRect.size,
+            allowsLargeTopGapCorrection: lastRenderRectAllowsTopGapCorrection,
+            using: snapshot
         )
         guard renderRect != lastRenderRect else { return }
         lastRenderRect = renderRect
@@ -1437,11 +1476,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The transparent UIScrollView supplies native iOS tracking,
         // deceleration, and momentum. The Mac still owns terminal semantics:
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
-        guard deltaY != 0 else { return }
+        guard deltaY != 0,
+              let cell = scrollCell(at: touchPoint) else { return }
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
-        pendingScrollCell = scrollCell(at: touchPoint)
+        pendingScrollCell = cell
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
@@ -1450,13 +1490,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
     /// alt-screen mouse-wheel reports at the cell under the finger.
-    private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
+    private func scrollCell(at point: CGPoint) -> (col: Int, row: Int)? {
         let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
-        return (col, row)
+        return renderPlacement.gridCell(
+            at: point,
+            in: lastRenderRect,
+            cellSize: CGSize(
+                width: cellPixelSize.width / scale,
+                height: cellPixelSize.height / scale
+            )
+        )
     }
 
     private func flushPendingScrollIfNeeded() {
@@ -1484,8 +1527,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if chromeHidden {
             setChromeHidden(false)
         }
-        let cell = scrollCell(at: gesture.location(in: self))
-        delegate?.ghosttySurfaceView(self, didTapAtCol: cell.col, row: cell.row)
+        if let cell = scrollCell(at: gesture.location(in: self)) {
+            delegate?.ghosttySurfaceView(self, didTapAtCol: cell.col, row: cell.row)
+        }
         // A tap inside the composer band is excluded by the gesture recognizer
         // (`gestureRecognizer(_:shouldReceive:)`), so any tap reaching here is a
         // deliberate terminal tap. Only a reveal-from-hide with the composer still
@@ -2489,9 +2533,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsDraw = true
         cellPixelSize = .zero
         lastRenderRect = .zero
+        lastRenderRectAllowsTopGapCorrection = false
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false
         lastAppliedContentScale = 0
+        resetViewportReportStateForSurfaceReset()
 
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
@@ -2712,7 +2758,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
-                    viewportReportID &+= 1
                     MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
                     delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
@@ -2964,21 +3009,73 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// effective grid, so a transient RPC drop does not leave the render pinned
     /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
     /// display-link driven (the existing settle machinery re-fires it); a
-    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
+    /// confirmed `applyViewSize` resets the counter. Once the cap is hit, the
+    /// stale pending echo is invalidated so it cannot suppress later
+    /// authoritative render-grid placement forever.
     public func retryViewportReport() {
-        guard viewportReportRetries < Self.maxViewportReportRetries,
-              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+        guard let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else {
+            abandonPendingViewportEcho()
+            return
+        }
+        guard viewportReportRetries < Self.maxViewportReportRetries else {
+            abandonPendingViewportEcho()
+            return
+        }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
             + "grid=\(pending.columns)x\(pending.rows)"
         )
+        viewportReportID &+= 1
+        awaitingViewportEcho = pending
         pendingViewportReport = pending
         viewportReportSettleFrames = 0
     }
 
+    private func abandonPendingViewportEcho() {
+        let hadPendingEcho = awaitingViewportEcho != nil || pendingViewportReport != nil
+        viewportReportRetries = 0
+        pendingViewportReport = nil
+        viewportReportSettleFrames = 0
+        guard hadPendingEcho else { return }
+        viewportReportID &+= 1
+        awaitingViewportEcho = nil
+        MobileDebugLog.anchormux("zoom.viewport.retry.exhausted latest=\(viewportReportID)")
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
+    private func resetViewportReportStateForSurfaceReset() {
+        lastReportedSize = nil
+        awaitingViewportEcho = nil
+        hasConfirmedViewportReport = false
+        pendingViewportReport = nil
+        viewportReportSettleFrames = 0
+        viewportReportRetries = 0
+        viewportReportID &+= 1
+        MobileDebugLog.anchormux("zoom.viewport.reset latest=\(viewportReportID)")
+    }
+
     public func applyViewSize(cols: Int, rows: Int) {
-        applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
+        applyViewSize(
+            cols: cols,
+            rows: rows,
+            confirmedViewportEcho: false,
+            remoteGridAllowsTopGapCorrection: false
+        )
+    }
+
+    /// Apply the daemon's authoritative rendering grid with explicit placement intent.
+    /// - Parameters:
+    ///   - cols: The authoritative terminal column count.
+    ///   - rows: The authoritative terminal row count.
+    ///   - allowsTopGapCorrection: Whether a large remote-grid letterbox may anchor to the viewport top.
+    public func applyViewSize(cols: Int, rows: Int, allowsTopGapCorrection: Bool) {
+        applyViewSize(
+            cols: cols,
+            rows: rows,
+            confirmedViewportEcho: false,
+            remoteGridAllowsTopGapCorrection: allowsTopGapCorrection
+        )
     }
 
     /// Apply the daemon's authoritative rendering grid and wait until libghostty
@@ -2988,7 +3085,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Returns: `false` when the surface reset before the geometry applied.
     @discardableResult
     public func applyViewSizeAndWait(cols: Int, rows: Int) async -> Bool {
-        let changed = updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: false)
+        return await applyViewSizeAndWait(cols: cols, rows: rows, allowsTopGapCorrection: false)
+    }
+
+    /// Apply a remote-grid policy with explicit placement intent and wait for libghostty to accept the geometry.
+    /// - Parameters:
+    ///   - cols: The authoritative terminal column count.
+    ///   - rows: The authoritative terminal row count.
+    ///   - allowsTopGapCorrection: Whether a large remote-grid letterbox may anchor to the viewport top.
+    /// - Returns: `false` when the surface reset before the geometry applied.
+    @discardableResult
+    public func applyViewSizeAndWait(cols: Int, rows: Int, allowsTopGapCorrection: Bool) async -> Bool {
+        let changed = updateEffectiveGrid(
+            cols: cols,
+            rows: rows,
+            confirmedViewportEcho: false,
+            remoteGridAllowsTopGapCorrection: allowsTopGapCorrection
+        )
         if changed || needsGeometrySync {
             return await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)
         }
@@ -3007,21 +3120,57 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// echo; the in-flight newer report's own echo is the one that settles the
     /// grid.
     public func applyConfirmedViewSize(cols: Int, rows: Int, reportID: UInt64) {
-        guard reportID == viewportReportID else {
-            MobileDebugLog.anchormux(
-                "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID) grid=\(cols)x\(rows)"
-            )
-            return
-        }
+        guard isCurrentViewportReport(reportID: reportID, cols: cols, rows: rows) else { return }
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
     }
 
-    public func markViewportReportConfirmed() {
-        viewportReportRetries = 0
+    /// Clear pending viewport-echo state only when the daemon response matches
+    /// the latest local natural-grid report.
+    /// - Parameter reportID: The report stamp originally passed to the delegate.
+    /// - Returns: `true` when the report is current and pending state was confirmed.
+    @discardableResult
+    public func markViewportReportConfirmed(reportID: UInt64) -> Bool {
+        guard isCurrentViewportReport(reportID: reportID) else { return false }
+        markViewportReportConfirmed()
+        return true
     }
 
-    private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
-        guard updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: confirmedViewportEcho) else { return }
+    private func isCurrentViewportReport(reportID: UInt64, cols: Int? = nil, rows: Int? = nil) -> Bool {
+        guard reportID == viewportReportID else {
+            let grid: String
+            if let cols, let rows {
+                grid = " grid=\(cols)x\(rows)"
+            } else {
+                grid = ""
+            }
+            MobileDebugLog.anchormux(
+                "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID)\(grid)"
+            )
+            return false
+        }
+        return true
+    }
+
+    private func markViewportReportConfirmed() {
+        viewportReportRetries = 0
+        hasConfirmedViewportReport = true
+        guard awaitingViewportEcho != nil else { return }
+        awaitingViewportEcho = nil
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
+    private func applyViewSize(
+        cols: Int,
+        rows: Int,
+        confirmedViewportEcho: Bool,
+        remoteGridAllowsTopGapCorrection: Bool? = nil
+    ) {
+        guard updateEffectiveGrid(
+            cols: cols,
+            rows: rows,
+            confirmedViewportEcho: confirmedViewportEcho,
+            remoteGridAllowsTopGapCorrection: remoteGridAllowsTopGapCorrection
+        ) else { return }
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
         // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
@@ -3031,14 +3180,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
-    private func updateEffectiveGrid(cols: Int, rows: Int, confirmedViewportEcho: Bool) -> Bool {
+    private func updateEffectiveGrid(
+        cols: Int,
+        rows: Int,
+        confirmedViewportEcho: Bool,
+        remoteGridAllowsTopGapCorrection: Bool? = nil
+    ) -> Bool {
         guard cols > 0, rows > 0 else { return false }
         if confirmedViewportEcho {
             markViewportReportConfirmed()
         }
-        if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return false }
-        MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
-        effectiveGrid = (cols, rows)
+        let previousAllowsTopGapCorrection = effectiveGridAllowsTopGapCorrection
+        if let remoteGridAllowsTopGapCorrection {
+            self.remoteGridAllowsTopGapCorrection = remoteGridAllowsTopGapCorrection
+        }
+        effectiveGridAllowsTopGapCorrection = confirmedViewportEcho
+            ? (self.remoteGridAllowsTopGapCorrection ?? true)
+            : (remoteGridAllowsTopGapCorrection ?? false)
+        let gridChanged = effectiveGrid?.cols != cols || effectiveGrid?.rows != rows
+        guard gridChanged || previousAllowsTopGapCorrection != effectiveGridAllowsTopGapCorrection else {
+            return false
+        }
+        if gridChanged {
+            MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
+            effectiveGrid = (cols, rows)
+        }
         return true
     }
 
@@ -3060,9 +3226,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func clearEffectiveGrid() -> Bool {
-        guard effectiveGrid != nil else { return false }
+        guard effectiveGrid != nil || effectiveGridAllowsTopGapCorrection else { return false }
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil
+        effectiveGridAllowsTopGapCorrection = false
+        remoteGridAllowsTopGapCorrection = nil
         return true
     }
 
@@ -3112,6 +3280,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
+        /// Effective grid used to compute `pinnedSize`; nil when not pinned.
+        let pinnedGrid: (cols: Int, rows: Int)?
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
@@ -3195,6 +3365,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
 
             var pinnedSize: CGSize?
+            var pinnedGrid: (cols: Int, rows: Int)?
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
                 let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
@@ -3208,6 +3379,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                         width: min(CGFloat(aw) / scale, containerW),
                         height: min(CGFloat(ah) / scale, containerH)
                     )
+                    pinnedGrid = eff
                 }
             }
 
@@ -3221,7 +3393,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 cellPixelSize: cell,
                 naturalSize: natural,
                 sourceLayoutViewportHeight: snapshot.layoutViewportRect.height,
-                pinnedSize: pinnedSize
+                pinnedSize: pinnedSize,
+                pinnedGrid: pinnedGrid
             )
             Task { @MainActor in
                 guard let self else {
@@ -3264,23 +3437,67 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // layer is up to ~one cell larger than the surface and EVERY frame is
         // discarded (blank terminal). Using the measured surface size makes
         // them match so frames present. Pinned (letterboxed) sizes are already
-        // derived from the fitted surface px. Left-align + top-anchor either
-        // way; any leftover container space is the letterbox margin.
-        let naturalRenderSize = CGSize(
-            width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
-            height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
+        // derived from the fitted surface px. Left-align either way; small
+        // whole-cell vertical slack stays bottom-attached, while a large slack
+        // anchors at the viewport top so letterboxing cannot turn into a blank
+        // top spacer.
+        let naturalSize = result.naturalSize
+        // Stretch-to-fill: keep the RENDERED font tracking the daemon-granted
+        // rows so a Mac-constrained grid fills the phone instead of parking a
+        // letterbox band above the content.
+        autoFitFontToEffectiveRows(
+            renderedRows: naturalSize.rows,
+            containerPixelHeight: containerH * scale,
+            cellPixelHeight: result.cellPixelSize.height
         )
+        // Report the row CAPACITY at the user's base font, not the rendered
+        // rows: a report derived from the fitted font would ratchet the
+        // negotiated minimum down and the phone could never learn when the
+        // constraining device grew back. Columns stay at the rendered font
+        // (the PTY must never be wider than the rendered grid can show).
+        let reportGrid = capacityReportGrid(
+            for: naturalSize,
+            containerPixelHeight: containerH * scale,
+            cellPixelHeight: result.cellPixelSize.height
+        )
+        let effectiveMatchesNatural = effectiveGrid.map { grid in
+            grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
+        } ?? true
+        let reportGridChanged = reportGrid != lastReportedSize
+        let hasPriorReportedSize = lastReportedSize != nil
+        let shouldReportNaturalSize = reportGridChanged ||
+            (shouldReassertNaturalSize && !effectiveMatchesNatural)
+        let pendingEchoForPlacement = reportGridChanged && hasPriorReportedSize ? reportGrid : awaitingViewportEcho
+        let awaitingViewportEchoForPlacement = hasConfirmedViewportReport
+            ? pendingEchoForPlacement.map { (cols: $0.columns, rows: $0.rows) }
+            : nil
+        let naturalRenderSize = CGSize(
+            width: max(1, CGFloat(naturalSize.pixelWidth) / scale),
+            height: max(1, CGFloat(naturalSize.pixelHeight) / scale)
+        )
+        let previousTopGapCorrection = reportGridChanged
+            ? !hasPriorReportedSize && lastRenderRectAllowsTopGapCorrection
+            : lastRenderRectAllowsTopGapCorrection
+        let allowsLargeTopGapCorrection = effectiveGridAllowsTopGapCorrection &&
+            renderPlacement.allowsLargeTopGapCorrection(
+                pinnedGrid: result.pinnedGrid,
+                awaitingViewportEcho: awaitingViewportEchoForPlacement,
+                naturalGrid: (reportGrid.columns, reportGrid.rows),
+                previousRenderAllowedTopGapCorrection: previousTopGapCorrection
+            )
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
         let snapshot = viewportSnapshot()
         layoutBottomDock(using: snapshot)
         lastRenderLayoutViewportHeight = result.sourceLayoutViewportHeight
         lastRenderHasSourceLayoutViewport = true
-        let renderRect = snapshot.renderRect(
-            forRenderSize: measuredRenderRect.size,
-            clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
+        let renderRect = renderRectAlignedToCurrentViewport(
+            size: measuredRenderRect.size,
+            allowsLargeTopGapCorrection: allowsLargeTopGapCorrection,
+            using: snapshot
         )
         lastRenderRect = renderRect
+        lastRenderRectAllowsTopGapCorrection = allowsLargeTopGapCorrection
         #if DEBUG
         recordBottomViewportMismatchIfNeeded()
         #endif
@@ -3309,32 +3526,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingRenderFrames = 6
         syncSnapshotFallback()
 
-        let naturalSize = result.naturalSize
-        // Stretch-to-fill: keep the RENDERED font tracking the daemon-granted
-        // rows so a Mac-constrained grid fills the phone instead of parking a
-        // letterbox band above the content.
-        autoFitFontToEffectiveRows(
-            renderedRows: naturalSize.rows,
-            containerPixelHeight: containerH * scale,
-            cellPixelHeight: result.cellPixelSize.height
-        )
-        // Report the row CAPACITY at the user's base font, not the rendered
-        // rows: a report derived from the fitted font would ratchet the
-        // negotiated minimum down and the phone could never learn when the
-        // constraining device grew back. Columns stay at the rendered font
-        // (the PTY must never be wider than the rendered grid can show).
-        let reportGrid = capacityReportGrid(
-            for: naturalSize,
-            containerPixelHeight: containerH * scale,
-            cellPixelHeight: result.cellPixelSize.height
-        )
-        let effectiveMatchesNatural = effectiveGrid.map { grid in
-            grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
-        } ?? true
-        let shouldReportNaturalSize = reportGrid != lastReportedSize ||
-            (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        viewportReportID &+= 1
         lastReportedSize = reportGrid
+        awaitingViewportEcho = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = reportGrid
