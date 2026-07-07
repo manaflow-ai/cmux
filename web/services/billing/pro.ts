@@ -18,6 +18,7 @@ import { stripeSubscriptions } from "../../db/schema";
 export const PRO_PRODUCT_ID = "pro";
 export const TEAM_PRODUCT_ID = process.env.CMUX_TEAM_PRODUCT_ID?.trim() || "team";
 export const PRO_PLAN_ID = "pro";
+export const TEAM_PLAN_ID = "team";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
@@ -122,10 +123,12 @@ export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer & {
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
+export type BillingManagementKind = "stripe" | "external" | "none";
 
 export type ProPlanStatus = {
   readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
   readonly isPro: boolean;
+  readonly billingManagement: BillingManagementKind;
   readonly metadataPlanId: string | null;
   readonly hasManualVmPlanOverride: boolean;
   readonly metadataChanged: boolean;
@@ -164,7 +167,11 @@ export async function resolveProPlanStatus(
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
-  const isPro = await hasAnyActiveProSubscription(user, options.hasActiveStripeSubscription);
+  const subscriptionState = await activeProSubscriptionState(
+    user,
+    options.hasActiveStripeSubscription,
+  );
+  const isPro = subscriptionState.stackActive || subscriptionState.stripeActive;
   let metadataChanged = false;
 
   if (!hasManualVmPlanOverride && isPro !== (metadataPlanId === PRO_PLAN_ID)) {
@@ -175,6 +182,11 @@ export async function resolveProPlanStatus(
   return {
     planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
     isPro,
+    billingManagement: subscriptionState.stripeActive
+      ? "stripe"
+      : isPro
+        ? "external"
+        : "none",
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
@@ -191,6 +203,7 @@ export async function hasActiveStripeProSubscription(
       .where(
         and(
           eq(stripeSubscriptions.stackUserId, stackUserId),
+          eq(stripeSubscriptions.scope, "user"),
           eq(stripeSubscriptions.plan, PRO_PLAN_ID),
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
@@ -203,16 +216,77 @@ export async function hasActiveStripeProSubscription(
   }
 }
 
+export async function hasActiveTeamSubscriptionForTeam(
+  stackTeamId: string,
+): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeSubscriptions.id })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackTeamId, stackTeamId),
+          eq(stripeSubscriptions.scope, "team"),
+          eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+          inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+export function metadataPlanId(raw: unknown): string | null {
+  return planIdFromMetadata(proMetadataRecord(raw));
+}
+
+/**
+ * Writes `cmuxPlan: "team"` into a Stack team's clientReadOnlyMetadata while a
+ * Stripe Team subscription is active. `cmuxVmPlan` is operator-owned and left
+ * untouched.
+ */
+export async function syncTeamPlanMetadata(
+  team: ProMetadataCustomer,
+  isTeam: boolean,
+): Promise<void> {
+  const raw = team.clientReadOnlyMetadata;
+  const metadata: Record<string, unknown> =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  const current = metadata.cmuxPlan;
+
+  if (isTeam) {
+    if (current === TEAM_PLAN_ID) return;
+    metadata.cmuxPlan = TEAM_PLAN_ID;
+  } else {
+    if (current !== TEAM_PLAN_ID) return;
+    delete metadata.cmuxPlan;
+  }
+  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+}
+
 async function hasAnyActiveProSubscription(
   user: ProReconcileUser,
   hasActiveStripeSubscription: ActiveStripeSubscriptionQuery = hasActiveStripeProSubscription,
 ): Promise<boolean> {
+  const state = await activeProSubscriptionState(user, hasActiveStripeSubscription);
+  return state.stackActive || state.stripeActive;
+}
+
+async function activeProSubscriptionState(
+  user: ProReconcileUser,
+  hasActiveStripeSubscription: ActiveStripeSubscriptionQuery = hasActiveStripeProSubscription,
+): Promise<{ stackActive: boolean; stripeActive: boolean }> {
   const stackActive =
     typeof user.listProducts === "function"
       ? await hasActiveProSubscription(user)
       : false;
-  if (stackActive) return true;
-  return user.id ? hasActiveStripeSubscription(user.id) : false;
+  const stripeActive = user.id ? await hasActiveStripeSubscription(user.id) : false;
+  return { stackActive, stripeActive };
 }
 
 function proMetadataRecord(raw: unknown): Record<string, unknown> {

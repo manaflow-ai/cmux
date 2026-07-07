@@ -51,7 +51,9 @@
       "vaultSessions": "sessions",
       "vaultCliSetup": "cli setup",
       "subrouterGroup": "subrouter",
-      "subrouterOverview": "overview"
+      "subrouterOverview": "overview",
+      "accountGroup": "account",
+      "billing": "billing"
     },
     "home": {
       "title": "dashboard",
@@ -66,6 +68,57 @@
     "subrouter": {
       "title": "subrouter",
       "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+    },
+    "billing": {
+      "eyebrow": "account",
+      "title": "billing",
+      "description": "review your cmux plan and manage subscription billing.",
+      "banners": {
+        "cancelled": "Your plan will cancel at the end of the current billing period.",
+        "resumed": "Your plan has been resumed and will renew normally.",
+        "nosub": "No active Stripe subscription was found for this account.",
+        "error": "Billing could not be updated. Try again shortly."
+      },
+      "free": {
+        "name": "Free",
+        "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features."
+      },
+      "pro": {
+        "name": "cmux Pro",
+        "activeBody": "Your plan renews on {date}.",
+        "pendingBody": "Your plan is scheduled to end on {date}."
+      },
+      "team": {
+        "name": "cmux Team",
+        "fallbackName": "your team",
+        "activeBody": "{team} renews on {date}.",
+        "pendingBody": "{team} is scheduled to end on {date}.",
+        "price": "$35/seat/month"
+      },
+      "legacy": {
+        "body": "Your subscription is managed by our previous billing system. Contact support to make changes."
+      },
+      "details": {
+        "renewsOn": "Renews on",
+        "endsOn": "Ends on",
+        "price": "Price",
+        "seats": "Seats"
+      },
+      "dates": {
+        "unknown": "unknown"
+      },
+      "cancel": {
+        "body": "Your Pro access remains active until {date}. Check the box to confirm cancellation at period end.",
+        "teamBody": "Team access remains active until {date}. Check the box to confirm cancellation at period end.",
+        "checkbox": "I understand my plan will end at the current period end."
+      },
+      "actions": {
+        "viewPricing": "View pricing",
+        "manageBilling": "Manage billing",
+        "cancelSummary": "Cancel plan",
+        "confirmCancel": "Confirm cancellation",
+        "resume": "Resume plan"
+      }
     },
     "aiAccounts": {
       "metaTitle": "AI accounts — cmux",
@@ -514,6 +567,7 @@
     "welcomePendingAction": "Check again",
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
+    "billingExternal": "Your subscription is managed by our previous billing system. Contact support to make changes.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "welcomeTeam": "Your cmux Team purchase is complete."
@@ -1632,8 +1686,9 @@
       "actionTypes": "Action types",
       "actionTypeBuiltin": "Alias a built-in cmux action such as cmux.newTerminal, cmux.newBrowser, cmux.splitRight, or cmux.splitDown.",
       "actionTypeCommand": "Run shell text in a terminal. Use target to choose the current terminal or a new tab in the current pane.",
-      "actionTypeAgent": "Start a supported coding agent. Today this supports codex and claude, with optional args.",
+      "actionTypeAgent": "Start a coding agent in a new terminal tab. Any CLI name works (claude, codex, opencode, or your own binary), with optional args.",
       "actionTypeWorkspaceCommand": "Run a named workspace definition from commands. Use this for multi-pane layouts, custom working directories, and startup commands.",
+      "actionTypeWorkspace": "Create a workspace from an inline workspace definition, with optional restart behavior. Offered in the new-workspace plus-button menu automatically.",
       "actionFields": "Action fields",
       "actionFieldTitle": "Command Palette row title, surface button label, menu item title, and trust prompt title unless an entry overrides it.",
       "actionFieldSubtitle": "Command Palette secondary text. description is accepted as an alias for subtitle.",
@@ -1642,6 +1697,7 @@
       "actionFieldShortcut": "Optional action shortcut, using the same single-stroke or two-stroke chord syntax as settings shortcuts.",
       "actionFieldTarget": "For command and agent actions only. Use currentTerminal or newTabInCurrentPane.",
       "actionFieldConfirm": "Ask before running the action.",
+      "actionFieldNewWorkspaceMenu": "Set true to offer any action in the new-workspace plus-button menu, or false to hide a workspace action from it.",
       "commandPaletteBehavior": "Command Palette behavior",
       "commandPaletteBehaviorDesc": "Command Palette reads the resolved action registry. Custom action IDs are added as rows when <palette>palette</palette> is not false. Legacy <commands>commands</commands> are added automatically as custom rows unless an action with the same generated ID already exists. Built-in commands keep their normal palette labels, but overriding a built-in ID such as <newTerminal>cmux.newTerminal</newTerminal> changes the behavior behind that shared entrypoint.",
       "commandPaletteScreenshotAlt": "cmux Command Palette showing a custom Codex Worktree action from cmux.json",
@@ -1651,6 +1707,10 @@
       "newWorkspaceButton": "Custom plus button actions",
       "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>.",
       "newWorkspaceWorktreeNote": "This example makes the normal plus click run the <action>worktree-agents</action> action. The workspace command from <commands>commands</commands> uses a visible setup terminal to create the Git <worktree>worktree</worktree> first. Codex and Claude start at the same time, wait for the workspace-specific state file, then cd into the created directory before exec.",
+      "workspaceActions": "Workspace layouts",
+      "workspaceActionsDesc": "A workspace layout is stored as a <workspace>workspace</workspace> action, embedding a full workspace definition directly in the action so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
+      "workspaceActionsMenuDesc": "Workspace layouts appear in the plus-button right-click menu automatically. Set <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> to <falseValue>false</falseValue> to hide one, or to <trueValue>true</trueValue> on any other action to add it to the menu.",
+      "workspaceActionsSaveDesc": "You can also create these without writing JSON: right-click the plus button and choose <saveLayout>Save Workspace as Layout</saveLayout> to capture the current workspace's splits, directories, running agents, and browser tabs into <configPath>~/.config/cmux/cmux.json</configPath>. They are stored as entries in the <actions>actions</actions> block. <customize>Customize Workspace Layouts</customize> opens that file in your editor.",
       "simpleCommands": "Simple commands",
       "simpleCommandsDesc": "A simple command runs a shell command in the currently focused terminal:",
       "simpleCommandFields": "Fields",
@@ -1668,6 +1728,8 @@
       "wsFieldName": "Workspace tab name (defaults to command name)",
       "wsFieldCwd": "Working directory for the workspace",
       "wsFieldColor": "Workspace tab color",
+      "wsFieldEnv": "Environment variables inherited by every shell in the workspace",
+      "wsFieldSetup": "Bootstrap command sent to the workspace's first terminal before that terminal's own command",
       "wsFieldLayout": "Layout tree defining splits and panes",
       "restartBehavior": "Restart behavior",
       "restartBehaviorDesc": "Controls what happens when a workspace with the same name already exists:",
@@ -1699,7 +1761,9 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
-      "restartNew": "Create a new workspace (default)"
+      "restartNew": "Create a new workspace (default)",
+      "workspaceActionsDefaultTitle": "Default for new workspaces",
+      "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

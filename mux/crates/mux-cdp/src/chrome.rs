@@ -39,6 +39,9 @@ impl Chrome {
             .arg("--remote-debugging-port=0")
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
+            .arg("--disable-background-timer-throttling")
+            .arg("--disable-backgrounding-occluded-windows")
+            .arg("--disable-renderer-backgrounding")
             .arg(format!("--user-data-dir={}", profile_dir.display()))
             .arg("about:blank")
             .stdin(Stdio::null())
@@ -182,5 +185,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&selected);
         assert!(sentinel.exists());
         let _ = std::fs::remove_dir_all(&explicit_dir);
+    }
+
+    #[test]
+    fn explicit_profile_dir_is_used_verbatim() {
+        let explicit_dir =
+            std::env::temp_dir().join(format!("cmux-mux-cdp-verbatim-{}", std::process::id()));
+        let options = ChromeLaunchOptions {
+            binary: PathBuf::from("chrome"),
+            user_data_dir: Some(explicit_dir.clone()),
+            ephemeral: false,
+        };
+        let (selected, ephemeral) = profile_dir_for(&options).unwrap();
+
+        assert!(!ephemeral);
+        assert_eq!(selected, explicit_dir);
     }
 }

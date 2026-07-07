@@ -164,6 +164,65 @@ import CmuxGit
         #expect(await clock.recordedDurations.isEmpty)
     }
 
+    @Test func remoteWorkspaceBranchAndBadgeAreSkippedByPollingRefresh() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/remote")
+        host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.hasTrustedRemoteDirectory = true
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 7, status: .open)
+        let clock = ManualGitPollClock()
+        let service = makeService(host: host, clock: clock)
+
+        service.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "test")
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.number == 7)
+        #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+        #expect(await clock.recordedDurations.isEmpty)
+    }
+
+    @Test func applySkipsPanelThatBecameRemoteTrustedDuringRefresh() throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/remote")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 7, status: .open)
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        service.workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
+        service.workspacePullRequestNextPollAtByKey[key] = .distantPast
+        host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.hasTrustedRemoteDirectory = true
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resolution: .resolved(WorkspacePullRequestResolvedItem(
+                        number: 99,
+                        urlString: "https://github.com/o/r/pull/99",
+                        statusRawValue: PullRequestStatus.open.rawValue,
+                        branch: "feature/x"
+                    )),
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [key],
+            now: Date(),
+            reason: "test"
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.number == 7)
+        #expect(!host.events.contains { event in
+            if case .pullRequestBadge(_, _, let badge) = event { return badge.number == 99 }
+            return false
+        })
+        #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+    }
+
     /// Disabling polling resets all tracking and clears every badge.
     @Test func disablingPollingSettingClearsBadgesAndTracking() async throws {
         let host = RecordingSidebarGitHost()

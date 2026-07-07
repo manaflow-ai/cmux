@@ -152,12 +152,18 @@ export const stripeCustomers = pgTable(
   {
     id: text("id").primaryKey(),
     stackUserId: text("stack_user_id").notNull(),
+    stackTeamId: text("stack_team_id"),
     email: text("email"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("stripe_customers_stack_user_id_unique").on(table.stackUserId),
+    uniqueIndex("stripe_customers_stack_user_id_unique")
+      .on(table.stackUserId)
+      .where(sql`${table.stackTeamId} is null`),
+    uniqueIndex("stripe_customers_stack_team_id_unique")
+      .on(table.stackTeamId)
+      .where(sql`${table.stackTeamId} is not null`),
   ],
 );
 
@@ -167,9 +173,12 @@ export const stripeSubscriptions = pgTable(
     id: text("id").primaryKey(),
     customerId: text("customer_id").notNull(),
     stackUserId: text("stack_user_id").notNull(),
+    stackTeamId: text("stack_team_id"),
     status: text("status").notNull(),
     priceId: text("price_id"),
     plan: text("plan").notNull(),
+    seats: integer("seats"),
+    scope: text("scope").notNull().default("user"),
     currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
     cancelAtPeriodEnd: boolean("cancel_at_period_end")
       .notNull()
@@ -181,6 +190,7 @@ export const stripeSubscriptions = pgTable(
   (table) => [
     index("stripe_subscriptions_customer_id_idx").on(table.customerId),
     index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
+    index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
   ],
 );
 

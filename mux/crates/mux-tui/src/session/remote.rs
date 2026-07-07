@@ -8,25 +8,60 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, RenderState, Terminal};
-use mux_core::platform::transport;
-use mux_core::{DefaultColors, MuxEvent, Rgb, SurfaceId, SurfaceKind};
+use mux_core::{
+    platform::transport, BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb,
+    SurfaceId, SurfaceKind,
+};
 use serde_json::{json, Value};
 
 use super::tree::{parse_tree, TreeView};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
+#[derive(Clone)]
+struct RemoteBrowserFrame {
+    frame: BrowserFrame,
+}
+
+#[derive(Clone)]
+struct RemoteBrowserState {
+    url: Option<String>,
+    title: Option<String>,
+    source: Option<BrowserSource>,
+    status: BrowserStatus,
+    frames_stalled: bool,
+    live_since: Option<Instant>,
+    last_frame_at: Option<Instant>,
+    frame: Option<RemoteBrowserFrame>,
+}
+
+impl Default for RemoteBrowserState {
+    fn default() -> Self {
+        Self {
+            url: None,
+            title: None,
+            source: None,
+            status: BrowserStatus::Starting,
+            frames_stalled: false,
+            live_since: None,
+            last_frame_at: None,
+            frame: None,
+        }
+    }
+}
 
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
     pub id: SurfaceId,
+    pub kind: SurfaceKind,
     pub term: Mutex<Terminal>,
     pub dirty: AtomicBool,
     server_size: Mutex<(u16, u16)>,
     asserted_size: Mutex<Option<(u16, u16)>>,
+    browser: Mutex<RemoteBrowserState>,
 }
 
 impl RemoteSurface {
@@ -60,6 +95,78 @@ impl RemoteSurface {
 
     pub(super) fn set_asserted_size(&self, size: (u16, u16)) {
         *self.asserted_size.lock().unwrap() = Some(size);
+    }
+
+    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            browser.frame.as_ref().map(|frame| frame.frame.clone())
+        }
+    }
+
+    pub fn browser_url(&self) -> Option<String> {
+        self.browser.lock().unwrap().url.clone()
+    }
+
+    pub fn browser_status(&self) -> BrowserStatus {
+        self.browser.lock().unwrap().status.clone()
+    }
+
+    pub fn browser_frames_stalled(&self) -> bool {
+        let browser = self.browser.lock().unwrap();
+        if !matches!(browser.status, BrowserStatus::Live) {
+            return false;
+        }
+        if browser.frames_stalled {
+            return true;
+        }
+        if browser.source == Some(BrowserSource::Launched) {
+            return false;
+        }
+        let Some(since) = browser.last_frame_at.or(browser.live_since) else {
+            return false;
+        };
+        Instant::now().saturating_duration_since(since) > Duration::from_secs(2)
+    }
+
+    fn update_browser_source(&self, source: Option<BrowserSource>) {
+        self.browser.lock().unwrap().source = source;
+    }
+
+    fn update_browser_state(&self, value: &Value) {
+        let mut browser = self.browser.lock().unwrap();
+        let previous_status = browser.status.clone();
+        browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
+        browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
+        browser.status = match value.get("status").and_then(|v| v.as_str()) {
+            Some("failed") => BrowserStatus::Failed(
+                value.get("error").and_then(|v| v.as_str()).unwrap_or("browser failed").to_string(),
+            ),
+            Some("live") => BrowserStatus::Live,
+            _ => BrowserStatus::Starting,
+        };
+        browser.frames_stalled =
+            value.get("frames_stalled").and_then(|v| v.as_bool()).unwrap_or(false);
+        if previous_status != BrowserStatus::Live && browser.status == BrowserStatus::Live {
+            browser.live_since = Some(Instant::now());
+        }
+        if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
+            browser.last_frame_at = Some(Instant::now());
+            browser.frame = Some(frame);
+        }
+    }
+
+    fn update_browser_frame(&self, value: &Value) {
+        if let Some(frame) = parse_browser_frame(value) {
+            let mut browser = self.browser.lock().unwrap();
+            browser.status = BrowserStatus::Live;
+            browser.frames_stalled = false;
+            browser.live_since.get_or_insert_with(Instant::now);
+            browser.last_frame_at = Some(Instant::now());
+            browser.frame = Some(frame);
+        }
     }
 }
 
@@ -169,6 +276,20 @@ impl RemoteSession {
                 let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
                 self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
             }
+            Some("output") => {
+                let Some(id) = surface_id() else { return };
+                let Some(data) = value.get("data").and_then(|v| v.as_str()) else { return };
+                let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
+                    return;
+                };
+                self.log_frame(id, format!("output bytes={}", bytes.len()));
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.term.lock().unwrap().vt_write(&bytes);
+                    if !surface.dirty.swap(true, Ordering::AcqRel) {
+                        self.emit(MuxEvent::SurfaceOutput(id));
+                    }
+                }
+            }
             Some("resized") => {
                 let Some(id) = surface_id() else { return };
                 let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
@@ -191,18 +312,31 @@ impl RemoteSession {
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
-            Some("output") => {
+            Some("browser-state") => {
                 let Some(id) = surface_id() else { return };
-                let Some(data) = value.get("data").and_then(|v| v.as_str()) else { return };
-                let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
-                    return;
-                };
-                self.log_frame(id, format!("output bytes={}", bytes.len()));
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.term.lock().unwrap().vt_write(&bytes);
+                    let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                    let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                    surface.apply_stream_resize(cols, rows, None);
+                    surface.update_browser_state(&value);
+                    surface.dirty.store(true, Ordering::Release);
+                }
+                self.emit(MuxEvent::TitleChanged(id));
+                self.emit(MuxEvent::SurfaceOutput(id));
+            }
+            Some("frame") => {
+                let Some(id) = surface_id() else { return };
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.update_browser_frame(&value);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
                         self.emit(MuxEvent::SurfaceOutput(id));
                     }
+                }
+            }
+            Some("detached") => {
+                if let Some(id) = surface_id() {
+                    self.surfaces.lock().unwrap().remove(&id);
+                    self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
             Some("tree-changed") => {
@@ -226,6 +360,11 @@ impl RemoteSession {
                     self.emit(MuxEvent::Bell(id));
                 }
             }
+            Some("status") => {
+                if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
+                    self.emit(MuxEvent::Status(message.to_string()));
+                }
+            }
             Some("empty") => self.emit(MuxEvent::Empty),
             Some(_) => {}
         }
@@ -241,19 +380,26 @@ impl RemoteSession {
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
-        let (tx, rx) = channel();
-        self.pending.lock().unwrap().insert(id, tx);
-
         let mut line = serde_json::to_vec(&cmd)?;
         line.push(b'\n');
-        {
-            let mut writer = self.writer.lock().unwrap();
-            writer.write_all(&line)?;
+
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(id, tx);
+        if let Err(err) = self.writer.lock().unwrap().write_all(&line) {
+            self.pending.lock().unwrap().remove(&id);
+            return Err(err.into());
         }
 
-        let response = rx
-            .recv_timeout(Duration::from_secs(10))
-            .map_err(|_| anyhow::anyhow!("session did not respond"))?;
+        let response = match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(response) => response,
+            Err(_) => {
+                // Drop the pending entry so a half-open session does not
+                // accumulate abandoned senders (and a late response is
+                // not delivered to a receiver nobody holds).
+                self.pending.lock().unwrap().remove(&id);
+                anyhow::bail!("session did not respond")
+            }
+        };
         if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
@@ -265,6 +411,14 @@ impl RemoteSession {
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         let _ = self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded}));
+    }
+
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+        let _ = self.request(json!({
+            "cmd": "set-cell-pixels",
+            "width_px": width_px,
+            "height_px": height_px,
+        }));
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
@@ -281,6 +435,10 @@ impl RemoteSession {
         self.request(cmd).map(|_| ())
     }
 
+    pub fn supports_browser_attach(&self) -> bool {
+        true
+    }
+
     /// Mirror for a surface, attaching on first use. When a size is
     /// provided, the caller's immediately following `resize` sends the
     /// server resize after the attach tap is installed, so the resize
@@ -293,15 +451,22 @@ impl RemoteSession {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Some(surface.clone());
         }
+        let (kind, source) = {
+            let tree = self.tree.lock().unwrap();
+            (tree.surface_kind(id), browser_source_from_tree(&tree, id))
+        };
         let (cols, rows) = size.unwrap_or((80, 24));
         let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
         let surface = Arc::new(RemoteSurface {
             id,
+            kind,
             term: Mutex::new(term),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((cols, rows)),
             asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
         });
+        surface.update_browser_source(source);
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         // The vt-state event that follows fills the mirror.
         if self.request(json!({"cmd": "attach-surface", "surface": id})).is_err() {
@@ -333,6 +498,10 @@ impl RemoteSession {
         };
         let tree = parse_tree(&data);
         *self.tree.lock().unwrap() = tree.clone();
+        let surfaces = self.surfaces.lock().unwrap().clone();
+        for (id, surface) in surfaces {
+            surface.update_browser_source(browser_source_from_tree(&tree, id));
+        }
         Ok(tree)
     }
 }
@@ -363,8 +532,8 @@ fn dump_mirror(surface: &RemoteSurface) -> String {
     let offset = scrollbar.map(|sb| sb.offset).unwrap_or(0);
     let total = scrollbar.map(|sb| sb.total).unwrap_or(rows as u64);
     out.push_str(&format!(
-        "surface={} cols={} rows={} scrollback_offset={} scrollback_total={}\n",
-        surface.id, cols, rows, offset, total
+        "surface={} kind={:?} cols={} rows={} scrollback_offset={} scrollback_total={}\n",
+        surface.id, surface.kind, cols, rows, offset, total
     ));
 
     let Ok(mut rs) = RenderState::new() else {
@@ -398,13 +567,76 @@ fn dump_mirror(surface: &RemoteSurface) -> String {
     out
 }
 
+fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSource> {
+    tree.workspaces
+        .iter()
+        .flat_map(|ws| ws.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .find(|tab| tab.surface == id)
+        .and_then(|tab| tab.browser_source)
+}
+
 fn hex_color(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
 
+fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
+    let data_b64 = value.get("data")?.as_str()?.to_string();
+    let seq = value.get("seq")?.as_u64()?;
+    let width = value.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let height = value.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    Some(RemoteBrowserFrame {
+        frame: BrowserFrame {
+            session_id: String::new(),
+            data_b64,
+            css_width: width,
+            css_height: height,
+            seq,
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Mutex;
+
+    use ghostty_vt::{Callbacks, Terminal};
+    use serde_json::json;
+
     use super::*;
+
+    #[test]
+    fn browser_state_without_frame_keeps_cached_frame() {
+        let surface = RemoteSurface {
+            id: 1,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((10, 5)),
+            asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        };
+
+        surface.update_browser_frame(&json!({
+            "seq": 9,
+            "width": 80,
+            "height": 40,
+            "data": "Zmlyc3Q=",
+        }));
+        surface.update_browser_state(&json!({
+            "url": "https://next.test",
+            "title": "next",
+            "status": "live",
+            "frames_stalled": false,
+        }));
+
+        let frame = surface.browser_frame().expect("cached frame");
+        assert_eq!(frame.seq, 9);
+        assert_eq!(frame.data_b64, "Zmlyc3Q=");
+        assert_eq!(surface.browser_url().as_deref(), Some("https://next.test"));
+    }
 
     #[test]
     fn resize_replay_replaces_mirror_with_server_truth_without_duplication() {
@@ -420,10 +652,12 @@ mod tests {
 
         let surface = RemoteSurface {
             id: 1,
+            kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((20, 6)),
             asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
         };
         {
             let mut mirror = surface.term.lock().unwrap();
@@ -459,10 +693,12 @@ mod tests {
 
         let surface = RemoteSurface {
             id: 1,
+            kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((12, 3)),
             asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
         };
         surface.apply_stream_resize(12, 3, None);
         surface.term.lock().unwrap().vt_write(&stale_replay);
