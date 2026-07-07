@@ -139,6 +139,8 @@ struct WindowDockLifecycleTests {
             let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
             let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
             defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: firstWindowId)
                 firstManager.tabs.forEach { $0.teardownAllPanels() }
                 secondManager.tabs.forEach { $0.teardownAllPanels() }
             }
