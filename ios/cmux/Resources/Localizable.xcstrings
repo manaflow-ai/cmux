@@ -4931,6 +4931,23 @@
         }
       }
     },
+    "mobile.signIn.github": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でサインイン"
+          }
+        }
+      }
+    },
     "mobile.signIn.restoring": {
       "extractionState": "manual",
       "localizations": {

@@ -24,9 +24,8 @@ extension TerminalController {
         hasResolvedWindowID: Bool,
         fallbackTabManager: TabManager
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID)? {
-        // Legacy explicit target: surface_id ?? tab_id ONLY (terminal_id is a
-        // general-routing alias but was never a resume target), and the window
-        // branch requires a RESOLVABLE window_id (legacy `v2UUID != nil`).
+        // Explicit target: surface_id, terminal_id, and tab_id all name the
+        // terminal surface; the window branch requires a resolvable window_id.
         if let explicitSurfaceId = explicitTargetID {
             if let explicitWorkspaceId = routing.workspaceID {
                 guard let workspace = fallbackTabManager.tabs.first(where: { $0.id == explicitWorkspaceId }),
@@ -341,10 +340,10 @@ extension TerminalController {
             return .surfaceNotFound
         }
 
-        if tab.isRemoteWorkspace {
-            _ = tab.updatePanelDirectory(panelId: surfaceId, directory: path)
-        } else if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
-            tabManager.updateSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
+        if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
+            tabManager.updateReportedSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
+        } else if tab.isRemoteTerminalSurface(surfaceId) {
+            _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: path)
         } else {
             _ = tab.updatePanelDirectory(panelId: surfaceId, directory: path)
         }

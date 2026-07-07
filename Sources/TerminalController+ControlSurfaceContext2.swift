@@ -156,6 +156,7 @@ extension TerminalController {
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
         let dividerPosition = inputs.initialDividerPosition.map { CGFloat($0) }
+        let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
         let newId: UUID?
         if panelType == .browser {
             newId = ws.newBrowserSplit(
@@ -165,6 +166,7 @@ extension TerminalController {
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload,
+                bypassRemoteProxy: useLocalContext,
                 initialDividerPosition: dividerPosition
             )?.id
         } else {
@@ -179,6 +181,7 @@ extension TerminalController {
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: dividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID,
+                suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
@@ -368,13 +371,15 @@ extension TerminalController {
         }
 
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
+        let useLocalContext = surfaceRemoteContextWantsLocal(inputs.remoteContextRaw)
         let newPanelId: UUID?
         if panelType == .browser {
             newPanelId = ws.newBrowserSurface(
                 inPane: paneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload
+                creationPolicy: .automationPreload,
+                bypassRemoteProxy: useLocalContext
             )?.id
         } else if panelType == .agentSession {
             newPanelId = ws.newAgentSessionSurface(
@@ -393,6 +398,7 @@ extension TerminalController {
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID,
+                suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
                 allowTextBoxFocusDefault: false
             ) {
@@ -517,6 +523,16 @@ extension TerminalController {
         case "rightsidebartool": return .rightSidebarTool
         case "agentsession": return .agentSession
         default: return nil
+        }
+    }
+
+    private func surfaceRemoteContextWantsLocal(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        switch v2NormalizedToken(raw) {
+        case "local", "host", "mac", "macos":
+            return true
+        default:
+            return false
         }
     }
 }

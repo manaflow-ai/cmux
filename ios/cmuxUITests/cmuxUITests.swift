@@ -559,6 +559,32 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
+        let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
+        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
+
+        let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
+        let deadline = Date().addingTimeInterval(3.0)
+        while Date() < deadline {
+            XCTAssertTrue(
+                refreshedTarget.exists && refreshedTarget.isHittable,
+                "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        tapMenuItem(refreshedTarget, in: app)
+        let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
+        XCTAssertTrue(
+            selectedValue.contains("Terminal 24"),
+            "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
+        )
+    }
+
+    @MainActor
     func testTerminalDropdownSwitchesToAlternateScreenSnapshot() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -1469,7 +1495,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
+    func testAgentChatDetailControlsPreserveTranscriptScrollPosition() throws {
         let app = launchAgentChatInlinePreviewApp()
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
@@ -1477,12 +1503,12 @@ final class cmuxUITests: XCTestCase {
             $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
         }
 
-        try assertExpansionTogglePreservesTranscriptPosition(
+        try assertDetailControlPreservesTranscriptPosition(
             buttonID: "ChatToolUseToggle-msg-fixture-4",
             table: table,
             app: app
         )
-        try assertExpansionTogglePreservesTranscriptPosition(
+        try assertDetailControlPreservesTranscriptPosition(
             buttonID: "ChatTerminalToggle-msg-fixture-6",
             table: table,
             app: app
@@ -1968,6 +1994,17 @@ final class cmuxUITests: XCTestCase {
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -3478,7 +3515,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertExpansionTogglePreservesTranscriptPosition(
+    private func assertDetailControlPreservesTranscriptPosition(
         buttonID: String,
         table: XCUIElement,
         app: XCUIApplication,
@@ -3491,7 +3528,7 @@ final class cmuxUITests: XCTestCase {
             table.swipeDown(velocity: .fast)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
-        XCTAssertTrue(button.isHittable, "Expected expansion control \(buttonID) to become hittable", file: file, line: line)
+        XCTAssertTrue(button.isHittable, "Expected detail control \(buttonID) to become hittable", file: file, line: line)
 
         let before = try waitForTranscriptMetrics(
             table,
@@ -3501,10 +3538,15 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         button.tap()
-        let predicate = NSPredicate(format: "value == %@", "Expanded")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: button)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 4)
-        XCTAssertEqual(result, .completed, "Expected \(buttonID) to expand", file: file, line: line)
+        let sheet = app.descendants(matching: .any)["ChatBlockDetailSheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 4), "Expected \(buttonID) to open the detail sheet", file: file, line: line)
+        let copyAllButton = app.buttons["ChatBlockDetailCopyAllButton"]
+        XCTAssertTrue(copyAllButton.waitForExistence(timeout: 4), "Expected detail sheet Copy All button", file: file, line: line)
+        XCTAssertTrue(copyAllButton.isEnabled, "Expected detail sheet Copy All button to be enabled", file: file, line: line)
+        XCTAssertEqual(copyAllButton.label, "Copy All", "Copy All must stay a text-only toolbar button", file: file, line: line)
+        copyAllButton.tap()
+        XCTAssertEqual(copyAllButton.label, "Copy All", "Copy All must not change into a copied checkmark state", file: file, line: line)
+        XCTAssertFalse(app.buttons["Copied"].exists, "Copy All must not be replaced by a Copied checkmark button", file: file, line: line)
         let after = try waitForTranscriptMetrics(
             table,
             timeout: 4,
@@ -3526,6 +3568,10 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        let doneButton = app.buttons["ChatBlockDetailDoneButton"]
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 4), "Expected detail sheet Done button", file: file, line: line)
+        doneButton.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 2), "Expected detail sheet to dismiss", file: file, line: line)
     }
 
     @MainActor

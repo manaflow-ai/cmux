@@ -11,11 +11,12 @@ extension ControlCommandCoordinator {
 
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
     /// `invalid_params` error when any of `window_id` / `workspace_id` /
-    /// `surface_id` / `tab_id` is present-but-non-null yet does not resolve.
+    /// `surface_id` / `terminal_id` / `tab_id` is present-but-non-null yet
+    /// does not resolve.
     private func surfaceResumeTargetValidationError(
         _ params: [String: JSONValue]
     ) -> ControlCallResult? {
-        for key in ["window_id", "workspace_id", "surface_id", "tab_id"] where hasNonNull(params, key) {
+        for key in ["window_id", "workspace_id", "surface_id", "terminal_id", "tab_id"] where hasNonNull(params, key) {
             if uuid(params, key) == nil {
                 return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
             }
@@ -66,11 +67,10 @@ extension ControlCommandCoordinator {
         )
     }
 
-    /// The legacy resume-target selector: `surface_id ?? tab_id` ONLY — the
-    /// `terminal_id` alias that general routing honors was never part of the
-    /// resume-target precedence (origin `v2ResolveSurfaceResumeTarget`).
+    /// The explicit resume-target selector. `terminal_id` is accepted as the
+    /// public terminal alias for `surface_id`, matching general socket routing.
     private func surfaceResumeExplicitTargetID(_ params: [String: JSONValue]) -> UUID? {
-        uuid(params, "surface_id") ?? uuid(params, "tab_id")
+        uuid(params, "surface_id") ?? uuid(params, "terminal_id") ?? uuid(params, "tab_id")
     }
 
     // MARK: - resume.get
