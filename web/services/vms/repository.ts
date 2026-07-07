@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -52,6 +52,9 @@ export type VmRepositoryShape = {
   readonly activeLimitCandidates: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly reconciliationCandidates: (input: {
+    readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
@@ -357,6 +360,17 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             ),
           ),
         );
+    }),
+
+  reconciliationCandidates: (input) =>
+    dbEffect("reconciliationCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
+        .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
     }),
 
   markProviderObservedStatus: (input) =>

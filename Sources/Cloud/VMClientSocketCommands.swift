@@ -12,7 +12,7 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let items = try await VMClient.shared.list()
                 return [
-                    "vms": items.map { ["id": $0.id, "provider": $0.provider, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
+                    "vms": items.map { ["id": $0.id, "provider": $0.provider, "status": $0.status, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
                 ]
             }
         case "vm.create":
@@ -28,7 +28,7 @@ extension TerminalController {
             }
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
-                return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
+                return ["id": vm.id, "provider": vm.provider, "status": vm.status, "image": vm.image, "createdAt": vm.createdAt]
             }
         case "vm.destroy":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {

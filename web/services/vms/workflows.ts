@@ -47,10 +47,21 @@ export type VmEntry = {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
+  readonly status: CloudVmStatus;
   readonly createdAt: number;
 };
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
+
+const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+
+export type VmProviderStatusReconcileResult = {
+  readonly checked: number;
+  readonly updated: number;
+  readonly destroyed: number;
+  readonly skipped: number;
+  readonly skippedNoGetStatus: boolean;
+};
 
 export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
@@ -67,6 +78,49 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
     return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
+  });
+}
+
+export function reconcileVmProviderStatuses(input: {
+  readonly limit?: number;
+} = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const getStatus = providers.getStatus;
+    if (!getStatus) {
+      return {
+        checked: 0,
+        updated: 0,
+        destroyed: 0,
+        skipped: 0,
+        skippedNoGetStatus: true,
+      };
+    }
+
+    const repo = yield* VmRepository;
+    const candidates = yield* repo.reconciliationCandidates({
+      limit: boundedVmStatusReconcileLimit(input.limit),
+    });
+    const outcomes = yield* Effect.forEach(
+      candidates,
+      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron"),
+      { concurrency: 10 },
+    );
+    let updated = 0;
+    let destroyed = 0;
+    let skipped = 0;
+    for (const outcome of outcomes) {
+      if (outcome === "updated") updated += 1;
+      else if (outcome === "destroyed") destroyed += 1;
+      else if (outcome === "skipped") skipped += 1;
+    }
+    return {
+      checked: candidates.length,
+      updated,
+      destroyed,
+      skipped,
+      skippedNoGetStatus: false,
+    };
   });
 }
 
@@ -217,41 +271,64 @@ function refreshActiveLimitProviderStatuses(
     yield* Effect.forEach(candidates, (vm) => {
       const providerVmId = vm.providerVmId;
       if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
-      return Effect.gen(function* () {
-        const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
-          Effect.catchAll((err) =>
-            isProviderNotFoundError(err)
-              ? Effect.succeed("destroyed" as const)
-              : Effect.succeed(null),
-          ),
-        );
-        if (!providerStatus || providerStatus === "creating") return;
-        const dbStatus = dbStatusFromProviderStatus(providerStatus);
-        if (dbStatus === vm.status) return;
-        const didUpdate = yield* repo.markProviderObservedStatus({
-          id: vm.id,
-          providerVmId,
-          status: dbStatus,
-        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
-        if (didUpdate && dbStatus === "destroyed") {
-          yield* repo.recordUsageEvent({
-            userId: vm.userId,
-            billingTeamId: vm.billingTeamId,
-            billingPlanId: vm.billingPlanId,
-            vmId: vm.id,
-            eventType: "vm.destroyed",
-            provider: vm.provider,
-            imageId: vm.imageId,
-            metadata: { source: "provider_status_refresh" },
-          }).pipe(Effect.catchAll(() => Effect.void));
-        }
-      });
+      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
+        Effect.asVoid,
+      );
     }, { concurrency: "unbounded", discard: true });
   });
 }
 
 function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"): CloudVmStatus {
   return status;
+}
+
+type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
+
+function reconcileObservedProviderStatus(
+  repo: VmRepositoryShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  vm: CloudVmRow,
+  usageEventSource: string,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return Effect.gen(function* () {
+    const providerVmId = vm.providerVmId;
+    if (!providerVmId) return "skipped" as const;
+    const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.catchAll((err) =>
+        isProviderNotFoundError(err)
+          ? Effect.succeed("destroyed" as const)
+          : Effect.succeed(null),
+      ),
+    );
+    if (!providerStatus || providerStatus === "creating") return "skipped" as const;
+    const dbStatus = dbStatusFromProviderStatus(providerStatus);
+    if (dbStatus === vm.status) return "unchanged" as const;
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: dbStatus,
+    }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    if (!didUpdate) return "skipped" as const;
+    if (dbStatus === "destroyed") {
+      yield* repo.recordUsageEvent({
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroyed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { source: usageEventSource },
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return "destroyed" as const;
+    }
+    return "updated" as const;
+  });
+}
+
+function boundedVmStatusReconcileLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return VM_STATUS_RECONCILE_BATCH_LIMIT;
+  return Math.max(1, Math.min(VM_STATUS_RECONCILE_BATCH_LIMIT, Math.trunc(limit)));
 }
 
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
@@ -1044,6 +1121,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     provider: row.provider,
     image: row.imageId,
     imageVersion: row.imageVersion,
+    status: row.status,
     createdAt: row.createdAt.getTime(),
   };
 }
