@@ -43,9 +43,17 @@ enum OAuthSignInProvider: CaseIterable, Hashable {
             }
             .mobileButtonLoading(isLoading)
         case .github:
-            Text(L10n.string("mobile.signIn.github", defaultValue: "Sign in with GitHub"))
-                .fontWeight(.semibold)
-                .mobileButtonLoading(isLoading)
+            HStack(spacing: 6) {
+                Image("GitHubLogo")
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
+                Text(L10n.string("mobile.signIn.github", defaultValue: "Sign in with GitHub"))
+                    .fontWeight(.semibold)
+            }
+            .mobileButtonLoading(isLoading)
         }
     }
 
