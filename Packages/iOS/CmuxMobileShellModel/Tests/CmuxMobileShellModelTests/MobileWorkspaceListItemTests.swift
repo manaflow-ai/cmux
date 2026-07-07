@@ -34,6 +34,10 @@ import Testing
         )
     }
 
+    private func footer(_ groupID: String) -> MobileWorkspaceListItem {
+        .groupFooter(.init(rawValue: groupID))
+    }
+
     @Test func ungroupedWorkspacesRenderFlatInOrder() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a"), workspace("b")],
@@ -46,8 +50,6 @@ import Testing
     }
 
     @Test func anchorRendersAsHeaderNotARow() {
-        // Anchor "a" owns group "g"; member "b" is nested. The anchor must not
-        // also appear as a workspace row.
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "g"), workspace("b", group: "g")],
             groups: [group("g", anchor: "a")]
@@ -55,6 +57,7 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: false),
             .workspace(workspace("b", group: "g"), indented: true),
+            footer("g"),
         ])
     }
 
@@ -67,8 +70,6 @@ import Testing
     }
 
     @Test func ungroupedAndGroupedInterleaveByPosition() {
-        // Mirrors the Mac sidebar: items follow `workspaces` order, the group
-        // header lands at its first member's position.
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("top"),
@@ -82,13 +83,12 @@ import Testing
             .workspace(workspace("top"), indented: false),
             .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
             .workspace(workspace("member", group: "g"), indented: true),
+            footer("g"),
             .workspace(workspace("bottom"), indented: false),
         ])
     }
 
     @Test func unknownGroupIDDegradesToUngroupedRow() {
-        // A workspace referencing a group that is not in `groups` (transient
-        // payload skew) must still render, as an ungrouped row, not vanish.
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "missing")],
             groups: []
@@ -96,19 +96,34 @@ import Testing
         #expect(items == [.workspace(workspace("a", group: "missing"), indented: false)])
     }
 
-    @Test func anchorOnlyGroupRendersHeaderWithNoMembers() {
+    @Test func anchorOnlyGroupRendersHeaderAndFooter() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "g")],
             groups: [group("g", anchor: "a")]
         )
-        #expect(items == [.groupHeader(group("g", anchor: "a"), hasUnread: false)])
+        #expect(items == [
+            .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            footer("g"),
+        ])
     }
 
-    // MARK: Header unread aggregation (mirrors the Mac sidebar header badge)
+    @Test func expandedGroupAlwaysEndsWithFooter() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [workspace("a", group: "g"), workspace("b", group: "g")],
+            groups: [group("g", anchor: "a")]
+        )
+        #expect(items.last == footer("g"))
+    }
+
+    @Test func collapsedGroupsDoNotRenderFooter() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [workspace("a", group: "g"), workspace("b", group: "g")],
+            groups: [group("g", anchor: "a", collapsed: true)]
+        )
+        #expect(!items.contains(footer("g")))
+    }
 
     @Test func collapsedGroupHeaderCarriesMemberUnread() {
-        // A collapsed group hides its member rows, so the header must surface
-        // their unread state; otherwise collapsing a group swallows activity.
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("a", group: "g"),
@@ -120,8 +135,6 @@ import Testing
     }
 
     @Test func collapsedGroupHeaderCarriesAnchorUnread() {
-        // The anchor never renders as its own row, so its unread state must
-        // reach the header even when no other member is unread.
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("a", group: "g", unread: true),
@@ -133,8 +146,6 @@ import Testing
     }
 
     @Test func expandedGroupHeaderReflectsOnlyTheAnchor() {
-        // While expanded, member rows are visible and carry their own dots;
-        // the header only represents the anchor (matching the Mac header).
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("a", group: "g"),
@@ -145,6 +156,7 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: false),
             .workspace(workspace("b", group: "g", unread: true), indented: true),
+            footer("g"),
         ])
     }
 
@@ -159,12 +171,11 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: true),
             .workspace(workspace("b", group: "g"), indented: true),
+            footer("g"),
         ])
     }
 
     @Test func collapsedHeaderAggregatesNonContiguousMembers() {
-        // A stray member separated from its group's run still feeds the
-        // header's collapsed aggregate (membership is never silently dropped).
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("a", group: "g"),
@@ -178,8 +189,6 @@ import Testing
             .workspace(workspace("mid"), indented: false),
         ])
     }
-
-    // MARK: List move intent
 
     @Test func listMoveIntentAdjustsDownwardDestinationBeforeRemoval() {
         let workspaces = [workspace("a"), workspace("b"), workspace("c")]
@@ -207,7 +216,7 @@ import Testing
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "a"))
     }
 
-    @Test func listMoveIntentLandingBelowHeaderJoinsGroupAtTop() {
+    @Test func listMoveIntentLandingBelowExpandedHeaderJoinsGroupAtTop() {
         let workspaces = [
             workspace("anchor", group: "g"),
             workspace("member", group: "g"),
@@ -220,13 +229,31 @@ import Testing
             items: items,
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 2),
+            sourceOffsets: IndexSet(integer: 3),
             destination: 1
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "member"))
     }
 
-    @Test func listMoveIntentLandingAtEndOfMemberRunAppendsInsideGroup() {
+    @Test func listMoveIntentGapAboveLeadingHeaderStaysTopLevel() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 3),
+            destination: 0
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "anchor"))
+    }
+
+    @Test func listMoveIntentGapAboveFooterAppendsInsideGroup() {
         let workspaces = [
             workspace("anchor", group: "g"),
             workspace("first", group: "g"),
@@ -241,10 +268,103 @@ import Testing
             items: items,
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 4),
+            sourceOffsets: IndexSet(integer: 5),
             destination: 3
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "between"))
+    }
+
+    @Test func workspacesApplyingGroupIntentPlacesMovedWorkspaceInsideGroup() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("root"),
+            workspace("dragged"),
+        ]
+        let moved = MobileWorkspaceListItem.workspacesApplying(
+            MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "root"),
+            movedWorkspaceID: "dragged",
+            workspaces: workspaces
+        )
+        #expect(moved.map(\.id.rawValue) == ["anchor", "member", "dragged", "root"])
+        #expect(moved.first(where: { $0.id == "dragged" })?.groupID == "g")
+    }
+
+    @Test func workspacesApplyingRootIntentUngroupsMovedWorkspace() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("root"),
+            workspace("dragged", group: "g"),
+        ]
+        let moved = MobileWorkspaceListItem.workspacesApplying(
+            MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root"),
+            movedWorkspaceID: "dragged",
+            workspaces: workspaces
+        )
+        #expect(moved.map(\.id.rawValue) == ["anchor", "member", "dragged", "root"])
+        #expect(moved.first(where: { $0.id == "dragged" })?.groupID == nil)
+    }
+
+    @Test func listMoveIntentGapBelowFooterUngroupsBetweenGroupAndRootRow() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("root"),
+            workspace("dragged"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 4),
+            destination: 3
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root"))
+    }
+
+    @Test func listMoveIntentGapBelowFooterBeforeFollowingHeaderStaysTopLevel() {
+        let workspaces = [
+            workspace("a-anchor", group: "a"),
+            workspace("a-member", group: "a"),
+            workspace("b-anchor", group: "b"),
+            workspace("b-member", group: "b"),
+            workspace("dragged"),
+        ]
+        let groups = [
+            group("a", anchor: "a-anchor"),
+            group("b", anchor: "b-anchor"),
+        ]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 6),
+            destination: 3
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "b-anchor"))
+    }
+
+    @Test func listMoveIntentGapBelowCollapsedHeaderStaysTopLevel() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor", collapsed: true)]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 2),
+            destination: 1
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "dragged"))
     }
 
     @Test func listMoveIntentLandingInUngroupedRunUngroupsWorkspace() {
@@ -261,27 +381,9 @@ import Testing
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 1),
-            destination: 3
+            destination: 4
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "bottom"))
-    }
-
-    @Test func listMoveIntentLandingAtVeryTopPlacesWorkspaceBeforeLeadingGroup() {
-        let workspaces = [
-            workspace("anchor", group: "g"),
-            workspace("member", group: "g"),
-            workspace("dragged"),
-        ]
-        let groups = [group("g", anchor: "anchor")]
-        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
-            workspaces: workspaces,
-            groups: groups,
-            sourceOffsets: IndexSet(integer: 2),
-            destination: 0
-        )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "anchor"))
     }
 
     @Test func listMoveIntentLandingAtVeryBottomAppendsUngroupedWorkspace() {
@@ -306,7 +408,21 @@ import Testing
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 0),
-            destination: 2
+            destination: 3
+        )
+        #expect(intent == nil)
+    }
+
+    @Test func listMoveIntentRejectsFooterRowMove() {
+        let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g"), workspace("tail")]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 2),
+            destination: 4
         )
         #expect(intent == nil)
     }
@@ -324,20 +440,20 @@ import Testing
         #expect(intent == nil)
     }
 
-    @Test func listMoveIntentRejectsIdentityDropAtGroupBoundary() {
+    @Test func listMoveIntentRejectsIdentityDropAtGroupBoundaryWithFooter() {
         let workspaces = [
             workspace("anchor", group: "g"),
             workspace("member", group: "g"),
             workspace("dragged"),
         ]
-        let groups = [group("g", anchor: "anchor", collapsed: true)]
+        let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
         let intent = MobileWorkspaceListItem.moveIntent(
             items: items,
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 1),
-            destination: 2
+            sourceOffsets: IndexSet(integer: 3),
+            destination: 4
         )
         #expect(intent == nil)
     }

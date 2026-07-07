@@ -5,8 +5,8 @@ public extension MobileWorkspaceListItem {
     /// Resolves a SwiftUI `List` move into a Mac-facing workspace move intent.
     ///
     /// The `destination` index is the pre-removal index space reported by
-    /// `ForEach.onMove`. Group headers are never movable, and ambiguous/no-op
-    /// landings resolve to `nil`.
+    /// `ForEach.onMove`. Group headers and synthetic footers are never
+    /// movable, and identity/no-op landings resolve to `nil`.
     ///
     /// - Parameters:
     ///   - items: The rendered workspace list snapshot backing the `List`.
@@ -49,63 +49,13 @@ public extension MobileWorkspaceListItem {
             ? remainingItems[insertionIndex]
             : nil
 
-        let proposed: MobileWorkspaceMoveIntent?
-        switch previousItem {
-        case .groupHeader(let group, _):
-            guard knownGroupIDs.contains(group.id) else { return nil }
-            proposed = MobileWorkspaceMoveIntent(
-                groupID: group.id,
-                beforeWorkspaceID: firstNonAnchorWorkspace(
-                    in: group.id,
-                    groups: groups,
-                    workspaces: orderedWithoutMoved,
-                    knownGroupIDs: knownGroupIDs
-                ) ?? workspaceAfterGroup(
-                    group.id,
-                    workspaces: orderedWithoutMoved,
-                    knownGroupIDs: knownGroupIDs
-                )
-            )
-
-        case .workspace(let previousWorkspace, _):
-            let previousGroupID = validGroupID(previousWorkspace.groupID, knownGroupIDs: knownGroupIDs)
-            if let previousGroupID {
-                let beforeWorkspaceID: MobileWorkspacePreview.ID?
-                if case .workspace(let nextWorkspace, _) = nextItem,
-                   validGroupID(nextWorkspace.groupID, knownGroupIDs: knownGroupIDs) == previousGroupID {
-                    beforeWorkspaceID = nextWorkspace.id
-                } else {
-                    beforeWorkspaceID = workspaceAfterGroup(
-                        previousGroupID,
-                        workspaces: orderedWithoutMoved,
-                        knownGroupIDs: knownGroupIDs
-                    )
-                }
-                proposed = MobileWorkspaceMoveIntent(
-                    groupID: previousGroupID,
-                    beforeWorkspaceID: beforeWorkspaceID
-                )
-            } else {
-                proposed = MobileWorkspaceMoveIntent(
-                    groupID: nil,
-                    beforeWorkspaceID: ungroupedBeforeWorkspaceID(
-                        nextItem: nextItem,
-                        workspaces: orderedWithoutMoved,
-                        knownGroupIDs: knownGroupIDs
-                    )
-                )
-            }
-
-        case nil:
-            proposed = MobileWorkspaceMoveIntent(
-                groupID: nil,
-                beforeWorkspaceID: ungroupedBeforeWorkspaceID(
-                    nextItem: nextItem,
-                    workspaces: orderedWithoutMoved,
-                    knownGroupIDs: knownGroupIDs
-                )
-            )
-        }
+        let proposed = proposedIntent(
+            previousItem: previousItem,
+            nextItem: nextItem,
+            workspaces: orderedWithoutMoved,
+            groups: groups,
+            knownGroupIDs: knownGroupIDs
+        )
 
         guard let intent = proposed else { return nil }
         guard intent.groupID != currentGroupID || changesOrder(
@@ -118,9 +68,158 @@ public extension MobileWorkspaceListItem {
         return intent
     }
 
-    private static func ungroupedBeforeWorkspaceID(
+    private static func proposedIntent(
+        previousItem: MobileWorkspaceListItem?,
         nextItem: MobileWorkspaceListItem?,
         workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview],
+        knownGroupIDs: Set<MobileWorkspaceGroupPreview.ID>
+    ) -> MobileWorkspaceMoveIntent? {
+        switch previousItem {
+        case .groupHeader(let group, _):
+            guard knownGroupIDs.contains(group.id) else { return nil }
+            if group.isCollapsed {
+                return rootLevelIntent(
+                    nextItem: nextItem,
+                    workspaces: workspaces,
+                    groups: groups,
+                    knownGroupIDs: knownGroupIDs
+                )
+            }
+            return MobileWorkspaceMoveIntent(
+                groupID: group.id,
+                beforeWorkspaceID: firstNonAnchorWorkspace(
+                    in: group.id,
+                    groups: groups,
+                    workspaces: workspaces,
+                    knownGroupIDs: knownGroupIDs
+                ) ?? workspaceAfterGroup(
+                    group.id,
+                    workspaces: workspaces,
+                    knownGroupIDs: knownGroupIDs
+                )
+            )
+
+        case .groupFooter:
+            return rootLevelIntent(
+                nextItem: nextItem,
+                workspaces: workspaces,
+                groups: groups,
+                knownGroupIDs: knownGroupIDs
+            )
+
+        case .workspace(let previousWorkspace, _):
+            let previousGroupID = validGroupID(previousWorkspace.groupID, knownGroupIDs: knownGroupIDs)
+            guard let previousGroupID else {
+                return rootLevelIntent(
+                    nextItem: nextItem,
+                    workspaces: workspaces,
+                    groups: groups,
+                    knownGroupIDs: knownGroupIDs
+                )
+            }
+
+            switch nextItem {
+            case .workspace(let nextWorkspace, _):
+                if validGroupID(nextWorkspace.groupID, knownGroupIDs: knownGroupIDs) == previousGroupID {
+                    return MobileWorkspaceMoveIntent(
+                        groupID: previousGroupID,
+                        beforeWorkspaceID: nextWorkspace.id
+                    )
+                }
+                return rootLevelIntent(
+                    nextItem: nextItem,
+                    workspaces: workspaces,
+                    groups: groups,
+                    knownGroupIDs: knownGroupIDs
+                )
+
+            case .groupFooter(let footerGroupID):
+                guard footerGroupID == previousGroupID else {
+                    return rootLevelIntent(
+                        nextItem: nextItem,
+                        workspaces: workspaces,
+                        groups: groups,
+                        knownGroupIDs: knownGroupIDs
+                    )
+                }
+                return MobileWorkspaceMoveIntent(
+                    groupID: previousGroupID,
+                    beforeWorkspaceID: workspaceAfterGroup(
+                        previousGroupID,
+                        workspaces: workspaces,
+                        knownGroupIDs: knownGroupIDs
+                    )
+                )
+
+            case .groupHeader, nil:
+                return rootLevelIntent(
+                    nextItem: nextItem,
+                    workspaces: workspaces,
+                    groups: groups,
+                    knownGroupIDs: knownGroupIDs
+                )
+            }
+
+        case nil:
+            return rootLevelIntent(
+                nextItem: nextItem,
+                workspaces: workspaces,
+                groups: groups,
+                knownGroupIDs: knownGroupIDs
+            )
+        }
+    }
+
+    /// The workspace order after optimistically applying a move intent, for
+    /// use as the authoritative-order stand-in while the Mac move is pending.
+    static func workspacesApplying(
+        _ intent: MobileWorkspaceMoveIntent,
+        movedWorkspaceID: MobileWorkspacePreview.ID,
+        workspaces: [MobileWorkspacePreview]
+    ) -> [MobileWorkspacePreview] {
+        guard let currentIndex = workspaces.firstIndex(where: { $0.id == movedWorkspaceID }) else {
+            return workspaces
+        }
+        var moved = workspaces[currentIndex]
+        moved.groupID = intent.groupID
+        var remaining = workspaces
+        remaining.remove(at: currentIndex)
+        let insertionIndex: Int
+        if let beforeWorkspaceID = intent.beforeWorkspaceID,
+           let targetIndex = remaining.firstIndex(where: { $0.id == beforeWorkspaceID }) {
+            insertionIndex = targetIndex
+        } else if let groupID = intent.groupID,
+                  let lastMemberIndex = remaining.lastIndex(where: { $0.groupID == groupID }) {
+            insertionIndex = remaining.index(after: lastMemberIndex)
+        } else {
+            insertionIndex = remaining.endIndex
+        }
+        remaining.insert(moved, at: insertionIndex)
+        return remaining
+    }
+
+    private static func rootLevelIntent(
+        nextItem: MobileWorkspaceListItem?,
+        workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview],
+        knownGroupIDs: Set<MobileWorkspaceGroupPreview.ID>
+    ) -> MobileWorkspaceMoveIntent {
+        MobileWorkspaceMoveIntent(
+            groupID: nil,
+            beforeWorkspaceID: rootLevelBeforeWorkspaceID(
+                nextItem: nextItem,
+                workspaces: workspaces,
+                groups: groups,
+                knownGroupIDs: knownGroupIDs
+            )
+        )
+    }
+
+    private static func rootLevelBeforeWorkspaceID(
+        nextItem: MobileWorkspaceListItem?,
+        workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview],
         knownGroupIDs: Set<MobileWorkspaceGroupPreview.ID>
     ) -> MobileWorkspacePreview.ID? {
         switch nextItem {
@@ -132,6 +231,16 @@ public extension MobileWorkspaceListItem {
                 workspaces: workspaces,
                 knownGroupIDs: knownGroupIDs
             )
+        case .groupFooter(let groupID):
+            return workspaceAfterGroup(
+                groupID,
+                workspaces: workspaces,
+                knownGroupIDs: knownGroupIDs
+            ) ?? firstWorkspace(
+                in: groupID,
+                workspaces: workspaces,
+                knownGroupIDs: knownGroupIDs
+            ) ?? groups.first(where: { $0.id == groupID })?.anchorWorkspaceID
         case nil:
             return nil
         }

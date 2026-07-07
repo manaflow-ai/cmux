@@ -121,6 +121,7 @@ struct WorkspaceListView: View {
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
     @State var optimisticFlatWorkspaces: [MobileWorkspacePreview]?
     @State var optimisticGroupedItems: [MobileWorkspaceListItem]?
+    @State var optimisticGroupedWorkspaces: [MobileWorkspacePreview]?
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -198,6 +199,9 @@ struct WorkspaceListView: View {
     /// scatter group members).
     var groupedListItems: [MobileWorkspaceListItem] {
         MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
+    }
+    var groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview] {
+        Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     var displayedFlatWorkspaces: [MobileWorkspacePreview] {
@@ -312,7 +316,7 @@ struct WorkspaceListView: View {
             optimisticFlatWorkspaces = nil
         }
         .onChange(of: groupedListItems) { _, _ in
-            optimisticGroupedItems = nil
+            syncOptimisticWorkspaceOrder()
         }
         .onChange(of: rendersGroupedSections) { _, _ in
             syncOptimisticWorkspaceOrder()
@@ -531,6 +535,11 @@ struct WorkspaceListView: View {
                 .moveDisabled(true)
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
+            case .groupFooter(let groupID):
+                WorkspaceGroupFooterRow(groupName: groupsByID[groupID]?.name)
+                    .moveDisabled(true)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 32, bottom: 0, trailing: 12))
+                    .listRowSeparator(.hidden)
             case .workspace(let workspace, let indented):
                 workspaceRow(workspace, indented: indented)
             }
@@ -570,6 +579,14 @@ struct WorkspaceListView: View {
                 )
                 : ""
         )
+        .overlay(alignment: .leading) {
+            if indented {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.22))
+                    .frame(width: 1)
+                    .padding(.leading, 7)
+            }
+        }
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
     }

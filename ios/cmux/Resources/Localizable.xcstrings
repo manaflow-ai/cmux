@@ -8263,6 +8263,57 @@
         }
       }
     },
+    "mobile.workspaceGroup.footer.a11y.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End of %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の終わり"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.footer.a11y.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop above to add to the group, or below to place this workspace at the top level."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上にドロップするとグループに追加され、下にドロップするとこのワークスペースを最上位に配置します。"
+          }
+        }
+      }
+    },
+    "mobile.workspaceGroup.footer.a11y.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ"
+          }
+        }
+      }
+    },
     "mobile.common.dismiss": {
       "extractionState": "manual",
       "localizations": {

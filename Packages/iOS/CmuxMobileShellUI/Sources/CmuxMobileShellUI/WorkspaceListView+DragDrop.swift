@@ -19,6 +19,7 @@ extension WorkspaceListView {
     func syncOptimisticWorkspaceOrder() {
         optimisticFlatWorkspaces = nil
         optimisticGroupedItems = nil
+        optimisticGroupedWorkspaces = nil
     }
 
     func moveFlatRows(from sourceOffsets: IndexSet, to destination: Int) {
@@ -27,7 +28,7 @@ extension WorkspaceListView {
         let items = sourceWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
         guard let intent = MobileWorkspaceListItem.moveIntent(
             items: items,
-            workspaces: filteredWorkspaces,
+            workspaces: sourceWorkspaces,
             groups: [],
             sourceOffsets: sourceOffsets,
             destination: destination
@@ -50,22 +51,27 @@ extension WorkspaceListView {
     func moveGroupedRows(from sourceOffsets: IndexSet, to destination: Int) {
         guard enablesWorkspaceReorder else { return }
         let sourceItems = optimisticGroupedItems ?? groupedListItems
+        let sourceWorkspaces = optimisticGroupedWorkspaces ?? groupedWorkspaces
         guard let intent = MobileWorkspaceListItem.moveIntent(
             items: sourceItems,
-            workspaces: groupedWorkspaces,
+            workspaces: sourceWorkspaces,
             groups: groups,
             sourceOffsets: sourceOffsets,
             destination: destination
         ) else {
             return
         }
-        var movedItems = sourceItems
-        movedItems.move(fromOffsets: sourceOffsets, toOffset: destination)
-        optimisticGroupedItems = movedItems
         guard let sourceIndex = sourceOffsets.first,
               case .workspace(let workspace, _) = sourceItems[sourceIndex] else {
             return
         }
+        let movedWorkspaces = MobileWorkspaceListItem.workspacesApplying(
+            intent,
+            movedWorkspaceID: workspace.id,
+            workspaces: sourceWorkspaces
+        )
+        optimisticGroupedWorkspaces = movedWorkspaces
+        optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)
         Task { @MainActor in
             await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID)
             syncOptimisticWorkspaceOrder()
