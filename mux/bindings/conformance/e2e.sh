@@ -146,7 +146,7 @@ java_cmd() {
       command -v java >/dev/null || { echo "java not found"; return 127; }
       javac -version >/dev/null 2>&1 || { javac -version 2>&1; return 127; }
       java -version >/dev/null 2>&1 || { java -version 2>&1; return 127; }
-      (cd "$ROOT/mux/bindings/java" && bash scripts/build.sh && java -cp out com.manaflow.cmux.mux.JsonTest && java -cp out com.manaflow.cmux.mux.StreamOpenTest)
+      (cd "$ROOT/mux/bindings/java" && bash scripts/build.sh && java -cp out com.manaflow.cmux.mux.JsonTest && java -cp out com.manaflow.cmux.mux.StreamOpenTest && java -cp out com.manaflow.cmux.mux.WireCaptureTest)
       ;;
     run) (cd "$ROOT/mux/bindings/java" && java -cp out com.manaflow.cmux.mux.E2e) ;;
   esac
