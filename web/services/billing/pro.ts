@@ -18,6 +18,7 @@ import { stripeSubscriptions } from "../../db/schema";
 export const PRO_PRODUCT_ID = "pro";
 export const TEAM_PRODUCT_ID = process.env.CMUX_TEAM_PRODUCT_ID?.trim() || "team";
 export const PRO_PLAN_ID = "pro";
+export const TEAM_PLAN_ID = "team";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
@@ -202,6 +203,7 @@ export async function hasActiveStripeProSubscription(
       .where(
         and(
           eq(stripeSubscriptions.stackUserId, stackUserId),
+          eq(stripeSubscriptions.scope, "user"),
           eq(stripeSubscriptions.plan, PRO_PLAN_ID),
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
@@ -212,6 +214,59 @@ export async function hasActiveStripeProSubscription(
     if (isMissingDatabaseConfig(error)) return false;
     throw error;
   }
+}
+
+export async function hasActiveTeamSubscriptionForTeam(
+  stackTeamId: string,
+): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeSubscriptions.id })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackTeamId, stackTeamId),
+          eq(stripeSubscriptions.scope, "team"),
+          eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+          inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+export function metadataPlanId(raw: unknown): string | null {
+  return planIdFromMetadata(proMetadataRecord(raw));
+}
+
+/**
+ * Writes `cmuxPlan: "team"` into a Stack team's clientReadOnlyMetadata while a
+ * Stripe Team subscription is active. `cmuxVmPlan` is operator-owned and left
+ * untouched.
+ */
+export async function syncTeamPlanMetadata(
+  team: ProMetadataCustomer,
+  isTeam: boolean,
+): Promise<void> {
+  const raw = team.clientReadOnlyMetadata;
+  const metadata: Record<string, unknown> =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  const current = metadata.cmuxPlan;
+
+  if (isTeam) {
+    if (current === TEAM_PLAN_ID) return;
+    metadata.cmuxPlan = TEAM_PLAN_ID;
+  } else {
+    if (current !== TEAM_PLAN_ID) return;
+    delete metadata.cmuxPlan;
+  }
+  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
 }
 
 async function hasAnyActiveProSubscription(

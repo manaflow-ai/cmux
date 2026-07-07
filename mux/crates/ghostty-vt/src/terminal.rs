@@ -291,6 +291,27 @@ impl Terminal {
         )
     }
 
+    /// Plain-text dump of the currently rendered viewport.
+    ///
+    /// This uses the terminal formatter's read-only selection path rather
+    /// than `RenderState::update`, so callers can inspect the viewport
+    /// without clearing dirty flags needed by a concurrent renderer.
+    pub fn viewport_text(&mut self) -> Result<String> {
+        let cols = self.cols();
+        let rows = self.rows();
+        if cols == 0 || rows == 0 {
+            return Ok(String::new());
+        }
+        self.selection_text_with_tag_options(
+            sys::GHOSTTY_POINT_TAG_VIEWPORT,
+            (0, 0),
+            (cols.saturating_sub(1), rows.saturating_sub(1) as u64),
+            false,
+            true,
+        )
+        .ok_or(crate::Error::InvalidValue)
+    }
+
     /// Plain text of a selection range given in absolute screen
     /// coordinates (scrollbar offset + viewport row), inclusive.
     /// Clamps the end row when scrollback has trimmed rows after the
@@ -318,6 +339,17 @@ impl Terminal {
         start: (u16, u64),
         end: (u16, u64),
     ) -> Option<String> {
+        self.selection_text_with_tag_options(tag, start, end, true, true)
+    }
+
+    fn selection_text_with_tag_options(
+        &mut self,
+        tag: sys::GhosttyPointTag,
+        start: (u16, u64),
+        end: (u16, u64),
+        unwrap_lines: bool,
+        trim: bool,
+    ) -> Option<String> {
         let grid_ref = |x: u16, y: u64| -> Option<sys::GhosttyGridRef> {
             let y = u32::try_from(y).ok()?;
             let point = sys::GhosttyPoint {
@@ -340,8 +372,8 @@ impl Terminal {
         let opts = sys::GhosttyFormatterTerminalOptions {
             size: std::mem::size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
-            unwrap: true,
-            trim: true,
+            unwrap: unwrap_lines,
+            trim,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: std::mem::size_of::<sys::GhosttyFormatterTerminalExtra>(),
                 ..Default::default()
@@ -352,8 +384,8 @@ impl Terminal {
         Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 
-    /// Plain-text dump of the active screen (viewport plus scrollback is
-    /// not included; this formats the active screen contents).
+    /// Plain-text dump of the active screen's full page list, INCLUDING
+    /// scrollback. For the rendered viewport only, use [`Self::viewport_text`].
     pub fn plain_text(&mut self) -> Result<String> {
         let opts = sys::GhosttyFormatterTerminalOptions {
             size: std::mem::size_of::<sys::GhosttyFormatterTerminalOptions>(),
