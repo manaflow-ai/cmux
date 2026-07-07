@@ -399,7 +399,7 @@ import Testing
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
     }
 
-    @Test func listMoveIntentRejectsHeaderRowMove() {
+    @Test func listMoveIntentMovesGroupHeaderAsAnchorWorkspace() {
         let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g")]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
@@ -410,7 +410,7 @@ import Testing
             sourceOffsets: IndexSet(integer: 0),
             destination: 3
         )
-        #expect(intent == nil)
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
     }
 
     @Test func listMoveIntentRejectsFooterRowMove() {

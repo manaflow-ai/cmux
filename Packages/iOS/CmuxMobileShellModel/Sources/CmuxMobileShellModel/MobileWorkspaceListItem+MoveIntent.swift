@@ -5,8 +5,8 @@ public extension MobileWorkspaceListItem {
     /// Resolves a SwiftUI `List` move into a Mac-facing workspace move intent.
     ///
     /// The `destination` index is the pre-removal index space reported by
-    /// `ForEach.onMove`. Group headers and synthetic footers are never
-    /// movable, and identity/no-op landings resolve to `nil`.
+    /// `ForEach.onMove`. Group headers move their anchor workspace, synthetic
+    /// footers are never movable, and identity/no-op landings resolve to `nil`.
     ///
     /// - Parameters:
     ///   - items: The rendered workspace list snapshot backing the `List`.
@@ -25,7 +25,10 @@ public extension MobileWorkspaceListItem {
         guard sourceOffsets.count == 1,
               let sourceIndex = sourceOffsets.first,
               items.indices.contains(sourceIndex),
-              case .workspace(let movedWorkspace, _) = items[sourceIndex] else {
+              let movedWorkspace = movedWorkspace(
+                for: items[sourceIndex],
+                workspaces: workspaces
+              ) else {
             return nil
         }
 
@@ -66,6 +69,20 @@ public extension MobileWorkspaceListItem {
             return nil
         }
         return intent
+    }
+
+    private static func movedWorkspace(
+        for item: MobileWorkspaceListItem,
+        workspaces: [MobileWorkspacePreview]
+    ) -> MobileWorkspacePreview? {
+        switch item {
+        case .workspace(let workspace, _):
+            return workspace
+        case .groupHeader(let group, _):
+            return workspaces.first { $0.id == group.anchorWorkspaceID }
+        case .groupFooter:
+            return nil
+        }
     }
 
     private static func proposedIntent(

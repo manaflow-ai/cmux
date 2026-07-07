@@ -532,7 +532,7 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
-                .moveDisabled(true)
+                .moveDisabled(!(enablesWorkspaceReorder && anchorCapabilities.supportsMoveActions))
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .groupFooter(let groupID):

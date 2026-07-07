@@ -2,12 +2,18 @@ import CmuxMobileShellModel
 import Foundation
 
 extension WorkspaceListView {
+    var hasPendingWorkspaceMove: Bool {
+        optimisticFlatWorkspaces != nil || optimisticGroupedItems != nil || optimisticGroupedWorkspaces != nil
+    }
+
     var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
+            && !hasPendingWorkspaceMove
             && canRenderGroupsForSelection
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
+            && (rendersGroupedSections || !filteredWorkspaces.contains(where: \.isPinned))
     }
 
     var canCreateWorkspaceInGroups: Bool {
@@ -61,19 +67,27 @@ extension WorkspaceListView {
         ) else {
             return
         }
-        guard let sourceIndex = sourceOffsets.first,
-              case .workspace(let workspace, _) = sourceItems[sourceIndex] else {
+        guard let sourceIndex = sourceOffsets.first else {
+            return
+        }
+        let movedWorkspaceID: MobileWorkspacePreview.ID
+        switch sourceItems[sourceIndex] {
+        case .workspace(let workspace, _):
+            movedWorkspaceID = workspace.id
+        case .groupHeader(let group, _):
+            movedWorkspaceID = group.anchorWorkspaceID
+        case .groupFooter:
             return
         }
         let movedWorkspaces = MobileWorkspaceListItem.workspacesApplying(
             intent,
-            movedWorkspaceID: workspace.id,
+            movedWorkspaceID: movedWorkspaceID,
             workspaces: sourceWorkspaces
         )
         optimisticGroupedWorkspaces = movedWorkspaces
         optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)
         Task { @MainActor in
-            await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID)
+            await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID)
             syncOptimisticWorkspaceOrder()
         }
     }
