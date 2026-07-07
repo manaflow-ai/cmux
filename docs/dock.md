@@ -8,6 +8,8 @@ Every cmux window has its own independent Dock. Opening a new window seeds that 
 
 Each terminal command starts inside the terminal's non-interactive login shell. That keeps the user's normal PATH and toolchain setup without running prompt code before the TUI starts. When the command exits, Dock drops into an interactive login shell in the same section so the user can inspect, rerun, or exit.
 
+Dock also supports a plain terminal primitive. A `type: "terminal"` control without a `command` opens an interactive login shell directly, honoring its configured `cwd`, `env`, and `height`.
+
 ## In-app panes (no config required)
 
 You do not need to edit JSON to use Dock. The Dock tab bar carries the same split affordances as the main area:
@@ -59,15 +61,21 @@ Dock is configured with JSON:
       }
     },
     {
-      "id": "logs",
-      "title": "Logs",
-      "command": "tail -f ./logs/development.log"
+      "id": "shell",
+      "title": "Shell",
+      "type": "terminal",
+      "cwd": ".",
+      "height": 240,
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     {
       "id": "docs",
       "title": "Docs",
       "type": "browser",
-      "url": "https://example.com"
+      "url": "https://example.com",
+      "profile": "Work"
     }
   ]
 }
@@ -77,14 +85,17 @@ Fields:
 
 - `id`: stable unique identifier for the control.
 - `title`: label shown on the Dock tab.
-- `type`: optional, `terminal` (default) or `browser`.
-- `command`: command to run in the Dock terminal. Required for `terminal` controls.
-- `url`: page to open. Required for `browser` controls.
-- `cwd`: optional working directory (terminal controls).
+- `type`: optional, `command` (default), `terminal`, or `browser`.
+- `command`: command to run in the Dock terminal. Required for command controls. Command controls may omit `type`.
+- `url`: page to open. Required for browser controls.
+- `profile`: optional browser profile display name. If absent or unknown, Dock uses the default browser profile.
+- `cwd`: optional working directory for command and terminal controls.
 - `height`: optional requested terminal height in points. Controls without a height share remaining space.
-- `env`: optional non-secret environment variables passed only to that control (terminal controls).
+- `env`: optional non-secret environment variables passed only to command and terminal controls.
 
-Existing terminal-only configs (no `type`) keep loading unchanged. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
+Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command.
+
+Existing configs without `type` keep loading unchanged as command controls. Legacy configs that set `type: "terminal"` together with a `command` also keep loading as command controls. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
 
 ## Config Precedence
 
@@ -105,7 +116,7 @@ Relative `cwd` values resolve from the config base. For `.cmux/dock.json`, that 
 
 ## Trust
 
-Project Dock configs can start commands. The first time cmux sees a project Dock config, it shows a trust gate before launching controls. Changing the config changes the trust fingerprint and asks again.
+Project Dock configs can add command, terminal, and browser controls. The first time cmux sees a project Dock config, it shows a trust gate before launching controls. The gate lists each control: command controls show the command string, terminal primitives show "Login shell", and browser controls show the URL. Changing the config changes the trust fingerprint and asks again.
 
 Global Dock config at `~/.config/cmux/dock.json` is treated as personal config and starts without a project trust gate.
 
