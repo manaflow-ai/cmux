@@ -102,7 +102,10 @@ external-eligible builds too, so founders track `main` once the current version
 has cleared that review gate. The upload path assigns the processed build to the
 app's external beta group automatically, auto-selecting the single external
 group or using `IOS_TESTFLIGHT_EXTERNAL_GROUP_ID` / `IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME`
-repo variables when the app has multiple external groups.
+repo variables when the app has multiple external groups. When Apple reports the
+build as `READY_FOR_BETA_SUBMISSION`, the same lane also creates the beta app
+review submission automatically so a new `MARKETING_VERSION` is not left stuck
+at "Ready to Submit".
 
 ## TestFlight GitHub Actions signing
 
@@ -110,9 +113,11 @@ repo variables when the app has multiple external groups.
 automatic App Store Connect export has produced IPAs whose signed app entitlements
 omit `aps-environment=production`. That upload is intentionally blocked because
 TestFlight push would silently fail. The workflow tracks `main` on a schedule and
-uploads beta builds as external-eligible, so internal testers get the build
-immediately and external testers get the same `main` build once Apple has
-approved that `MARKETING_VERSION` for Beta App Review.
+uploads beta builds as external-eligible. Internal testers get the build
+immediately, and the post-upload external distribution step both assigns the
+build to the founders group and auto-submits a new `MARKETING_VERSION` for Beta
+App Review so external testers get the same `main` build as soon as Apple
+approves it.
 
 Required GitHub secrets:
 

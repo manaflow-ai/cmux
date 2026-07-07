@@ -55,6 +55,7 @@ extension CMUXCLI {
         "__internal_flags",
         "__tmux-compat",
         "agent-hibernation",
+        "ai-accounts",
         "auth",
         "bind-key",
         "break-pane",

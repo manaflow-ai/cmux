@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
 
@@ -929,6 +930,8 @@ struct RestorableAgentSessionIndex: Sendable {
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         let processIDs: Set<Int>
+        let agentProcessIDs: Set<Int>
+        let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     }
 
     enum ProcessDetectedSessionIDSource: Sendable {
@@ -940,6 +943,7 @@ struct RestorableAgentSessionIndex: Sendable {
         snapshot: SessionRestorableAgentSnapshot,
         updatedAt: TimeInterval,
         processIDs: Set<Int>,
+        agentProcessIDs: Set<Int>,
         sessionIDSource: ProcessDetectedSessionIDSource
     )
 
@@ -976,8 +980,32 @@ struct RestorableAgentSessionIndex: Sendable {
         entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
     }
 
+    func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIDs ?? []
+    }
+
+    func agentProcessIdentities(workspaceId: UUID, panelId: UUID) -> [Int: AgentPIDProcessIdentity] {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIdentities ?? [:]
+    }
+
+    func forkValidationEntries() -> [(PanelKey, Entry)] { Array(entriesByPanel) }
+
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
+    }
+
+    func liveAgentProcessFingerprint() -> Set<String> {
+        Set(entriesByPanel.compactMap { key, entry in
+            let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
+            guard !processIDs.isEmpty else { return nil }
+            return [
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                entry.snapshot.kind.rawValue,
+                entry.snapshot.sessionId,
+                processIDs.sorted().map(String.init).joined(separator: ",")
+            ].joined(separator: "|")
+        })
     }
 
     // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
@@ -1036,6 +1064,10 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
@@ -1118,7 +1150,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
-                    processIDs: liveProcessID.map { [$0] } ?? []
+                    processIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: liveProcessID.map { [$0] } ?? [],
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
@@ -1157,7 +1194,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindPanelCandidate {
@@ -1167,14 +1209,44 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: panelCandidate.snapshot,
                     lifecycle: panelCandidate.lifecycle,
                     updatedAt: panelCandidate.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else {
                 resolved[key] = Entry(
                     snapshot: detected.snapshot,
                     lifecycle: nil,
                     updatedAt: 0,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
+                )
+            }
+        }
+
+        let liveDetectedSessionKeys = Set(detectedSnapshots.values.compactMap { detected -> SessionKey? in
+            guard !detected.processIDs.isEmpty,
+                  case .explicit = detected.sessionIDSource else {
+                return nil
+            }
+            return SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
+        })
+        if !liveDetectedSessionKeys.isEmpty {
+            // A live explicit detection owns the session's current panel; stale
+            // hook-store records for that same session should not remain forkable.
+            resolved = resolved.filter { key, entry in
+                if detectedSnapshots[key] != nil {
+                    return true
+                }
+                return !liveDetectedSessionKeys.contains(
+                    SessionKey(kind: entry.snapshot.kind, sessionId: entry.snapshot.sessionId)
                 )
             }
         }
@@ -1194,6 +1266,15 @@ struct RestorableAgentSessionIndex: Sendable {
                     $0.snapshot.sessionId == snapshot.sessionId
             }
             .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    private static func agentProcessIdentities(
+        for processIDs: Set<Int>,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
+    ) -> [Int: AgentPIDProcessIdentity] {
+        Dictionary(uniqueKeysWithValues: processIDs.compactMap { pid in
+            processIdentityProvider(pid).map { (pid, $0) }
+        })
     }
 
     private static func shouldReplaceHookEntry(existing: Entry?, incoming: Entry) -> Bool {
@@ -1846,90 +1927,6 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
         self.entriesByPanelId = entriesByPanelId
-    }
-}
-
-nonisolated struct SurfaceResumeBindingIndex: Sendable {
-    static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
-
-    typealias PanelKey = RestorableAgentSessionIndex.PanelKey
-
-    private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
-    private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
-
-    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
-        self.bindingsByPanel = bindingsByPanel
-        var bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
-        for (key, binding) in bindingsByPanel {
-            let existing = bindingsByPanelId[key.panelId]
-            if existing == nil || binding.updatedAt >= (existing?.updatedAt ?? 0) {
-                bindingsByPanelId[key.panelId] = binding
-            }
-        }
-        self.bindingsByPanelId = bindingsByPanelId
-    }
-
-    func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
-        bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
-    }
-
-    static func loadProcessDetectedBindingsSynchronously(
-        fileManager: FileManager = .default
-    ) -> SurfaceResumeBindingIndex {
-        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
-        return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
-    }
-
-    static func loadIncludingProcessDetectedBindings(
-        fileManager: FileManager = .default
-    ) async -> SurfaceResumeBindingIndex {
-        await Task.detached(priority: .utility) {
-            loadProcessDetectedBindingsSynchronously(fileManager: fileManager)
-        }.value
-    }
-}
-
-struct ProcessDetectedResumeIndexes: Sendable {
-    let restorableAgentIndex: RestorableAgentSessionIndex
-    let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
-
-    static func load(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
-        }.value
-    }
-
-    static func loadSynchronously(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) -> ProcessDetectedResumeIndexes {
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-        let restorableAgentIndex = RestorableAgentSessionIndex.load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots
-        )
-        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-        return ProcessDetectedResumeIndexes(
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
-        )
     }
 }
 

@@ -83,6 +83,7 @@ export async function GET(request: Request): Promise<Response> {
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
+        status: entry.status,
         image: entry.image,
         imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,

@@ -64,7 +64,7 @@ extension TerminalController: ControlWorkspaceContext {
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
-            currentDirectory: workspace.currentDirectory,
+            currentDirectory: workspace.presentedCurrentDirectory ?? "",
             customColor: workspace.customColor,
             latestConversationMessage: workspace.latestConversationMessage,
             latestSubmittedMessage: workspace.latestSubmittedMessage,

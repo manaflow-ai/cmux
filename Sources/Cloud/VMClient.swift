@@ -214,6 +214,7 @@ private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> St
 struct VMSummary {
     let id: String
     let provider: String
+    let status: String
     let image: String
     let createdAt: Int64
 }
@@ -308,9 +309,11 @@ actor VMClient {
             guard let image = dict["image"] as? String, !image.isEmpty else {
                 throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
             }
+            let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            return VMSummary(id: id, provider: provider, image: image, createdAt: createdAt)
+            return VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt)
         }
     }
 
@@ -344,7 +347,9 @@ actor VMClient {
         let serverCreatedAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-        return VMSummary(id: id, provider: providerValue, image: imageValue, createdAt: createdAt)
+        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
+        return VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt)
     }
 
     func destroy(id: String) async throws {
