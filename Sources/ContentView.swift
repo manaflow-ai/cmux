@@ -1674,6 +1674,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             scheduleTitlebarTextRefresh()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange, object: tabManager)) { notification in
+            guard tabManager.shouldRefreshTitleChrome(for: notification) else { return }
+            updateTitlebarText()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString()
             let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
@@ -1870,6 +1875,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 mainWindow: NSApp.mainWindow
             ).shouldHandle else { return }
             openCommandPaletteCommands()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .savedLayoutSaveRequested)) { notification in
+            if Self.shouldHandleSavedLayoutSaveRequest(observedWindow: observedWindow, requestedWindow: notification.object as? NSWindow, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow) {
+                presentSavedLayoutSavePrompt()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
@@ -3263,6 +3274,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
         if let auth = appEnvironment?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
+            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
             snapshot.setBool(
                 CommandPaletteContextKeys.authWorking,
                 auth.coordinator.isLoading || auth.coordinator.isRestoringSession || auth.browserSignIn.isSigningIn
@@ -3533,6 +3545,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 markUnreadTitle: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
                 openPullRequestsTitle: String(localized: "command.openWorkspacePRLinks.title", defaultValue: "Open All Workspace PR Links"),
                 openDiffViewerTitle: String(localized: "command.openDiffViewer.title", defaultValue: "Open Diff Viewer"),
+                openDirectoryDiffViewerTitle: String(localized: "command.openDirectoryDiffViewer.title", defaultValue: "Open Directory Diff Viewer"),
                 equalizeSplitsTitle: String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")
             ),
             tab: CommandPaletteContributionStrings.Tab(
@@ -3957,6 +3970,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
+        registerSavedLayoutCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -4005,6 +4019,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             MobilePairingWindowController.shared.show()
         }
         registerAuthCommandHandlers(&registry)
+        registerProCommandHandlers(&registry)
         registry.register(commandId: "palette.makeDefaultTerminal") {
             AppDelegate.makeDefaultTerminal(debugSource: "palette.makeDefaultTerminal")
         }
@@ -4172,6 +4187,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         registry.register(commandId: "palette.openDiffViewer") {
             if AppDelegate.shared?.openDiffViewerForFocusedWorkspace(for: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.openDirectoryDiffViewer") {
+            if AppDelegate.shared?.openDirectoryDiffViewerForFocusedWorkspace(for: tabManager) != true {
                 NSSound.beep()
             }
         }
@@ -4726,6 +4746,25 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
         )
 #endif
+    }
+
+    static func shouldHandleCommandPaletteRequest(
+        observedWindow: NSWindow?,
+        requestedWindow: NSWindow?,
+        keyWindow: NSWindow?,
+        mainWindow: NSWindow?
+    ) -> Bool {
+        guard let observedWindow else { return false }
+        if let requestedWindow {
+            return requestedWindow === observedWindow
+        }
+        if let keyWindow {
+            return keyWindow === observedWindow
+        }
+        if let mainWindow {
+            return mainWindow === observedWindow
+        }
+        return false
     }
 
     static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {

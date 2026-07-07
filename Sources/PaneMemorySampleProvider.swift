@@ -18,8 +18,8 @@ struct PaneMemorySampleProvider: PaneMemorySampleProviding {
         includeCMUXScope: Bool
     ) -> CmuxPanes.PaneMemoryGuardrailSampleBatch {
         let snapshot = includeCMUXScope
-            ? CmuxTopProcessSnapshot.capture(includeCMUXScope: true)
-            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 2)
+            ? CmuxTopProcessSnapshot.captureCached(includeCMUXScope: true, maximumAge: 5)
+            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 3)
         let samples = Self.computeSamples(
             descriptors: descriptors,
             thresholdBytes: thresholdBytes,

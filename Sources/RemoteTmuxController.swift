@@ -150,6 +150,29 @@ final class RemoteTmuxController {
     func unbindDedicatedWindowForTesting(windowId: UUID) {
         windowRegistry.unbind(windowId: windowId)
     }
+
+    @discardableResult
+    func mirrorSessionForTesting(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        sessionId: Int? = nil,
+        into tabManager: TabManager
+    ) throws -> Bool {
+        try mirrorAttachCoordinator.mirrorSession(
+            host: host,
+            sessionName: sessionName,
+            sessionId: sessionId,
+            into: tabManager
+        )
+    }
+
+    func mirrorSessionsForTesting(
+        _ sessions: [RemoteTmuxSession],
+        host: RemoteTmuxHost,
+        into manager: TabManager
+    ) {
+        mirrorAttachCoordinator.mirrorSessions(sessions, host: host, into: manager)
+    }
 #endif
 
     /// Forwards to ``RemoteTmuxMirrorAttachCoordinator/mirrorHostInNewWindow(host:activateWindow:)``.
@@ -164,6 +187,18 @@ final class RemoteTmuxController {
     /// Forwards to ``RemoteTmuxMirrorAttachCoordinator/mirrorHost(host:)``.
     func mirrorHost(host: RemoteTmuxHost) async throws {
         try await mirrorAttachCoordinator.mirrorHost(host: host)
+    }
+
+    /// The subset of `sessions` not yet mirrored for `host`. Kept as a thin
+    /// controller entrypoint for tests and existing callers; the attach coordinator
+    /// owns the actual bulk-mirror flow.
+    func unmirroredSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost) -> [RemoteTmuxSession] {
+        let mirrors = mirrorRegistry.allMirrors().filter { $0.host.connectionHash == host.connectionHash }
+        return Self.unmirroredSessions(
+            sessions,
+            mirroredSessionIds: Set(mirrors.compactMap { $0.connection.sessionId ?? $0.seededSessionId }),
+            mirroredNames: Set(mirrors.map(\.sessionName))
+        )
     }
 
     // MARK: - Create / destroy propagation (P5)
@@ -277,7 +312,18 @@ final class RemoteTmuxController {
         sessionName: String,
         workspaceId: UUID
     ) {
+        tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId)
+    }
+
+    /// Removes a mirror + its control connection, then closes or converts the local
+    /// workspace. Shared by remote session-end and deliberate detach; neither kills.
+    private func tearDownMirrorAndCloseWorkspace(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        workspaceId: UUID
+    ) {
         let key = host.connectionKey(sessionName: sessionName)
+        let mirrorWorkspace = mirrorRegistry.mirror(forKey: key)?.mirroredWorkspace
         if let mirror = mirrorRegistry.removeMirror(forKey: key) {
             mirror.detachObserver()
         }
@@ -347,6 +393,11 @@ final class RemoteTmuxController {
             "ownedByEndingHost=\(ownedByEndingHost) otherWindows=\(otherMainWindowCount) action=\(action)"
         )
         #endif
+        if (mirrorWorkspace ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            .tabs.first(where: { $0.id == workspaceId }))?
+            .handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() == true {
+            return
+        }
         switch action {
         case let .closeDedicatedWindow(windowId):
             // Tear down the whole dedicated window (true detach UX). Uses
@@ -365,8 +416,9 @@ final class RemoteTmuxController {
             // avoids inheriting the mirror's remote path; `select: false` keeps the
             // disconnect from stealing focus (closeWorkspace reselects after the
             // dead one is removed).
-            if let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-               let workspace = manager.tabs.first(where: { $0.id == workspaceId }) {
+            let manager = mirrorWorkspace?.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+            let workspace = mirrorWorkspace ?? manager?.tabs.first(where: { $0.id == workspaceId })
+            if let manager, let workspace {
                 if manager.tabs.count == 1 {
                     _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
                 }
@@ -499,6 +551,15 @@ final class RemoteTmuxController {
         let mirror = entry.mirror
         let host = mirror.host
         let sessionName = mirror.sessionName
+        // Kill by the stable session id when known, so a prior rename-session
+        // can't leave us targeting a stale name. If the control client already
+        // ended (for example after deliberate detach), closing leftover local
+        // chrome must not kill the remote session.
+        let killTarget = Self.workspaceCloseKillTarget(
+            connectionExited: mirror.connection.exited,
+            sessionId: mirror.connection.sessionId,
+            sessionName: sessionName
+        )
         mirrorRegistry.removeMirror(forKey: entry.key)
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)
@@ -509,9 +570,6 @@ final class RemoteTmuxController {
         if isLastSession {
             windowRegistry.unbind(hostHash: host.connectionHash)
         }
-        // Kill by the stable session id when known, so a prior rename-session
-        // can't leave us targeting a stale name.
-        let killTarget = mirror.connection.sessionId.map { "$\($0)" } ?? sessionName
         let transport = transport(for: host)
         if isLastSession {
             // Drop the transport so a later re-attach builds a fresh one instead of
@@ -519,7 +577,9 @@ final class RemoteTmuxController {
             transportRegistry.remove(connectionHash: host.connectionHash)
         }
         Task {
-            _ = try? await transport.runTmux(["kill-session", "-t", killTarget])
+            if let killTarget {
+                _ = try? await transport.runTmux(["kill-session", "-t", killTarget])
+            }
             // Close the master only after kill-session has used it; `ssh -O exit`
             // first would tear the connection down before the session dies.
             if isLastSession {
@@ -552,9 +612,14 @@ final class RemoteTmuxController {
         )
     }
 
-    /// Detaches and forgets a control connection (leaves the remote session alive).
+    /// Detaches a control client and removes its mirror workspace while leaving
+    /// the remote session alive.
     func detach(host: RemoteTmuxHost, sessionName: String) {
         let key = host.connectionKey(sessionName: sessionName)
+        if let workspaceId = mirrorRegistry.mirror(forKey: key)?.mirroredWorkspaceId {
+            tearDownMirrorAndCloseWorkspace(host: host, sessionName: sessionName, workspaceId: workspaceId)
+            return
+        }
         connectionRegistry.removeConnection(forKey: key)?.stop()
     }
 

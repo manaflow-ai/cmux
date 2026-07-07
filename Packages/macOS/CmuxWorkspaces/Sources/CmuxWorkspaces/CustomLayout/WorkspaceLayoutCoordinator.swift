@@ -172,9 +172,10 @@ public final class WorkspaceLayoutCoordinator {
             }
 
         case .project:
+            let resolvedProjectPath = host.layoutResolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd)
             if let panel = host.layoutCreateProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: resolvedProjectPath,
                 focus: false
             ) {
                 host.layoutClosePanel(panelId, force: true)
@@ -217,9 +218,10 @@ public final class WorkspaceLayoutCoordinator {
             }
 
         case .project:
+            let resolvedProjectPath = host.layoutResolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd)
             if let panel = host.layoutCreateProjectSurface(
                 inPane: paneId,
-                projectPath: surface.url ?? surface.cwd ?? "",
+                projectPath: resolvedProjectPath,
                 focus: false
             ) {
                 if let name = surface.name { host.layoutSetPanelCustomTitle(panelId: panel, title: name) }

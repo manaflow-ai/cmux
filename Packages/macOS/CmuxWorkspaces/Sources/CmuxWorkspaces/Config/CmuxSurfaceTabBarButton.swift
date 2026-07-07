@@ -39,6 +39,7 @@ public struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable
     public static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
     public static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     public static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
+    public static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
 
     public static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,

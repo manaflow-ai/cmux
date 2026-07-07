@@ -121,17 +121,22 @@ public final class RemoteConnectionLifecycleCoordinator<Host: RemoteConnectionLi
     public func reconnectRemoteConnection(surfaceId: UUID? = nil) {
         guard let host else { return }
         guard let configuration = host.hostRemoteConfiguration else { return }
-        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
-            guard host.hostRemoteDisconnectPlaceholderPanelIds.contains(candidate),
-                  host.hostIsTerminalPanel(candidate) else {
+        let reconnectingSurfaceId = surfaceId.flatMap { candidate -> UUID? in
+            guard host.hostIsTerminalPanel(candidate),
+                  host.hostRemoteDisconnectPlaceholderPanelIds.contains(candidate)
+                    || host.hostPendingRemoteTerminalChildExitSurfaceIds.contains(candidate) else {
                 return nil
             }
             return candidate
         }
-        if let reconnectingPlaceholderSurfaceId {
-            host.hostRemoveRemoteDisconnectPlaceholderPanelId(reconnectingPlaceholderSurfaceId)
-            host.hostTrackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
+        if surfaceId != nil, reconnectingSurfaceId == nil { return }
+        if let reconnectingSurfaceId {
+            host.hostRemoveRemoteDisconnectPlaceholderPanelId(reconnectingSurfaceId)
+            host.hostTrackRemoteTerminalSurface(reconnectingSurfaceId)
         }
+        if reconnectingSurfaceId != nil, host.hostRemoteConnectionState == .connected { return }
+        guard host.hostRemoteConnectionState != .connecting,
+              host.hostRemoteConnectionState != .reconnecting else { return }
         configureRemoteConnection(configuration, autoConnect: true)
     }
 

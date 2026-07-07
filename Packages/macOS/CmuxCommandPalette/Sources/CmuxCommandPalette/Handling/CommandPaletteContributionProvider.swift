@@ -643,7 +643,19 @@ public struct CommandPaletteContributionProvider {
                 commandId: "palette.openDiffViewer",
                 title: constant(workspace.openDiffViewerTitle),
                 subtitle: workspaceSubtitle,
-                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview"],
+                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "agent", "codex", "claude"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openDirectoryDiffViewer",
+                title: constant(workspace.openDirectoryDiffViewerTitle),
+                subtitle: workspaceSubtitle,
+                keywords: ["diff", "changes", "git", "review", "branch", "unstaged", "codeview", "directory", "cwd", "folder"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)

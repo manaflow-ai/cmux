@@ -1649,6 +1649,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case "auth":
             return "OK: Authentication not required"
 
+        case "__internal_flags":
+            InternalFlagsPresenter.present()
+            return "OK"
+
         // The v1 window commands (list_windows/current_window/focus_window/
         // new_window/close_window/move_workspace_to_window) and the v1 workspace
         // commands (list_workspaces/new_workspace/new_split/close_workspace/

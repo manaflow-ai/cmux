@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import Testing
 import Foundation
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -18,8 +19,9 @@ import Foundation
 struct CmuxTopSnapshotScopeCacheTests {
     // ~1s, well within the negative TTL.
     static let nowNanoseconds: UInt64 = 1_000_000_000
-    // ~1000s later, beyond any sane negative TTL, so the negative entry expires.
-    static let farFutureNanoseconds: UInt64 = 1_000_000_000_000
+    static let afterNegativeTTLNanoseconds = nowNanoseconds
+        + cmuxTopNegativeScopeTTLNanoseconds
+        + 1
 
     // Before the fix, a process with no cmux scope was a permanent cache miss, so
     // every system.top poll re-ran the 3-sysctl probe for every non-cmux process
@@ -69,7 +71,7 @@ struct CmuxTopSnapshotScopeCacheTests {
         let first = CmuxTopProcessSnapshot.cachedCMUXScope(
             for: 901_002, cacheKey: cacheKey, nowNanoseconds: Self.nowNanoseconds, probe: probe)
         let second = CmuxTopProcessSnapshot.cachedCMUXScope(
-            for: 901_002, cacheKey: cacheKey, nowNanoseconds: Self.farFutureNanoseconds, probe: probe)
+            for: 901_002, cacheKey: cacheKey, nowNanoseconds: Self.afterNegativeTTLNanoseconds, probe: probe)
 
         #expect(first == expected)
         #expect(second == expected)
@@ -151,9 +153,27 @@ struct CmuxTopSnapshotScopeCacheTests {
         // negative entry expires and the next poll re-probes and attributes it.
         resolvedScope = postExecScope
         let afterExpiry = CmuxTopProcessSnapshot.cachedCMUXScope(
-            for: 901_004, cacheKey: cacheKey, nowNanoseconds: Self.farFutureNanoseconds, probe: probe)
+            for: 901_004, cacheKey: cacheKey, nowNanoseconds: Self.afterNegativeTTLNanoseconds, probe: probe)
         #expect(afterExpiry == postExecScope)
         #expect(probeCount == 2, "expired negative entry must be re-probed")
+    }
+
+    @Test func liveProcessScopeProbeResolves() throws {
+        let pid = Int(Darwin.getpid())
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        try #require(size == expectedSize)
+        let cacheKey = CmuxTopProcessSnapshot.scopeCacheKey(from: info)
+
+        let result = CmuxTopProcessSnapshot.cmuxScopeProbe(for: pid, expectedCacheKey: cacheKey)
+
+        switch result {
+        case .resolved:
+            break
+        case .unavailable:
+            Issue.record("live process probe should resolve, even when it has no cmux scope")
+        }
     }
 
     // capture() runs concurrently. A slower sample that probed a process before

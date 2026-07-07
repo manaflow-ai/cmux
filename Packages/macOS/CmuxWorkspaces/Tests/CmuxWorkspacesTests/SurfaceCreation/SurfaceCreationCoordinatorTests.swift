@@ -67,6 +67,112 @@ private final class StubSurfaceCreationHost: SurfaceCreationHosting {
     func logInheritanceFallback(fontPoints: Float) {
         fallbackLogs.append(fontPoints)
     }
+
+    var focusedBonsplitPaneId: PaneID? { nil }
+    var focusedPanelId: UUID? { nil }
+    var focusedTerminalHostedView: AnyObject? { nil }
+    var currentDirectory: String { "" }
+
+    func registerProjectPanel(projectURL: URL) -> SurfaceTabDescriptor {
+        makeDescriptor(title: projectURL.lastPathComponent)
+    }
+
+    func createSurfaceTab(descriptor: SurfaceTabDescriptor, kind: String, inPane paneId: PaneID) -> TabID? {
+        TabID()
+    }
+
+    @discardableResult
+    func reorderTab(_ tabId: TabID, toIndex index: Int) -> Bool {
+        true
+    }
+
+    func publishCmuxSurfaceCreated(_ surfaceId: UUID, paneId: PaneID?, kind: String, origin: String, focused: Bool) {}
+
+    func focusPane(_ paneId: PaneID) {}
+
+    func selectTab(_ tabId: TabID) {}
+
+    func applyTabSelection(tabId: TabID, inPane paneId: PaneID) {}
+
+    func preserveSurfaceFocusAfterNonFocusSplit(
+        preferredPanelId: UUID?,
+        splitPanelId: UUID,
+        previousHostedView: AnyObject?
+    ) {}
+
+    func discardPanelRegistration(id: UUID) {}
+
+    func reloadProjectPanel(id: UUID) {}
+
+    func paneId(forPanelId panelId: UUID) -> PaneID? {
+        nil
+    }
+
+    func registerMarkdownPanel(filePath: String, fontSize: Double?) -> SurfaceTabDescriptor {
+        makeDescriptor(title: filePath)
+    }
+
+    func splitSurface(
+        _ paneId: PaneID,
+        orientation: SplitOrientation,
+        withTab descriptor: SurfaceTabDescriptor,
+        kind: String,
+        insertFirst: Bool
+    ) -> PaneID? {
+        PaneID()
+    }
+
+    func publishCmuxSplitCreated(
+        _ paneId: PaneID,
+        sourcePaneId: PaneID?,
+        orientation: SplitOrientation,
+        surfaceId: UUID?,
+        kind: String,
+        origin: String,
+        focused: Bool
+    ) {}
+
+    func suppressReparentFocusUntilLayoutFollowUp(_ hostedView: AnyObject?, reason: String) {}
+
+    func focusSurfacePanel(_ panelId: UUID) {}
+
+    func selectSurfaceTab(panelId: UUID) {}
+
+    func installMarkdownPanelSubscription(id: UUID) {}
+
+    func registerFilePreviewPanel(filePath: String) -> SurfaceTabDescriptor {
+        makeDescriptor(title: filePath)
+    }
+
+    func focusFilePreviewPanel(id: UUID) {}
+
+    func installFilePreviewPanelSubscription(id: UUID) {}
+
+    func registerAgentSessionPanel(
+        providerIDRawValue: String,
+        rendererKindRawValue: String,
+        workingDirectory: String
+    ) -> SurfaceTabDescriptor {
+        makeDescriptor(title: providerIDRawValue)
+    }
+
+    func focusAgentSessionPanel(id: UUID) {}
+
+    func installAgentSessionPanelSubscription(id: UUID) {}
+
+    func registerExtensionBrowserPanel(title: String) -> SurfaceTabDescriptor {
+        makeDescriptor(title: title)
+    }
+
+    func focusExtensionBrowserPanel(id: UUID) {}
+
+    func registerRightSidebarToolPanel(modeRawValue: String) -> SurfaceTabDescriptor {
+        makeDescriptor(title: modeRawValue)
+    }
+
+    private func makeDescriptor(title: String) -> SurfaceTabDescriptor {
+        SurfaceTabDescriptor(id: UUID(), displayTitle: title, displayIcon: nil, isDirty: false)
+    }
 }
 
 @MainActor

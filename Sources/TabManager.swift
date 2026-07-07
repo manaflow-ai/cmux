@@ -1423,38 +1423,6 @@ class TabManager {
         workspaceReordering.reorderWorkspaces(orderedWorkspaceIds: orderedWorkspaceIds, dryRun: dryRun)
     }
 
-    /// Sets, replaces, or clears a workspace custom title. Returns whether the
-    /// write landed (`.auto` writes are rejected over user-set titles; see
-    /// ``Workspace/setCustomTitle(_:source:)``).
-    @discardableResult
-    func setCustomTitle(
-        tabId: UUID,
-        title: String?,
-        source: Workspace.CustomTitleSource = .user,
-        propagateToRemoteTmux: Bool = true
-    ) -> Bool {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
-        let applied = tabs[index].setCustomTitle(title, source: source)
-        if applied, selectedTabId == tabId {
-            updateWindowTitle(for: tabs[index])
-        }
-        // A remote tmux mirror workspace rename propagates to `rename-session`,
-        // but only when the write landed (an `.auto` write rejected over a
-        // user-set title must not desync the remote session name) and the caller
-        // wants propagation (`false` when the mirror itself is applying a remote
-        // rename, to avoid a rename loop).
-        if applied, propagateToRemoteTmux, tabs[index].isRemoteTmuxMirror {
-            appEnvironment?.remoteTmuxController.handleMirrorWorkspaceRenamed(
-                workspaceId: tabId, title: title
-            )
-        }
-        return applied
-    }
-
-    func clearCustomTitle(tabId: UUID) {
-        setCustomTitle(tabId: tabId, title: nil)
-    }
-
     func setCustomDescription(tabId: UUID, description: String?) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         tabs[index].setCustomDescription(description)

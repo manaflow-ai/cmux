@@ -384,6 +384,7 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
         public let markUnreadTitle: String
         public let openPullRequestsTitle: String
         public let openDiffViewerTitle: String
+        public let openDirectoryDiffViewerTitle: String
         public let equalizeSplitsTitle: String
 
         public init(
@@ -408,6 +409,7 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
             markUnreadTitle: String,
             openPullRequestsTitle: String,
             openDiffViewerTitle: String,
+            openDirectoryDiffViewerTitle: String,
             equalizeSplitsTitle: String
         ) {
             self.renameTitle = renameTitle
@@ -431,6 +433,7 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
             self.markUnreadTitle = markUnreadTitle
             self.openPullRequestsTitle = openPullRequestsTitle
             self.openDiffViewerTitle = openDiffViewerTitle
+            self.openDirectoryDiffViewerTitle = openDirectoryDiffViewerTitle
             self.equalizeSplitsTitle = equalizeSplitsTitle
         }
     }

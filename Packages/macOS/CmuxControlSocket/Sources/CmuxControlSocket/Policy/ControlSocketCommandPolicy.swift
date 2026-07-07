@@ -75,6 +75,7 @@ public struct ControlSocketCommandPolicy: Sendable {
 
     /// v1 commands whose intent is to move focus.
     private static let focusIntentV1Commands: Set<String> = [
+        "__internal_flags",
         "focus_window",
         "select_workspace",
         "focus_surface",
@@ -113,6 +114,7 @@ public struct ControlSocketCommandPolicy: Sendable {
     /// v2 methods that honor an explicit per-request `focus` parameter.
     private static let explicitFocusParamV2Methods: Set<String> = [
         "workspace.create",
+        "layout.open",
         "workspace.move_to_window",
         "surface.split",
         "surface.create",
@@ -128,5 +130,6 @@ public struct ControlSocketCommandPolicy: Sendable {
         "pane.join",
         "markdown.open",
         "browser.open_split",
+        "sidebar.custom.open",
     ]
 }

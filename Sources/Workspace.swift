@@ -3232,6 +3232,17 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        // The default mobile-connect button is remotely toggleable; the flag is
+        // read when buttons are (re)applied, so a dashboard change lands on the
+        // next config reload or launch.
+        let buttons = CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
+            ? buttons
+            : buttons.filter { button in
+                if case .builtIn(let builtInAction) = button.action, builtInAction == .mobileConnect {
+                    return false
+                }
+                return true
+            }
         let executableButtons = SurfaceTabBarExecutableButton.executableButtons(
             for: buttons,
             terminalCommandSourcePaths: terminalCommandSourcePaths,
@@ -10188,6 +10199,8 @@ extension Workspace: BonsplitDelegate {
                     debugSource: "surfaceTabBar.cloudVM",
                     onCompletion: nil
                 )
+            case .mobileConnect:
+                MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

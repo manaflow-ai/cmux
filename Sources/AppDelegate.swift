@@ -1606,6 +1606,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Replaces the legacy `didInstallLifecycleSnapshotObservers` install-once
     /// latch; created once in `installLifecycleSnapshotObserversIfNeeded()`.
     private var lifecycleSnapshotConsumeTask: Task<Void, Never>?
+    /// Coalesced display-reconfiguration correction for non-movable cmux main
+    /// windows whose titlebar can be stranded off-screen when AppKit skips its
+    /// normal constrain pass.
+    private var mainWindowFrameReconcileTask: Task<Void, Never>?
+    private var screenParametersObserver: NSObjectProtocol?
     /// Owns the control-socket listener lifecycle policy (configuration
     /// resolution, start/ensure/restart sequencing, the sudden-termination
     /// latch); the live listener and tab-manager resolution stay here behind the
@@ -2925,6 +2930,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard let self else { return }
                 self.handleSessionLifecycleEvent(event)
             }
+        }
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleMainWindowFrameReconcile()
+            }
+        }
+    }
+
+    /// Coalesces bursts of `didChangeScreenParametersNotification` into one
+    /// reconcile pass after `NSScreen` has settled.
+    private func scheduleMainWindowFrameReconcile() {
+        mainWindowFrameReconcileTask?.cancel()
+        mainWindowFrameReconcileTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, let self else { return }
+            self.mainWindowFrameReconcileTask = nil
+            self.reconcileMainWindowFramesAfterScreenChange()
+        }
+    }
+
+    /// Re-clamps every main window whose titlebar is no longer reachable onto a
+    /// currently-connected display. A no-op for windows that already fit.
+    private func reconcileMainWindowFramesAfterScreenChange() {
+        guard !isApplyingSessionRestore, !isTerminatingApp else { return }
+        let displays = currentDisplayGeometries()
+        guard !displays.available.isEmpty else { return }
+        for window in mainWindowsForVisibilityController() {
+            guard !window.styleMask.contains(.fullScreen) else { continue }
+            let currentFrame = window.frame
+            guard let corrected = Self.reconciledFrameAfterScreenChange(
+                frame: currentFrame,
+                availableDisplays: displays.available
+            ) else { continue }
+#if DEBUG
+            cmuxDebugLog("window.reconcile from={\(currentFrame)} to={\(corrected)}")
+#endif
+            window.setFrame(corrected, display: true)
         }
     }
 
@@ -4406,6 +4452,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return activeCommandPaletteWindow()
     }
 
+    func savedLayoutSaveRequestWindow(for event: NSEvent) -> NSWindow? {
+        commandPaletteWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow
+    }
+
     /// Opens the diff viewer for the focused workspace of `tabManager` by spawning the
     /// bundled `cmux diff` CLI. This is the single shared diff-open path: both the
     /// command-palette entry and the Open Diff Viewer keyboard shortcut funnel through
@@ -4413,6 +4463,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// there is no focused workspace or the bundled CLI is missing.
     @discardableResult
     func openDiffViewerForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+        openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: true)
+    }
+
+    @discardableResult
+    func openDirectoryDiffViewerForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+        openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: false)
+    }
+
+    @discardableResult
+    private func openDiffViewerForFocusedWorkspace(
+        for tabManager: TabManager?,
+        preferAgentContext: Bool
+    ) -> Bool {
 #if DEBUG
         if let debugOpenDiffViewerHandler {
             debugOpenDiffViewerHandler()
@@ -4427,15 +4490,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = terminalControl.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        let cwd = workspace.resolvedWorkingDirectory()
+        let fallbackCwd = workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        return diffViewerLaunchService.launch(
+        if preferAgentContext,
+           let surfaceId = workspace.focusedPanelId,
+           let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
+           let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) {
+            let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
+                snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
+            )
+            let storeURL = Self.agentTurnDiffBaselineStoreURL()
+            let workspaceId = workspace.id
+            let originWindowId = tabManager.flatMap { registeredMainWindow(forManager: $0)?.windowId }
+            let taskKey = Self.openDiffViewerAgentContextTaskKey(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
+            let request = OpenDiffViewerAgentContextRequest(
+                cliURL: cliURL,
+                socketPath: socketPath,
+                fallbackCwd: fallbackCwd,
+                snapshotWorkingDirectory: snapshotWorkingDirectory,
+                storeURL: storeURL,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId,
+                originWindowId: originWindowId
+            )
+            if openDiffViewerAgentContextTasks[taskKey] != nil {
+                openDiffViewerAgentContextPendingRequests[taskKey] = request
+            } else {
+                startOpenDiffViewerAgentContextTask(request, taskKey: taskKey)
+            }
+            return true
+        }
+        let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
+        return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
-            cwd: cwd,
+            cwd: agentDiffContext?.cwd ?? fallbackCwd,
             workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId
+            surfaceId: workspace.focusedPanelId,
+            useLastTurnSource: false,
+            sessionId: agentDiffContext?.sessionId,
+            focus: true
         )
+    }
+
+    private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
+        guard let surfaceId = workspace.focusedPanelId else { return nil }
+        guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
+            return nil
+        }
+        let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId)
+        if let workingDirectory = Self.normalizedOpenDiffViewerPath(
+            snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
+        ) {
+            return (cwd: workingDirectory, sessionId: sessionId)
+        }
+        return nil
     }
 
     func allMainWindowTabManagersForDebug() -> [TabManager] {
@@ -9680,6 +9794,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
+    func matchesSavedLayoutSaveShortcut(event: NSEvent) -> Bool {
+        matchConfiguredShortcut(event: event, action: .saveLayoutTemplate)
+    }
+
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
     /// or its built-in context default) is satisfied by the event's focus state.
     /// Gates every focus-scoped shortcut, including the numbered workspace/surface
@@ -10001,6 +10119,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didStart { onExecuted?() }
                 return didStart
+            case .mobileConnect:
+                MobilePairingWindowController.shared.show()
+                onExecuted?()
+                return true
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()

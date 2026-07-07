@@ -109,6 +109,19 @@ final class RemoteTmuxMirrorAttachCoordinator {
         if let existing = windowRegistry.windowId(forHostHash: host.connectionHash),
            let window = appDelegate.windowForMainWindowId(existing) {
             if activateWindow { window.makeKeyAndOrderFront(nil) }
+            let sessions: [RemoteTmuxSession]
+            do {
+                sessions = try await transportRegistry.transport(for: host).discoverMirrorSessions(createIfEmpty: false)
+            } catch let error as RemoteTmuxError {
+                if case .commandFailed(_, let stderr) = error,
+                   RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
+                    return .authRequired(sshArgv: host.interactiveAuthInvocation())
+                }
+                throw error
+            }
+            guard try await mirrorUnmirroredSessionsIntoDedicatedWindow(host: host, windowId: existing, sessions: sessions) else {
+                throw RemoteTmuxError.unreachable("dedicated window closed during attach for \(host.destination)")
+            }
             return .mirrored(windowId: existing)
         }
         // Guard the await gap: a second concurrent attach for the same host must
@@ -148,6 +161,9 @@ final class RemoteTmuxMirrorAttachCoordinator {
         if let existing = windowRegistry.windowId(forHostHash: host.connectionHash),
            let window = appDelegate.windowForMainWindowId(existing) {
             if activateWindow { window.makeKeyAndOrderFront(nil) }
+            guard try await mirrorUnmirroredSessionsIntoDedicatedWindow(host: host, windowId: existing, sessions: sessions) else {
+                throw RemoteTmuxError.unreachable("dedicated window closed during attach for \(host.destination)")
+            }
             return .mirrored(windowId: existing)
         }
 
@@ -164,21 +180,13 @@ final class RemoteTmuxMirrorAttachCoordinator {
         try await ensureControlMasterReadyForBurst(host: host)
 
         let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
-        guard let manager = appDelegate.environment.windowRegistry.tabManagerFor(windowId: windowId) else {
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
             throw RemoteTmuxError.unreachable("could not create window")
         }
         windowRegistry.bind(host: host, windowId: windowId)
 
         let bootstrapWorkspaceId = manager.tabs.first?.id
-        for session in sessions {
-            do {
-                try mirrorSession(host: host, sessionName: session.name, into: manager)
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("remote-tmux: mirror session \(session.name) on \(host.destination) failed: \(error)")
-                #endif
-            }
-        }
+        mirrorSessions(sessions, host: host, into: manager)
         // Avoid binding an empty dedicated window when sessions failed or were
         // already mirrored elsewhere; the next attach must be able to retry.
         let newWindowWorkspaceIds = Set(manager.tabs.map(\.id))
@@ -205,21 +213,52 @@ final class RemoteTmuxMirrorAttachCoordinator {
     }
 
     /// Discovers every tmux session on `host` and mirrors each as its own
-    /// workspace in the active window's sidebar (Option 2 — used by the
-    /// `remote.tmux.mirror` socket command). Prefer
-    /// ``mirrorHostInNewWindow(host:)`` for the user-facing attach.
+    /// sidebar workspace (Option 2 — used by the `remote.tmux.mirror` socket
+    /// command). Mirrors into the host's dedicated mirror window when one is
+    /// bound; only without one does it fall back to the active window's sidebar.
+    /// Prefer ``mirrorHostInNewWindow(host:)`` for the user-facing attach.
     func mirrorHost(host: RemoteTmuxHost) async throws {
-        guard let tabManager = AppDelegate.shared?.tabManager else {
-            throw RemoteTmuxError.unreachable("app not ready")
-        }
+        let dispatchFallback = AppDelegate.shared?.tabManager
         let sessions = try await transportRegistry.transport(for: host).discoverMirrorSessions(createIfEmpty: false)
         // Confirm the shared ControlMaster before the per-session attach burst, so
         // concurrent `ControlMaster=auto` attaches don't race to create it (#6732).
         try await ensureControlMasterReadyForBurst(host: host)
-        for session in sessions {
-            // One session failing to attach must not abort mirroring the rest.
+        // Post-await re-resolve: prefer a still-bound dedicated window (a mid-flight
+        // close unbound it); focus changes must not retarget a live dispatch fallback.
+        guard let appDelegate = AppDelegate.shared,
+              let tabManager = RemoteTmuxController.mirrorTargetTabManager(
+                  dedicatedWindowId: windowRegistry.windowId(forHostHash: host.connectionHash),
+                  tabManagerForWindow: { appDelegate.tabManagerFor(windowId: $0) },
+                  fallbackTabManager: { dispatchFallback?.window != nil ? dispatchFallback : appDelegate.tabManager }
+              ) else {
+            throw RemoteTmuxError.unreachable("app not ready")
+        }
+        mirrorSessions(sessions, host: host, into: tabManager)
+    }
+
+    /// The subset of `sessions` not yet mirrored for `host`: stable tmux ids beat
+    /// mutable names so bulk discovery can't duplicate mid-rename.
+    func unmirroredSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost) -> [RemoteTmuxSession] {
+        let mirrors = mirrorRegistry.allMirrors().filter { $0.host.connectionHash == host.connectionHash }
+        return RemoteTmuxController.unmirroredSessions(
+            sessions,
+            mirroredSessionIds: Set(mirrors.compactMap { $0.connection.sessionId ?? $0.seededSessionId }),
+            mirroredNames: Set(mirrors.map(\.sessionName))
+        )
+    }
+
+    /// Mirrors each not-yet-mirrored session into `manager` (one failure must not
+    /// abort the rest). Applies stable-id de-dup itself so every bulk entrypoint
+    /// survives a rename race with raw input.
+    func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager) {
+        for session in unmirroredSessions(sessions, host: host) {
             do {
-                try mirrorSession(host: host, sessionName: session.name, into: tabManager)
+                try mirrorSession(
+                    host: host,
+                    sessionName: session.name,
+                    sessionId: RemoteTmuxController.tmuxSessionNumericId(session.id),
+                    into: manager
+                )
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: mirror session \(session.name) on \(host.destination) failed: \(error)")
@@ -228,11 +267,36 @@ final class RemoteTmuxMirrorAttachCoordinator {
         }
     }
 
+    /// Mirrors newly-discovered sessions into an existing dedicated window.
+    ///
+    /// Reuse paths skip the window-creation guard because mirroring is idempotent.
+    /// Revalidation must stay after the last await so a closed window never
+    /// receives invisible mirror workspaces.
+    private func mirrorUnmirroredSessionsIntoDedicatedWindow(
+        host: RemoteTmuxHost,
+        windowId: UUID,
+        sessions: [RemoteTmuxSession]
+    ) async throws -> Bool {
+        let unmirrored = unmirroredSessions(sessions, host: host)
+        if !unmirrored.isEmpty {
+            try await ensureControlMasterReadyForBurst(host: host)
+            try Task.checkCancellation()
+        }
+        guard windowRegistry.windowId(forHostHash: host.connectionHash) == windowId,
+              let manager = AppDelegate.shared?.tabManagerFor(windowId: windowId) else {
+            return false
+        }
+        guard !unmirrored.isEmpty else { return true }
+        mirrorSessions(unmirrored, host: host, into: manager)
+        return true
+    }
+
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).
     @discardableResult
     func mirrorSession(
         host: RemoteTmuxHost,
         sessionName: String,
+        sessionId: Int? = nil,
         into tabManager: TabManager
     ) throws -> Bool {
         let key = host.connectionKey(sessionName: sessionName)
@@ -251,6 +315,7 @@ final class RemoteTmuxMirrorAttachCoordinator {
             RemoteTmuxSessionMirror(
                 host: host,
                 sessionName: sessionName,
+                seededSessionId: sessionId,
                 connection: connection,
                 tabManager: tabManager,
                 workspace: workspace

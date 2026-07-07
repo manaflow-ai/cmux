@@ -164,6 +164,9 @@ public protocol RemoteConnectionLifecycleHosting: AnyObject {
     /// The remote-disconnect placeholder panel ids.
     var hostRemoteDisconnectPlaceholderPanelIds: Set<UUID> { get }
 
+    /// Remote terminal child-exit panel ids that may be reconnected in place.
+    var hostPendingRemoteTerminalChildExitSurfaceIds: Set<UUID> { get }
+
     /// Subtracts `ids` from the remote-disconnect placeholder set.
     func hostSubtractRemoteDisconnectPlaceholderPanelIds(_ ids: Set<UUID>)
 

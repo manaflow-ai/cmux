@@ -12,6 +12,8 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
     case newWorkspace = "cmux.newWorkspace"
     /// Create a new Cloud VM workspace.
     case cloudVM = "cmux.cloudvm"
+    /// Connect a mobile device (iPhone) to this workspace.
+    case mobileConnect = "cmux.mobileconnect"
     /// Open a new terminal surface.
     case newTerminal = "cmux.newTerminal"
     /// Open a new browser surface.
@@ -31,6 +33,9 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
              "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
              "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
             self = .cloudVM
+        case "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
+             "cmux.connectPhone", "connectPhone":
+            self = .mobileConnect
         case "cmux.newTerminal", "newTerminal":
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
@@ -56,6 +61,8 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
             return "plus.square"
         case .cloudVM:
             return "cloud"
+        case .mobileConnect:
+            return "iphone"
         case .newTerminal:
             return "terminal"
         case .newBrowser:
@@ -71,7 +78,7 @@ public enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseItera
     /// (new workspace, Cloud VM) that `Bonsplit` does not drive.
     public var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .cloudVM:
+        case .newWorkspace, .cloudVM, .mobileConnect:
             return nil
         case .newTerminal:
             return .newTerminal

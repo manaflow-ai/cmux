@@ -66,7 +66,8 @@ struct CommandPaletteContributionProviderTests {
                 moveUpTitle: "Up", moveDownTitle: "Down", moveToTopTitle: "Top",
                 closeOtherTitle: "Close Other", closeBelowTitle: "Close Below", closeAboveTitle: "Close Above",
                 markReadTitle: "Mark Read", markUnreadTitle: "Mark Unread",
-                openPullRequestsTitle: "Open PRs", openDiffViewerTitle: "Diff", equalizeSplitsTitle: "Equalize"
+                openPullRequestsTitle: "Open PRs", openDiffViewerTitle: "Diff",
+                openDirectoryDiffViewerTitle: "Directory Diff", equalizeSplitsTitle: "Equalize"
             ),
             tab: CommandPaletteContributionStrings.Tab(
                 renameTitle: "Rename Tab", clearNameTitle: "Clear Tab Name",
@@ -154,6 +155,7 @@ struct CommandPaletteContributionProviderTests {
         assertAfter("host.terminalDirectoryOpenTargets", follows: "palette.browserDuplicateRight")
         assertAfter("host.cmuxConfigIssues", follows: "palette.equalizeSplits")
         assertAfter("host.cmuxConfigCustomActions", follows: "host.cmuxConfigIssues")
+        #expect(ids.contains("palette.openDirectoryDiffViewer"))
         // cmuxConfigCustomActions is the final block.
         #expect(ids.last == "host.cmuxConfigCustomActions")
     }
