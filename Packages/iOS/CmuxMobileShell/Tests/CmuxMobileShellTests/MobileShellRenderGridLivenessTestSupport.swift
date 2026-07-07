@@ -5,9 +5,7 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-// Shared fixtures for the render-grid liveness watchdog tests
-// (MobileShellRenderGridLivenessTests.swift): injected clock, scripted
-// host router, transport mocks, and the connected-store builder.
+// Shared render-grid liveness fixtures: clock, host router, transport mocks, and connected-store builder.
 
 // MARK: - Injected clock
 
@@ -300,6 +298,8 @@ actor LivenessHostRouter {
                 "terminal_fidelity": "render_grid",
                 "capabilities": capabilities,
             ])
+        case "mobile.attach_ticket.create":
+            return try? LivenessManualAttachTicketResultFrame(id: id).make()
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {

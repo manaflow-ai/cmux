@@ -1421,12 +1421,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case networkChange
         case manual
         case presencePush
+        case livenessProbe
+
         var description: String {
             switch self {
             case .networkChange: return "networkChange"
             case .manual: return "manual"
             case .presencePush: return "presencePush"
+            case .livenessProbe: return "livenessProbe"
             }
+        }
+    }
+
+    private enum RecoveryPlan {
+        case resyncConnectedClient
+        case reconnectStoredMac
+    }
+
+    private func recoveryPlan(for trigger: RecoveryTrigger) -> RecoveryPlan {
+        switch trigger {
+        case .livenessProbe, .presencePush:
+            return .reconnectStoredMac
+        case .manual:
+            return macConnectionStatus == .connected ? .resyncConnectedClient : .reconnectStoredMac
+        case .networkChange:
+            // macConnectionStatus is the health authority for a logical
+            // connection whose transport may already be wedged: unavailable
+            // means rebuild from the stored Mac instead of reusing the client.
+            return macConnectionStatus == .unavailable ? .reconnectStoredMac : .resyncConnectedClient
         }
     }
 
@@ -1462,12 +1484,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// shows Retry and the next network change re-attempts automatically.
     private func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
+        guard !recoveryInFlight else { return }
+        let plan = recoveryPlan(for: trigger)
+        if connectionState == .connected,
+           remoteClient != nil,
+           (plan == .resyncConnectedClient || pairedMacStore == nil) {
             markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
             return
         }
-        guard !recoveryInFlight else { return }
         recoveryInFlight = true
         isRecoveringConnection = true
         connectionRecoveryFailed = false
@@ -1478,7 +1503,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self?.recoveryInFlight = false
                 self?.isRecoveringConnection = false
             }
-            guard let self, self.connectionState != .connected else { return }
+            guard let self else { return }
+            if self.connectionState == .connected, self.remoteClient != nil {
+                self.disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+            }
+            guard self.connectionState != .connected else { return }
             let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
             if !reconnected, !Task.isCancelled {
                 self.connectionRecoveryFailed = true
@@ -6635,12 +6664,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
             self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
             mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
-            // resyncTerminalOutput(restartEventStream: true) stops the wedged
-            // listener (which cancels this watchdog via stopTerminalRefreshPolling)
-            // and starts a fresh subscription + watchdog, then replays every
-            // surface so the phone catches up on the deltas it missed while the
-            // stream was dead.
-            self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+            // A failed probe means the persistent RPC client itself may be wedged
+            // after iOS suspension. Reusing that same client just repeats the
+            // timeout loop; reconnect from the saved Mac record so the transport,
+            // reader, writer, and subscription state are all rebuilt together.
+            self.recoverMobileConnection(trigger: .livenessProbe)
         }
     }
 
