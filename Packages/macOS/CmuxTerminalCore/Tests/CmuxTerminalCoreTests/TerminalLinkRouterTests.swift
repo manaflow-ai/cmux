@@ -50,6 +50,16 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.path == "/docs")
     }
 
+    @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
+        let target = router.resolveOpenURLTarget("s/pipeline-failure-state-model.md")
+        #expect(target == nil)
+    }
+
+    @Test func unresolvedRelativePathDoesNotResolveAsHTTPSURL() {
+        let target = router.resolveOpenURLTarget("README.md")
+        #expect(target == nil)
+    }
+
     @Test func resolvesFileSchemeAsExternal() throws {
         let target = try #require(router.resolveOpenURLTarget("file:///tmp/cmux.txt"))
         guard case let .external(url) = target else {
