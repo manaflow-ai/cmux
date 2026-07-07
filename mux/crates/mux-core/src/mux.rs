@@ -1121,12 +1121,48 @@ fn move_tab_in_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn test_mux() -> Arc<Mux> {
         // A child that stays alive without doing anything.
         let opts =
             SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
         Mux::new("test", opts)
+    }
+
+    fn seed_split_ratio_tree(mux: &Mux) -> (PaneId, PaneId, PaneId) {
+        let (p1, p2, p3) = (1, 2, 3);
+        *mux.state.lock().unwrap() = State {
+            workspaces: vec![Workspace {
+                id: 1,
+                name: "1".into(),
+                screens: vec![Screen {
+                    id: 1,
+                    name: None,
+                    root: Node::Split {
+                        dir: SplitDir::Right,
+                        ratio: 0.5,
+                        a: Box::new(Node::Split {
+                            dir: SplitDir::Right,
+                            ratio: 0.5,
+                            a: Box::new(Node::Leaf(p1)),
+                            b: Box::new(Node::Leaf(p3)),
+                        }),
+                        b: Box::new(Node::Leaf(p2)),
+                    },
+                    active_pane: p3,
+                }],
+                active_screen: 0,
+            }],
+            active_workspace: 0,
+            panes: HashMap::from([
+                (p1, Pane { id: p1, name: None, tabs: vec![1], active_tab: 0, active_at: 1 }),
+                (p2, Pane { id: p2, name: None, tabs: vec![2], active_tab: 0, active_at: 2 }),
+                (p3, Pane { id: p3, name: None, tabs: vec![3], active_tab: 0, active_at: 3 }),
+            ]),
+            surfaces: HashMap::new(),
+        };
+        (p1, p2, p3)
     }
 
     #[test]
@@ -1273,12 +1309,7 @@ mod tests {
     #[test]
     fn set_ratio_updates_deepest_split_and_clamps() {
         let mux = test_mux();
-        let s1 = mux.new_workspace(None, None).unwrap();
-        let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
-        let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
-        let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
-        let s3 = mux.split(p1, SplitDir::Right, None).unwrap();
-        let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
+        let (p1, p2, p3) = seed_split_ratio_tree(&mux);
 
         assert!(mux.set_ratio(p1, SplitDir::Right, 0.8));
         mux.with_state(|s| {
@@ -1313,10 +1344,6 @@ mod tests {
         });
 
         assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
-
-        mux.close_pane(p1);
-        mux.close_pane(p2);
-        mux.close_pane(p3);
     }
 
     #[test]
