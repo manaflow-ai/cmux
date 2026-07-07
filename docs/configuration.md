@@ -2,6 +2,22 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `paneBorderColor` and `activePaneBorderColor`
+
+Customize split-workspace pane boundaries controlled by cmux.
+
+```json
+{
+  "paneBorderColor": "#6B7280",
+  "activePaneBorderColor": "#3B82F6"
+}
+```
+
+- `paneBorderColor`: overrides the divider color between cmux panes in split workspaces.
+- `activePaneBorderColor`: draws a border around the focused cmux pane in split workspaces.
+
+Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to keep the built-in appearance. These settings apply to cmux's multi-surface pane layout, not Ghostty's internal splits; Ghostty settings such as `split-divider-color` still only affect splits inside one Ghostty instance.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -45,6 +61,29 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `ui.newWorkspace.menuSectionOrder`
+
+Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
+
+Values: `customFirst`, `cloudFirst`.
+
+Default: `cloudFirst`.
+
+```json
+{
+  "ui": {
+    "newWorkspace": {
+      "menuSectionOrder": "customFirst",
+      "contextMenu": [
+        "newWorkspace"
+      ]
+    }
+  }
+}
+```
+
+`sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
+
 ## `terminal.agentHibernation`
 
 Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.
@@ -66,6 +105,118 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 - `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+
+## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
+
+`terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.
+
+`terminal.focusTextBoxOnNewTerminals` opens the TextBox and focuses it for foreground terminal sessions created from the app UI, such as new terminal workspaces, tabs, and splits. Terminals created through the cmux CLI/control socket do not auto-focus the TextBox, even when this setting is enabled, so background automation does not steal keyboard focus.
+
+## `terminal.textBoxSubmitActions`
+
+Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.
+
+Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `shortcuts.bindings.cycleTextBoxSubmitAction`; rebind or disable it from Settings > Keyboard Shortcuts or `cmux.json`. Right-click the submit button to pick any configured action or open this documentation.
+
+```json
+{
+  "terminal": {
+    "textBoxDefaultSubmitAction": "codex",
+    "textBoxSubmitActions": [
+      {
+        "id": "codex",
+        "title": "Codex --yolo",
+        "kind": "commandTemplate",
+        "commandTemplate": "codex --yolo -- {{prompt}}",
+        "systemImage": "sparkles",
+        "assetName": "AgentIcons/Codex",
+        "backgroundColorHex": "#8FDBFF"
+      },
+      {
+        "id": "custom-router",
+        "title": "Custom Router",
+        "kind": "commandTemplate",
+        "commandTemplate": "agent-router --plan {{prompt}}",
+        "systemImage": "wand.and.stars",
+        "imagePath": "~/Pictures/router.png",
+        "backgroundColorHex": "#3DDC97"
+      }
+    ]
+  }
+}
+```
+
+Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
+
+Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
+Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions -- {{prompt}}`, `codex --yolo -- {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi -- {{prompt}}`.
+
+Action fields:
+
+- `id`: stable action ID.
+- `title`: menu label for custom actions.
+- `kind`: `textEntry` or `commandTemplate`.
+- `commandTemplate`: shell command for `commandTemplate`. Include `{{prompt}}` where the prompt should be shell-quoted into the command line.
+- `preservePromptAfterLaunch`: optional boolean for custom launch-only actions. When `true`, cmux submits `commandTemplate` as a provider launch command while keeping the TextBox prompt intact for the active agent session.
+- `systemImage`: fallback SF Symbol name shown on the submit button.
+- `assetName`: optional app asset catalog image name, for example `AgentIcons/Codex`.
+- `imagePath`: optional PNG or image path for the submit button.
+- `backgroundColorHex`: action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states.
+
+## `terminal.uploadCommands`
+
+Replace the built-in `scp` for terminal file drops and pastes over SSH with a
+command you choose. When you drop or paste a file into a terminal running an SSH
+session, cmux normally `scp`s it to `/tmp/cmux-drop-<uuid>` on the host and types
+the remote path. `terminal.uploadCommands` is an ordered list of host-scoped
+rules; when the ssh destination matches a rule, cmux runs that rule's command
+instead and inserts what the command prints.
+
+```json
+{
+  "terminal": {
+    "uploadCommands": [
+      {
+        "hostPattern": "*.example.com",
+        "command": "my-upload \"$CMUX_UPLOAD_LOCAL_PATH\" \"$CMUX_UPLOAD_DESTINATION:$CMUX_UPLOAD_REMOTE_PATH\""
+      }
+    ]
+  }
+}
+```
+
+- `hostPattern`: an fnmatch glob matched against the ssh destination (`user@` and
+  IPv6 brackets stripped, then lowercased) — the same glob style as a single
+  `ssh_config` `Host` pattern (`*`, `?`; no pattern lists or `!` negation). Omit
+  it, or set it to `null`, for a catch-all.
+- `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
+  endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
+  (the `/tmp/cmux-drop-<uuid>` path cmux picked), `CMUX_UPLOAD_DESTINATION`,
+  `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE`, and `CMUX_UPLOAD_SSH_OPTIONS`
+  (newline-separated; the last three are unset when the session has none). The
+  rest of the environment is inherited, so a one-liner resolves tools on `PATH`.
+- `enabled`: set to `false` to keep a rule in the list but skip it. Defaults to
+  `true`.
+
+**First matching enabled rule wins.** If no rule matches, the built-in `scp` runs
+unchanged, so other hosts are untouched.
+
+### How the command's output is used
+
+cmux inserts the command's **stdout** at the cursor:
+
+- Non-empty stdout is inserted **verbatim** (with control characters stripped),
+  so a rule can emit a remote path, a URL, or any reference — for example a line
+  an agent in the terminal will read.
+- If the command prints **nothing**, cmux inserts the shell-escaped remote path it
+  chose, so the simplest rule just moves the file and behaves like the built-in.
+- For a multi-file drop, each file's output is joined with spaces.
+
+The output is **inserted, not executed** — nothing auto-submits, and you review it
+before pressing Enter. Because it is inserted verbatim (rather than shell-escaped
+like the built-in path), a rule's stdout should be trusted: it can land at a shell
+prompt. A non-zero exit, a timeout, or cancelling from the transfer indicator
+inserts nothing — exactly like an `scp` failure.
 
 ## `automation.workspaceAutoNaming`
 

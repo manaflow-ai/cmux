@@ -57,17 +57,18 @@ struct WorkspaceMacSelectionScope {
         var active = filter
         switch visibleSelection {
         case .automatic:
-            break
+            active.machines = expandedFilterMachineIDs(active.machines)
         case .all:
-            active.machines.removeAll()
+            active.machines = expandedFilterMachineIDs(active.machines)
         case .machine(let id):
             active.machines = aliasIndex.filterMachineIDs(for: id)
         }
         return active
     }
 
-    func canCreateWorkspace(base canCreateWorkspace: Bool) -> Bool {
+    func canCreateWorkspace(base canCreateWorkspace: Bool, switchPending: Bool = false) -> Bool {
         guard canCreateWorkspace else { return false }
+        guard !switchPending else { return false }
         switch visibleSelection {
         case .machine(let id):
             return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
@@ -92,5 +93,14 @@ struct WorkspaceMacSelectionScope {
             guard let macDeviceID = workspace.macDeviceID else { return false }
             return foregroundMachineIDs.contains(macDeviceID)
         }
+    }
+
+    private func expandedFilterMachineIDs(_ machineIDs: Set<String>) -> Set<String> {
+        guard !machineIDs.isEmpty else { return [] }
+        var expanded = Set<String>()
+        for id in machineIDs {
+            expanded.formUnion(aliasIndex.filterMachineIDs(for: id))
+        }
+        return expanded
     }
 }

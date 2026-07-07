@@ -361,7 +361,7 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
         }
 
         switch keyCode {
-        case 51, 117, 123, 124:
+        case 49, 51, 117, 123, 124:
             return false
         default:
             break

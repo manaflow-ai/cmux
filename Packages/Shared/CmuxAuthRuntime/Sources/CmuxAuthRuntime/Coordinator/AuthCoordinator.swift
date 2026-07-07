@@ -182,7 +182,7 @@ public final class AuthCoordinator {
     /// calls are no-ops.
     public func start() {
         guard bootstrapTask == nil else { return }
-        bootstrapTask = Task { await checkExistingSession() }
+        bootstrapTask = Task { await bootstrapSession() }
     }
 
     /// Await the launch session restore started by ``start()``. Returns
@@ -284,14 +284,13 @@ public final class AuthCoordinator {
     }
 
     /// Sign in with Apple.
-    public func signInWithApple() async throws {
-        try await signInWithOAuth(provider: "apple")
-    }
+    public func signInWithApple() async throws { try await signInWithOAuth(provider: "apple") }
 
     /// Sign in with Google.
-    public func signInWithGoogle() async throws {
-        try await signInWithOAuth(provider: "google")
-    }
+    public func signInWithGoogle() async throws { try await signInWithOAuth(provider: "google") }
+
+    /// Sign in with GitHub.
+    public func signInWithGitHub() async throws { try await signInWithOAuth(provider: "github") }
 
     private func signInWithOAuth(provider: String) async throws {
         // Captured before the first await so a sign-out landing anywhere in

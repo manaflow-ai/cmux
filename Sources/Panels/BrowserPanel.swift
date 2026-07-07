@@ -4749,7 +4749,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let restoredURL = Self.remappedAppPricingSessionRestoreURL(Self.sanitizedSessionHistoryURL(snapshot.urlString))
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
@@ -4758,7 +4758,7 @@ final class BrowserPanel: Panel, ObservableObject {
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
             forwardHistoryURLStrings: snapshot.forwardHistoryURLStrings ?? [],
-            currentURLString: snapshot.urlString
+            currentURLString: restoredURL?.absoluteString ?? snapshot.urlString
         )
 
         currentURL = restoredURL
@@ -5357,6 +5357,9 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
+        if BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window) {
+            return
+        }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
@@ -5369,27 +5372,24 @@ final class BrowserPanel: Panel, ObservableObject {
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
         unfocus()
+        BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
+        BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: nil)
+        BrowserWindowPortalRegistry.detach(webView: webView)
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
-
-        // Snapshot first: popup close unregisters itself from popupControllers.
-        let popupsToClose = popupControllers
-        popupControllers.removeAll()
-
-        // Close all owned popup windows before tearing down delegates
+        let popupsToClose = popupControllers; popupControllers.removeAll()
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
-
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
+        if let cmuxWebView = webView as? CmuxWebView { cmuxWebView.clearBrowserDownloadCallbacks() }
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
         detachWebViewObservers()
-        faviconTask?.cancel()
-        faviconTask = nil
+        faviconTask?.cancel(); faviconTask = nil
     }
 
     // MARK: - Popup window management
@@ -8475,7 +8475,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     var onDownloadFailed: ((Error, Bool, String?) -> Void)?
     var savePanelParentWindow: (() -> NSWindow?)?
 
-    private static let tempDir: URL = {
+    static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -8518,7 +8518,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         }
     }
 
-    private nonisolated static func moveTemporaryDownloadToDownloads(
+    nonisolated static func moveTemporaryDownloadToDownloads(
         tempURL: URL,
         suggestedFilename: String,
         sourceURL: URL,
@@ -8549,7 +8549,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     }
 
     @MainActor
-    private func presentSavePanel(
+    func presentSavePanel(
         downloadID: String,
         tempURL: URL,
         suggestedFilename: String,
@@ -8688,7 +8688,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - UI Delegate
 
-private class BrowserUIDelegate: NSObject, WKUIDelegate {
+private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?; var recordPDFPrintIntent: ((URLRequest, WKFrameInfo?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -9734,9 +9734,7 @@ enum BrowserDataImporter {
         var skippedEncryptedCookies = 0
         let decryptor = ChromiumCookieDecryptor(browser: browser)
 
-        let databaseURLs = sourceProfiles.map {
-            $0.rootURL.appendingPathComponent("Cookies", isDirectory: false)
-        }.filter { fileManager.fileExists(atPath: $0.path) }
+        let databaseURLs = sourceProfiles.compactMap { profile -> URL? in let networkURL = profile.rootURL.appendingPathComponent("Network", isDirectory: true).appendingPathComponent("Cookies", isDirectory: false); let legacyURL = profile.rootURL.appendingPathComponent("Cookies", isDirectory: false); return fileManager.fileExists(atPath: networkURL.path) ? networkURL : (fileManager.fileExists(atPath: legacyURL.path) ? legacyURL : nil) }
 
         for databaseURL in databaseURLs {
             do {

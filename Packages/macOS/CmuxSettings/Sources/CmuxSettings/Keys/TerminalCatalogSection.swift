@@ -111,8 +111,30 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textBoxMaxLines"
     )
 
+    /// Default TextBox submit action used when a terminal is eligible to launch a new agent session.
+    public let textBoxDefaultSubmitAction = DefaultsKey<String>(
+        id: "terminal.textBoxDefaultSubmitAction",
+        defaultValue: "text-entry",
+        userDefaultsKey: "terminal.textBoxDefaultSubmitAction"
+    )
+
+    /// Configured TextBox submit action catalog encoded as JSON.
+    public let textBoxSubmitActions = DefaultsKey<String>(
+        id: "terminal.textBoxSubmitActions",
+        defaultValue: "",
+        userDefaultsKey: "terminal.textBoxSubmitActions"
+    )
+
     public let resumeCommands = JSONKey<[String]>(
         id: "terminal.resumeCommands",
+        defaultValue: []
+    )
+
+    /// Host-scoped rules that replace the built-in `scp` for terminal file
+    /// drops/pastes over ssh; cmux runs the matching command and inserts its
+    /// output. See ``TerminalUploadCommandRule``.
+    public let uploadCommands = JSONKey<[TerminalUploadCommandRule]>(
+        id: "terminal.uploadCommands",
         defaultValue: []
     )
 

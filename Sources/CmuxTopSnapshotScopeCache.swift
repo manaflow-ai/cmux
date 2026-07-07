@@ -24,9 +24,11 @@ private nonisolated struct CmuxTopProcessScopeCacheValue {
 // without changing the pid or process start time (the cache key), so a process
 // first sampled in its fork-before-exec window, or one that execs into a
 // `cmux hooks … monitor` later, must be re-probed eventually or it would never
-// be attributed. The TTL bounds that attribution latency while still collapsing
-// the per-poll sysctl storm for the steady-state majority of non-cmux processes.
-private nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 15 * 1_000_000_000
+// be attributed. A newly spawned process has a new cache key and is probed
+// immediately; this TTL only bounds attribution latency for same-pid execs while
+// collapsing the steady-state re-probe storm for non-cmux processes.
+// Internal (not private) so tests can read the TTL via @testable import.
+nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
 
 // Result of probing a single process for its cmux scope. `resolved` means the
 // probe completed (the scope may legitimately be absent) and is safe to cache.
@@ -132,13 +134,15 @@ nonisolated extension CmuxTopProcessSnapshot {
     // The discriminator is liveness: if a procargs read fails but the process is
     // still alive with the same start time, the failure is a permanent denial and
     // resolves to nil; otherwise it raced with exit/reuse and is `.unavailable`.
+    // Callers derive `expectedCacheKey` from a `proc_bsdinfo` snapshot of this pid
+    // in the same enumeration pass, so a pre-read `kinfoProc` check would only
+    // repeat work. The post-read guard still catches pid reuse during the
+    // `KERN_PROCARGS2` probe window.
     static func cmuxScopeProbe(
         for pid: Int,
         expectedCacheKey: CmuxTopProcessScopeCacheKey
     ) -> CmuxTopProcessScopeProbeResult {
-        guard processMatchesKey(pid, expectedCacheKey) else {
-            return .unavailable
-        }
+        guard pid > 0, pid <= Int(Int32.max) else { return .unavailable }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0

@@ -35,10 +35,14 @@ public protocol SidebarGitHosting: AnyObject {
     func panelExists(workspaceId: UUID, panelId: UUID) -> Bool
     /// Whether the panel is a terminal panel.
     func hasTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool
+    /// Whether the panel is an active remote terminal panel.
+    func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's git-probe directory (the sidebar directory fallback
     /// chain: live cwd, requested working directory, focused workspace
     /// directory), normalized; `nil` when unknown.
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String?
+    /// Whether the panel directory currently comes from a trusted remote report.
+    func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's currently displayed git branch state, if any.
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch?
     /// Panel ids currently showing a git branch in the workspace.
@@ -59,9 +63,14 @@ public protocol SidebarGitHosting: AnyObject {
     // MARK: Projection writes
 
     /// Records the panel's directory; returns `false` when nothing changed
-    /// or the workspace/panel is gone.
+    /// or the workspace/panel is gone. `displayLabel` optionally carries a
+    /// human-friendly sidebar label reported alongside the real path.
     @discardableResult
-    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool
+    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool
+    /// Records a trusted remote panel directory; returns `false` when nothing
+    /// changed or the workspace/panel is gone.
+    @discardableResult
+    func updateRemotePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool
     /// Shows `branch` (with its dirty flag) on the panel.
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool)
     /// Clears the panel's branch (and any dependent badge state).
@@ -86,4 +95,12 @@ public protocol SidebarGitHosting: AnyObject {
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool
     /// How long until the mobile host has been quiet for `interval` seconds.
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval
+}
+
+extension SidebarGitHosting {
+    func shouldSkipLocalGitMetadata(workspaceId: UUID, panelId: UUID) -> Bool {
+        isRemoteWorkspace(workspaceId) == true &&
+            (isRemoteTerminalPanel(workspaceId: workspaceId, panelId: panelId) ||
+                hasTrustedRemotePanelDirectory(workspaceId: workspaceId, panelId: panelId))
+    }
 }

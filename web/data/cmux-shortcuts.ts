@@ -91,6 +91,7 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
         },
       },
+      { id: "saveLayoutTemplate", combos: [["⌃", "⌘", "S"]], description: { en: "Save current workspace layout as a template", ja: "現在のワークスペースレイアウトをテンプレートとして保存" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
         id: "goToWorkspace",
@@ -253,6 +254,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
       { id: "clearScreenKeepScrollback", combos: [["⌘", "⇧", "K"]], description: { en: "Clear screen (keep scrollback)", ja: "画面をクリア（スクロールバックを保持）" } },
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
+      { id: "cycleTextBoxSubmitAction", combos: [["⇧", "Tab"]], description: { en: "Cycle TextBox submit action", ja: "TextBoxの送信アクションを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
         id: "sendCtrlFToTerminal",

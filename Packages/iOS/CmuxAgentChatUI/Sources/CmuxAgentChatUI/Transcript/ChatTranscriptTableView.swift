@@ -10,7 +10,6 @@ let chatTranscriptAtBottomThreshold: CGFloat = 40
 /// UIKit-backed transcript list used on iOS for deterministic keyboard and inset behavior.
 struct ChatTranscriptTableView: UIViewRepresentable {
     let rows: [ChatTranscriptRow]
-    let expandedIDs: Set<String>
     let agentState: ChatAgentState
     let hasMoreHistory: Bool
     let hasLoadedInitialHistory: Bool
@@ -55,7 +54,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         context.coordinator.update(
             configuration: ChatTranscriptTableConfiguration(
                 rows: rows,
-                expandedIDs: expandedIDs,
                 agentState: agentState,
                 hasMoreHistory: hasMoreHistory,
                 hasLoadedInitialHistory: hasLoadedInitialHistory,
@@ -76,7 +74,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
     final class Coordinator: NSObject, UITableViewDataSource, UITableViewDelegate {
         private var configuration: ChatTranscriptTableConfiguration?
         private var items: [ChatTranscriptTableItem] = []
-        private var expandedIDs: Set<String> = []
         private var agentState: ChatAgentState = .idle
         private var topRequestKey: String?
         private var lastScrollToBottomRequest = 0
@@ -120,7 +117,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             self.configuration = configuration
             let nextItems = configuration.makeItems()
             let shouldReload = nextItems != items
-                || configuration.expandedIDs != expandedIDs
                 || configuration.agentState != agentState
             let shouldScrollToBottom = scrollToBottomRequest != lastScrollToBottomRequest
             lastScrollToBottomRequest = scrollToBottomRequest
@@ -138,18 +134,16 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
             pendingContentUpdateAnchor = nil
             items = nextItems
-            expandedIDs = configuration.expandedIDs
             agentState = configuration.agentState
 
             isApplyingDataUpdate = true
             defer { isApplyingDataUpdate = false }
             tableView.reloadData()
             tableView.layoutIfNeeded()
-
-            if shouldScrollToBottom || wasAtBottom {
+            if shouldScrollToBottom || (wasAtBottom && !tableView.isUserScrollMomentumActive) {
                 pendingContentUpdateAnchor = nil
                 scrollToBottom(in: tableView, animated: false)
-            } else if let anchor {
+            } else if let anchor, !tableView.isUserScrollMomentumActive {
                 restore(anchor, in: tableView)
                 pendingContentUpdateAnchor = anchor
             }
@@ -214,11 +208,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             isHandlingLayout = true
             defer { isHandlingLayout = false }
 
-            if tableView.isViewportInsetsExternallyDriven {
+            if tableView.isUserScrollMomentumActive {
+                pendingContentUpdateAnchor = nil
                 updateBottomState(from: tableView)
                 return
             }
-            if isApplyingDataUpdate {
+            if tableView.isViewportInsetsExternallyDriven || isApplyingDataUpdate {
                 updateBottomState(from: tableView)
                 return
             }
@@ -357,7 +352,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
 private struct ChatTranscriptTableConfiguration {
     let rows: [ChatTranscriptRow]
-    let expandedIDs: Set<String>
     let agentState: ChatAgentState
     let hasMoreHistory: Bool
     let hasLoadedInitialHistory: Bool
@@ -464,7 +458,6 @@ private struct ChatTranscriptTableConfiguration {
         case .row(let row):
             ChatTranscriptRowView(
                 row: row,
-                isExpanded: expandedIDs.contains(row.id),
                 actions: actions
             )
             .equatable()

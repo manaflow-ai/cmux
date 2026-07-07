@@ -19,6 +19,7 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    private let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @Environment(BrowserSurfaceStore.self) private var browserStore
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -28,6 +29,8 @@ struct WorkspaceShellView: View {
     @State private var showingCompactSettings = false
     @State private var showingCompactDeviceTree = false
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var pendingMacSwitchID: String?
+    @State private var pendingMacSwitchGeneration: UInt64 = 0
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -97,7 +100,7 @@ struct WorkspaceShellView: View {
                 selectedTerminalID: store.selectedTerminalID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
-                canCreateWorkspace: canCreateWorkspaceForMacSelection,
+                canCreateWorkspace: canCreateWorkspaceOnForegroundConnection,
                 canCreateTerminal: canCreateTerminal,
                 selectWorkspace: selectWorkspaceFromSurfaceGrid,
                 openTerminal: openTerminalFromSurfaceGrid,
@@ -113,6 +116,7 @@ struct WorkspaceShellView: View {
                 workspaceDestination(
                     for: workspaceID,
                     createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspace: canCreateWorkspaceOnForegroundConnection,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
                         unreadCount: unreadWorkspaceCount(excluding: workspaceID),
                         badgeContrast: .darkBackground,
@@ -140,7 +144,7 @@ struct WorkspaceShellView: View {
             DeviceTreeView(store: store, selectWorkspace: openWorkspaceFromDeviceTree, showAddDevice: showAddDevice)
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
-            if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+            if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
                 existingWorkspaceIDs: pendingCompactCreateNavigationWorkspaceIDs
@@ -150,9 +154,10 @@ struct WorkspaceShellView: View {
                 autoOpenSelectedWorkspaceForSoakIfNeeded()
                 return
             }
-            compactNavigationPath = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+            compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
-                selectedWorkspaceID: selectedWorkspaceID
+                selectedWorkspaceID: selectedWorkspaceID,
+                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
@@ -167,7 +172,11 @@ struct WorkspaceShellView: View {
             store.selectedWorkspaceID = selectedWorkspaceID
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
-            compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
+            compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
+                currentPath: compactNavigationPath,
+                visibleWorkspaceIDs: Set(workspaceIDs),
+                selectedWorkspaceID: store.selectedWorkspaceID
+            )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
@@ -193,6 +202,10 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceIfConnected,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 macSelection: $macSelection,
+                switchMac: { macDeviceID in
+                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
+                },
+                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -213,6 +226,7 @@ struct WorkspaceShellView: View {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
         }
@@ -341,7 +355,36 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
+        macSelectionScope.canCreateWorkspace(
+            base: canCreateWorkspace,
+            switchPending: pendingMacSwitchID != nil
+        )
+    }
+
+    @MainActor
+    private func switchMacFromWorkspacePicker(macDeviceID: String) async -> Bool {
+        pendingMacSwitchGeneration &+= 1
+        let generation = pendingMacSwitchGeneration
+        pendingMacSwitchID = macDeviceID
+        defer {
+            if pendingMacSwitchGeneration == generation {
+                pendingMacSwitchID = nil
+            }
+        }
+        return await store.switchToMac(macDeviceID: macDeviceID)
+    }
+
+    @MainActor
+    private func cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: Bool) async {
+        pendingMacSwitchGeneration &+= 1
+        let generation = pendingMacSwitchGeneration
+        let restoreTask = store.cancelPendingMacSwitch(restorePreviousOnCancel: restorePreviousOnCancel)
+        if restorePreviousOnCancel, let restoreTask {
+            _ = await restoreTask.value
+        }
+        if pendingMacSwitchGeneration == generation {
+            pendingMacSwitchID = nil
+        }
     }
 
     private var macSelectionScope: WorkspaceMacSelectionScope {
@@ -368,11 +411,11 @@ struct WorkspaceShellView: View {
     }
 
     private func createWorkspaceInCompactStack() {
-        guard canCreateWorkspaceForMacSelection else { return }
+        guard canCreateWorkspaceOnForegroundConnection else { return }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
-        if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
             currentPath: compactNavigationPath,
             selectedWorkspaceID: store.selectedWorkspaceID,
             existingWorkspaceIDs: existingWorkspaceIDs
@@ -417,6 +460,7 @@ struct WorkspaceShellView: View {
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
+        canCreateWorkspace: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
     ) -> some View {
@@ -424,7 +468,7 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            canCreateWorkspace: canCreateWorkspace,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
             signOut: signOut
