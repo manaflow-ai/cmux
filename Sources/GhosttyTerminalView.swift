@@ -186,15 +186,11 @@ private func cmuxRuntimeReadClipboardCallback(
 // GhosttyApp.terminalPasteboard composition static below.
 
 /// The app-side conformance injected into ``TerminalLinkRouter``: terminal
-/// links validate hosts and resolve bare domains through the same browser
-/// rules the embedded browser uses.
+/// links validate explicit URL hosts through the same browser rules the
+/// embedded browser uses.
 struct TerminalBrowserHostNormalizer: BrowserHostNormalizing {
     func normalizedHost(_ rawHost: String) -> String? {
         BrowserInsecureHTTPSettings.normalizeHost(rawHost)
-    }
-
-    func navigableWebURL(_ input: String) -> URL? {
-        resolveBrowserNavigableURL(input)
     }
 }
 
@@ -3089,9 +3085,9 @@ class GhosttyApp {
 
             guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
-                cmuxDebugLog("link.openURL resolve failed, returning false")
+                cmuxDebugLog("link.openURL resolve ignored, consumed invalid token")
                 #endif
-                return false
+                return true
             }
             #if DEBUG
             if UITestCaptureSink().appendLineIfConfigured(

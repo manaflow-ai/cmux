@@ -6,13 +6,11 @@ import CMUXDebugLog
 /// Routes a link activated inside a terminal to the embedded browser or the
 /// system.
 ///
-/// Routing precedence, preserved exactly from the legacy resolver: absolute
-/// file-system paths open externally; `http`/`https` URLs open embedded when
-/// the injected ``BrowserHostNormalizing`` accepts their host, externally
-/// otherwise; other schemes open externally; scheme-less text that the
-/// browser can navigate (bare domains, localhost) opens embedded subject to
-/// the same host check; anything else falls back to an external URL when it
-/// parses at all.
+/// Routing precedence: absolute file-system paths open externally; `http` and
+/// `https` URLs open embedded when the injected ``BrowserHostNormalizing``
+/// accepts their host, externally otherwise; other schemes open externally;
+/// scheme-less text that did not already resolve through the caller's
+/// file-path pass is ignored.
 public struct TerminalLinkRouter: Sendable {
     private let hostNormalizer: any BrowserHostNormalizing
 
@@ -67,28 +65,9 @@ public struct TerminalLinkRouter: Sendable {
             return .external(parsed)
         }
 
-        if let webURL = hostNormalizer.navigableWebURL(trimmed) {
-            guard hostNormalizer.normalizedHost(webURL.host ?? "") != nil else {
-                #if DEBUG
-                logDebugEvent("link.resolve result=external(bareHost-invalidHost) url=\(webURL)")
-                #endif
-                return .external(webURL)
-            }
-            #if DEBUG
-            logDebugEvent("link.resolve result=embeddedBrowser(bareHost) url=\(webURL)")
-            #endif
-            return .embeddedBrowser(webURL)
-        }
-
-        guard let fallback = URL(string: trimmed) else {
-            #if DEBUG
-            logDebugEvent("link.resolve result=nil (unparseable)")
-            #endif
-            return nil
-        }
         #if DEBUG
-        logDebugEvent("link.resolve result=external(fallback) url=\(fallback)")
+        logDebugEvent("link.resolve result=nil (schemeless)")
         #endif
-        return .external(fallback)
+        return nil
     }
 }
