@@ -35,7 +35,7 @@ enum GlobalSearchDocuments {
         case .markdown:
             kind = .markdown
         case .terminal, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project,
-             .extensionBrowser, .workspaceTodo:
+             .extensionBrowser, .workspaceTodo, .cloudVMLoading:
             kind = .title
         }
 

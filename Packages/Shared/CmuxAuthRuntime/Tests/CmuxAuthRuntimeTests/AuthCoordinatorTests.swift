@@ -124,16 +124,17 @@ import Testing
         }
     }
 
-    @Test func oauthAppleAndGoogleRouteToProviders() async throws {
+    @Test func oauthProvidersRouteToStackProviderIDs() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
         let (coordinator, _) = makeCoordinator(client: client)
 
         try await coordinator.signInWithApple()
         try await coordinator.signInWithGoogle()
+        try await coordinator.signInWithGitHub()
 
         let providers = await client.oauthProviders
-        #expect(providers == ["apple", "google"])
+        #expect(providers == ["apple", "google", "github"])
     }
 
     @Test func signOutClearsStateAndRunsHook() async throws {

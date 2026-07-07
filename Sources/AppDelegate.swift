@@ -40,7 +40,7 @@ private struct WorkspaceGroupNewWorkspaceTarget {
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
-/// (cloudVM in particular launches `cmux vm new` and returns immediately).
+/// (cloudVM in particular launches `cmux vm base open` and returns immediately).
 /// Subscribes to `tabManager.tabsPublisher` (the legacy Combine bridge fed by
 /// every `tabs` mutation, regardless of whether a NotificationCenter event
 /// fired) so VM workspaces, dropped attaches, or any other slow async path
@@ -577,17 +577,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    @MainActor
-    private final class NewWorkspaceContextMenuActionBox: NSObject {
-        let windowId: UUID
-        let action: CmuxResolvedConfigAction
-
-        init(windowId: UUID, action: CmuxResolvedConfigAction) {
-            self.windowId = windowId
-            self.action = action
-        }
-    }
-
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
@@ -1109,6 +1098,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
+    private var mainWindowFrameReconcileTask: Task<Void, Never>?
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
@@ -1416,6 +1406,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.begin")
             PostHogAnalytics.shared.startIfNeeded()
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
+        }
+        if !isRunningUnderXCTest {
+            CmuxFeatureFlags.shared.start()
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -2056,6 +2049,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
+        AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
@@ -2097,23 +2091,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
-    }
-
-    /// Starts the per-pane runaway-memory guardrail: a background timer that
-    /// attributes each pane's process-tree memory by controlling tty (monitoring
-    /// only — the user-facing sidebar badge and banner were removed in #6614) and
-    /// frees nonessential WebKit memory on system memory pressure before a single
-    /// leaking pane can OOM-suspend the whole app (issue #6313).
-    private func startPaneMemoryGuardrailIfNeeded() {
-        let guardrail = PaneMemoryGuardrail.shared
-        guardrail.paneProvider = { [weak self] in
-            self?.paneMemoryGuardrailDescriptors() ?? []
-        }
-        guardrail.onSystemMemoryPressure = { [weak self] in
-            RendererRealizationController.shared.reclaimForSystemMemoryPressure(now: Date())
-            self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
-        }
-        guardrail.start()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
@@ -3633,38 +3610,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private nonisolated static func shouldPreserveAccessibleFrame(
-        frame: CGRect,
-        targetDisplay: SessionDisplayGeometry,
-        minimumVisibleTopStripWidth: CGFloat = 120,
-        topStripHeight: CGFloat = 64,
-        minimumVisibleTopStripHeight: CGFloat = 24
-    ) -> Bool {
-        let standardizedFrame = frame.standardized
-        guard standardizedFrame.width.isFinite,
-              standardizedFrame.height.isFinite,
-              standardizedFrame.width > 0,
-              standardizedFrame.height > 0,
-              standardizedFrame.intersects(targetDisplay.frame) else {
-            return false
-        }
-
-        let stripHeight = min(topStripHeight, standardizedFrame.height)
-        let topStrip = CGRect(
-            x: standardizedFrame.minX,
-            y: standardizedFrame.maxY - stripHeight,
-            width: standardizedFrame.width,
-            height: stripHeight
-        )
-        let visibleTopStrip = topStrip.intersection(targetDisplay.visibleFrame)
-        guard !visibleTopStrip.isNull else { return false }
-
-        let requiredWidth = min(minimumVisibleTopStripWidth, standardizedFrame.width)
-        let requiredHeight = min(minimumVisibleTopStripHeight, stripHeight)
-        return visibleTopStrip.width >= requiredWidth
-            && visibleTopStrip.height >= requiredHeight
-    }
-
     private nonisolated static func display(
         for snapshot: SessionDisplaySnapshot?,
         in displays: [SessionDisplayGeometry]
@@ -3741,46 +3686,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             height: frame.height
         )
         return clampFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
-    }
-
-    private nonisolated static func clampFrame(
-        _ frame: CGRect,
-        within visibleFrame: CGRect,
-        minWidth: CGFloat,
-        minHeight: CGFloat
-    ) -> CGRect {
-        guard visibleFrame.width.isFinite,
-              visibleFrame.height.isFinite,
-              visibleFrame.width > 0,
-              visibleFrame.height > 0 else {
-            return frame
-        }
-
-        let maxWidth = max(visibleFrame.width, 1)
-        let maxHeight = max(visibleFrame.height, 1)
-        let widthFloor = min(minWidth, maxWidth)
-        let heightFloor = min(minHeight, maxHeight)
-
-        let width = min(max(frame.width, widthFloor), maxWidth)
-        let height = min(max(frame.height, heightFloor), maxHeight)
-        let maxX = visibleFrame.maxX - width
-        let maxY = visibleFrame.maxY - height
-        let x = min(max(frame.minX, visibleFrame.minX), maxX)
-        let y = min(max(frame.minY, visibleFrame.minY), maxY)
-
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
-
-    private nonisolated static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        let intersection = lhs.intersection(rhs)
-        guard !intersection.isNull else { return 0 }
-        return max(0, intersection.width) * max(0, intersection.height)
-    }
-
-    private nonisolated static func distanceSquared(_ rect: CGRect, _ point: CGPoint) -> CGFloat {
-        let dx = rect.midX - point.x
-        let dy = rect.midY - point.y
-        return (dx * dx) + (dy * dy)
     }
 
     private nonisolated static func shouldPreserveExactFrame(
@@ -3907,6 +3812,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // Re-clamp main windows whose titlebar was stranded off-screen by a
+        // display reconfiguration (monitor connect/disconnect, resolution change,
+        // lid open/close). Non-movable windows are skipped by AppKit's automatic
+        // constraining, so `CmuxMainWindow.constrainFrameRect` never fires on this
+        // path — this observer is the reactive replacement. See
+        // `reconciledFrameAfterScreenChange`.
+        let screenParamsObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleMainWindowFrameReconcile()
+            }
+        }
+        lifecycleSnapshotObservers.append(screenParamsObserver)
+    }
+
+    /// Coalesces bursts of `didChangeScreenParametersNotification` into a single
+    /// reconcile pass. The display list often arrives in stages during a
+    /// reconfiguration (a monitor connecting, resolution ramping, the lid
+    /// animating), so a short bounded delay lets `NSScreen` settle before we read
+    /// it back; restarting the delay on each notification collapses the burst
+    /// into one pass keyed off the last event. The pending task is cancelled on
+    /// teardown so it can never fire against a half-torn-down app.
+    private func scheduleMainWindowFrameReconcile() {
+        mainWindowFrameReconcileTask?.cancel()
+        mainWindowFrameReconcileTask = Task { @MainActor [weak self] in
+            // Bounded settle delay; cancellation (teardown / a newer event)
+            // aborts it structurally.
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled, let self else { return }
+            self.mainWindowFrameReconcileTask = nil
+            self.reconcileMainWindowFramesAfterScreenChange()
+        }
+    }
+
+    /// Re-clamps every main window whose titlebar is no longer reachable onto a
+    /// currently-connected display. A no-op for windows that already fit.
+    private func reconcileMainWindowFramesAfterScreenChange() {
+        // Never fight a deliberate frame the restore path or teardown is
+        // applying, and never persist a frame clamped against transient
+        // mid-teardown geometry.
+        guard !isApplyingSessionRestore, !isTerminatingApp else { return }
+        let displays = currentDisplayGeometries()
+        guard !displays.available.isEmpty else { return }
+        for window in mainWindowsForVisibilityController() {
+            // Native-fullscreen windows are owned by AppKit's Space machinery;
+            // clamping them mid-transition fights the fullscreen teardown.
+            guard !window.styleMask.contains(.fullScreen) else { continue }
+            let currentFrame = window.frame
+            guard let corrected = Self.reconciledFrameAfterScreenChange(
+                frame: currentFrame,
+                availableDisplays: displays.available
+            ) else { continue }
+#if DEBUG
+            cmuxDebugLog(
+                "window.reconcile " +
+                    "from={\(debugNSRectDescription(currentFrame))} " +
+                    "to={\(debugNSRectDescription(corrected))}"
+            )
+#endif
+            window.setFrame(corrected, display: true)
+        }
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -6139,7 +6109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+    func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
         if let scopedWindow = mainWindowForShortcutEvent(event) {
             return scopedWindow
         }
@@ -7317,11 +7287,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @discardableResult
+    func performProUpgradeWorkspaceAction(
+        title: String,
+        url: URL,
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "proUpgradeWorkspace"
+    ) -> Workspace? {
+        guard BrowserAvailabilitySettings.isEnabled() else {
+#if DEBUG
+            cmuxDebugLog("proUpgradeWorkspace.blocked_browser_disabled source=\(debugSource)")
+#endif
+            return nil
+        }
+        var createdWorkspace: Workspace?
+        let didCreate = performNewWorkspaceCreationAction(
+            initialSurface: .browser,
+            preferredTabManager: preferredTabManager,
+            event: event,
+            debugSource: debugSource,
+            title: title,
+            initialBrowserURL: url,
+            initialBrowserOmnibarVisible: false,
+            initialBrowserTransparentBackground: true,
+            focusInitialBrowserAddressBarOnCreate: false,
+            createdWorkspaceHandler: { workspace in
+                createdWorkspace = workspace
+            }
+        )
+        guard didCreate, let createdWorkspace else { return nil }
+        focusInitialBrowserWebView(in: createdWorkspace)
+        return createdWorkspace
+    }
+
+    func proUpgradeWorkspaceExists(workspaceId: UUID) -> Bool {
+        mainWindowContexts.values.contains { context in
+            context.tabManager.tabs.contains { $0.id == workspaceId }
+        } || (tabManager?.tabs.contains { $0.id == workspaceId } == true)
+    }
+
+    @discardableResult
+    func focusProUpgradeWorkspace(workspaceId: UUID, url: URL) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled() else { return false }
+        guard let (context, workspace) = proUpgradeWorkspaceContext(workspaceId: workspaceId) else {
+            return false
+        }
+        guard let window = resolvedWindow(for: context) else {
+            return false
+        }
+        guard focusWindowForAppActivation(window, reason: .workspaceCreation) else {
+            return false
+        }
+        context.tabManager.selectedTabId = workspace.id
+        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
+            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            return false
+        }
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.navigate(to: url)
+        browserPanel.requestExplicitWebViewFocus()
+        context.tabManager.rememberFocusedSurface(tabId: workspace.id, surfaceId: browserPanel.id)
+        return true
+    }
+
     private func performNewWorkspaceCreationAction(
         initialSurface: NewWorkspaceInitialSurface,
         preferredTabManager: TabManager?,
         event: NSEvent?,
-        debugSource: String
+        debugSource: String,
+        title: String? = nil,
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
+        focusInitialBrowserAddressBarOnCreate: Bool = true,
+        createdWorkspaceHandler: ((Workspace) -> Void)? = nil
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -7357,12 +7397,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
                     // action's result matches the no-window case for terminals.
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .browser)
+                    let workspace = context.tabManager.addWorkspace(
+                        title: title,
+                        initialSurface: .browser,
+                        initialBrowserURL: initialBrowserURL,
+                        initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                        initialBrowserTransparentBackground: initialBrowserTransparentBackground
+                    )
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspace?.id,
                         in: context
                     )
-                    focusInitialBrowserAddressBar(in: workspace)
+                    createdWorkspaceHandler?(workspace)
+                    if focusInitialBrowserAddressBarOnCreate {
+                        focusInitialBrowserAddressBar(in: workspace)
+                    }
+                case .cloudVMLoading:
+                    let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
+                    closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspace?.id,
+                        in: context
+                    )
+                    context.tabManager.setPinned(workspace, pinned: true)
                 }
             }
             return true
@@ -7374,7 +7430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // In a dedicated remote-tmux window, a new workspace means "create a new
         // tmux session on that host" — route it to the remote and mirror it into
         // this window instead of creating a local workspace.
-        if let context,
+        if initialBrowserURL == nil,
+           let context,
            remoteTmuxController.handleRemoteWindowNewWorkspaceRequested(windowId: context.windowId) {
             return true
         }
@@ -7398,11 +7455,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 groupId: workspaceGroupTarget.groupId,
                 placement: workspaceGroupTarget.placement,
                 referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId,
-                initialSurface: initialSurface
+                initialSurface: initialSurface,
+                title: title,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground
             ) else {
                 return false
             }
-            if initialSurface == .browser {
+            createdWorkspaceHandler?(workspace)
+            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
                 focusInitialBrowserAddressBar(in: workspace)
             }
             return true
@@ -7410,19 +7472,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let preferredTabManager,
            preferredContext == nil || livePreferredContext != nil {
-            let workspace = preferredTabManager.addWorkspace(initialSurface: initialSurface)
-            if initialSurface == .browser {
+            let workspace = preferredTabManager.addWorkspace(
+                title: title,
+                initialSurface: initialSurface,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground
+            )
+            createdWorkspaceHandler?(workspace)
+            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
                 focusInitialBrowserAddressBar(in: workspace)
             }
             return true
         }
 
         if let workspace = addWorkspaceInPreferredMainWindow(
+            title: title,
             initialSurface: initialSurface,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             event: event,
             debugSource: debugSource
         ) {
-            if initialSurface == .browser {
+            createdWorkspaceHandler?(workspace)
+            if initialSurface == .browser, focusInitialBrowserAddressBarOnCreate {
                 focusInitialBrowserAddressBar(in: workspace)
             }
         } else {
@@ -7440,6 +7514,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func proUpgradeWorkspaceContext(workspaceId: UUID) -> (MainWindowContext, Workspace)? {
+        for context in mainWindowContexts.values {
+            if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                return (context, workspace)
+            }
+        }
+        if let tabManager,
+           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+            return (context, workspace)
+        }
+        return nil
+    }
+
     /// Routes first focus of a freshly created browser-initial workspace into
     /// the address bar so the user can type a URL immediately.
     private func focusInitialBrowserAddressBar(in workspace: Workspace) {
@@ -7449,6 +7537,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         workspace.focusPanel(browserPanel.id)
         focusBrowserAddressBar(in: browserPanel)
+    }
+
+    private func focusInitialBrowserWebView(in workspace: Workspace) {
+        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
+            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            return
+        }
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.requestExplicitWebViewFocus()
+        workspace.owningTabManager?.rememberFocusedSurface(tabId: workspace.id, surfaceId: browserPanel.id)
     }
 
     @discardableResult
@@ -7468,11 +7566,230 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
+        let workspaceTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+        let existingWorkspace = existingCloudVMWorkspace(in: context.tabManager)
+        let workspace: Workspace
+        if let existingWorkspace {
+            workspace = existingWorkspace
+            context.tabManager.selectedTabId = workspace.id
+            context.tabManager.setPinned(workspace, pinned: true)
+            if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+                if !loadingPanel.hasFailed {
+                    onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: workspace.id))
+                    return true
+                }
+            } else {
+                onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: workspace.id))
+                return true
+            }
+        } else {
+            workspace = context.tabManager.addWorkspace(
+                title: workspaceTitle,
+                initialSurface: .cloudVMLoading,
+                inheritWorkingDirectory: false,
+                select: true,
+                autoWelcomeIfNeeded: false
+            )
+            context.tabManager.setPinned(workspace, pinned: true)
+        }
+        if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+            loadingPanel.resetLoading()
+        }
+        let didStart = CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+            arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+            showsProgress: false,
+            presentsFailureAlert: false,
+            environmentOverrides: [
+                "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
+                "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
+            ],
+            onCompletion: { completion in
+                if !completion.succeeded,
+                   let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+                    loadingPanel.showFailure(completion.output)
+                }
+                onCompletion?(completion)
+            }
+        )
+        if !didStart,
+           let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+            loadingPanel.showFailure(String(
+                localized: "panel.cloudVM.loading.failed.launch",
+                defaultValue: "Cloud VM command could not be launched."
+            ))
+        }
+        return didStart
+    }
+
+    private func existingCloudVMWorkspace(in tabManager: TabManager) -> Workspace? {
+        tabManager.tabs.first { workspace in
+            if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+                return true
+            }
+            guard let remote = workspace.remoteConfiguration else { return false }
+            return remote.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
+                remote.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+    }
+
+    @discardableResult
+    func performCurrentCloudVMCommand(
+        _ command: CurrentCloudVMCommand,
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "cloudVM.current"
+    ) -> Bool {
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        guard let context else {
+            NSSound.beep()
+            return false
+        }
+        guard let vmId = currentCloudVMId(tabManager: context.tabManager) else {
+            presentCloudVMNotice(
+                title: String(localized: "command.cloudVM.current.missing.title", defaultValue: "No Cloud VM Selected"),
+                message: String(localized: "command.cloudVM.current.missing.message", defaultValue: "Select a Cloud VM workspace first, then retry this command."),
+                preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+            )
+            return false
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-            onCompletion: onCompletion
+            arguments: command.arguments(vmId: vmId),
+            successTitle: command.successTitle,
+            presentOutputOnSuccess: command.presentOutputOnSuccess
         )
+    }
+
+    @discardableResult
+    func performCloudVMRestoreCommand(
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "cloudVM.restore"
+    ) -> Bool {
+        let context = preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        guard let context else {
+            NSSound.beep()
+            return false
+        }
+        let window = resolvedWindow(for: context) ?? preferredWindow
+        guard let snapshotId = promptForCloudVMSnapshotId(preferredWindow: window) else {
+            return false
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        return CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: window,
+            arguments: ["vm", "restore", snapshotId],
+            successTitle: String(localized: "command.cloudVM.restore.result.title", defaultValue: "Cloud VM Restored"),
+            presentOutputOnSuccess: true
+        )
+    }
+
+    enum CurrentCloudVMCommand {
+        case status
+        case fork
+        case snapshot
+        case ports
+        case tools
+        case handoff
+        case promoteTemplate
+
+        var successTitle: String {
+            switch self {
+            case .status:
+                return String(localized: "command.cloudVM.status.result.title", defaultValue: "Cloud VM Status")
+            case .fork:
+                return String(localized: "command.cloudVM.fork.result.title", defaultValue: "Cloud VM Forked")
+            case .snapshot:
+                return String(localized: "command.cloudVM.snapshot.result.title", defaultValue: "Cloud VM Checkpoint")
+            case .ports:
+                return String(localized: "command.cloudVM.ports.result.title", defaultValue: "Cloud VM Ports")
+            case .tools:
+                return String(localized: "command.cloudVM.tools.result.title", defaultValue: "Cloud VM Tools")
+            case .handoff:
+                return String(localized: "command.cloudVM.handoff.result.title", defaultValue: "Cloud VM Handoff")
+            case .promoteTemplate:
+                return String(localized: "command.cloudVM.template.result.title", defaultValue: "Cloud VM Template")
+            }
+        }
+
+        var presentOutputOnSuccess: Bool {
+            switch self {
+            case .fork:
+                return false
+            case .status, .snapshot, .ports, .tools, .handoff, .promoteTemplate:
+                return true
+            }
+        }
+
+        func arguments(vmId: String) -> [String] {
+            switch self {
+            case .status:
+                return ["vm", "status", vmId]
+            case .fork:
+                return ["vm", "fork", vmId]
+            case .snapshot:
+                return ["vm", "snapshot", vmId]
+            case .ports:
+                return ["vm", "ports", vmId]
+            case .tools:
+                return ["vm", "tools", vmId]
+            case .handoff:
+                return ["vm", "handoff", vmId]
+            case .promoteTemplate:
+                return ["vm", "promote-template", vmId]
+            }
+        }
+    }
+
+    private func currentCloudVMId(tabManager: TabManager) -> String? {
+        guard let workspaceId = tabManager.selectedTabId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let vmID = workspace.remoteConfiguration?.managedCloudVMID?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !vmID.isEmpty else {
+            return nil
+        }
+        return vmID
+    }
+
+    private func promptForCloudVMSnapshotId(preferredWindow: NSWindow?) -> String? {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(localized: "command.cloudVM.restore.prompt.title", defaultValue: "Restore Cloud VM")
+        alert.informativeText = String(localized: "command.cloudVM.restore.prompt.message", defaultValue: "Paste a checkpoint or snapshot id to restore.")
+        alert.addButton(withTitle: String(localized: "common.restore", defaultValue: "Restore"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = String(localized: "command.cloudVM.restore.prompt.placeholder", defaultValue: "snapshot-id")
+        alert.accessoryView = field
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return nil }
+        let snapshotId = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return snapshotId.isEmpty ? nil : snapshotId
+    }
+
+    private func presentCloudVMNotice(title: String, message: String, preferredWindow: NSWindow?) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        if let preferredWindow {
+            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
+        } else {
+            _ = alert.runModal()
+        }
     }
 
     private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
@@ -7511,7 +7828,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
         var asyncObserverId: UUID?
-        let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
+        // Named workspace commands and inline workspace actions both create a
+        // workspace, so both must retire the throwaway initial workspace.
+        let actionCreatesWorkspace = action.workspaceCommandName != nil
+            || action.action.inlineWorkspace != nil
+        let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
             if let context,
                let workspaceGroupTarget,
                let beforeIds {
@@ -7537,7 +7858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 }
             }
-            if action.workspaceCommandName != nil {
+            if actionCreatesWorkspace {
                 self?.closeInitialWorkspaceIfNeeded(
                     initialWorkspaceId: initialWorkspaceId,
                     in: context
@@ -7591,72 +7912,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         context.tabManager.closeWorkspace(initialWorkspace, recordHistory: false)
-    }
-
-    @discardableResult
-    func showNewWorkspaceContextMenu(
-        anchorView: NSView,
-        event: NSEvent,
-        debugSource: String = "titlebar.newWorkspace.contextMenu"
-    ) -> Bool {
-        let context = contextForMainWindow(anchorView.window)
-            ?? mainWindowContext(forShortcutEvent: event, debugSource: debugSource)
-            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
-        guard let context,
-              let cmuxConfigStore = context.cmuxConfigStore else {
-            return false
-        }
-
-        let configuredItems = cmuxConfigStore.newWorkspaceContextMenuItems
-        guard !configuredItems.isEmpty else { return false }
-
-        let menu = NSMenu()
-        for configuredItem in configuredItems {
-            switch configuredItem {
-            case .separator:
-                if !menu.items.isEmpty, menu.items.last?.isSeparatorItem == false {
-                    menu.addItem(.separator())
-                }
-            case .action(let menuAction):
-                let item = NSMenuItem(
-                    title: menuAction.title,
-                    action: #selector(performNewWorkspaceContextMenuItem(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = self
-                item.representedObject = NewWorkspaceContextMenuActionBox(
-                    windowId: context.windowId,
-                    action: menuAction.action
-                )
-                item.toolTip = menuAction.tooltip
-                item.image = menuAction.icon?.contextMenuImage(
-                    configSourcePath: menuAction.iconSourcePath,
-                    globalConfigPath: cmuxConfigStore.globalConfigPath
-                )
-                menu.addItem(item)
-            }
-        }
-
-        while menu.items.last?.isSeparatorItem == true {
-            menu.removeItem(at: menu.items.count - 1)
-        }
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return false }
-
-        NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
-        return true
-    }
-
-    @objc private func performNewWorkspaceContextMenuItem(_ sender: NSMenuItem) {
-        guard let box = sender.representedObject as? NewWorkspaceContextMenuActionBox,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
-              let window = resolvedWindow(for: context) else {
-            NSSound.beep()
-            return
-        }
-        guard executeConfiguredCmuxAction(box.action, context: context, preferredWindow: window) else {
-            NSSound.beep()
-            return
-        }
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
@@ -8011,9 +8266,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func addWorkspaceInPreferredMainWindow(
+        title: String? = nil,
         workingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         initialSurface: NewWorkspaceInitialSurface = .terminal,
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
@@ -8062,14 +8321,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let workspace: Workspace
         if initialSurface == .browser {
-            workspace = context.tabManager.addWorkspace(initialSurface: .browser, select: true)
+            workspace = context.tabManager.addWorkspace(
+                title: title,
+                initialSurface: .browser,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                select: true
+            )
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
+                title: title,
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
                 select: true,
                 autoWelcomeIfNeeded: initialTerminalInput == nil
             )
+        } else if title != nil {
+            workspace = context.tabManager.addWorkspace(title: title, select: true)
         } else {
             workspace = context.tabManager.addTab(select: true)
         }
@@ -8087,7 +8356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return workspace
     }
 
-    private func preferredMainWindowContextForWorkspaceCreation(
+    func preferredMainWindowContextForWorkspaceCreation(
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
     ) -> MainWindowContext? {
@@ -13196,6 +13465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handleSavedLayoutShortcut(event) { return true }
+
         if !hasFocusedAddressBarInShortcutContext,
            matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
@@ -14938,7 +15209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+    func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
@@ -15185,7 +15456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 newlyCreatedId = id
                 break
             }
-            // cloudVM launches a `cmux vm new` process and returns before the
+            // cloudVM launches a `cmux vm base open` process and returns before the
             // workspace appears in tabs[]. The synchronous diff above misses
             // it, so watch the tab list while the process is running. Process
             // completion also reports the created workspace UUID as an exact
@@ -15242,7 +15513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didRun
     }
 
-    private func executeConfiguredCmuxAction(
+    func executeConfiguredCmuxAction(
         _ action: CmuxResolvedConfigAction,
         context: MainWindowContext,
         preferredWindow: NSWindow? = nil,
@@ -15265,6 +15536,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didStart { onExecuted?() }
                 return didStart
+            case .mobileConnect:
+                MobilePairingWindowController.shared.show()
+                onExecuted?()
+                return true
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()
@@ -15305,7 +15580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didSplit { onExecuted?() }
                 return didSplit
             }
-        case .command, .agent, .workspaceCommand:
+        case .command, .agent, .workspaceCommand, .workspace:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }
