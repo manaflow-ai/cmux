@@ -18,6 +18,8 @@ struct SleepyModeDefaultsKeys {
     static let customInk = "sleepyMode.customInk"
     static let customLogo = "sleepyMode.customLogo"
     static let customBackground = "sleepyMode.customBackground"
+    /// Amphetamine Mode: keep the Mac awake while any agent is actively working.
+    static let keepAwakeWhileAgentsActive = "sleepyMode.keepAwakeWhileAgentsActive"
 
     private init() {}
 }

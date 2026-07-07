@@ -52,6 +52,13 @@ public final class SleepyModeSettingsStore {
     /// Custom background color ("RRGGBB"), used when `glow == .custom`.
     public var customBackground: String { didSet { persist(customBackground, SleepyModeDefaultsKeys.customBackground) } }
 
+    /// Amphetamine Mode: when on, `SleepyModeController` holds IOKit power
+    /// assertions while any agent is actively working, so the Mac does not
+    /// idle-sleep mid-task. A *behavior* flag read by the controller — not an
+    /// appearance field, so it is deliberately absent from `SleepyModeConfig`
+    /// and `snapshot()` (the per-frame render config).
+    public var keepAwakeWhileAgentsActive: Bool { didSet { persist(keepAwakeWhileAgentsActive, SleepyModeDefaultsKeys.keepAwakeWhileAgentsActive) } }
+
     private let defaults: UserDefaults
     private let configStore: JSONConfigStore?
     private let logger = Logger(
@@ -83,6 +90,8 @@ public final class SleepyModeSettingsStore {
         customInk = defaults.string(forKey: SleepyModeDefaultsKeys.customInk) ?? fallback.customInk
         customLogo = defaults.string(forKey: SleepyModeDefaultsKeys.customLogo) ?? fallback.customLogo
         customBackground = defaults.string(forKey: SleepyModeDefaultsKeys.customBackground) ?? fallback.customBackground
+        // Behavior flag, default off; no SleepyModeConfig fallback needed.
+        keepAwakeWhileAgentsActive = defaults.object(forKey: SleepyModeDefaultsKeys.keepAwakeWhileAgentsActive) as? Bool ?? false
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: defaults,
@@ -128,6 +137,8 @@ public final class SleepyModeSettingsStore {
         if customInk != values[3] { customInk = values[3] }
         if customLogo != values[4] { customLogo = values[4] }
         if customBackground != values[5] { customBackground = values[5] }
+        let nextKeepAwake = defaults.object(forKey: SleepyModeDefaultsKeys.keepAwakeWhileAgentsActive) as? Bool ?? false
+        if keepAwakeWhileAgentsActive != nextKeepAwake { keepAwakeWhileAgentsActive = nextKeepAwake }
     }
 
     /// Returns an immutable snapshot of the current preferences for the renderer.
