@@ -11,6 +11,8 @@ export type AuthedUser = {
   teamIds: readonly string[];
   userBillingPlanId: string | null;
   billingPlanId: string | null;
+  /** ISO-8601 start of the user's no-card Cloud VM trial, or null. */
+  vmTrialStartedAt: string | null;
 };
 
 export type AuthedTeam = {
@@ -99,6 +101,7 @@ async function authedUserFromStackUser(
     teamIds,
     userBillingPlanId,
     billingPlanId,
+    vmTrialStartedAt: vmTrialStartedAtFromMetadata(user.clientReadOnlyMetadata),
   };
 }
 
@@ -136,6 +139,14 @@ function planIdFromMetadata(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null;
   const value = (metadata as { cmuxVmPlan?: unknown; cmuxPlan?: unknown }).cmuxVmPlan ??
     (metadata as { cmuxPlan?: unknown }).cmuxPlan;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export const VM_TRIAL_STARTED_AT_METADATA_KEY = "cmuxVmTrialStartedAt";
+
+function vmTrialStartedAtFromMetadata(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const value = (metadata as Record<string, unknown>)[VM_TRIAL_STARTED_AT_METADATA_KEY];
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 

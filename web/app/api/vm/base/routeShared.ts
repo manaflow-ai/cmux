@@ -3,9 +3,9 @@ import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../../services/vms/entitlements";
+import { enforceVmProGate } from "../../../../services/vms/proGate";
 import {
   isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
@@ -24,7 +24,6 @@ import {
   vmBillingTeamErrorResponse,
   vmErrorResponse,
   vmWorkflowErrorResponse,
-  vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import {
@@ -57,9 +56,8 @@ export async function runBaseRoute(input: {
     throw err;
   }
 
-  if (isVmProGateBlocked(entitlements)) {
-    return vmRequiresProResponse();
-  }
+  const proGateResponse = await enforceVmProGate({ entitlements, userId: input.user.id });
+  if (proGateResponse) return proGateResponse;
 
   const provider = parsed.body.provider ?? defaultProviderId();
   let imageSelection;

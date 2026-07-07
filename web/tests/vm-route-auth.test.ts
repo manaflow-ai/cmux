@@ -316,9 +316,33 @@ describe("VM REST auth", () => {
     }));
   });
 
-  test("blocks a free plan from provisioning when CMUX_VM_REQUIRE_PRO is enforced", async () => {
+  test("auto-starts a no-card trial for a free plan under enforcement (first VM proceeds)", async () => {
     process.env.CMUX_VM_REQUIRE_PRO = "1";
     getUser.mockResolvedValue(freePlanStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-trial-start",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalled();
+  });
+
+  test("blocks a free plan whose trial has expired (upgrade wall)", async () => {
+    process.env.CMUX_VM_REQUIRE_PRO = "1";
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    getUser.mockResolvedValue(freePlanStackUser({ trialStartedAt: eightDaysAgo }));
 
     const response = await POST(
       new Request("https://cmux.test/api/vm", {
@@ -329,7 +353,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(402);
-    expect((await response.json() as { error: string }).error).toBe("vm_requires_pro");
+    expect((await response.json() as { error: string }).error).toBe("vm_trial_expired");
     expect(createVm).not.toHaveBeenCalled();
   });
 
@@ -1313,11 +1337,14 @@ function authedStackUser() {
   };
 }
 
-function freePlanStackUser() {
+function freePlanStackUser(options: { readonly trialStartedAt?: string } = {}) {
+  const userMetadata: Record<string, unknown> = { cmuxVmPlan: "free" };
+  if (options.trialStartedAt) userMetadata.cmuxVmTrialStartedAt = options.trialStartedAt;
   return {
     id: "user-1",
     displayName: null,
     primaryEmail: "user@example.com",
+    clientReadOnlyMetadata: userMetadata,
     selectedTeam: {
       id: "team-1",
       clientReadOnlyMetadata: { cmuxVmPlan: "free" },
@@ -1326,6 +1353,7 @@ function freePlanStackUser() {
       id: "team-1",
       clientReadOnlyMetadata: { cmuxVmPlan: "free" },
     }],
+    update: async (_input: { clientReadOnlyMetadata: Record<string, unknown> }) => undefined,
   };
 }
 
