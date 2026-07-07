@@ -20,9 +20,9 @@ enum SessionPersistencePolicy {
     // minimum width. The titlebar title tracks the sidebar's actual width only
     // when it is wider than the minimum, so a default above the minimum would make
     // the folder/title shift when toggling the sidebar at the default width.
-    static let defaultSidebarWidth: Double = 216
-    static let defaultMinimumSidebarWidth: Double = 216
-    static let minimumSidebarWidth: Double = 216
+    static let defaultSidebarWidth: Double = 240
+    static let defaultMinimumSidebarWidth: Double = 240
+    static let minimumSidebarWidth: Double = 240
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
@@ -1756,6 +1756,7 @@ enum SessionSplitOrientation: String, Codable, Sendable {
 struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var panelIds: [UUID]
     var selectedPanelId: UUID?
+    var isFullWidthTabMode: Bool? = nil
 }
 
 struct SessionSplitLayoutSnapshot: Codable, Sendable {
