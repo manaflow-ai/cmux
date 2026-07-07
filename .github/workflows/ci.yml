@@ -211,7 +211,24 @@ jobs:
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
       - name: Validate Swift file length budget
-        run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            python3 scripts/swift_file_length_budget.py \
+              --budget .github/swift-file-length-budget.tsv \
+              --base-ref "$BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            python3 scripts/swift_file_length_budget.py \
+              --budget .github/swift-file-length-budget.tsv \
+              --base-ref "$BEFORE_SHA"
+          else
+            python3 scripts/swift_file_length_budget.py \
+              --budget .github/swift-file-length-budget.tsv
+          fi
 
       - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
         run: python3 scripts/lint-feature-flags.py
