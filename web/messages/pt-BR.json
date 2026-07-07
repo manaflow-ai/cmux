@@ -1684,8 +1684,8 @@
   },
   "afterSignIn": {
     "title": "Conectado ao cmux",
-    "body": "Se o cmux não abriu automaticamente, use o botão abaixo.",
-    "button": "Voltar ao cmux",
+    "body": "Continue com esta conta para voltar ao cmux.",
+    "button": "Continuar com esta conta",
     "switchAccountButton": "Usar outra conta"
   },
   "landing": {

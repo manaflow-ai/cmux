@@ -1684,8 +1684,8 @@
   },
   "afterSignIn": {
     "title": "已登录 cmux",
-    "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
-    "button": "返回 cmux",
+    "body": "继续使用此账号以返回 cmux。",
+    "button": "继续使用此账号",
     "switchAccountButton": "使用其他账号"
   },
   "landing": {

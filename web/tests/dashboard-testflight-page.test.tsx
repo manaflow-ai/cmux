@@ -2,38 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import enMessages from "../messages/en.json";
+import { testflightUser } from "./fixtures/testflight-user";
 
 let stackConfigured = true;
-let currentUser: typeof testflightUser | null = null;
-let eligible = true;
+let currentUser: ReturnType<typeof testflightUser> | null = null;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
-
-const testflightUser = {
-  id: "user-pro",
-  isAnonymous: false,
-  primaryEmail: "Pro@Example.com",
-  displayName: "Pro User",
-  clientReadOnlyMetadata: {},
-  listProducts: mock(async () =>
-    Object.assign(
-      eligible
-        ? [
-            {
-              id: "pro",
-              quantity: 1,
-              subscription: {
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-              },
-            },
-          ]
-        : [],
-      { nextCursor: null },
-    ),
-  ),
-  update: mock(async () => undefined),
-};
 
 const getUser = mock(async () => currentUser);
 const ascFetch = mock(async (path: unknown) => {
@@ -106,19 +80,16 @@ const { default: DashboardTestflightPage } = await import("../app/[locale]/dashb
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
-    currentUser = testflightUser;
-    eligible = true;
+    currentUser = testflightUser();
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
-    testflightUser.listProducts.mockClear();
-    testflightUser.update.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
   });
 
   test("renders not eligible state with pricing link", async () => {
-    eligible = false;
+    currentUser = testflightUser({ eligible: false });
 
     const html = await renderTestflightPage();
 

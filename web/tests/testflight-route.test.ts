@@ -1,35 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-const currentUser = {
-  id: "user-pro",
-  isAnonymous: false,
-  primaryEmail: "Pro@Example.com",
-  displayName: "Pro User",
-  clientReadOnlyMetadata: {},
-  listProducts: mock(async () =>
-    Object.assign(
-      eligible
-        ? [
-            {
-              id: "pro",
-              quantity: 1,
-              subscription: {
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-              },
-            },
-          ]
-        : [],
-      { nextCursor: null },
-    ),
-  ),
-  update: mock(async () => undefined),
-};
+import { testflightUser } from "./fixtures/testflight-user";
 
 let stackConfigured = true;
 let ascConfigured = true;
-let eligible = true;
+let currentUser = testflightUser();
 let user: typeof currentUser | null = currentUser;
 
 const getUser = mock(async () => user);
@@ -74,11 +50,9 @@ describe("TestFlight route", () => {
   beforeEach(() => {
     stackConfigured = true;
     ascConfigured = true;
-    eligible = true;
+    currentUser = testflightUser();
     user = currentUser;
     getUser.mockClear();
-    currentUser.listProducts.mockClear();
-    currentUser.update.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
     mockImplementation(ascFetch, async (path: unknown) => {
@@ -117,7 +91,8 @@ describe("TestFlight route", () => {
   });
 
   test("does not enroll ineligible users", async () => {
-    eligible = false;
+    currentUser = testflightUser({ eligible: false });
+    user = currentUser;
 
     const response = await postAction("join");
 
