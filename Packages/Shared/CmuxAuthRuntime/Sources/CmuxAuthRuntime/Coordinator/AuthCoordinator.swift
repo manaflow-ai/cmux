@@ -293,6 +293,11 @@ public final class AuthCoordinator {
         try await signInWithOAuth(provider: "google")
     }
 
+    /// Sign in with GitHub.
+    public func signInWithGitHub() async throws {
+        try await signInWithOAuth(provider: "github")
+    }
+
     private func signInWithOAuth(provider: String) async throws {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, OAuth exchange, user fetch) wins.
