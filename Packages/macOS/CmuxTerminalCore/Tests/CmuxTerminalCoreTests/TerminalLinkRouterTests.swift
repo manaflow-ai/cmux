@@ -21,6 +21,51 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         let dotted = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "."))
         return dotted.isEmpty ? nil : dotted
     }
+
+    func navigableWebURL(_ input: String) -> URL? {
+        guard !rejectsEveryHost else { return nil }
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
+        let lower = trimmed.lowercased()
+        let bareHost = Self.bareHostCandidate(lower)
+        if lower.hasPrefix("localhost") ||
+            lower.hasPrefix("127.0.0.1") ||
+            lower.hasPrefix("[::1]") ||
+            (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
+            return URL(string: "http://\(trimmed)")
+        }
+        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
+            if scheme == "http" || scheme == "https" { return url }
+            if scheme == "file", url.isFileURL, url.path.hasPrefix("/") { return url }
+            if Self.dottedHostWithPortCandidate(trimmed, schemeCandidate: scheme) {
+                return URL(string: "https://\(trimmed)")
+            }
+            return nil
+        }
+        if trimmed.contains(":") || trimmed.contains("/") || trimmed.contains(".") {
+            return URL(string: "https://\(trimmed)")
+        }
+        return nil
+    }
+
+    private static func bareHostCandidate(_ lowercasedInput: String) -> String {
+        let end = lowercasedInput.firstIndex { character in
+            character == ":" || character == "/" || character == "?" || character == "#"
+        } ?? lowercasedInput.endIndex
+        return String(lowercasedInput[..<end])
+    }
+
+    private static func dottedHostWithPortCandidate(_ input: String, schemeCandidate: String) -> Bool {
+        guard schemeCandidate.contains(".") else { return false }
+        guard input.count > schemeCandidate.count else { return false }
+        let afterScheme = input.dropFirst(schemeCandidate.count)
+        guard afterScheme.first == ":" else { return false }
+        let portAndRest = afterScheme.dropFirst()
+        let port = portAndRest.prefix(while: { $0.isNumber })
+        guard !port.isEmpty, UInt16(port) != nil else { return false }
+        let rest = portAndRest.dropFirst(port.count)
+        return rest.isEmpty || rest.first == "/" || rest.first == "?" || rest.first == "#"
+    }
 }
 
 @Suite struct TerminalLinkRouterTests {
@@ -35,6 +80,17 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.scheme == "https")
         #expect(url.host == "example.com")
         #expect(url.path == "/path")
+    }
+
+    @Test func resolvesExplicitFileLikeHTTPSHostAsEmbeddedBrowser() throws {
+        let target = try #require(router.resolveOpenURLTarget("https://example.md:443"))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected explicit HTTPS URL to route before file-line suppression")
+            return
+        }
+        #expect(url.scheme == "https")
+        #expect(url.host == "example.md")
+        #expect(url.port == 443)
     }
 
     @Test func schemelessHostPathResolvesAsEmbeddedBrowser() throws {
@@ -91,6 +147,8 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
     @Test func unresolvedRelativePathDoesNotResolveAsHTTPSURL() {
         let target = router.resolveOpenURLTarget("README.md")
         #expect(target == nil)
+        #expect(router.resolveOpenURLTarget("README.md#L12") == nil)
+        #expect(router.resolveOpenURLTarget("README.md?raw=1") == nil)
     }
 
     @Test func resolvesFileSchemeAsExternal() throws {
@@ -150,8 +208,20 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(rejecting.resolveOpenURLTarget("example.com/docs") == nil)
     }
 
-    @Test func schemelessHostWithoutPathResolvesToNil() {
-        #expect(router.resolveOpenURLTarget("example.com") == nil)
+    @Test func schemelessHostWithoutPathResolvesAsEmbeddedBrowser() throws {
+        for (rawValue, expectedHost, expectedScheme) in [
+            ("example.com", "example.com", "https"),
+            ("example.com?x=1", "example.com", "https"),
+            ("localhost", "localhost", "http"),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected browser-navigable host to route to embedded browser")
+                return
+            }
+            #expect(url.scheme == expectedScheme)
+            #expect(url.host == expectedHost)
+        }
     }
 
     @Test func emptyTextResolvesToNil() {

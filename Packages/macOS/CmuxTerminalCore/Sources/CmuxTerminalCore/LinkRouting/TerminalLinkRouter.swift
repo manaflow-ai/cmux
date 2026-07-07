@@ -9,9 +9,9 @@ import CMUXDebugLog
 /// Routing precedence: absolute file-system paths open externally; `http` and
 /// `https` URLs open embedded when the injected ``BrowserHostNormalizing``
 /// accepts their host, externally otherwise; other schemes open externally;
-/// accepted scheme-less `host/path` text opens embedded as HTTPS; other
-/// scheme-less text that did not already resolve through the caller's
-/// file-path pass is ignored.
+/// browser-navigable scheme-less text opens embedded; terminal file references
+/// and path fragments that did not already resolve through the caller's
+/// file-path pass are ignored.
 public struct TerminalLinkRouter: Sendable {
     private let hostNormalizer: any BrowserHostNormalizing
 
@@ -46,34 +46,41 @@ public struct TerminalLinkRouter: Sendable {
             return .external(URL(fileURLWithPath: trimmed))
         }
 
-        if Self.looksLikeFileLineToken(trimmed) {
+        if let parsed = URL(string: trimmed),
+           let scheme = parsed.scheme?.lowercased() {
+            if scheme == "http" || scheme == "https" {
+                return routeWebURL(parsed, reason: "explicit")
+            }
+            if scheme == "file" || scheme == "mailto" || trimmed.contains("://") {
+                #if DEBUG
+                logDebugEvent("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
+                #endif
+                return .external(parsed)
+            }
+        }
+
+        if Self.looksLikeTerminalFileReference(trimmed) {
             #if DEBUG
-            logDebugEvent("link.resolve result=nil (fileLine)")
+            logDebugEvent("link.resolve result=nil (fileReference)")
             #endif
             return nil
         }
 
-        if let webURL = schemelessWebURL(from: trimmed) {
+        if Self.looksLikeSingleLabelPathFragment(trimmed) {
             #if DEBUG
-            logDebugEvent("link.resolve result=embeddedBrowser(schemeless) url=\(webURL)")
+            logDebugEvent("link.resolve result=nil (pathFragment)")
             #endif
-            return .embeddedBrowser(webURL)
+            return nil
+        }
+
+        if let webURL = hostNormalizer.navigableWebURL(trimmed),
+           let scheme = webURL.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            return routeWebURL(webURL, reason: "browser")
         }
 
         if let parsed = URL(string: trimmed),
            let scheme = parsed.scheme?.lowercased() {
-            if scheme == "http" || scheme == "https" {
-                guard hostNormalizer.normalizedHost(parsed.host ?? "") != nil else {
-                    #if DEBUG
-                    logDebugEvent("link.resolve result=external(invalidHost) url=\(parsed)")
-                    #endif
-                    return .external(parsed)
-                }
-                #if DEBUG
-                logDebugEvent("link.resolve result=embeddedBrowser url=\(parsed)")
-                #endif
-                return .embeddedBrowser(parsed)
-            }
             #if DEBUG
             logDebugEvent("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
             #endif
@@ -81,42 +88,26 @@ public struct TerminalLinkRouter: Sendable {
         }
 
         #if DEBUG
-        logDebugEvent("link.resolve result=nil (schemeless)")
+        logDebugEvent("link.resolve result=nil (unresolved)")
         #endif
         return nil
     }
 
-    private func schemelessWebURL(from trimmed: String) -> URL? {
-        guard trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
-
-        let hostCandidate: String
-        if let slashIndex = trimmed.firstIndex(of: "/") {
-            guard slashIndex > trimmed.startIndex else { return nil }
-            hostCandidate = String(trimmed[..<slashIndex])
-            guard !hostCandidate.hasSuffix(":") else { return nil }
-        } else if Self.hasNumericPort(trimmed) {
-            hostCandidate = trimmed
-        } else {
-            return nil
+    private func routeWebURL(_ url: URL, reason: String) -> TerminalOpenURLTarget {
+        guard hostNormalizer.normalizedHost(url.host ?? "") != nil else {
+            #if DEBUG
+            logDebugEvent("link.resolve result=external(\(reason),invalidHost) url=\(url)")
+            #endif
+            return .external(url)
         }
-
-        guard let normalizedHost = hostNormalizer.normalizedHost(hostCandidate),
-              let scheme = Self.schemelessWebScheme(for: normalizedHost) else {
-            return nil
-        }
-        return URL(string: "\(scheme)://\(trimmed)")
+        #if DEBUG
+        logDebugEvent("link.resolve result=embeddedBrowser(\(reason)) url=\(url)")
+        #endif
+        return .embeddedBrowser(url)
     }
 
-    private static func hasNumericPort(_ value: String) -> Bool {
-        guard let colon = value.lastIndex(of: ":"),
-              colon < value.index(before: value.endIndex) else {
-            return false
-        }
-        guard value[value.index(after: colon)...].allSatisfy(\.isNumber) else {
-            return false
-        }
-        let hostCandidate = String(value[..<colon])
-        return !looksLikeFileLineHost(hostCandidate)
+    private static func looksLikeTerminalFileReference(_ value: String) -> Bool {
+        looksLikeFileLineToken(value) || looksLikeBareFileToken(value)
     }
 
     private static func looksLikeFileLineToken(_ value: String) -> Bool {
@@ -126,6 +117,17 @@ public struct TerminalLinkRouter: Sendable {
             return false
         }
         return looksLikeFileLineHost(String(value[..<colon]))
+    }
+
+    private static func looksLikeBareFileToken(_ value: String) -> Bool {
+        guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              !value.contains("/") else {
+            return false
+        }
+        let end = value.firstIndex { character in
+            character == "?" || character == "#"
+        } ?? value.endIndex
+        return looksLikeFileLineHost(String(value[..<end]))
     }
 
     private static func looksLikeFileLineHost(_ hostCandidate: String) -> Bool {
@@ -143,16 +145,14 @@ public struct TerminalLinkRouter: Sendable {
         }
     }
 
-    private static func schemelessWebScheme(for normalizedHost: String) -> String? {
-        if normalizedHost == "localhost"
-            || normalizedHost == "127.0.0.1"
-            || normalizedHost == "::1"
-            || normalizedHost.hasSuffix(".localhost") {
-            return "http"
+    private static func looksLikeSingleLabelPathFragment(_ value: String) -> Bool {
+        guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let slash = value.firstIndex(of: "/"),
+              slash > value.startIndex else {
+            return false
         }
-        if normalizedHost.contains(".") || normalizedHost.contains(":") {
-            return "https"
-        }
-        return nil
+        let hostCandidate = value[..<slash].lowercased()
+        guard hostCandidate != "localhost" else { return false }
+        return hostCandidate.rangeOfCharacter(from: CharacterSet(charactersIn: ".:[]")) == nil
     }
 }

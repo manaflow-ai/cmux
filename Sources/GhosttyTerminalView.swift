@@ -192,6 +192,7 @@ struct TerminalBrowserHostNormalizer: BrowserHostNormalizing {
     func normalizedHost(_ rawHost: String) -> String? {
         BrowserInsecureHTTPSettings.normalizeHost(rawHost)
     }
+    func navigableWebURL(_ input: String) -> URL? { resolveBrowserNavigableURL(input) }
 }
 
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
