@@ -4,39 +4,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import enMessages from "../messages/en.json";
 
 let stackConfigured = true;
-let currentUser: typeof testflightUser | null = null;
-let eligible = true;
+let currentUser: ReturnType<typeof testflightUser> | null = null;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
 
-const testflightUser = {
-  id: "user-pro",
-  isAnonymous: false,
-  primaryEmail: "Pro@Example.com",
-  displayName: "Pro User",
-  clientReadOnlyMetadata: {},
-  listProducts: mock(async () =>
-    Object.assign(
-      eligible
-        ? [
-            {
-              id: "pro",
-              quantity: 1,
-              subscription: {
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-              },
-            },
-          ]
-        : [],
-      { nextCursor: null },
-    ),
-  ),
-  update: mock(async () => undefined),
-};
-
 const getUser = mock(async () => currentUser);
-const isTestflightEligible = mock(async () => eligible);
 const ascFetch = mock(async (path: unknown) => {
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
@@ -102,29 +74,21 @@ mock.module("../services/errors", () => ({
   captureBillingError: mock(() => undefined),
 }));
 
-mock.module("@/services/billing/pro", () => ({
-  isTestflightEligible,
-}));
-
 const { default: DashboardTestflightPage } = await import("../app/[locale]/dashboard/testflight/page");
 
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
-    currentUser = testflightUser;
-    eligible = true;
+    currentUser = testflightUser();
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
-    isTestflightEligible.mockClear();
-    testflightUser.listProducts.mockClear();
-    testflightUser.update.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
   });
 
   test("renders not eligible state with pricing link", async () => {
-    eligible = false;
+    currentUser = testflightUser({ eligible: false });
 
     const html = await renderTestflightPage();
 
@@ -180,6 +144,34 @@ async function renderTestflightPage(searchParams: Record<string, string> = {}) {
     searchParams: Promise.resolve(searchParams),
   });
   return renderToStaticMarkup(element);
+}
+
+function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
+  return {
+    id: "",
+    isAnonymous: false,
+    primaryEmail: "Pro@Example.com",
+    displayName: "Pro User",
+    clientReadOnlyMetadata: {},
+    listProducts: mock(async () =>
+      Object.assign(
+        eligible
+          ? [
+              {
+                id: "pro",
+                quantity: 1,
+                subscription: {
+                  cancelAtPeriodEnd: false,
+                  currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
+                },
+              },
+            ]
+          : [],
+        { nextCursor: null },
+      ),
+    ),
+    update: mock(async () => undefined),
+  };
 }
 
 function translator(namespace?: string) {
