@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tungstenite::client::IntoClientRequest;
@@ -16,7 +16,7 @@ pub struct ScreencastFrame {
     pub data_b64: String,
     pub css_width: u32,
     pub css_height: u32,
-    pub seq: u64,
+    pub ack_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,8 +28,31 @@ pub struct TargetInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetCreated {
+    pub target_id: String,
+    pub opener_id: Option<String>,
+    pub target_type: String,
+    pub title: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationEntry {
+    pub id: u64,
+    pub url: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationHistory {
+    pub current_index: usize,
+    pub entries: Vec<NavigationEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdpEvent {
     ScreencastFrame(ScreencastFrame),
+    TargetCreated(TargetCreated),
     TargetInfoChanged(TargetInfo),
     Other { method: String, params: Value, session_id: Option<String> },
     Closed(String),
@@ -56,7 +79,7 @@ pub struct CdpClient {
 }
 
 struct Inner {
-    ws: Mutex<WebSocket<TcpStream>>,
+    outbound: Sender<String>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
     events: Sender<CdpEvent>,
     next_id: AtomicU64,
@@ -76,13 +99,16 @@ impl CdpClient {
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = web_socket_url.into_client_request()?;
         let (ws, _) = client(request, stream)?;
-        // The reader and writers share tungstenite's synchronous WebSocket.
-        // Nonblocking reads keep the reader from holding the mutex while idle.
-        ws.get_ref().set_nonblocking(true)?;
+        // The reader thread owns the socket and drains queued outbound
+        // writes before each read poll. A message enqueued just after a
+        // read starts can wait for this window, but writers never contend
+        // on the socket itself.
+        ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
+        let (outbound_tx, outbound_rx) = channel();
         let client = CdpClient {
             inner: Arc::new(Inner {
-                ws: Mutex::new(ws),
+                outbound: outbound_tx,
                 pending: Mutex::new(HashMap::new()),
                 events,
                 next_id: AtomicU64::new(1),
@@ -90,14 +116,18 @@ impl CdpClient {
                 timeout: Duration::from_secs(30),
             }),
         };
-        client.spawn_reader()?;
+        client.spawn_reader(ws, outbound_rx)?;
         Ok(client)
     }
 
-    fn spawn_reader(&self) -> anyhow::Result<()> {
+    fn spawn_reader(
+        &self,
+        ws: WebSocket<TcpStream>,
+        outbound: Receiver<String>,
+    ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
         std::thread::Builder::new().name("mux-cdp-reader".into()).spawn(move || {
-            reader_loop(weak);
+            reader_loop(weak, ws, outbound);
         })?;
         Ok(())
     }
@@ -194,8 +224,60 @@ impl CdpClient {
         self.call("Page.stopScreencast", json!({}), Some(session_id)).map(|_| ())
     }
 
-    pub fn navigate(&self, session_id: &str, url: &str) -> anyhow::Result<()> {
-        self.call("Page.navigate", json!({ "url": url }), Some(session_id)).map(|_| ())
+    pub fn navigate(&self, session_id: &str, url: &str) -> anyhow::Result<Option<String>> {
+        let result = self.call("Page.navigate", json!({ "url": url }), Some(session_id))?;
+        Ok(result
+            .get("errorText")
+            .and_then(|value| value.as_str())
+            .filter(|error| !error.is_empty())
+            .map(ToOwned::to_owned))
+    }
+
+    pub fn navigation_history(&self, session_id: &str) -> anyhow::Result<NavigationHistory> {
+        let result = self.call("Page.getNavigationHistory", json!({}), Some(session_id))?;
+        let current_index = result
+            .get("currentIndex")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow::anyhow!("Page.getNavigationHistory missing currentIndex"))?
+            as usize;
+        let entries = result
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow::anyhow!("Page.getNavigationHistory missing entries"))?
+            .iter()
+            .filter_map(|entry| {
+                Some(NavigationEntry {
+                    id: entry.get("id")?.as_u64()?,
+                    url: entry.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    title: entry
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                })
+            })
+            .collect();
+        Ok(NavigationHistory { current_index, entries })
+    }
+
+    pub fn navigate_to_history_entry(&self, session_id: &str, entry_id: u64) -> anyhow::Result<()> {
+        self.call("Page.navigateToHistoryEntry", json!({ "entryId": entry_id }), Some(session_id))
+            .map(|_| ())
+    }
+
+    pub fn reload(&self, session_id: &str) -> anyhow::Result<()> {
+        self.call("Page.reload", json!({}), Some(session_id)).map(|_| ())
+    }
+
+    pub fn activate_target(&self, target_id: &str, session_id: &str) -> anyhow::Result<()> {
+        self.call("Target.activateTarget", json!({ "targetId": target_id }), None)?;
+        let _ = self.call("Page.bringToFront", json!({}), Some(session_id));
+        Ok(())
+    }
+
+    pub fn handle_javascript_dialog(&self, session_id: &str, accept: bool) -> anyhow::Result<()> {
+        self.call("Page.handleJavaScriptDialog", json!({ "accept": accept }), Some(session_id))
+            .map(|_| ())
     }
 
     pub fn set_device_metrics(
@@ -293,30 +375,8 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if self.inner.closed.load(Ordering::Acquire) {
-                anyhow::bail!("CDP connection is closed");
-            }
-
-            {
-                let mut ws = self.inner.ws.lock().unwrap();
-                match ws.send(Message::Text(text.clone())) {
-                    Ok(()) => return Ok(()),
-                    Err(WsError::Io(e))
-                        if matches!(
-                            e.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) => {}
-                    Err(e) => return Err(e.into()),
-                }
-            }
-
-            if Instant::now() >= deadline {
-                anyhow::bail!("CDP send timed out");
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        self.inner.outbound.send(text).map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        Ok(())
     }
 }
 
@@ -336,16 +396,17 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
     ports.iter().find_map(|port| fetch_json_version("127.0.0.1", *port).ok())
 }
 
-fn reader_loop(weak: Weak<Inner>) {
+fn reader_loop(weak: Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: Receiver<String>) {
     loop {
         let Some(inner) = weak.upgrade() else { break };
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
-        let message = {
-            let mut ws = inner.ws.lock().unwrap();
-            ws.read()
-        };
+        if let Err(err) = drain_outbound(&mut ws, &outbound) {
+            close_inner(&inner, &format!("CDP socket error: {err}"));
+            break;
+        }
+        let message = ws.read();
         match message {
             Ok(Message::Text(text)) => handle_text(&inner, &text),
             Ok(Message::Binary(bytes)) => {
@@ -364,13 +425,24 @@ fn reader_loop(weak: Weak<Inner>) {
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                 ) =>
             {
-                std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
             Err(e) => {
                 close_inner(&inner, &format!("CDP socket error: {e}"));
                 break;
             }
+        }
+    }
+}
+
+fn drain_outbound(
+    ws: &mut WebSocket<TcpStream>,
+    outbound: &Receiver<String>,
+) -> anyhow::Result<()> {
+    loop {
+        match outbound.try_recv() {
+            Ok(text) => ws.send(Message::Text(text))?,
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
         }
     }
 }
@@ -399,8 +471,13 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
         "Page.screencastFrame" => {
             if let Some(target_session) = session_id.as_deref() {
                 let Some(frame) = screencast_frame(&params, target_session) else { return };
-                ack_screencast_frame(inner, target_session, frame.seq);
+                ack_screencast_frame(inner, target_session, frame.ack_id);
                 let _ = inner.events.send(CdpEvent::ScreencastFrame(frame));
+            }
+        }
+        "Target.targetCreated" => {
+            if let Some(created) = target_created(&params) {
+                let _ = inner.events.send(CdpEvent::TargetCreated(created));
             }
         }
         "Target.targetInfoChanged" => {
@@ -427,12 +504,12 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    let _ = inner.ws.lock().unwrap().send(Message::Text(text));
+    let _ = inner.outbound.send(text);
 }
 
 fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame> {
     let data_b64 = params.get("data")?.as_str()?.to_string();
-    let seq = params.get("sessionId")?.as_u64()?;
+    let ack_id = params.get("sessionId")?.as_u64()?;
     let metadata = params.get("metadata").unwrap_or(&Value::Null);
     let css_width = metadata
         .get("deviceWidth")
@@ -449,7 +526,7 @@ fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame>
         data_b64,
         css_width,
         css_height,
-        seq,
+        ack_id,
     })
 }
 
@@ -458,6 +535,17 @@ fn target_info(params: &Value, session_id: Option<&str>) -> Option<TargetInfo> {
     Some(TargetInfo {
         session_id: session_id.map(str::to_string),
         target_id: info.get("targetId")?.as_str()?.to_string(),
+        title: info.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        url: info.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+    })
+}
+
+fn target_created(params: &Value) -> Option<TargetCreated> {
+    let info = params.get("targetInfo")?;
+    Some(TargetCreated {
+        target_id: info.get("targetId")?.as_str()?.to_string(),
+        opener_id: info.get("openerId").and_then(|v| v.as_str()).map(str::to_string),
+        target_type: info.get("type").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         title: info.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         url: info.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
     })
@@ -568,5 +656,105 @@ impl WsEndpoint {
             None => (host_port, 80),
         };
         Ok(WsEndpoint { host: host.trim_matches(['[', ']']).to_string(), port })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use tungstenite::{accept, Message};
+
+    use super::*;
+
+    #[test]
+    fn concurrent_calls_complete_while_reader_receives_events() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        const CALLS: usize = 12;
+
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_millis(5))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut ws = accept(stream).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut responses = 0usize;
+
+            while responses < CALLS && Instant::now() < deadline {
+                ws.send(Message::Text(
+                    json!({
+                        "method": "Target.targetInfoChanged",
+                        "params": {
+                            "targetInfo": {
+                                "targetId": "target-busy",
+                                "title": "busy",
+                                "url": "https://busy.test"
+                            }
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap();
+
+                match ws.read() {
+                    Ok(Message::Text(text)) => {
+                        let request: Value = serde_json::from_str(&text).unwrap();
+                        let id = request["id"].clone();
+                        ws.send(Message::Text(
+                            json!({"id": id, "result": {"method": request["method"]}}).to_string(),
+                        ))
+                        .unwrap();
+                        responses += 1;
+                    }
+                    Ok(Message::Binary(bytes)) => {
+                        let request: Value = serde_json::from_slice(&bytes).unwrap();
+                        let id = request["id"].clone();
+                        ws.send(Message::Text(
+                            json!({"id": id, "result": {"method": request["method"]}}).to_string(),
+                        ))
+                        .unwrap();
+                        responses += 1;
+                    }
+                    Ok(Message::Ping(_))
+                    | Ok(Message::Pong(_))
+                    | Ok(Message::Frame(_))
+                    | Ok(Message::Close(_)) => {}
+                    Err(WsError::Io(err))
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(err) => panic!("server websocket read failed: {err}"),
+                }
+            }
+
+            assert_eq!(responses, CALLS);
+        });
+
+        let (event_tx, _event_rx) = channel();
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        let barrier = Arc::new(Barrier::new(CALLS));
+        let start = Instant::now();
+        let mut workers = Vec::new();
+        for idx in 0..CALLS {
+            let client = client.clone();
+            let barrier = barrier.clone();
+            workers.push(thread::spawn(move || {
+                barrier.wait();
+                let result = client.call("Test.concurrent", json!({ "idx": idx }), None).unwrap();
+                assert_eq!(result["method"], "Test.concurrent");
+            }));
+        }
+
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert!(start.elapsed() < Duration::from_secs(5));
+        server.join().unwrap();
     }
 }
