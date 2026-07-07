@@ -47,6 +47,10 @@
 	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A page running within cmux would like to use speech recognition.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A page running within cmux would like to use your location.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

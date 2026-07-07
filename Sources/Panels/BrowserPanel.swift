@@ -6342,6 +6342,49 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         decisionHandler(.prompt)
     }
 
+    /// WebKit SPI: without this, page geolocation requests hang unanswered.
+    /// `.prompt` defers to WebKit's own per-origin permission alert, matching
+    /// the media-capture handler above. App-level CoreLocation consent is a
+    /// separate TCC prompt gated on NSLocationUsageDescription in Info.plist.
+    @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
+    func _webView(
+        _ webView: WKWebView,
+        requestGeolocationPermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.prompt)
+    }
+
+    /// WebKit SPI: without this, Notification.requestPermission() resolves
+    /// "denied" with no prompt. The callback is boolean-only, so present the
+    /// per-origin question ourselves in the style of the JS dialog handlers.
+    @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+    func _webView(
+        _ webView: WKWebView,
+        requestNotificationPermissionFor origin: WKSecurityOrigin,
+        decisionHandler: @escaping (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(
+            localized: "browser.permission.notifications.title",
+            defaultValue: "Show notifications?"
+        )
+        alert.informativeText = String(
+            format: String(
+                localized: "browser.permission.notifications.body",
+                defaultValue: "“%@” would like to show notifications."
+            ),
+            origin.host
+        )
+        alert.addButton(withTitle: String(localized: "common.allow", defaultValue: "Allow"))
+        alert.addButton(withTitle: String(localized: "common.dontAllow", defaultValue: "Don’t Allow"))
+        presentDialog(alert, for: webView) { response in
+            decisionHandler(response == .alertFirstButtonReturn)
+        }
+    }
+
     func webView(
         _ webView: WKWebView,
         runJavaScriptAlertPanelWithMessage message: String,
