@@ -10,7 +10,7 @@ private func resetGhosttyRuntimeStubs()
 private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64, _ ttyName: UnsafePointer<CChar>?)
 
 @MainActor
-@Suite struct TerminalSurfaceCloseConfirmationTests {
+@Suite(.serialized) struct TerminalSurfaceCloseConfirmationTests {
     @Test func liveSurfaceWithoutPidOrTtyDoesNotRequireConfirmation() {
         let surface = makeSurface()
         let runtimeSurface = fakeRuntimeSurface()
