@@ -444,6 +444,40 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDetailToolbarBackIslandFitsUnreadBadge() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_UNREAD_BACK_COUNT": "3",
+        ])
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = workspaceTitleElement(in: app)
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "unread-count back button"
+        )
+        guard let backFrame = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("unread-count back button: back button has no usable toolbar frame")
+            return
+        }
+        XCTAssertGreaterThan(
+            backFrame.width,
+            backFrame.height,
+            "Unread-count back button should render as a badge-width control, not be forced into the no-unread circle."
+        )
+        assertToolbarIslandsPinnedToBarEdges(
+            backButton: backButton,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "unread-count back button"
+        )
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",

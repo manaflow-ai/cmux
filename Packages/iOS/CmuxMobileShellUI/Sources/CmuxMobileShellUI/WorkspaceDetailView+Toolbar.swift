@@ -57,9 +57,15 @@ extension WorkspaceDetailView {
     }
 
     private var workspaceBackToolbarIsland: some View {
-        workspaceBackToolbarButton
-            .mobileGlassCircle()
-            .layoutPriority(1)
+        if let backButtonConfiguration, backButtonConfiguration.unreadCount > 0 {
+            workspaceBackToolbarButton
+                .mobileGlassCompactToolbarControl()
+                .layoutPriority(1)
+        } else {
+            workspaceBackToolbarButton
+                .mobileGlassCircle()
+                .layoutPriority(1)
+        }
     }
 
     @ViewBuilder
