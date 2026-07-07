@@ -3485,7 +3485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Seed the in-memory per-config ring from the restored snapshot so the
         // window can return to remembered frames on later configuration switches.
         if let configFrames = snapshot.configFrames {
-            windowConfigFrames[context.windowId] = configFrames
+            windowConfigFrames[context.windowId] = SessionConfigFramePolicy.sanitized(configFrames)
         }
         if let originalWindowId = snapshot.windowId,
            originalWindowId != context.windowId {
@@ -8380,7 +8380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
-                windowConfigFrames[windowId] = configFrames
+                windowConfigFrames[windowId] = SessionConfigFramePolicy.sanitized(configFrames)
             }
             if let originalWindowId = sessionWindowSnapshot.windowId,
                originalWindowId != windowId {

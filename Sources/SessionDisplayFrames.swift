@@ -29,6 +29,22 @@ struct SessionConfigFrameEntry: Codable, Sendable, Equatable {
 }
 
 enum SessionConfigFramePolicy {
+    /// Deduplicates by signature, keeps the newest entry per signature, and
+    /// trims to the LRU cap.
+    static func sanitized(
+        _ entries: [SessionConfigFrameEntry],
+        limit: Int = SessionPersistencePolicy.maxConfigFramesPerWindow
+    ) -> [SessionConfigFrameEntry] {
+        var seen = Set<String>()
+        var result: [SessionConfigFrameEntry] = []
+        for entry in entries.sorted(by: { $0.lastUsedAt > $1.lastUsedAt })
+        where seen.insert(entry.signature).inserted {
+            result.append(entry)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
     /// Upserts `entry` into `existing`, keyed by signature, then trims to the
     /// most-recently-used `limit` entries. Pure so it can be unit-tested without
     /// live displays.
@@ -44,11 +60,7 @@ enum SessionConfigFramePolicy {
     ) -> [SessionConfigFrameEntry] {
         var next = existing.filter { $0.signature != entry.signature }
         next.append(entry)
-        next.sort { $0.lastUsedAt > $1.lastUsedAt }
-        if next.count > limit {
-            next = Array(next.prefix(limit))
-        }
-        return next
+        return sanitized(next, limit: limit)
     }
 
     /// The remembered frame entry for `signature`, if present.

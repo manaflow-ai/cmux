@@ -288,6 +288,46 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSnapshotBackedWindowCreationSanitizesConfigFrameRing() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let assignedWindowId = UUID()
+        let cap = SessionPersistencePolicy.maxConfigFramesPerWindow
+        var ring: [SessionConfigFrameEntry] = (0..<(cap + 3)).map { index in
+            SessionConfigFrameEntry(
+                signature: "cfg\(index)",
+                frame: SessionRectSnapshot(CGRect(x: CGFloat(index), y: 0, width: 900, height: 600)),
+                display: nil,
+                lastUsedAt: TimeInterval(index)
+            )
+        }
+        ring.append(SessionConfigFrameEntry(
+            signature: "cfg\(cap + 2)",
+            frame: SessionRectSnapshot(CGRect(x: 999, y: 0, width: 900, height: 600)),
+            display: nil,
+            lastUsedAt: 999
+        ))
+        let snapshot = emptyWindowSnapshot(configFrames: ring)
+
+        let createdWindowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: snapshot,
+            preferredWindowId: assignedWindowId,
+            shouldActivate: false
+        )
+        defer {
+            closeCreatedWindow(appDelegate, windowId: createdWindowId)
+            appDelegate.windowConfigFrames.removeValue(forKey: createdWindowId)
+        }
+
+        let stored = appDelegate.windowConfigFrames[createdWindowId] ?? []
+        XCTAssertEqual(stored.count, cap)
+        XCTAssertEqual(
+            SessionConfigFramePolicy.entry(for: "cfg\(cap + 2)", in: stored)?.frame.cgRect.minX,
+            999
+        )
+        XCTAssertNil(SessionConfigFramePolicy.entry(for: "cfg0", in: stored))
+    }
+
+    @MainActor
     func testReconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         appDelegate.isSettlingScreenChange = true
