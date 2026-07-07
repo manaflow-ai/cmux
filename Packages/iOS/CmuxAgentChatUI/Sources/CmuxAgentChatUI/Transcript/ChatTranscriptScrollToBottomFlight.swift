@@ -66,7 +66,7 @@ final class ChatTranscriptScrollToBottomFlight {
             finish(in: tableView, setAtBottom: setAtBottom, updateBottomState: updateBottomState)
             return
         }
-        updateBottomState(tableView)
+        performLeg(in: tableView, setAtBottom: setAtBottom, updateBottomState: updateBottomState)
     }
 
     func cancel() {

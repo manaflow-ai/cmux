@@ -197,6 +197,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             scrollToBottomFlight.cancel()
             pendingContentUpdateAnchor = nil
+            if let tableView = scrollView as? UITableView {
+                updateBottomState(from: tableView)
+            }
         }
 
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
