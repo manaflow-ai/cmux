@@ -9,6 +9,8 @@ public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {
     case requestTimedOut(hostDisplayName: String?)
     /// The request failed authorization against the target Mac.
     case authorizationFailed(hostDisplayName: String?)
+    /// Another local workspace mutation is already in flight with a different target.
+    case busy(hostDisplayName: String?)
     /// The target Mac rejected the requested mutation.
     case rejected(hostDisplayName: String?)
     /// The current host does not support the requested mutation.

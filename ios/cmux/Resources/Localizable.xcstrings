@@ -8709,6 +8709,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Mac で認証されませんでした" } }
       }
     },
+    "mobile.workspaceAction.failure.reason.busy.host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ is finishing another workspace action" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ が別のワークスペース操作を完了しています" } }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.busy.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "another workspace action is still finishing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別のワークスペース操作がまだ完了中です" } }
+      }
+    },
     "mobile.workspaceAction.failure.reason.rejected.host": {
       "extractionState": "manual",
       "localizations": {

@@ -130,6 +130,20 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.authorization.generic",
                 defaultValue: "was not authorized by your Mac"
             )
+        case let .busy(hostDisplayName):
+            if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
+                return String.localizedStringWithFormat(
+                    L10n.string(
+                        "mobile.workspaceAction.failure.reason.busy.host",
+                        defaultValue: "%@ is finishing another workspace action"
+                    ),
+                    hostDisplayName
+                )
+            }
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.busy.generic",
+                defaultValue: "another workspace action is still finishing"
+            )
         case let .rejected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(

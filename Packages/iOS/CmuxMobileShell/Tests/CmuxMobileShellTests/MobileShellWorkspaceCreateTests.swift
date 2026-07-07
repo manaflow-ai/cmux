@@ -41,4 +41,31 @@ import Testing
         }
         #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
+
+    @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        await router.setRejectWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let firstCreate = Task { @MainActor in
+            await store.createWorkspaceRequest(inGroup: "group-a")
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        let secondResult = await store.createWorkspaceRequest(inGroup: "group-b")
+
+        guard case .failure(.busy) = secondResult else {
+            await router.releaseFirstWorkspaceCreate()
+            _ = await firstCreate.value
+            return #expect(Bool(false), "different group create should not reuse an in-flight request")
+        }
+
+        await router.releaseFirstWorkspaceCreate()
+        let firstResult = await firstCreate.value
+        guard case .failure(.rejected) = firstResult else {
+            return #expect(Bool(false), "first create should still report its own host result")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
+        #expect(await router.recordedWorkspaceCreateGroupIDs() == ["group-a"])
+    }
 }

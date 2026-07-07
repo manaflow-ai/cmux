@@ -15,6 +15,9 @@ extension MobileShellComposite {
             return createWorkspace(inGroup: groupID)
         }
         if let createWorkspaceTask {
+            guard createWorkspaceTaskGroupID == groupID else {
+                return .failure(.busy(hostDisplayName: connectedHostName))
+            }
             return await createWorkspaceTask.value
         }
         let taskID = UUID()
@@ -25,6 +28,7 @@ extension MobileShellComposite {
             return await self.createRemoteWorkspace(inGroup: groupID)
         }
         createWorkspaceTask = task
+        createWorkspaceTaskGroupID = groupID
         return await task.value
     }
 

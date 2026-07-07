@@ -43,6 +43,7 @@ actor RoutingHostRouter {
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private var workspaceCreateGroupIDs: [String?] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
@@ -113,6 +114,7 @@ actor RoutingHostRouter {
     }
 
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
+    func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
@@ -128,6 +130,7 @@ actor RoutingHostRouter {
         var text: String?
         var notificationIDs: [String]?
         var clientID: String?
+        var groupID: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -174,6 +177,7 @@ actor RoutingHostRouter {
             ])
         case "workspace.create":
             workspaceCreateCount += 1
+            workspaceCreateGroupIDs.append(info.groupID)
             if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
                 firstWorkspaceCreateHeld = true
                 let reachedWaiters = firstWorkspaceCreateReachedWaiters
@@ -308,7 +312,8 @@ private actor RoutingTransport: CmxByteTransport {
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
-                clientID: params?["client_id"] as? String
+                clientID: params?["client_id"] as? String,
+                groupID: params?["group_id"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

@@ -700,6 +700,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
+    var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
@@ -949,6 +950,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalEventListenerID = nil
         self.terminalSubscriptionRefreshTask = nil
         self.createWorkspaceTask = nil
+        self.createWorkspaceTaskGroupID = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
@@ -4109,7 +4111,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
     ) -> Result<Void, MobileWorkspaceMutationFailure> {
         guard remoteClient == nil else {
-            guard createWorkspaceTask == nil else { return .success(()) }
+            if createWorkspaceTask != nil {
+                return createWorkspaceTaskGroupID == groupID
+                    ? .success(())
+                    : .failure(.busy(hostDisplayName: connectedHostName))
+            }
             let taskID = UUID()
             createWorkspaceTaskID = taskID
             createWorkspaceTask = Task { @MainActor [weak self] in
@@ -4117,6 +4123,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard let self else { return .success(()) }
                 return await self.createRemoteWorkspace(inGroup: groupID)
             }
+            createWorkspaceTaskGroupID = groupID
             return .success(())
         }
         guard groupID == nil else {
@@ -5307,6 +5314,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask = nil
         createWorkspaceTask?.cancel()
         createWorkspaceTask = nil
+        createWorkspaceTaskGroupID = nil
         createWorkspaceTaskID = nil
         createTerminalTask?.cancel()
         createTerminalTask = nil
@@ -5642,6 +5650,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func clearCreateWorkspaceTask(id: UUID) {
         guard createWorkspaceTaskID == id else { return }
         createWorkspaceTask = nil
+        createWorkspaceTaskGroupID = nil
         createWorkspaceTaskID = nil
     }
 
