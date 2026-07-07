@@ -18,6 +18,9 @@ import Carbon.HIToolbox
 import os
 import Sentry
 import Bonsplit
+#if canImport(Translation)
+import Translation
+#endif
 import CMUXAgentLaunch
 import CMUXMobileCore
 import IOSurface
@@ -3570,6 +3573,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
+    /// Hidden anchor hosting view for the system Translation popover; present
+    /// only while the popover is shown for the current selection.
+    private var selectionTranslationHostView: NSView?
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
@@ -5304,6 +5310,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             string: selected,
             topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
         )
+    }
+
+    /// Presents the system Translation popover for the current selection,
+    /// anchored at the selection's top-left cell. The popover is the overlay:
+    /// a 1-cell hidden hosting view marks the anchor and is removed when the
+    /// popover dismisses.
+    @available(macOS 15.0, *)
+    @objc func translateCurrentSelection(_ sender: Any?) {
+        #if canImport(Translation)
+        guard let snapshot = readSelectionSnapshot(),
+              !snapshot.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            NSSound.beep()
+            return
+        }
+        selectionTranslationHostView?.removeFromSuperview()
+        selectionTranslationHostView = nil
+
+        let anchorHeight: CGFloat = 22
+        // Ghostty selection coordinates are top-left origin; AppKit is
+        // bottom-left. Clamp into bounds so an off-screen selection edge
+        // still anchors somewhere visible.
+        let anchor = NSPoint(
+            x: min(max(0, snapshot.topLeft.x), bounds.width - 1),
+            y: min(max(0, bounds.height - snapshot.topLeft.y - anchorHeight), bounds.height - 1)
+        )
+        let host = NSHostingView(rootView: TerminalSelectionTranslationAnchorView(
+            text: snapshot.string,
+            onDismiss: { [weak self] in
+                DispatchQueue.main.async {
+                    self?.selectionTranslationHostView?.removeFromSuperview()
+                    self?.selectionTranslationHostView = nil
+                }
+            }
+        ))
+        host.frame = NSRect(x: anchor.x, y: anchor.y, width: 2, height: anchorHeight)
+        addSubview(host)
+        selectionTranslationHostView = host
+        #endif
     }
 
     private func visibleDocumentRectInScreenCoordinates() -> NSRect {
@@ -7237,6 +7281,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             item.target = self
+            if #available(macOS 15.0, *), TerminalSelectionTranslation.isSupported {
+                let translateItem = menu.addItem(
+                    withTitle: String(localized: "terminalContextMenu.translateSelection", defaultValue: "Translate Selection"),
+                    action: #selector(translateCurrentSelection(_:)),
+                    keyEquivalent: ""
+                )
+                translateItem.target = self
+                translateItem.image = NSImage(systemSymbolName: "translate", accessibilityDescription: nil)
+            }
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
@@ -12294,3 +12347,43 @@ struct GhosttyTerminalView: NSViewRepresentable {
         nsView.subviews.forEach { $0.removeFromSuperview() }
     }
 }
+
+// MARK: - Selection translation (system Translation popover)
+
+/// Availability gate for the native "Translate Selection" context-menu item.
+/// The Translation framework ships with macOS 15; on older systems (or SDKs
+/// without the framework) the menu item is hidden entirely.
+enum TerminalSelectionTranslation {
+    static var isSupported: Bool {
+        #if canImport(Translation)
+        if #available(macOS 15.0, *) { return true }
+        #endif
+        return false
+    }
+}
+
+#if canImport(Translation)
+/// Invisible anchor for the system Translation popover. The popover attaches
+/// to this view's frame (positioned at the selection's top-left cell) and the
+/// binding flips false when the user dismisses it, which tears the anchor
+/// down via `onDismiss`.
+@available(macOS 15.0, *)
+private struct TerminalSelectionTranslationAnchorView: View {
+    let text: String
+    let onDismiss: () -> Void
+    @State private var isPresented = false
+
+    var body: some View {
+        Color.clear
+            .translationPresentation(isPresented: $isPresented, text: text)
+            .onAppear {
+                // Present on the next runloop tick so the hosting view is
+                // in a window before the popover tries to anchor to it.
+                DispatchQueue.main.async { isPresented = true }
+            }
+            .onChange(of: isPresented) { _, presented in
+                if !presented { onDismiss() }
+            }
+    }
+}
+#endif
