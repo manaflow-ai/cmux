@@ -3339,10 +3339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// a stable identity (nothing can be persisted reliably) or when displays are
     /// mid-reconfiguration with degenerate frames.
     private func currentDisplayConfigurationSignature() -> String? {
-        DisplayConfigurationSignature.signature(
-            for: currentDisplayGeometries().available,
-            isMirrored: Self.displaysAreMirrored()
-        )
+        currentDisplayGeometries().available
+            .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
     }
 
     /// Whether the connected displays form a mirrored set (any two share a
@@ -3968,10 +3966,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Restore remembered per-configuration frames only when the connected
         // display set genuinely changed — so sleep/wake and Dock resize (same
         // signature) never reposition a deliberately-placed window.
-        let signature = DisplayConfigurationSignature.signature(
-            for: displays.available,
-            isMirrored: Self.displaysAreMirrored()
-        )
+        let signature = displays.available
+            .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
         let signatureChanged = signature != lastAppliedConfigurationSignature
 #if DEBUG
         cmuxDebugLog(
@@ -4076,10 +4072,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let displays = currentDisplayGeometries()
         // 3. Key to the WRITE-TIME signature so a slipped write can only land in
         //    the currently-connected slot, never overwrite a disconnected one.
-        guard let signature = DisplayConfigurationSignature.signature(
-            for: displays.available,
-            isMirrored: Self.displaysAreMirrored()
-        ) else {
+        guard let signature = displays.available
+            .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
+        else {
             logCaptureSkipped(window, reason: reason, guardName: "noStableSignature")
             return
         }

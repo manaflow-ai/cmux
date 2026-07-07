@@ -50,7 +50,7 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
     func testWindowFrameIsRestoredToExternalMonitorAfterReconnect() throws {
         // 1. Docked: built-in + external. User's window lives on the external.
         let dockedSignature = try XCTUnwrap(
-            DisplayConfigurationSignature.signature(for: [builtIn, external])
+            [builtIn, external].displayConfigurationSignature()
         )
         let externalWindowFrame = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
 
@@ -74,7 +74,7 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
         //    keyed to the LAPTOP-ONLY signature, which differs from the docked
         //    one — so it must NOT overwrite the external slot (anti-#2135).
         let laptopSignature = try XCTUnwrap(
-            DisplayConfigurationSignature.signature(for: [builtIn])
+            [builtIn].displayConfigurationSignature()
         )
         XCTAssertNotEqual(dockedSignature, laptopSignature)
         // Simulate the built-in capture landing in its own slot.

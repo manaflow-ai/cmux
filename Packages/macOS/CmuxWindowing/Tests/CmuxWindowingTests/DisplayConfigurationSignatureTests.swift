@@ -25,8 +25,8 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
     func testSignatureIsOrderIndependent() {
         let a = display("uuid:A", frame: builtIn)
         let b = display("uuid:B", frame: externalAbove)
-        let s1 = DisplayConfigurationSignature.signature(for: [a, b])
-        let s2 = DisplayConfigurationSignature.signature(for: [b, a])
+        let s1 = [a, b].displayConfigurationSignature()
+        let s2 = [b, a].displayConfigurationSignature()
         XCTAssertNotNil(s1)
         XCTAssertEqual(s1, s2)
     }
@@ -43,8 +43,8 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
             visibleFrame: CGRect(x: 0, y: 70, width: 1_512, height: 912)
         )
         XCTAssertEqual(
-            DisplayConfigurationSignature.signature(for: [dockHidden]),
-            DisplayConfigurationSignature.signature(for: [dockShown])
+            [dockHidden].displayConfigurationSignature(),
+            [dockShown].displayConfigurationSignature()
         )
     }
 
@@ -52,8 +52,8 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
         let hiRes = display("uuid:A", frame: CGRect(x: 0, y: 0, width: 3_840, height: 2_160))
         let loRes = display("uuid:A", frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080))
         XCTAssertNotEqual(
-            DisplayConfigurationSignature.signature(for: [hiRes]),
-            DisplayConfigurationSignature.signature(for: [loRes])
+            [hiRes].displayConfigurationSignature(),
+            [loRes].displayConfigurationSignature()
         )
     }
 
@@ -65,10 +65,10 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
         // single monitor, and left/right layout must be encoded.
         let left = display("uuid:SAME", frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080))
         let right = display("uuid:SAME", frame: CGRect(x: 1_920, y: 0, width: 1_920, height: 1_080))
-        let sig = DisplayConfigurationSignature.signature(for: [left, right])
+        let sig = [left, right].displayConfigurationSignature()
         XCTAssertNotNil(sig)
         // Distinct from a single monitor of that model.
-        XCTAssertNotEqual(sig, DisplayConfigurationSignature.signature(for: [left]))
+        XCTAssertNotEqual(sig, [left].displayConfigurationSignature())
         // Both positions are represented.
         XCTAssertTrue(sig!.contains("0,0"))
         XCTAssertTrue(sig!.contains("1920,0"))
@@ -78,8 +78,8 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
 
     func testMirrorSignatureNeverCollidesWithLaptopOnly() {
         let laptop = display("uuid:A", frame: builtIn)
-        let plain = DisplayConfigurationSignature.signature(for: [laptop], isMirrored: false)
-        let mirrored = DisplayConfigurationSignature.signature(for: [laptop], isMirrored: true)
+        let plain = [laptop].displayConfigurationSignature(isMirrored: false)
+        let mirrored = [laptop].displayConfigurationSignature(isMirrored: true)
         XCTAssertNotNil(plain)
         XCTAssertNotNil(mirrored)
         XCTAssertNotEqual(plain, mirrored)
@@ -89,8 +89,8 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
 
     func testNoStableIdentityYieldsNilSignature() {
         let unkeyed = display(nil, frame: builtIn)
-        XCTAssertNil(DisplayConfigurationSignature.signature(for: [unkeyed]))
-        XCTAssertNil(DisplayConfigurationSignature.signature(for: []))
+        XCTAssertNil([unkeyed].displayConfigurationSignature())
+        XCTAssertNil([].displayConfigurationSignature())
     }
 
     func testDisplaysWithoutStableKeyAreExcludedButOthersStillKey() {
@@ -99,8 +99,8 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
         // The unkeyed display drops out; the signature reflects only the keyed one
         // and equals the single-display signature.
         XCTAssertEqual(
-            DisplayConfigurationSignature.signature(for: [keyed, unkeyed]),
-            DisplayConfigurationSignature.signature(for: [keyed])
+            [keyed, unkeyed].displayConfigurationSignature(),
+            [keyed].displayConfigurationSignature()
         )
     }
 
@@ -108,13 +108,13 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
 
     func testDegenerateFrameIsExcluded() {
         let ramping = display("uuid:RAMP", frame: CGRect(x: 0, y: 0, width: 0, height: 0))
-        XCTAssertNil(DisplayConfigurationSignature.signature(for: [ramping]))
+        XCTAssertNil([ramping].displayConfigurationSignature())
 
         let nonFinite = display(
             "uuid:NAN",
             frame: CGRect(x: CGFloat.nan, y: 0, width: 1_920, height: 1_080)
         )
-        XCTAssertNil(DisplayConfigurationSignature.signature(for: [nonFinite]))
+        XCTAssertNil([nonFinite].displayConfigurationSignature())
     }
 
     // MARK: sub-pixel jitter stability
@@ -123,8 +123,8 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
         let a = display("uuid:A", frame: CGRect(x: 0, y: 0, width: 1_512.0, height: 982.0))
         let b = display("uuid:A", frame: CGRect(x: 0.3, y: -0.2, width: 1_511.6, height: 982.4))
         XCTAssertEqual(
-            DisplayConfigurationSignature.signature(for: [a]),
-            DisplayConfigurationSignature.signature(for: [b])
+            [a].displayConfigurationSignature(),
+            [b].displayConfigurationSignature()
         )
     }
 }
