@@ -30,8 +30,8 @@ import Testing
         ]
         let scoped = try await connectedStore(capabilities: currentCapabilities)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
-        #expect(scoped.store.supportsWorkspaceCreateInGroup)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
+        #expect(!scoped.store.supportsWorkspaceCreateInGroup)
 
         let macWide = try await connectedStore(
             capabilities: currentCapabilities,
@@ -39,6 +39,7 @@ import Testing
             ticketTerminalID: nil
         )
         #expect(macWide.store.supportsWorkspaceMoveActions && macWide.store.supportsWorkspaceGroupActions)
+        #expect(macWide.store.supportsWorkspaceCreateInGroup)
     }
 
     private func connectedStore(

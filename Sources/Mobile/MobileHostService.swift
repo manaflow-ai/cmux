@@ -1321,7 +1321,8 @@ final class MobileHostService {
     }
 
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
-        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action"
+        let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
+        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || createsWorkspaceInGroup
         guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
             return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
@@ -1388,6 +1389,9 @@ final class MobileHostService {
         case "mobile.workspace.list", "workspace.list":
             return nil
         case "workspace.create":
+            guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
+                return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
+            }
             return nil
         case "workspace.move":
             return ticketMacScopedWorkspaceMutationAuthorizationError(

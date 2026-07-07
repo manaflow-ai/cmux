@@ -133,6 +133,7 @@ struct MobileHostMacScopedMutationAuthorizationTests {
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
         let cases: [(String, [String: String])] = [
+            ("workspace.create", ["group_id": "group-main"]),
             ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
             ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
         ]
@@ -156,6 +157,7 @@ struct MobileHostMacScopedMutationAuthorizationTests {
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
         let cases: [(String, [String: String])] = [
+            ("workspace.create", ["group_id": "group-main"]),
             ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
             ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
         ]
