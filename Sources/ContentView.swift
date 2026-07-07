@@ -9423,6 +9423,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
+    let alwaysShowsWorkspaceNumbers: Bool
     let sidebarFontScale: CGFloat
     let showsGitBranch: Bool
     let usesVerticalBranchLayout: Bool
@@ -9477,6 +9478,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
         showsNotificationMessage = detailVisibility.showsNotificationMessage
         notificationMessageLineLimit = min(max(settings.value(for: catalog.sidebar.notificationMessageLineLimit), SidebarCatalogSection.notificationMessageLineLimitRange.lowerBound), SidebarCatalogSection.notificationMessageLineLimitRange.upperBound)
+        alwaysShowsWorkspaceNumbers = settings.value(for: catalog.sidebar.alwaysShowWorkspaceNumbers)
+
+
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
         let showsProgress = Self.bool(defaults: defaults, key: "sidebarShowProgress", defaultValue: SidebarWorkspaceDetailDefaults.showProgress)
@@ -13019,6 +13023,10 @@ struct TabItemView: View, Equatable {
         settings.alwaysShowShortcutHints
     }
 
+    private var alwaysShowsWorkspaceNumbers: Bool {
+        settings.alwaysShowsWorkspaceNumbers
+    }
+
     private var sidebarShowGitBranch: Bool {
         settings.showsGitBranch
     }
@@ -13206,8 +13214,21 @@ struct TabItemView: View, Equatable {
         return "\(workspaceShortcutModifierSymbol)\(workspaceShortcutDigit)"
     }
 
+    private var workspaceShortcutHintVisibility: WorkspaceShortcutHintVisibility {
+        WorkspaceShortcutHintVisibility.resolve(
+            modifierHintActive: showsModifierShortcutHints || alwaysShowShortcutHints,
+            alwaysShowsNumbers: alwaysShowsWorkspaceNumbers,
+            hasLabel: workspaceShortcutLabel != nil,
+            closeButtonVisible: showCloseButton
+        )
+    }
+
     private var showsWorkspaceShortcutHint: Bool {
-        (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
+        workspaceShortcutHintVisibility.isVisible
+    }
+
+    private var workspaceShortcutHintOpacity: Double {
+        workspaceShortcutHintVisibility.opacity
     }
 
     private var remoteWorkspaceSidebarText: String? {
@@ -13745,7 +13766,8 @@ struct TabItemView: View, Equatable {
             emphasis: shortcutHintEmphasis,
             offsetX: sidebarShortcutHintXOffset,
             offsetY: sidebarShortcutHintYOffset,
-            fontSize: scaledFontSize(10)
+            fontSize: scaledFontSize(10),
+            opacity: workspaceShortcutHintOpacity
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)

@@ -110,6 +110,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showPullRequests",
         "sidebar.showSSH",
         "sidebar.showWorkspaceDescription",
+        "sidebar.alwaysShowWorkspaceNumbers",
         "sidebar.stackBranchDirectory",
         "sidebar.watchGitStatus",
         "sidebar.wrapWorkspaceTitles",

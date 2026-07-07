@@ -13,6 +13,7 @@ public struct SidebarSection: View {
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
+    @State private var alwaysShowNumbers: DefaultsValueModel<Bool>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
@@ -42,6 +43,7 @@ public struct SidebarSection: View {
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
+        _alwaysShowNumbers = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.alwaysShowWorkspaceNumbers))
         _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
@@ -79,6 +81,7 @@ public struct SidebarSection: View {
             hideAll,
             wrapTitles,
             showDesc,
+            alwaysShowNumbers,
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
@@ -284,6 +287,17 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.alwaysShowWorkspaceNumbers"),
+                String(localized: "settings.app.alwaysShowWorkspaceNumbers", defaultValue: "Always Show Workspace Numbers"),
+                subtitle: String(localized: "settings.app.alwaysShowWorkspaceNumbers.subtitle", defaultValue: "Keep each workspace's ⌘-number visible in the sidebar, instead of only while holding ⌘.")
+            ) {
+                Toggle("", isOn: Binding(get: { alwaysShowNumbers.current }, set: { alwaysShowNumbers.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
             SettingsCardDivider()
 
             SettingsCardRow(

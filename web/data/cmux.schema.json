@@ -995,6 +995,11 @@
             }
           }
         },
+        "alwaysShowWorkspaceNumbers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Always show each workspace's ⌘-number in the sidebar (dimmed), instead of only while holding ⌘."
+        },
         "branchLayout": {
           "type": "string",
           "enum": ["vertical", "inline"],
