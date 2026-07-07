@@ -18,7 +18,7 @@ describe("load-dev-env", () => {
       expect(result.stdout).toContain("client=pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g");
       expect(result.stdout).toContain("secret=");
       expect(result.stdout).toContain("placeholder=0");
-      expect(result.stdout).toContain("secret_file=");
+      expect(outputValue(result.stdout, "secret_file")).toBe("");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -27,6 +27,18 @@ describe("load-dev-env", () => {
   test("keeps explicit Stack env values", () => {
     const home = mkdtempSync(join(tmpdir(), "cmux-explicit-home-"));
     try {
+      const secrets = join(home, ".secrets");
+      const file = join(secrets, "cmuxterm-dev.env");
+      mkdirSync(secrets, { recursive: true });
+      writeFileSync(
+        file,
+        [
+          "NEXT_PUBLIC_STACK_PROJECT_ID=file-project",
+          "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=file-client",
+          "STACK_SECRET_SERVER_KEY=file-secret",
+        ].join("\n"),
+      );
+
       const result = sourceLoader(home, {
         NEXT_PUBLIC_STACK_PROJECT_ID: "explicit-project",
         NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "explicit-client",
@@ -190,6 +202,13 @@ describe("load-dev-env", () => {
 
 function writeExecutable(path: string, contents: string) {
   writeFileSync(path, contents, { mode: 0o755 });
+}
+
+function outputValue(stdout: string, key: string): string | undefined {
+  return stdout
+    .split("\n")
+    .find((line) => line.startsWith(`${key}=`))
+    ?.slice(key.length + 1);
 }
 
 function sourceLoader(

@@ -3,6 +3,7 @@ import {
   DEFAULT_NATIVE_CALLBACK_SCHEME,
   isAllowedNativeReturnTo,
 } from "../../lib/native-callback";
+import { requestIsExternallySecure } from "../../lib/request-scheme";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 
@@ -354,7 +355,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
             localizedMessages,
             autoOpen,
             accountSwitchHref,
-            request.nextUrl.protocol === "https:"
+            requestIsExternallySecure(request)
           );
         }
       }
@@ -373,8 +374,8 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
           fallback,
           localizedMessages,
           false,
-          switchAccountHref(request),
-          request.nextUrl.protocol === "https:"
+          null,
+          requestIsExternallySecure(request)
         );
       }
     }

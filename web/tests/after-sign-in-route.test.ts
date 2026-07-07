@@ -129,6 +129,27 @@ describe("after sign-in native handoff", () => {
     expect(afterSignInTarget.searchParams.has("after_auth_return_to")).toBe(false);
   });
 
+  test("clears the handoff cookie as secure when forwarded proto is https", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+    const encodedReturnTo = encodeURIComponent(nativeReturnTo);
+
+    const response = await GET(
+      new NextRequest(
+        `http://cmux.test/handler/after-sign-in?native_app_return_to=${encodedReturnTo}&cmux_auth_handoff=handoff-nonce`,
+        {
+          headers: {
+            "accept-language": "en",
+            "x-forwarded-proto": "https,http",
+          },
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toContain("Secure");
+  });
+
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
     handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";

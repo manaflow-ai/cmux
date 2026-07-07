@@ -26,6 +26,12 @@ cmux_existing_e2b_template_set="${E2B_CMUXD_WS_TEMPLATE+x}"
 cmux_existing_e2b_template="${E2B_CMUXD_WS_TEMPLATE-}"
 cmux_existing_daytona_snapshot_set="${DAYTONA_SANDBOX_SNAPSHOT+x}"
 cmux_existing_daytona_snapshot="${DAYTONA_SANDBOX_SNAPSHOT-}"
+cmux_existing_stack_project_set="${NEXT_PUBLIC_STACK_PROJECT_ID+x}"
+cmux_existing_stack_project="${NEXT_PUBLIC_STACK_PROJECT_ID-}"
+cmux_existing_stack_client_set="${NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY+x}"
+cmux_existing_stack_client="${NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY-}"
+cmux_existing_stack_secret_set="${STACK_SECRET_SERVER_KEY+x}"
+cmux_existing_stack_secret="${STACK_SECRET_SERVER_KEY-}"
 
 cmux_extra_secret_file="${CMUXTERM_EXTRA_ENV_FILE:-${CMUX_WEB_EXTRA_ENV_FILE:-}}"
 if [[ -z "$cmux_extra_secret_file" && -f "$HOME/.secrets/cmux.env" ]]; then
@@ -75,6 +81,9 @@ if [[ -n "$cmux_existing_db_name_set" ]]; then export CMUX_DB_NAME="$cmux_existi
 if [[ -n "$cmux_existing_freestyle_snapshot_set" ]]; then export FREESTYLE_SANDBOX_SNAPSHOT="$cmux_existing_freestyle_snapshot"; fi
 if [[ -n "$cmux_existing_e2b_template_set" ]]; then export E2B_CMUXD_WS_TEMPLATE="$cmux_existing_e2b_template"; fi
 if [[ -n "$cmux_existing_daytona_snapshot_set" ]]; then export DAYTONA_SANDBOX_SNAPSHOT="$cmux_existing_daytona_snapshot"; fi
+if [[ -n "$cmux_existing_stack_project_set" ]]; then export NEXT_PUBLIC_STACK_PROJECT_ID="$cmux_existing_stack_project"; fi
+if [[ -n "$cmux_existing_stack_client_set" ]]; then export NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY="$cmux_existing_stack_client"; fi
+if [[ -n "$cmux_existing_stack_secret_set" ]]; then export STACK_SECRET_SERVER_KEY="$cmux_existing_stack_secret"; fi
 
 cmux_port="${CMUX_PORT:-${PORT:-3777}}"
 if [[ ! "$cmux_port" =~ ^[0-9]+$ ]]; then
