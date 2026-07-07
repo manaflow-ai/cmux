@@ -21,6 +21,7 @@ type SessionsTableProps = {
   readonly initialQuery: string;
   readonly initialRows: readonly SerializedVaultSessionListRow[];
   readonly initialNextCursor: string | null;
+  readonly initialNowIso: string;
 };
 
 const LOAD_MORE_THRESHOLD = 20;
@@ -29,6 +30,7 @@ export function SessionsTable({
   initialQuery,
   initialRows,
   initialNextCursor,
+  initialNowIso,
 }: SessionsTableProps) {
   const t = useTranslations("vault.sessions");
   const locale = useLocale();
@@ -37,6 +39,7 @@ export function SessionsTable({
   const [rows, setRows] = useState<readonly SerializedVaultSessionListRow[]>(initialRows);
   const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
   const [query, setQuery] = useState(initialQuery);
+  const [relativeNowIso, setRelativeNowIso] = useState(initialNowIso);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
@@ -59,7 +62,7 @@ export function SessionsTable({
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();
-  const now = useMemo(() => new Date(), [rows]);
+  const now = useMemo(() => new Date(relativeNowIso), [relativeNowIso]);
 
   const replaceUrl = useCallback(
     (nextQuery: string) => {
@@ -105,6 +108,7 @@ export function SessionsTable({
         if (!response.ok) throw new Error("sessions_fetch_failed");
         const data = (await response.json()) as SerializedVaultSessionListPage;
         if (requestId !== requestIdRef.current) return;
+        setRelativeNowIso(new Date().toISOString());
         setRows((current) => {
           if (reset) return data.sessions;
           const seen = new Set(current.map((row) => row.id));
