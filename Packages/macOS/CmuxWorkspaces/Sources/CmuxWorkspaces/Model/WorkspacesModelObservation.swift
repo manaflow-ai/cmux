@@ -62,21 +62,21 @@ extension WorkspacesModel {
     /// The returned ``WorkspacesObservation`` owns the watch's lifetime; store it
     /// for as long as the callback is wanted and drop or ``WorkspacesObservation/cancel()``
     /// it to stop.
-    public func observeTabs(_ onChange: @escaping @MainActor () -> Void) -> WorkspacesObservation {
+    public func observeTabs(_ onChange: @escaping @MainActor @Sendable () -> Void) -> WorkspacesObservation {
         observe({ _ = self.tabs }, onChange)
     }
 
     /// Observes ``selectedTabId`` and invokes `onChange` after every assignment,
     /// including equal-value assignments. Same timing/replay contract as
     /// ``observeTabs(_:)``; replaces `TabManager.selectedTabIdPublisher`.
-    public func observeSelectedTabId(_ onChange: @escaping @MainActor () -> Void) -> WorkspacesObservation {
+    public func observeSelectedTabId(_ onChange: @escaping @MainActor @Sendable () -> Void) -> WorkspacesObservation {
         observe({ _ = self.selectedTabId }, onChange)
     }
 
     /// Observes ``workspaceGroups`` and invokes `onChange` after every mutation,
     /// including equal-value assignments. Same timing/replay contract as
     /// ``observeTabs(_:)``; replaces `TabManager.workspaceGroupsPublisher`.
-    public func observeWorkspaceGroups(_ onChange: @escaping @MainActor () -> Void) -> WorkspacesObservation {
+    public func observeWorkspaceGroups(_ onChange: @escaping @MainActor @Sendable () -> Void) -> WorkspacesObservation {
         observe({ _ = self.workspaceGroups }, onChange)
     }
 
@@ -85,7 +85,7 @@ extension WorkspacesModel {
     /// the handle re-arms so subsequent changes are still delivered.
     private func observe(
         _ access: @escaping @MainActor () -> Void,
-        _ onChange: @escaping @MainActor () -> Void
+        _ onChange: @escaping @MainActor @Sendable () -> Void
     ) -> WorkspacesObservation {
         let handle = WorkspacesObservation()
         handle.armOnce = { [weak handle] in

@@ -42,7 +42,7 @@ extension BrowserImageCopyPasteboardPayload {
         userAgent: @escaping @MainActor () -> String?,
         traceID: String,
         log: @escaping @MainActor (String) -> Void,
-        completion: @escaping @MainActor (BrowserImageCopyPasteboardPayload?) -> Void
+        completion: @escaping @MainActor @Sendable (BrowserImageCopyPasteboardPayload?) -> Void
     ) {
         let scheme = sourceURL.scheme?.lowercased() ?? ""
         #if DEBUG

@@ -8,6 +8,11 @@ import Testing
 @testable import cmux
 #endif
 
+private typealias WorkspaceLayoutNode = CmuxWorkspaces.CmuxLayoutNode
+private typealias WorkspaceSplitDefinition = CmuxWorkspaces.CmuxSplitDefinition
+private typealias WorkspacePaneDefinition = CmuxWorkspaces.CmuxPaneDefinition
+private typealias WorkspaceSurfaceDefinition = CmuxWorkspaces.CmuxSurfaceDefinition
+
 @MainActor
 @Suite struct SavedLayoutDefinitionTests {
     @Test func savedLayoutCodableRoundTripsNestedSplitTree() throws {
@@ -72,27 +77,27 @@ import Testing
         let decoded = try JSONDecoder().decode(SavedLayoutStore.LayoutsFile.self, from: data)
         let layoutNode = try #require(decoded.layouts.first?.workspace.layout)
         let layoutData = try JSONEncoder().encode(layoutNode)
-        _ = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+        _ = try JSONDecoder().decode(WorkspaceLayoutNode.self, from: layoutData)
     }
 
-    private static var nestedLayout: CmuxLayoutNode {
+    private static var nestedLayout: WorkspaceLayoutNode {
         .split(
-            CmuxSplitDefinition(
+            WorkspaceSplitDefinition(
                 direction: .horizontal,
                 split: 0.33,
                 children: [
-                    .pane(CmuxPaneDefinition(surfaces: [
-                        CmuxSurfaceDefinition(type: .terminal, name: "Server", command: nil, cwd: "server", env: nil, url: nil, focus: true),
+                    .pane(WorkspacePaneDefinition(surfaces: [
+                        WorkspaceSurfaceDefinition(type: .terminal, name: "Server", command: nil, cwd: "server", env: nil, url: nil, focus: true),
                     ])),
-                    .split(CmuxSplitDefinition(
+                    .split(WorkspaceSplitDefinition(
                         direction: .vertical,
                         split: 0.66,
                         children: [
-                            .pane(CmuxPaneDefinition(surfaces: [
-                                CmuxSurfaceDefinition(type: .browser, name: "Docs", command: nil, cwd: nil, env: nil, url: "https://example.com", focus: nil),
+                            .pane(WorkspacePaneDefinition(surfaces: [
+                                WorkspaceSurfaceDefinition(type: .browser, name: "Docs", command: nil, cwd: nil, env: nil, url: "https://example.com", focus: nil),
                             ])),
-                            .pane(CmuxPaneDefinition(surfaces: [
-                                CmuxSurfaceDefinition(type: .terminal, name: nil, command: nil, cwd: nil, env: nil, url: nil, focus: nil),
+                            .pane(WorkspacePaneDefinition(surfaces: [
+                                WorkspaceSurfaceDefinition(type: .terminal, name: nil, command: nil, cwd: nil, env: nil, url: nil, focus: nil),
                             ])),
                         ]
                     )),
@@ -101,10 +106,10 @@ import Testing
         )
     }
 
-    private static var twoPanes: [CmuxLayoutNode] {
+    private static var twoPanes: [WorkspaceLayoutNode] {
         [
-            .pane(CmuxPaneDefinition(surfaces: [CmuxSurfaceDefinition(type: .terminal)])),
-            .pane(CmuxPaneDefinition(surfaces: [CmuxSurfaceDefinition(type: .terminal)])),
+            .pane(WorkspacePaneDefinition(surfaces: [WorkspaceSurfaceDefinition(type: .terminal)])),
+            .pane(WorkspacePaneDefinition(surfaces: [WorkspaceSurfaceDefinition(type: .terminal)])),
         ]
     }
 }

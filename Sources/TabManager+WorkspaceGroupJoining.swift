@@ -39,7 +39,7 @@ extension TabManager: WorkspaceGroupJoining {
     }
 
     func observeWorkspaceList(
-        _ onChange: @escaping @MainActor () -> Void
+        _ onChange: @escaping @MainActor @Sendable () -> Void
     ) -> WorkspaceGroupJoinObservation {
         workspaces.observeTabs(onChange)
     }

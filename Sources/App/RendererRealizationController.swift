@@ -82,7 +82,7 @@ final class RendererRealizationController {
         timer.schedule(deadline: .now() + 10, repeating: 20)
         timer.setEventHandler {
             let now = Date()
-            MainActor.assumeIsolated {
+            let _: Void = MainActor.assumeIsolated {
                 RendererRealizationController.shared.evaluate(now: now)
             }
         }

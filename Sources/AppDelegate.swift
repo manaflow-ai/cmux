@@ -42,9 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// moved members keep their exact names/types/optionality/isolation, and
     /// `AppDelegate` exposes a computed forwarder for each so the not-yet-migrated
     /// `AppDelegate.shared.X` sites resolve to this same instance.
-    /// `nonisolated(unsafe)`: read from the `nonisolated` accessibility-swizzle
-    /// path (via the `accessibilityWindowCache` forwarder), mirroring `shared`.
-    nonisolated(unsafe) let environment: AppEnvironment
+    /// Immutable `Sendable` value, so Swift can read it safely from nonisolated
+    /// paths such as the accessibility-swizzle cache forwarder.
+    let environment: AppEnvironment
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
     /// The app-target composition owner for external programmatic control: the

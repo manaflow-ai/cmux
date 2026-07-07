@@ -6050,11 +6050,11 @@ extension BrowserImportPlanResolver {
     @MainActor
     func realize(
         plan: BrowserImportExecutionPlan,
-        profileStore: BrowserProfileStore = .shared
+        profileStore: BrowserProfileStore? = nil
     ) throws -> RealizedBrowserImportExecutionPlan {
         try realize(
             plan: plan,
-            profileProvider: profileStore,
+            profileProvider: profileStore ?? BrowserProfileStore.shared,
             strings: .appLocalized
         )
     }

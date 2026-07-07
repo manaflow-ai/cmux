@@ -1161,7 +1161,7 @@ final class CmuxWebView: WKWebView {
     private func fetchContextMenuImageCopyPayload(
         from sourceURL: URL,
         traceID: String,
-        completion: @escaping (BrowserImageCopyPasteboardPayload?) -> Void
+        completion: @escaping @MainActor @Sendable (BrowserImageCopyPasteboardPayload?) -> Void
     ) {
         // Logic lives in CmuxBrowser; bind the live webview state (cookie store,
         // page URL, user agent) and the DEBUG logger here, where they originate.

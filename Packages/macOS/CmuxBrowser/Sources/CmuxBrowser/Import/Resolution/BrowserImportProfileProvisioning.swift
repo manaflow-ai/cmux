@@ -9,6 +9,7 @@ public import Foundation
 /// requirements mirror the live store: a snapshot of all profiles, a lookup by
 /// identifier, and best-effort creation by display name (returning `nil` on
 /// failure).
+@MainActor
 public protocol BrowserImportProfileProvisioning {
     /// All currently known cmux destination profiles.
     var profiles: [BrowserProfileDefinition] { get }

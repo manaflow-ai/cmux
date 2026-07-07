@@ -2,7 +2,7 @@ import CmuxFoundation
 import AppKit
 import Foundation
 import os
-import UserNotifications
+@preconcurrency import UserNotifications
 import Bonsplit
 import CmuxNotifications
 import CmuxSettings
@@ -407,7 +407,7 @@ final class TerminalNotificationStore: ObservableObject {
         return result
     }
 
-    private func logAuthorization(_ message: String) {
+    nonisolated private func logAuthorization(_ message: String) {
 #if DEBUG
         cmuxDebugLog("notification.auth \(message)")
 #endif
@@ -434,12 +434,9 @@ final class TerminalNotificationStore: ObservableObject {
             content.body = "Desktop notifications are enabled."
             content.sound = NotificationSoundSettings.sound()
             content.categoryIdentifier = Self.categoryIdentifier
+            let commandPayload = (title: content.title, subtitle: content.subtitle, body: content.body)
 
-            let request = UNNotificationRequest(
-                identifier: "cmux.settings.test.\(UUID().uuidString)",
-                content: content,
-                trigger: nil
-            )
+            let request = UNNotificationRequest(identifier: "cmux.settings.test.\(UUID().uuidString)", content: content, trigger: nil)
 
             self.center.add(request) { error in
                 if let error {
@@ -450,9 +447,9 @@ final class TerminalNotificationStore: ObservableObject {
                 } else {
                     self.logAuthorization("settings test schedule succeeded")
                     NotificationSoundSettings.runCustomCommand(
-                        title: content.title,
-                        subtitle: content.subtitle,
-                        body: content.body
+                        title: commandPayload.title,
+                        subtitle: commandPayload.subtitle,
+                        body: commandPayload.body
                     )
                 }
             }

@@ -40,7 +40,7 @@ public extension SocketTransport {
         var credLen = socklen_t(MemoryLayout<xucred>.size)
         let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen)
         guard result == 0 else { return false }
-        return cred.cr_uid == getuid()
+        return cred.cr_uid == geteuid()
     }
 
     /// Whether `pid` is `ancestorPid` or one of its descendants, walking the

@@ -6,7 +6,7 @@ public import Foundation
 /// config exists), the base directory their relative `cwd` paths resolve
 /// against, and whether the source was a project-scoped `.cmux/dock.json`
 /// (`isProjectSource`) rather than the global config.
-public struct DockConfigResolution {
+public struct DockConfigResolution: Sendable {
     /// The Dock controls to display, in file order; empty when no config exists.
     public let controls: [DockControlDefinition]
     /// The config file the controls were loaded from, or `nil` when none exists.

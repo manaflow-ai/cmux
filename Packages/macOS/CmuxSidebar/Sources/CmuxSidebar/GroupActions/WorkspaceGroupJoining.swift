@@ -43,7 +43,7 @@ public protocol WorkspaceGroupJoining: AnyObject {
     /// `tabsPublisher` Combine bridge). The returned handle owns the watch's
     /// lifetime; the coordinator cancels it on dispose.
     func observeWorkspaceList(
-        _ onChange: @escaping @MainActor () -> Void
+        _ onChange: @escaping @MainActor @Sendable () -> Void
     ) -> WorkspaceGroupJoinObservation
 }
 
