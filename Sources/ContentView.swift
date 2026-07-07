@@ -11036,8 +11036,7 @@ struct VerticalTabsSidebar: View {
             return .project
         case .extensionBrowser:
             return .unknown
-        case .workspaceTodo:
-        case .cloudVMLoading:
+        case .workspaceTodo, .cloudVMLoading:
             return .unknown
         }
     }
