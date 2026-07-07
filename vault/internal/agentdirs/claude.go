@@ -46,6 +46,10 @@ func (a Claude) Discover(env Environ) ([]Session, error) {
 		if !uuidRE.MatchString(id) {
 			return nil
 		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			env.Warn("claude: skipping symlinked transcript %s", path)
+			return nil
+		}
 		projectName := filepath.Base(filepath.Dir(path))
 		cwd := recoverCWDFromJSONL(path)
 		if cwd == "" {

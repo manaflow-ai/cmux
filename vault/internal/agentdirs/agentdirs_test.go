@@ -3,6 +3,7 @@ package agentdirs
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -123,6 +124,109 @@ func TestDiscoverSymlinkedRoots(t *testing.T) {
 	}
 }
 
+func TestDiscoverRejectsSymlinkedTranscript(t *testing.T) {
+	tests := []struct {
+		name      string
+		discover  func(Environ) ([]Session, error)
+		setup     func(t *testing.T, base, targetPath string) Environ
+		blockedID string
+		allowedID string
+	}{
+		{
+			name:      "claude",
+			discover:  (Claude{}).Discover,
+			blockedID: uuidA,
+			allowedID: uuidB,
+			setup: func(t *testing.T, base, targetPath string) Environ {
+				root := filepath.Join(base, "claude-config")
+				projectDir := filepath.Join(root, "projects", "-repo")
+				if err := os.MkdirAll(projectDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				linkPath := filepath.Join(projectDir, uuidA+".jsonl")
+				if err := os.Symlink(targetPath, linkPath); err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t, filepath.Join(projectDir, uuidB+".jsonl"), `{"cwd":"/repo/real"}`+"\n")
+				return Environ{
+					HomeDir: base,
+					Vars:    map[string]string{"CLAUDE_CONFIG_DIR": root},
+				}
+			},
+		},
+		{
+			name:      "codex",
+			discover:  (Codex{}).Discover,
+			blockedID: uuidA,
+			allowedID: uuidB,
+			setup: func(t *testing.T, base, targetPath string) Environ {
+				home := filepath.Join(base, "codex-home")
+				sessionDir := filepath.Join(home, ".codex", "sessions", "2026", "07", "05")
+				if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				linkPath := filepath.Join(sessionDir, "rollout-2026-07-05T00-00-00-"+uuidA+".jsonl")
+				if err := os.Symlink(targetPath, linkPath); err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t,
+					filepath.Join(sessionDir, "rollout-2026-07-05T00-00-01-"+uuidB+".jsonl"),
+					`{"type":"session_meta","payload":{"id":"`+uuidB+`","cwd":"/repo/real"}}`+"\n",
+				)
+				return Environ{HomeDir: home, Vars: map[string]string{}}
+			},
+		},
+		{
+			name:      "pi",
+			discover:  (Pi{}).Discover,
+			blockedID: uuidA,
+			allowedID: uuidB,
+			setup: func(t *testing.T, base, targetPath string) Environ {
+				home := filepath.Join(base, "pi-home")
+				sessionDir := filepath.Join(home, ".pi", "agent", "sessions", "-repo")
+				if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				linkPath := filepath.Join(sessionDir, "2026-07-05T00-00-00_"+uuidA+".jsonl")
+				if err := os.Symlink(targetPath, linkPath); err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t, filepath.Join(sessionDir, "2026-07-05T00-00-01_"+uuidB+".jsonl"), `{"cwd":"/repo/real"}`+"\n")
+				return Environ{HomeDir: home, Vars: map[string]string{}}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := t.TempDir()
+			targetPath := filepath.Join(base, "outside-transcript.jsonl")
+			writeFile(t, targetPath, `{"type":"session_meta","payload":{"id":"`+tt.blockedID+`","cwd":"/secret"}}`+"\n")
+
+			env := tt.setup(t, base, targetPath)
+			var warnings []string
+			env.Warnings = &warnings
+
+			got, err := tt.discover(env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("expected only the regular transcript, got %d sessions: %#v", len(got), got)
+			}
+			if got[0].AgentSessionID != tt.allowedID {
+				t.Fatalf("discovered session id = %q, want %q", got[0].AgentSessionID, tt.allowedID)
+			}
+			if containsSession(got, tt.blockedID) {
+				t.Fatalf("symlinked transcript %s was discovered: %#v", tt.blockedID, got)
+			}
+			if !containsWarning(warnings, "symlinked transcript") {
+				t.Fatalf("expected symlink warning, got %#v", warnings)
+			}
+		})
+	}
+}
+
 func TestCodexDiscoverSessionsAndArchived(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex")
@@ -186,6 +290,24 @@ func findSession(t *testing.T, sessions []Session, id string) Session {
 	}
 	t.Fatalf("session %s not found in %#v", id, sessions)
 	return Session{}
+}
+
+func containsSession(sessions []Session, id string) bool {
+	for _, session := range sessions {
+		if session.AgentSessionID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func containsWarning(warnings []string, needle string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeFile(t *testing.T, path, content string) {
