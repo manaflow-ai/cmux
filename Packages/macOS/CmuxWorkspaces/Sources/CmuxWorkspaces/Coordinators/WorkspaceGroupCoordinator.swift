@@ -50,7 +50,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard model.tabs.contains(where: { $0.id == id }),
+            guard let tab = model.tabs.first(where: { $0.id == id }),
+                  !tab.isPinned,
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
@@ -124,7 +125,11 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         placement explicitPlacement: WorkspaceGroupNewPlacement? = nil,
         referenceWorkspaceId: UUID? = nil,
         select: Bool = true,
-        initialSurface: NewWorkspaceInitialSurface = .terminal
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
+        title: String? = nil,
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false
     ) -> Tab? {
         guard let host else { return nil }
         // nil resolves to the stored global default at call time, matching
@@ -135,8 +140,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
         let cwd = model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
         let newWorkspace = host.createWorkspaceForGroup(
+            title: title,
             workingDirectory: cwd,
             initialSurface: initialSurface,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: cwd == nil,
             select: select
         )

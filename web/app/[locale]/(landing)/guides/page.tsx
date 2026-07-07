@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
+import { comparePages, comparePath } from "../../../lib/compare-pages";
 import { TrackedLink } from "../tracked-link";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -25,6 +26,11 @@ const ARTICLES = [
   { href: "/agents/aider", titleKey: "aider.title", descKey: "aider.metaDescription" },
   { href: "/agents/amp", titleKey: "amp.title", descKey: "amp.metaDescription" },
   { href: "/agents/cursor-cli", titleKey: "cursorCli.title", descKey: "cursorCli.metaDescription" },
+  ...comparePages.map((page) => ({
+    href: comparePath(page.slug),
+    titleKey: `compare.pages.${page.key}.title`,
+    descKey: `compare.pages.${page.key}.metaDescription`,
+  })),
 ] as const;
 
 export default function GuidesPage() {

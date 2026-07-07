@@ -11,3 +11,10 @@
 // these at their own top level.
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.CMUX_PUSH_RATE_LIMIT_ID ??= "cmux-push-test";
+process.env.RESEND_API_KEY ??= "re_test";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "founders@manaflow.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "feedback-test";
+process.env.STACK_SECRET_SERVER_KEY ??= "stack-secret";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
+process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-publishable-client-key";
+process.env.SLACK_ENTERPRISE_WEBHOOK_URL ??= "https://slack.test/enterprise";

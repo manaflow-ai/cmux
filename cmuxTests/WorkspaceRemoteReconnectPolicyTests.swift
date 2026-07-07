@@ -104,6 +104,64 @@ struct WorkspaceRemoteReconnectPolicyTests {
     }
 }
 
+@Suite("Cloud terminal reconnect overlay policy")
+struct CloudTerminalReconnectOverlayPolicyTests {
+    @Test("Cloud terminal surfaces show reconnect UI when disconnected")
+    func cloudTerminalShowsReconnectWhenDisconnected() {
+        let presentation = CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true,
+            isRemoteTerminalSurface: true,
+            connectionState: .disconnected,
+            detail: nil
+        )
+
+        #expect(presentation?.showsReconnectButton == true)
+        #expect(presentation?.showsProgress == false)
+    }
+
+    @Test("Cloud terminal surfaces show progress while reconnecting")
+    func cloudTerminalShowsProgressWhileReconnecting() {
+        let presentation = CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true,
+            isRemoteTerminalSurface: true,
+            connectionState: .reconnecting,
+            detail: "Waiting"
+        )
+
+        #expect(presentation?.showsReconnectButton == false)
+        #expect(presentation?.showsProgress == true)
+        #expect(presentation?.detail == "Waiting")
+    }
+
+    @Test("Connected Cloud terminal surfaces hide the overlay")
+    func connectedCloudTerminalHidesOverlay() {
+        let presentation = CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true,
+            isRemoteTerminalSurface: true,
+            connectionState: .connected,
+            detail: nil
+        )
+
+        #expect(presentation == nil)
+    }
+
+    @Test("SSH and non-terminal surfaces never show the Cloud overlay")
+    func nonCloudSurfacesHideOverlay() {
+        #expect(CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: false,
+            isRemoteTerminalSurface: true,
+            connectionState: .disconnected,
+            detail: nil
+        ) == nil)
+        #expect(CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true,
+            isRemoteTerminalSurface: false,
+            connectionState: .disconnected,
+            detail: nil
+        ) == nil)
+    }
+}
+
 @Suite("Workspace remote host reachability probe")
 struct WorkspaceRemoteHostReachabilityProbeTests {
     @Test("Parses hostname, port, and proxy fields from ssh -G output")

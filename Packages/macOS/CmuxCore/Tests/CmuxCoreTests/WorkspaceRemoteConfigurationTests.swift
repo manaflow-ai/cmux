@@ -94,7 +94,9 @@ struct WorkspaceRemoteConfigurationValueTests {
         relayPort: Int? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
-        skipDaemonBootstrap: Bool = false
+        managedCloudVMID: String? = nil,
+        skipDaemonBootstrap: Bool = false,
+        ownerWorkspaceID: UUID? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -107,6 +109,8 @@ struct WorkspaceRemoteConfigurationValueTests {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
+            ownerWorkspaceID: ownerWorkspaceID,
+            managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -131,6 +135,27 @@ struct WorkspaceRemoteConfigurationValueTests {
     func displayTarget() {
         #expect(makeConfiguration().displayTarget == "user@host")
         #expect(makeConfiguration(port: 2222).displayTarget == "user@host:2222")
+    }
+
+    @Test("displayTarget hides the provider hostname for the managed Cloud VM")
+    func managedCloudDisplayTarget() {
+        let configuration = makeConfiguration(
+            destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "71smiccrg35sw9pydt8k",
+            skipDaemonBootstrap: true
+        )
+
+        #expect(configuration.displayTarget == "cloud VM")
+        #expect(configuration.destination.contains("vm-ssh.freestyle.sh"))
+        let plainSSH = makeConfiguration(
+            destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+        #expect(plainSSH.displayTarget == "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh")
     }
 
     @Test("proxy broker transport key separates bootstrap modes and ignores transient options")
@@ -164,7 +189,34 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(!a.hasSamePersistentPTYIdentity(as: differentRelay))
     }
 
-    @Test("sessionSnapshot persists only SSH transports with a non-empty destination")
+    @Test("managed Cloud VM persistent identity ignores local owner workspace")
+    func managedCloudPersistentIdentityIgnoresOwnerWorkspace() {
+        let ownerA = UUID()
+        let ownerB = UUID()
+        let a = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "vm-base",
+            skipDaemonBootstrap: true,
+            ownerWorkspaceID: ownerA
+        )
+        let b = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "vm-base",
+            skipDaemonBootstrap: true,
+            ownerWorkspaceID: ownerB
+        )
+
+        #expect(a.proxyBrokerTransportKey == b.proxyBrokerTransportKey)
+        #expect(a.hasSamePersistentPTYIdentity(as: b))
+    }
+
+    @Test("sessionSnapshot persists restorable transports with a non-empty destination")
     func sessionSnapshotGating() {
         #expect(makeConfiguration(transport: .websocket).sessionSnapshot() == nil)
         #expect(makeConfiguration(destination: "   ").sessionSnapshot() == nil)
@@ -177,6 +229,17 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot?.sshOptions == ["ForwardAgent=yes"])
         #expect(snapshot?.preserveAfterTerminalExit == nil)
         #expect(snapshot?.relayPort == nil)
+
+        let managedWebSocketSnapshot = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-managed-websocket"
+        ).sessionSnapshot()
+        #expect(managedWebSocketSnapshot?.transport == .websocket)
+        #expect(managedWebSocketSnapshot?.destination == "cloud-vm")
+        #expect(managedWebSocketSnapshot?.managedCloudVMID == "vm-managed-websocket")
+        #expect(managedWebSocketSnapshot?.preserveAfterTerminalExit == true)
+        #expect(managedWebSocketSnapshot?.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1")
     }
 
     @Test("sessionSnapshot keeps relay port and slot only for preserved sessions")
