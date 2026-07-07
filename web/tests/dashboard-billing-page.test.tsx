@@ -129,7 +129,9 @@ describe("dashboard billing page", () => {
     const html = await renderBillingPage();
 
     expect(html).toContain("cmux Pro");
-    expect(html).toContain("legacy Stack subscription");
+    expect(html).toContain(
+      "Your subscription is managed by our previous billing system. Contact support to make changes.",
+    );
     expect(html).not.toContain("/api/billing/subscription");
     expect(html).not.toContain("/api/billing/portal");
   });

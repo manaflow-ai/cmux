@@ -25,11 +25,13 @@ export function ProWelcomeBanner() {
               ? t("billingError")
               : billing === "unavailable"
                 ? t("billingUnavailable")
-                : billing === "cancelled"
-                  ? t("billingCancelled")
-                  : billing === "invalid_plan"
-                    ? t("billingInvalidPlan")
-                    : null;
+                : billing === "external"
+                  ? t("billingExternal")
+                  : billing === "cancelled"
+                    ? t("billingCancelled")
+                    : billing === "invalid_plan"
+                      ? t("billingInvalidPlan")
+                      : null;
   if (!message) return null;
 
   return (

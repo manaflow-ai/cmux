@@ -72,4 +72,8 @@ public protocol AccountFlow: AnyObject {
 
     /// Whether the current account has an active Pro entitlement.
     var isProActive: Bool { get }
+
+    /// Whether the current Pro entitlement can be managed through the hosted
+    /// Stripe billing portal.
+    var canManageBilling: Bool { get }
 }
