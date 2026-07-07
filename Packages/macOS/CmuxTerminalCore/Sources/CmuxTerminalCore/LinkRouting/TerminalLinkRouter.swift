@@ -46,6 +46,13 @@ public struct TerminalLinkRouter: Sendable {
             return .external(URL(fileURLWithPath: trimmed))
         }
 
+        if Self.looksLikeFileLineToken(trimmed) {
+            #if DEBUG
+            logDebugEvent("link.resolve result=nil (fileLine)")
+            #endif
+            return nil
+        }
+
         if let webURL = schemelessWebURL(from: trimmed) {
             #if DEBUG
             logDebugEvent("link.resolve result=embeddedBrowser(schemeless) url=\(webURL)")
@@ -105,7 +112,35 @@ public struct TerminalLinkRouter: Sendable {
               colon < value.index(before: value.endIndex) else {
             return false
         }
-        return value[value.index(after: colon)...].allSatisfy(\.isNumber)
+        guard value[value.index(after: colon)...].allSatisfy(\.isNumber) else {
+            return false
+        }
+        let hostCandidate = String(value[..<colon])
+        return !looksLikeFileLineHost(hostCandidate)
+    }
+
+    private static func looksLikeFileLineToken(_ value: String) -> Bool {
+        guard let colon = value.lastIndex(of: ":"),
+              colon < value.index(before: value.endIndex),
+              value[value.index(after: colon)...].allSatisfy(\.isNumber) else {
+            return false
+        }
+        return looksLikeFileLineHost(String(value[..<colon]))
+    }
+
+    private static func looksLikeFileLineHost(_ hostCandidate: String) -> Bool {
+        guard let dot = hostCandidate.lastIndex(of: "."),
+              dot < hostCandidate.index(before: hostCandidate.endIndex) else {
+            return false
+        }
+        switch hostCandidate[hostCandidate.index(after: dot)...].lowercased() {
+        case "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java",
+             "js", "jsx", "json", "m", "md", "mm", "php", "py", "rb", "rs",
+             "sh", "swift", "toml", "ts", "tsx", "txt", "yaml", "yml", "zsh":
+            return true
+        default:
+            return false
+        }
     }
 
     private static func schemelessWebScheme(for normalizedHost: String) -> String? {

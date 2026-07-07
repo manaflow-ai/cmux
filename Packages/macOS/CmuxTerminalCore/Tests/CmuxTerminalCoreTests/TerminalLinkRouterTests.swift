@@ -59,6 +59,11 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.port == 8443)
     }
 
+    @Test func fileLineTokensDoNotResolveAsHostPorts() {
+        #expect(router.resolveOpenURLTarget("README.md:12") == nil)
+        #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
+    }
+
     @Test func schemelessLoopbackPathResolvesAsHTTPEmbeddedBrowser() throws {
         for (rawValue, expectedHost, expectedPort, expectedPath) in [
             ("localhost:3000", "localhost", 3000, ""),

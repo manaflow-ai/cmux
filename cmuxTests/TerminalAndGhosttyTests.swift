@@ -5580,7 +5580,7 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         XCTAssertEqual(url.path, "/docs")
     }
     func testWrappedPathFragmentResolvesToNilWithRealNormalizer() {
-        XCTAssertNil(resolveTerminalOpenURLTarget("s/pipeline-failure-state-model.md"))
+        ["s/pipeline-failure-state-model.md", "README.md:12"].forEach { XCTAssertNil(resolveTerminalOpenURLTarget($0)) }
     }
 
     func testResolvesFileSchemeAsExternal() throws {
