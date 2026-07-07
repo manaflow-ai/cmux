@@ -66,6 +66,7 @@ final class BrowserHiddenWebViewDiscardManager {
     private(set) var lastDiscardReason: String?
     private(set) var lastRestoreReason: String?
     private(set) var restoredSessionShouldRenderWebView: Bool?
+    private(set) var isRestoreNavigationPending: Bool = false
 
     var hasScheduledDiscard: Bool {
         discardTimer != nil
@@ -239,6 +240,7 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func markDiscarded(reason: String, now: Date) {
         isDiscardedForMemory = true
+        isRestoreNavigationPending = false
         discardedAt = now
         lastDiscardReason = reason
         updateRestoredSessionRenderIntent(true)
@@ -248,18 +250,33 @@ final class BrowserHiddenWebViewDiscardManager {
     func restoreIfNeeded(reason: String, performRestore: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
         cancel()
-        guard clearDiscardState(reason: reason) else { return false }
+        if isRestoreNavigationPending { return true }
+        lastRestoreReason = reason
         updateRestoredSessionRenderIntent(nil)
         performRestore()
         return true
+    }
+
+    func noteRestoreNavigationStarted(reason: String) {
+        guard isDiscardedForMemory else { return }
+        isRestoreNavigationPending = true
+    }
+
+    @discardableResult
+    func noteRestoreNavigationCommitted(reason: String) -> Bool {
+        isRestoreNavigationPending = false
+        return clearDiscardState(reason: reason)
+    }
+
+    func noteRestoreNavigationDidNotCommit(reason: String) {
+        guard isDiscardedForMemory else { return }
+        isRestoreNavigationPending = false
     }
 
     @discardableResult
     func reactivateWithoutNavigation(reason: String, performReactivate: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
         cancel()
-        guard clearDiscardState(reason: reason) else { return false }
-        updateRestoredSessionRenderIntent(nil)
         performReactivate()
         return true
     }
@@ -272,6 +289,7 @@ final class BrowserHiddenWebViewDiscardManager {
     func clearDiscardState(reason: String) -> Bool {
         guard isDiscardedForMemory else { return false }
         isDiscardedForMemory = false
+        isRestoreNavigationPending = false
         discardedAt = nil
         lastRestoreReason = reason
         return true
@@ -280,6 +298,7 @@ final class BrowserHiddenWebViewDiscardManager {
     func resetMetadata() {
         cancel()
         isDiscardedForMemory = false
+        isRestoreNavigationPending = false
         discardedAt = nil
         lastDiscardReason = nil
         lastRestoreReason = nil

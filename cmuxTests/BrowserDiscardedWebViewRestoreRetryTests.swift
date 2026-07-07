@@ -109,3 +109,198 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
     }
 }
+
+// MARK: - GREEN(#7504) new-API coverage (added with the fix)
+
+@MainActor
+@Suite(.serialized)
+struct BrowserDiscardedWebViewRestoreRetryGreenTests {
+    @Test func managerKeepsDiscardStateUntilRestoreNavigationCommits() {
+        withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            manager.markDiscarded(reason: "test.discard", now: Date(timeIntervalSince1970: 300))
+
+            var restoreCount = 0
+            #expect(manager.restoreIfNeeded(reason: "test.restore1") {
+                restoreCount += 1
+            })
+            manager.noteRestoreNavigationStarted(reason: "test.navigation1")
+            manager.noteRestoreNavigationDidNotCommit(reason: "test.failed")
+
+            #expect(manager.isDiscardedForMemory)
+            #expect(!manager.isRestoreNavigationPending)
+            #expect(manager.blockers(for: makeDiscardRestoreRetryBlockerSnapshot()).contains("already_discarded"))
+
+            #expect(manager.restoreIfNeeded(reason: "test.restore2") {
+                restoreCount += 1
+            })
+            manager.noteRestoreNavigationStarted(reason: "test.navigation2")
+            #expect(manager.noteRestoreNavigationCommitted(reason: "test.commit"))
+
+            #expect(!manager.isDiscardedForMemory)
+            #expect(!manager.isRestoreNavigationPending)
+            let didRestoreAfterCommit = manager.restoreIfNeeded(reason: "test.restore3") {
+                restoreCount += 1
+            }
+            #expect(!didRestoreAfterCommit)
+            #expect(restoreCount == 2)
+        }
+    }
+
+    @Test func managerDeduplicatesRestoreWhileNavigationIsPending() {
+        withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            manager.markDiscarded(reason: "test.discard", now: Date(timeIntervalSince1970: 400))
+
+            var restoreCount = 0
+            #expect(manager.restoreIfNeeded(reason: "test.restore1") {
+                restoreCount += 1
+            })
+            manager.noteRestoreNavigationStarted(reason: "test.navigation")
+
+            #expect(manager.restoreIfNeeded(reason: "test.restore2") {
+                restoreCount += 1
+            })
+            #expect(restoreCount == 1)
+            #expect(manager.isRestoreNavigationPending)
+        }
+    }
+
+    @Test func markDiscardedResetsStalePendingRestoreNavigation() {
+        withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            manager.markDiscarded(reason: "test.discard1", now: Date(timeIntervalSince1970: 500))
+            #expect(manager.restoreIfNeeded(reason: "test.restore") {})
+            manager.noteRestoreNavigationStarted(reason: "test.navigation")
+            #expect(manager.isRestoreNavigationPending)
+
+            manager.markDiscarded(reason: "test.discard2", now: Date(timeIntervalSince1970: 501))
+
+            #expect(manager.isDiscardedForMemory)
+            #expect(!manager.isRestoreNavigationPending)
+        }
+    }
+
+    @Test func reactivationWithoutNavigationDoesNotClearDiscardState() {
+        withBrowserDiscardRestoreRetryPolicyEnabled { defaults in
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            manager.markDiscarded(reason: "test.discard", now: Date(timeIntervalSince1970: 600))
+
+            var reactivationCount = 0
+            #expect(manager.reactivateWithoutNavigation(reason: "test.reactivate") {
+                reactivationCount += 1
+            })
+
+            #expect(reactivationCount == 1)
+            #expect(manager.isDiscardedForMemory)
+            #expect(manager.blockers(for: makeDiscardRestoreRetryBlockerSnapshot()).contains("already_discarded"))
+
+            var restoreCount = 0
+            #expect(manager.restoreIfNeeded(reason: "test.restore") {
+                restoreCount += 1
+            })
+            #expect(restoreCount == 1)
+        }
+    }
+
+    @Test func pureRestoreHealPredicatesCoverBlankShellAndStalledCases() throws {
+        let intentURL = try #require(URL(string: "http://127.0.0.1:7777/app"))
+        let aboutBlankURL = try #require(URL(string: "about:blank"))
+        let mixedCaseAboutBlankURL = try #require(URL(string: "ABOUT:BLANK"))
+
+        #expect(BrowserDiscardRestoreHeal.isAboutBlankURL(aboutBlankURL))
+        #expect(BrowserDiscardRestoreHeal.isAboutBlankURL(mixedCaseAboutBlankURL))
+        #expect(!BrowserDiscardRestoreHeal.isAboutBlankURL(intentURL))
+        #expect(!BrowserDiscardRestoreHeal.isAboutBlankURL(nil))
+
+        #expect(BrowserDiscardRestoreHeal.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: false,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: false,
+            isNavigationBlockedPendingConsent: false,
+            intentURL: intentURL
+        ))
+        #expect(!BrowserDiscardRestoreHeal.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: false,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: true,
+            isNavigationBlockedPendingConsent: false,
+            intentURL: intentURL
+        ))
+        #expect(!BrowserDiscardRestoreHeal.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: false,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: false,
+            isNavigationBlockedPendingConsent: false,
+            intentURL: aboutBlankURL
+        ))
+        #expect(!BrowserDiscardRestoreHeal.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: true,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: false,
+            isNavigationBlockedPendingConsent: false,
+            intentURL: intentURL
+        ))
+        #expect(!BrowserDiscardRestoreHeal.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: false,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: false,
+            isNavigationBlockedPendingConsent: false,
+            intentURL: nil
+        ))
+        #expect(!BrowserDiscardRestoreHeal.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: false,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: false,
+            isNavigationBlockedPendingConsent: true,
+            intentURL: intentURL
+        ))
+
+        #expect(BrowserDiscardRestoreHeal.isRestoreStalled(
+            isRestoreNavigationPending: true,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasPendingRemoteNavigation: false,
+            hasCommittedDocument: false
+        ))
+        #expect(!BrowserDiscardRestoreHeal.isRestoreStalled(
+            isRestoreNavigationPending: true,
+            isWebViewLoading: true,
+            isMainFrameProvisionalNavigationActive: false,
+            hasPendingRemoteNavigation: false,
+            hasCommittedDocument: false
+        ))
+        #expect(!BrowserDiscardRestoreHeal.isRestoreStalled(
+            isRestoreNavigationPending: true,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasPendingRemoteNavigation: true,
+            hasCommittedDocument: false
+        ))
+        #expect(!BrowserDiscardRestoreHeal.isRestoreStalled(
+            isRestoreNavigationPending: true,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasPendingRemoteNavigation: false,
+            hasCommittedDocument: true
+        ))
+    }
+}
