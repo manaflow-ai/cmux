@@ -88,19 +88,28 @@
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}."
       },
+      "team": {
+        "name": "cmux Team",
+        "fallbackName": "your team",
+        "activeBody": "{team} renews on {date}.",
+        "pendingBody": "{team} is scheduled to end on {date}.",
+        "price": "$35/seat/month"
+      },
       "legacy": {
         "body": "Your subscription is managed by our previous billing system. Contact support to make changes."
       },
       "details": {
         "renewsOn": "Renews on",
         "endsOn": "Ends on",
-        "price": "Price"
+        "price": "Price",
+        "seats": "Seats"
       },
       "dates": {
         "unknown": "unknown"
       },
       "cancel": {
         "body": "Your Pro access remains active until {date}. Check the box to confirm cancellation at period end.",
+        "teamBody": "Team access remains active until {date}. Check the box to confirm cancellation at period end.",
         "checkbox": "I understand my plan will end at the current period end."
       },
       "actions": {
