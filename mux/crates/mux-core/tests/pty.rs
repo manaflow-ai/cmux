@@ -312,6 +312,45 @@ fn control_socket_round_trip() {
 }
 
 #[test]
+fn control_socket_read_screen_reports_rendered_viewport_after_scrollback_clear() {
+    let mut output = String::new();
+    for row in 0..12 {
+        output.push_str(&format!("row{row:02}\\r\\n"));
+    }
+    let script = format!("printf '{output}'; printf '\\033[H\\033[2Jprompt$ '; sleep 30");
+    let mux = Mux::new(unique_session("test-read-screen-viewport"), shell_opts(&script));
+    let surface = mux.new_workspace(None, Some((17, 5))).unwrap();
+
+    let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+
+    let text = wait_for(
+        || {
+            line.clear();
+            writeln!(writer, r#"{{"id":1,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
+            reader.read_line(&mut line).unwrap();
+            let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(value["ok"], true, "read-screen failed: {line}");
+            let text = value["data"]["text"].as_str().unwrap_or_default().to_string();
+            text.contains("prompt$").then_some(text)
+        },
+        Duration::from_secs(10),
+    )
+    .expect("prompt never reached rendered screen");
+    let first_line = text.lines().next().unwrap_or_default();
+    assert!(
+        first_line.contains("prompt$"),
+        "read-screen should report the rendered viewport, got {text:?}"
+    );
+
+    mux.close_surface(surface.id);
+    mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
 fn control_socket_set_default_colors_merges_fields() {
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new(format!("test-colors-{}", std::process::id()), opts);
