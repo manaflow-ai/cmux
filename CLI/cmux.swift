@@ -3651,8 +3651,9 @@ struct CMUXCLI {
                 for vm in vms {
                     let id = (vm["id"] as? String) ?? "?"
                     let provider = (vm["provider"] as? String) ?? "?"
+                    let status = (vm["status"] as? String) ?? "unknown"
                     let image = (vm["image"] as? String) ?? "?"
-                    print("\(id)  [\(provider)] \(image)")
+                    print("\(id)  [\(provider)]  \(status)  \(image)")
                 }
 
             case "new", "create":
