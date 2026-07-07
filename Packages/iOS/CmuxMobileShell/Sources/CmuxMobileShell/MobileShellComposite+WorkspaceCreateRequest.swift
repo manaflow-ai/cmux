@@ -14,6 +14,9 @@ extension MobileShellComposite {
         guard remoteClient != nil else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
         }
+        guard groupID == nil || allowsMacScopedWorkspaceMutations else {
+            return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+        }
         if let createWorkspaceTask {
             guard createWorkspaceTaskGroupID == groupID else {
                 return .failure(.busy(hostDisplayName: connectedHostName))
@@ -37,6 +40,9 @@ extension MobileShellComposite {
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard let client = remoteClient else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
+        }
+        guard groupID == nil || allowsMacScopedWorkspaceMutations else {
+            return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
         }
         let generation = connectionGeneration
         do {

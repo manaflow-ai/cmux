@@ -140,6 +140,14 @@ extension MobileShellComposite {
         guard workspaceActionCapabilities(for: id).supportsMoveActions else {
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
+        let target = workspaceMutationTarget(for: id)
+        let hostDisplayName = workspaceMutationHostDisplayName(
+            target: target,
+            fallback: workspaceHostDisplayName(for: id)
+        )
+        guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
+        }
         var params = workspaceMutationParams(id: id)
         if let groupID {
             params["group_id"] = groupID.rawValue
@@ -153,7 +161,9 @@ extension MobileShellComposite {
         return await sendWorkspaceMutation(
             method: "workspace.move",
             params: params,
-            id: id,
+            target: target,
+            hostDisplayName: hostDisplayName,
+            logID: id.rawValue,
             actionName: "move"
         )
     }
@@ -231,6 +241,19 @@ extension MobileShellComposite {
         return workspaceActionCapabilities(for: anchorWorkspaceID)
     }
 
+    private func macScopedWorkspaceMutationIsAuthorized(target: WorkspaceMutationTarget) -> Bool {
+        guard target.client != nil else { return true }
+        let now = runtime?.now() ?? Date()
+        if target.isForeground {
+            return Self.attachTicketAllowsMacScopedWorkspaceMutations(activeTicket, now: now)
+        }
+        guard let macDeviceID = target.macDeviceID,
+              let ticket = secondaryMacSubscriptions[macDeviceID]?.ticket else {
+            return false
+        }
+        return Self.attachTicketAllowsMacScopedWorkspaceMutations(ticket, now: now)
+    }
+
     private func sendWorkspaceMutation(
         method: String,
         params: [String: Any],
@@ -261,6 +284,9 @@ extension MobileShellComposite {
         let hostDisplayName = workspaceGroupHostDisplayName(for: id, target: target)
         guard workspaceGroupActionCapabilities(for: id).supportsGroupActions else {
             return .failure(.unsupported(hostDisplayName: hostDisplayName))
+        }
+        guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
         }
         var params: [String: Any] = ["group_id": id.rawValue, "action": action]
         if let title {
