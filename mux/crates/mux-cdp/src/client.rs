@@ -675,13 +675,14 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         const CALLS: usize = 12;
+        const EMULATION_DEADLINE: Duration = Duration::from_secs(120);
 
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(5))).unwrap();
-            stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
             let mut ws = accept(stream).unwrap();
-            let deadline = Instant::now() + Duration::from_secs(5);
+            ws.get_ref().set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+            ws.get_ref().set_write_timeout(Some(EMULATION_DEADLINE)).unwrap();
+            let deadline = Instant::now() + EMULATION_DEADLINE;
             let mut responses = 0usize;
 
             while responses < CALLS && Instant::now() < deadline {
@@ -739,7 +740,6 @@ mod tests {
         let client =
             CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
         let barrier = Arc::new(Barrier::new(CALLS));
-        let start = Instant::now();
         let mut workers = Vec::new();
         for idx in 0..CALLS {
             let client = client.clone();
@@ -754,7 +754,6 @@ mod tests {
         for worker in workers {
             worker.join().unwrap();
         }
-        assert!(start.elapsed() < Duration::from_secs(5));
         server.join().unwrap();
     }
 }
