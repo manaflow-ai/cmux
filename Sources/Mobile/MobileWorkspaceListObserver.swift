@@ -5,6 +5,65 @@ import OSLog
 
 private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-workspace-observer")
 
+@MainActor
+struct MobileWorkspaceListSummaryCache {
+    private struct PanelOrderEntry {
+        var paneLayoutVersion: Int
+        var panelIDs: Set<UUID>
+        var orderedPanelIds: [UUID]
+    }
+
+    private var panelOrderByWorkspaceID: [UUID: PanelOrderEntry] = [:]
+
+    #if DEBUG
+    private(set) var panelOrderCacheHits: Int = 0
+    private(set) var panelOrderCacheMisses: Int = 0
+    #endif
+
+    mutating func summaryHash(
+        for tabs: [Workspace],
+        groups: [WorkspaceGroup],
+        selectedTabID: UUID?,
+        previewSignatures: [UUID: Int]
+    ) -> Int {
+        let liveWorkspaceIDs = Set(tabs.map(\.id))
+        panelOrderByWorkspaceID = panelOrderByWorkspaceID.filter { liveWorkspaceIDs.contains($0.key) }
+
+        return MobileWorkspaceListObserver.summaryHash(
+            for: tabs,
+            groups: groups,
+            selectedTabID: selectedTabID,
+            previewSignatures: previewSignatures,
+            panelIDsProvider: { workspace in
+                orderedPanelIds(for: workspace)
+            }
+        )
+    }
+
+    private mutating func orderedPanelIds(for workspace: Workspace) -> [UUID] {
+        let panelIDs = Set(workspace.panels.keys)
+        if let entry = panelOrderByWorkspaceID[workspace.id],
+           entry.paneLayoutVersion == workspace.paneLayoutVersion,
+           entry.panelIDs == panelIDs {
+            #if DEBUG
+            panelOrderCacheHits &+= 1
+            #endif
+            return entry.orderedPanelIds
+        }
+
+        #if DEBUG
+        panelOrderCacheMisses &+= 1
+        #endif
+        let orderedPanelIds = workspace.orderedPanelIds
+        panelOrderByWorkspaceID[workspace.id] = PanelOrderEntry(
+            paneLayoutVersion: workspace.paneLayoutVersion,
+            panelIDs: panelIDs,
+            orderedPanelIds: orderedPanelIds
+        )
+        return orderedPanelIds
+    }
+}
+
 /// Watches `TabManager.tabs` (and each workspace's panels publisher) and emits
 /// `workspace.updated` to subscribed mobile clients whenever the iOS-facing
 /// shape of the workspace list materially changes. Replaces per-RPC emit hooks
@@ -26,6 +85,7 @@ final class MobileWorkspaceListObserver {
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
+    private var summaryCache = MobileWorkspaceListSummaryCache()
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
@@ -46,7 +106,7 @@ final class MobileWorkspaceListObserver {
         // Initial snapshot. Every observer's first emit is unconditional so
         // freshly-paired clients see the current state without waiting for
         // the first mutation.
-        let initial = Self.summaryHash(
+        let initial = summaryCache.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
@@ -204,7 +264,7 @@ final class MobileWorkspaceListObserver {
 
     private func emitIfNeeded(force: Bool) {
         guard let tabManager else { return }
-        let hash = Self.summaryHash(
+        let hash = summaryCache.summaryHash(
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
@@ -239,11 +299,12 @@ final class MobileWorkspaceListObserver {
     /// preview (notification id + timestamp). Folding it in means a new notification
     /// (or a cleared one) re-emits to the phone, which renders the preview + relative
     /// time. Workspaces with no notification are simply absent from the map.
-    private static func summaryHash(
+    fileprivate static func summaryHash(
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
         selectedTabID: UUID?,
-        previewSignatures: [UUID: Int]
+        previewSignatures: [UUID: Int],
+        panelIDsProvider: (Workspace) -> [UUID]
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(tabs.count)
@@ -274,7 +335,7 @@ final class MobileWorkspaceListObserver {
             hasher.combine(previewSignatures[workspace.id])
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
-            let panelIDs = workspace.orderedPanelIds
+            let panelIDs = panelIDsProvider(workspace)
             hasher.combine(panelIDs)
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
@@ -305,7 +366,8 @@ final class MobileWorkspaceListObserver {
             for: tabs,
             groups: groups,
             selectedTabID: selectedTabID,
-            previewSignatures: previewSignatures
+            previewSignatures: previewSignatures,
+            panelIDsProvider: { $0.orderedPanelIds }
         )
     }
     #endif

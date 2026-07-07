@@ -202,6 +202,90 @@ struct MobileWorkspaceListFidelityTests {
         #expect(after != changed, "a newer notification must change the mobile summary hash")
     }
 
+    #if DEBUG
+    @Test func summaryHashCacheReusesPanelOrderForNonLayoutChanges() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 3)
+        let panelId = try #require(ordered.first)
+        var cache = MobileWorkspaceListSummaryCache()
+
+        let initial = cache.summaryHash(
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
+        )
+        #expect(cache.panelOrderCacheMisses == 1)
+        #expect(cache.panelOrderCacheHits == 0)
+
+        workspace.setCustomTitle("Renamed Workspace")
+        let renamedWorkspace = cache.summaryHash(
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
+        )
+        #expect(initial != renamedWorkspace, "workspace title changes must still change the mobile summary hash")
+        #expect(cache.panelOrderCacheMisses == 1)
+        #expect(
+            cache.panelOrderCacheHits == 1,
+            "title-only changes must not re-derive bonsplit panel order on the main actor"
+        )
+
+        workspace.setPanelCustomTitle(panelId: panelId, title: "Renamed Terminal")
+        let renamedTerminal = cache.summaryHash(
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
+        )
+        #expect(renamedWorkspace != renamedTerminal, "terminal title changes must still change the mobile summary hash")
+        #expect(cache.panelOrderCacheMisses == 1)
+        #expect(
+            cache.panelOrderCacheHits == 2,
+            "terminal title changes must reuse the cached panel order while hashing the updated title"
+        )
+    }
+
+    @Test func summaryHashCacheInvalidatesPanelOrderOnLayoutChange() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 3)
+        var cache = MobileWorkspaceListSummaryCache()
+
+        let before = cache.summaryHash(
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
+        )
+        #expect(cache.panelOrderCacheMisses == 1)
+
+        let firstTabId = try #require(workspace.surfaceIdFromPanelId(ordered[0]))
+        #expect(workspace.bonsplitController.reorderTab(firstTabId, toIndex: 2))
+        #expect(workspace.orderedPanelIds != ordered)
+
+        let after = cache.summaryHash(
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
+        )
+        #expect(before != after, "a real tab reorder must still change the mobile summary hash")
+        #expect(
+            cache.panelOrderCacheMisses == 2,
+            "paneLayoutVersion changes must invalidate cached panel order"
+        )
+        #expect(cache.panelOrderCacheHits == 0)
+
+        _ = cache.summaryHash(
+            for: [workspace],
+            groups: [],
+            selectedTabID: workspace.id,
+            previewSignatures: [:]
+        )
+        #expect(cache.panelOrderCacheMisses == 2)
+        #expect(cache.panelOrderCacheHits == 1)
+    }
+    #endif
+
     @Test func remoteDirectoryTrustChangesObserverHashAndPayload() throws {
         let localDirectory = "/Users/alice/development"
         let remoteDirectory = "/home/seepine/workspace"
