@@ -285,6 +285,14 @@ html { scroll-behavior: smooth; }
     return div.innerHTML;
   }
 
+  function escapeAttribute(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
   function escapeDataAttribute(s) {
     // Store raw local paths in data attributes as percent-encoded
     // strings. This avoids attribute-escaping footguns entirely.
@@ -997,6 +1005,13 @@ html { scroll-behavior: smooth; }
       heading(text, level, raw) {
         var slug = uniqueHeadingSlug(raw);
         return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
+      },
+      link(href, title, text) {
+        var html = '<a href="' + escapeAttribute(href) + '"';
+        if (title != null) {
+          html += ' title="' + escapeAttribute(title) + '"';
+        }
+        return html + '>' + String(text == null ? '' : text) + '</a>';
       }
     }
   });
