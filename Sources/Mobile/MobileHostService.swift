@@ -1321,20 +1321,16 @@ final class MobileHostService {
     }
 
     private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action"
         guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
-            if request.method == "workspace.move" || request.method == "workspace.group.action" {
-                return .failure(Self.scopedTicketError)
-            }
-            return nil
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
         }
         guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
-            return .failure(Self.scopedTicketError)
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
         }
-        guard let error = Self.ticketAuthorizationError(authorization: authorization, request: request) else {
-            return nil
-        }
-        return .failure(error)
+        if let error = Self.ticketAuthorizationError(authorization: authorization, request: request) { return .failure(error) }
+        return nil
     }
 
     private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {
