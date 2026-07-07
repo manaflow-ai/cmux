@@ -2833,6 +2833,11 @@ class GhosttyApp {
                 surfaceView.updateGhosttyMouseShape(shape)
             }
             return true
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }; terminalSurface?.hostedView.setLinkHoverURL(url) }
+            return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
@@ -3039,13 +3044,8 @@ class GhosttyApp {
             cmuxDebugLog("link.openURL raw=\(urlString)")
             #endif
 
-            // Try file-path resolution before URL classification.
-            // Ghostty's link detection can match file paths that contain
-            // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
-            // Attempt to resolve the raw string as a local file first
-            // (with trailing-punctuation trimming via TerminalPathResolver's quicklook resolution).
-            // If the file exists and cmux can handle it, route through the
-            // file viewer instead of the browser.
+            // Try file-path resolution before URL classification. Ghostty's link detection can
+            // match path-like text as URLs; route existing local files through cmux first.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
             var normalizedOpenURLString = urlString
             if !trimmedUrlString.isEmpty {
@@ -3858,9 +3858,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
             appliedColorScheme = nil
-            // Reset any OSC 22 mouse shape carried over from the previous
-            // surface; the newly-bound surface re-emits its own shape via
-            // GHOSTTY_ACTION_MOUSE_SHAPE if it has one.
+            // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
@@ -8180,6 +8178,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
+    let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -8417,6 +8416,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
+        linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -8625,6 +8625,9 @@ final class GhosttySurfaceScrollView: NSView {
             ),
             imageTransferIndicatorContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
+        linkHoverIndicatorView.frame = bounds
+        linkHoverIndicatorView.autoresizingMask = [.width, .height]
+        addSubview(linkHoverIndicatorView)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -8918,6 +8921,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
+        _ = setFrameIfNeeded(linkHoverIndicatorView, to: bounds)
         if let cloudTerminalReconnectOverlayView {
             _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: bounds)
         }
@@ -9034,8 +9038,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func attachDropZoneOverlayIfNeeded() {
-        // Keep the hover indicator outside the hosted terminal subtree so it stays purely additive
-        // and cannot invalidate the scroll/surface layout that Ghostty renders into.
+        // Keep the drop-zone overlay outside the hosted terminal subtree so it cannot perturb layout.
         let container = dropZoneOverlayContainerView()
         if dropZoneOverlayView.superview !== container {
             dropZoneOverlayView.removeFromSuperview()
@@ -9187,6 +9190,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
+        if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
@@ -9885,12 +9889,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
-        // Record portal visibility for renderer reclamation. When becoming
-        // visible, re-realize the GPU renderer BEFORE marking the surface
-        // visible/occluded or kicking any draw, so we never draw into a swap
-        // chain that RendererRealizationController released while this surface was
-        // offscreen. realizeRenderer() is idempotent (no-op if there is no runtime
-        // surface or it is already realized).
+        // Re-realize before marking visible so we never draw into a released swap chain.
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if visible {
             surfaceView.terminalSurface?.realizeRenderer()
@@ -9922,6 +9921,7 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
         if !visible {
+            setLinkHoverURL(nil)
             // If we were focused, yield first responder.
             if let window = uiWindow, let fr = window.firstResponder as? NSView,
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
