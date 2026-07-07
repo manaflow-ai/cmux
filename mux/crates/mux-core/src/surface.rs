@@ -311,6 +311,52 @@ impl Surface {
         Ok(surface)
     }
 
+    #[cfg(test)]
+    pub(crate) fn spawn_for_test(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let callbacks = Callbacks {
+            on_bell: Some(Box::new({
+                let mux = mux.clone();
+                move || {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.emit(MuxEvent::Bell(id));
+                    }
+                }
+            })),
+            ..Callbacks::default()
+        };
+
+        let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        if let Some(mux) = mux.upgrade() {
+            let colors = mux.default_colors();
+            term.set_default_colors(colors.fg, colors.bg);
+        }
+
+        Ok(Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta { id, name: Mutex::new(None) },
+            term: Mutex::new(term),
+            writer: Mutex::new(Box::new(std::io::sink())),
+            master: Mutex::new(Box::new(TestMasterPty {
+                size: Mutex::new(PtySize {
+                    rows: opts.rows,
+                    cols: opts.cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                }),
+            })),
+            killer: Mutex::new(Box::new(TestChildKiller)),
+            dead: AtomicBool::new(false),
+            dirty: AtomicBool::new(false),
+            title: Mutex::new(String::new()),
+            pwd: Mutex::new(None),
+            size: Mutex::new((opts.cols, opts.rows)),
+            taps: Mutex::new(Vec::new()),
+        })))
+    }
+
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -565,6 +611,61 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.activate()
+    }
+}
+
+#[cfg(test)]
+struct TestMasterPty {
+    size: Mutex<PtySize>,
+}
+
+#[cfg(test)]
+impl MasterPty for TestMasterPty {
+    fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        *self.size.lock().unwrap() = size;
+        Ok(())
+    }
+
+    fn get_size(&self) -> anyhow::Result<PtySize> {
+        Ok(*self.size.lock().unwrap())
+    }
+
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+        Ok(Box::new(std::io::empty()))
+    }
+
+    fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+        Ok(Box::new(std::io::sink()))
+    }
+
+    #[cfg(unix)]
+    fn process_group_leader(&self) -> Option<libc::pid_t> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn tty_name(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct TestChildKiller;
+
+#[cfg(test)]
+impl ChildKiller for TestChildKiller {
+    fn kill(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(TestChildKiller)
     }
 }
 

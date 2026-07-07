@@ -6469,9 +6469,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
-        // Split reparent/layout churn can suppress the later `becomeFirstResponder -> onFocus`
-        // callback. Treat pointer-down as explicit focus intent so clicking a ghost pane still
-        // repairs workspace/pane active state before key routing runs.
+        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
+        // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         if let terminalSurface {
             if terminalSurface.focusPlacement == .rightSidebarDock {
                 AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
@@ -6492,6 +6491,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surfaceId: terminalSurface.id
             )
         }
+        guard shouldForwardTerminalActivation else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
