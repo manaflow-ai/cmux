@@ -53,7 +53,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                     MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
                 ]
             )
-            store.replaceForegroundWorkspaceState([workspace])
+            store.replaceForegroundWorkspaceState(Self.workspaces(with: workspace))
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
             if Self.showsChatToggle {
@@ -99,13 +99,33 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         if usesRefreshingTerminalMenu {
             return [refreshingWorkspace(generation: 0)]
         }
-        return [
-            MobileWorkspacePreview(
+        return Self.workspaces(
+            with: MobileWorkspacePreview(
                 id: workspaceID,
                 name: workspaceTitle,
                 terminals: []
-            ),
-        ]
+            )
+        )
+    }
+
+    private static func workspaces(with selectedWorkspace: MobileWorkspacePreview) -> [MobileWorkspacePreview] {
+        [selectedWorkspace] + unreadFixtureWorkspaces
+    }
+
+    private static var unreadFixtureWorkspaces: [MobileWorkspacePreview] {
+        guard let rawValue = ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_UNREAD_BACK_COUNT"],
+              let count = Int(rawValue),
+              count > 0 else {
+            return []
+        }
+        return (1...count).map { index in
+            MobileWorkspacePreview(
+                id: MobileWorkspacePreview.ID(rawValue: "workspace-unread-\(index)"),
+                name: "Unread Workspace \(index)",
+                hasUnread: true,
+                terminals: []
+            )
+        }
     }
 
     private static func refreshingWorkspace(generation: Int) -> MobileWorkspacePreview {

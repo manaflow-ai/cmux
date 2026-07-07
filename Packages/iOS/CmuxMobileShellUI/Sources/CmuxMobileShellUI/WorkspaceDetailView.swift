@@ -33,6 +33,10 @@ struct WorkspaceDetailView: View {
     @Environment(BrowserSurfaceStore.self) private var browserStore
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
+    /// Detail content width, reported as the principal toolbar item's ideal
+    /// width so the navigation bar grants it the full inset region. Readable by
+    /// the toolbar layout; only this view's geometry callback should mutate it.
+    @State private(set) var toolbarContentWidth: CGFloat = 0
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -44,8 +48,6 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width for capping the leading glass title pill.
-    @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
@@ -69,7 +71,9 @@ struct WorkspaceDetailView: View {
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
-    private var activeBrowser: BrowserSurfaceState? {
+    /// Non-private so the toolbar title label (WorkspaceDetailView+Toolbar.swift)
+    /// can read it.
+    var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
 
@@ -78,9 +82,9 @@ struct WorkspaceDetailView: View {
 
         #if os(iOS)
         content
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { toolbarContentWidth = $0 }
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
@@ -114,62 +118,8 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    #if os(iOS)
-    @ToolbarContentBuilder
-    private var workspaceDetailToolbar: some ToolbarContent {
-        if backButtonConfiguration != nil {
-            ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
-                workspaceBackToolbarButton
-            }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-            }
-        }
-        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
-            workspaceTitleToolbarMenu
-        }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
-        }
-    }
-
-    private var workspaceTitleToolbarMenu: some View {
-        WorkspaceTitleMenu(
-            contentWidth: contentWidth,
-            hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
-            isEnabled: hasTitleMenuActions,
-            menuContent: { titleMenuContent }
-        ) {
-            toolbarTitleLabel
-        }
-    }
-
-    @ViewBuilder
-    private var toolbarTitleLabel: some View {
-        if isChatMode,
-           let session = chosenChatSession,
-           let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
-                descriptor: conversation.descriptor,
-                agentState: conversation.agentState,
-                isConnected: conversation.isConnected,
-                titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
-            )
-        } else if let browser = activeBrowser {
-            Text(browser.title ?? workspace.name)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.foreground)
-        } else {
-            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-        }
-    }
-    #endif
+    // The top-bar toolbar (`workspaceDetailToolbar` and its islands) lives in
+    // WorkspaceDetailView+Toolbar.swift.
 
     @ViewBuilder
     private var detailSurfaceContent: some View {
@@ -323,8 +273,10 @@ struct WorkspaceDetailView: View {
 
     #if os(iOS)
     /// Leading back-button island; iOS 26 supplies toolbar glass.
+    /// Non-private so the toolbar layout (WorkspaceDetailView+Toolbar.swift) can
+    /// wrap it in a glass island.
     @ViewBuilder
-    private var workspaceBackToolbarButton: some View {
+    var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
             WorkspaceBackButton(
                 unreadCount: backButtonConfiguration.unreadCount,
