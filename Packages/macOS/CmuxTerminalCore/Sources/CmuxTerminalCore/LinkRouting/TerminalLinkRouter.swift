@@ -129,7 +129,8 @@ public struct TerminalLinkRouter: Sendable {
         }
         let hostCandidate = value[..<slash].lowercased()
         guard hostCandidate != "localhost" else { return false }
-        guard hostCandidate.rangeOfCharacter(from: CharacterSet(charactersIn: ".:[]")) == nil else {
+        guard hostCandidate.count == 1,
+              hostCandidate.rangeOfCharacter(from: CharacterSet(charactersIn: ".:[]")) == nil else {
             return false
         }
         let pathStart = value.index(after: slash)

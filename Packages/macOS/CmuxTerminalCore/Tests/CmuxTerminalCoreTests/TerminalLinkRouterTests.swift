@@ -97,6 +97,9 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
             ("example.com/docs", "example.com", "/docs"),
             ("0.0.0.0.evil.example/docs", "0.0.0.0.evil.example", "/docs"),
             ("grafana/dashboard", "grafana", "/dashboard"),
+            ("grafana/dashboard.json", "grafana", "/dashboard.json"),
+            ("wiki/docs/intro.md", "wiki", "/docs/intro.md"),
+            ("gitlab/group/project/README.md", "gitlab", "/group/project/README.md"),
         ] {
             let target = try #require(router.resolveOpenURLTarget(rawValue))
             guard case let .embeddedBrowser(url) = target else {
