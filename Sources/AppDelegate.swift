@@ -3846,26 +3846,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            guard let self else { return }
 #if DEBUG
-                let names = NSScreen.screens.map(\.localizedName).joined(separator: ", ")
-                cmuxDebugLog(
-                    "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
-                )
+            let names = NSScreen.screens.map(\.localizedName).joined(separator: ", ")
+            cmuxDebugLog(
+                "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
+            )
 #endif
-                // NOTE: no capture here. `didChangeScreenParameters` fires AFTER
-                // `NSScreen.screens` already reflects the new configuration, so a
-                // capture at this point would store the outgoing window frame
-                // under the INCOMING signature — corrupting the slot we are about
-                // to restore from (the exact #2135 failure). The per-config ring
-                // is instead populated only while a configuration is stable (the
-                // session-autosave tick and window close), which are correctly
-                // keyed. Arm settling so those stable-time captures are suppressed
-                // until this reconfiguration settles.
-                self.beginSettlingScreenChange()
-                self.scheduleMainWindowFrameReconcile()
-            }
+            // NOTE: no capture here. `didChangeScreenParameters` fires AFTER
+            // `NSScreen.screens` already reflects the new configuration, so a
+            // capture at this point would store the outgoing window frame
+            // under the INCOMING signature — corrupting the slot we are about
+            // to restore from (the exact #2135 failure). The per-config ring
+            // is instead populated only while a configuration is stable (the
+            // session-autosave tick and window close), which are correctly
+            // keyed. Arm settling so those stable-time captures are suppressed
+            // until this reconfiguration settles.
+            self.beginSettlingScreenChange()
+            self.scheduleMainWindowFrameReconcile()
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
     }
