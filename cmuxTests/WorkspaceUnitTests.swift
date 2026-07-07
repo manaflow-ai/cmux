@@ -3225,6 +3225,9 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
+            initialBrowserURL: URL?,
+            initialBrowserOmnibarVisible: Bool,
+            initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
             allowTextBoxFocusDefault: Bool
         ) -> Workspace {
@@ -3238,6 +3241,9 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
@@ -3530,6 +3536,9 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
+            initialBrowserURL: URL?,
+            initialBrowserOmnibarVisible: Bool,
+            initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
             allowTextBoxFocusDefault: Bool
         ) -> Workspace {
@@ -3543,6 +3552,9 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
@@ -4908,6 +4920,79 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
 @MainActor
 final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
+    func testCloudVMLoadingWorkspaceStartsWithoutTerminalAndDoesNotPersist() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(
+            title: "Cloud VM",
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        guard let focusedPanelId = workspace.focusedPanelId,
+              let loadingPanel = workspace.panels[focusedPanelId] as? CloudVMLoadingPanel else {
+            XCTFail("Expected initial Cloud VM loading panel")
+            return
+        }
+
+        XCTAssertEqual(loadingPanel.panelType, .cloudVMLoading)
+        XCTAssertNil(workspace.focusedTerminalPanel)
+        XCTAssertTrue(workspace.sessionSnapshot(includeScrollback: false).panels.isEmpty)
+    }
+
+    func testCloudVMLoadingSurfaceSwapsToTerminalInPlace() {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(
+            title: "Cloud VM",
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        guard let loadingPanelId = workspace.focusedPanelId,
+              let loadingSurfaceId = workspace.surfaceIdFromPanelId(loadingPanelId) else {
+            XCTFail("Expected initial Cloud VM loading surface")
+            return
+        }
+
+        let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_123"
+        let terminal = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+            workspaceId: workspace.id,
+            initialCommand: command,
+            focus: true
+        )
+
+        XCTAssertEqual(terminal?.id, loadingPanelId)
+        XCTAssertEqual(workspace.panels[loadingPanelId]?.panelType, .terminal)
+        XCTAssertEqual(workspace.surfaceIdFromPanelId(loadingPanelId), loadingSurfaceId)
+        XCTAssertEqual(workspace.focusedTerminalPanel?.id, loadingPanelId)
+        XCTAssertEqual(terminal?.surface.initialCommand, command)
+    }
+
+    func testCloudVMLoadingFailureSummarizesRetrySpam() {
+        let panel = CloudVMLoadingPanel(
+            workspaceId: UUID(),
+            startedAt: Date(timeIntervalSinceNow: -42)
+        )
+        panel.showFailure("""
+        Created Cloud VM in066h50tkjqapx042qn
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 1/120).
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 2/120).
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 3/120).
+        """)
+
+        guard case .failed(let message, let elapsedSeconds) = panel.phase else {
+            XCTFail("Expected failed loading panel")
+            return
+        }
+        XCTAssertTrue(message.contains("could not create a VM yet"), message)
+        XCTAssertTrue(message.contains("same VM"), message)
+        XCTAssertEqual(elapsedSeconds, 42)
+        XCTAssertFalse(message.contains("[cmux]"))
+        XCTAssertFalse(message.contains("[2K"))
+        XCTAssertFalse(message.contains("in066h50"))
+    }
+
     func testCreatesExtensionBrowserTabInFocusedPane() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

@@ -69,7 +69,21 @@ export const env = createEnv({
     STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),
     STRIPE_PRO_YEARLY_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
+    // App Store Connect API for server-side TestFlight enrollment. Optional:
+    // the dashboard shows enrollment unavailable until these credentials are set.
+    // ASC_PRIVATE_KEY accepts PEM contents with literal "\n" escapes;
+    // ASC_PRIVATE_KEY_PATH is a local-dev fallback path.
+    ASC_KEY_ID: z.string().min(1).optional(),
+    ASC_ISSUER_ID: z.string().min(1).optional(),
+    ASC_PRIVATE_KEY: z.string().min(1).optional(),
+    ASC_PRIVATE_KEY_PATH: z.string().min(1).optional(),
+    CMUX_TESTFLIGHT_APP_ID: z.string().min(1).optional(),
+    CMUX_TESTFLIGHT_GROUP_ID: z.string().min(1).optional(),
     SENTRY_DSN: z.string().url().optional(),
+    CRON_SECRET: z.string().min(1).optional(),
+    CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
+    CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
+    CMUX_VM_ALERT_EXPIRED_LEASES: z.string().regex(/^\d+$/).optional(),
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
@@ -101,7 +115,17 @@ export const env = createEnv({
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
+    ASC_KEY_ID: trimEnv(process.env.ASC_KEY_ID),
+    ASC_ISSUER_ID: trimEnv(process.env.ASC_ISSUER_ID),
+    ASC_PRIVATE_KEY: trimEnv(process.env.ASC_PRIVATE_KEY),
+    ASC_PRIVATE_KEY_PATH: trimEnv(process.env.ASC_PRIVATE_KEY_PATH),
+    CMUX_TESTFLIGHT_APP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_APP_ID),
+    CMUX_TESTFLIGHT_GROUP_ID: trimEnv(process.env.CMUX_TESTFLIGHT_GROUP_ID),
     SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
+    CRON_SECRET: trimEnv(process.env.CRON_SECRET),
+    CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
+    CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
+    CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
     SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL) ?? defaultSubrouterBaseUrl(),

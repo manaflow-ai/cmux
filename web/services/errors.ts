@@ -15,6 +15,19 @@ export function captureBillingError(
   });
 }
 
+export function captureAscError(
+  error: unknown,
+  context: Record<string, string | number | boolean | null | undefined> = {},
+): void {
+  if (!env.SENTRY_DSN) return;
+  Sentry.captureException(error, {
+    tags: {
+      subsystem: "app-store-connect",
+    },
+    extra: cleanContext(context),
+  });
+}
+
 function cleanContext(
   context: Record<string, string | number | boolean | null | undefined>,
 ): Record<string, string | number | boolean> {

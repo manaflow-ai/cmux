@@ -15,6 +15,9 @@ import {
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
+import { isAscConfigured } from "../asc/client";
+import { removeTester } from "../asc/testflight";
+import { captureAscError } from "../errors";
 
 export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
   "active",
@@ -51,6 +54,14 @@ type StackBillingApp = {
 type BillingPurchaseDependencies = {
   db?: BillingDb;
   stackApp?: StackBillingApp | null;
+  testflight?: {
+    isAscConfigured?: () => boolean;
+    removeTester?: (email: string) => Promise<void>;
+    captureAscError?: (
+      error: unknown,
+      context?: Record<string, string | number | boolean | null | undefined>,
+    ) => void;
+  };
 };
 
 export type CheckoutCompletionInput = {
@@ -172,6 +183,9 @@ export async function applySubscriptionUpdate(
   const isActive = isActiveStripeSubscriptionStatus(subscription.status);
   const user = await loadStackUser(stackUserId, dependencies.stackApp);
   await syncProPlanMetadata(user, isActive);
+  if (!isActive) {
+    await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
+  }
   return { scope: "user", stackUserId, isActive };
 }
 
@@ -228,6 +242,26 @@ async function loadStackTeam(
     throw new Error("Stack Auth server SDK cannot update team metadata");
   }
   return team as StackBillingTeam;
+}
+
+async function removeUserFromTestflightOnLapse(
+  user: StackBillingUser,
+  stackUserId: string,
+  dependencies: BillingPurchaseDependencies,
+): Promise<void> {
+  const configured = dependencies.testflight?.isAscConfigured ?? isAscConfigured;
+  if (!configured()) return;
+  if (!user.primaryEmail) return;
+
+  try {
+    await (dependencies.testflight?.removeTester ?? removeTester)(user.primaryEmail);
+  } catch (error) {
+    (dependencies.testflight?.captureAscError ?? captureAscError)(error, {
+      route: "/api/stripe/webhook",
+      stackUserId,
+      email: user.primaryEmail,
+    });
+  }
 }
 
 async function recordTeamCheckoutCompletion(input: {
