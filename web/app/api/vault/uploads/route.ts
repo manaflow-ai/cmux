@@ -1,13 +1,10 @@
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { eq, inArray, lt } from "drizzle-orm";
 import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../db/client";
-import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../db/schema";
+import { vaultSnapshots, vaultUploadGrants } from "../../../../db/schema";
 import { vaultConfig } from "../../../../services/vault/config";
-import { buildObjectKey, deleteObject, presignPut } from "../../../../services/vault/storage";
-import {
-  getVaultPendingGrantBytes,
-  getVaultStoredCompressedBytes,
-} from "../../../../services/vault/usage";
+import { deleteObject, presignPut } from "../../../../services/vault/storage";
+import { reserveVaultUploadGrants } from "../../../../services/vault/usage";
 import { withAuthedVaultApiRoute } from "../../../../services/vault/routeHelpers";
 import { readVaultJsonObject, validateVaultBatch } from "../../../../services/vault/validation";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
@@ -55,68 +52,29 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
 
   await gcExpiredGrants(db, now);
 
-  // Per-user storage quota covers committed snapshots plus unexpired upload
-  // grants, so minting URLs and never committing still consumes quota (the
-  // presigned ContentLength is signed, bounding each upload to its declared
-  // size). Grants for keys in this batch are excluded from the pending sum and
-  // re-added per item below, so retries are not double-counted. The commit
-  // route re-checks, so previously issued URLs cannot bypass the quota either.
-  const batchObjectKeys = batch.value.map((item) =>
-    buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256),
-  );
-  let projectedUserBytes =
-    (await getVaultStoredCompressedBytes(db, userId)) +
-    (await getVaultPendingGrantBytes(db, userId, now, batchObjectKeys));
+  const outcomes = await reserveVaultUploadGrants(db, {
+    userId,
+    items: batch.value,
+    maxUploadBytes: config.maxUploadBytes,
+    maxUserBytes: config.maxUserBytes,
+    now,
+    grantTtlMs: UPLOAD_GRANT_TTL_MS,
+  });
+
   const results = [];
-  for (const item of batch.value) {
-    // Per-item so one oversized transcript cannot block the rest of the batch.
-    if (item.compressedSizeBytes > config.maxUploadBytes) {
+  for (const outcome of outcomes) {
+    const item = outcome.item;
+    if (outcome.kind === "error") {
       results.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,
         relPath: item.relPath,
         status: "error",
-        error: "upload_too_large",
+        error: outcome.error,
       });
       continue;
     }
-    if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
-      results.push({
-        agent: item.agent,
-        agentSessionId: item.agentSessionId,
-        relPath: item.relPath,
-        status: "error",
-        error: "quota_exceeded",
-      });
-      continue;
-    }
-
-    const [existing] = await db
-      .select({
-        id: vaultSessions.id,
-        latestSha256: vaultSessions.latestSha256,
-        relPath: vaultSessions.relPath,
-        cwd: vaultSessions.cwd,
-      })
-      .from(vaultSessions)
-      .where(
-        and(
-          eq(vaultSessions.userId, userId),
-          eq(vaultSessions.agent, item.agent),
-          eq(vaultSessions.agentSessionId, item.agentSessionId),
-        ),
-      )
-      .limit(1);
-
-    if (existing && existing.latestSha256 === item.sha256) {
-      // Same content can still move on disk (e.g. Codex archiving a session),
-      // so keep the restore metadata current even when no upload is needed.
-      if (existing.relPath !== item.relPath || existing.cwd !== item.cwd) {
-        await db
-          .update(vaultSessions)
-          .set({ relPath: item.relPath, cwd: item.cwd })
-          .where(eq(vaultSessions.id, existing.id));
-      }
+    if (outcome.kind === "unchanged") {
       results.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,
@@ -125,33 +83,13 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
       });
       continue;
     }
-
-    const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
-    await db
-      .insert(vaultUploadGrants)
-      .values({
-        userId,
-        objectKey,
-        compressedSizeBytes: item.compressedSizeBytes,
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
-      })
-      .onConflictDoUpdate({
-        target: vaultUploadGrants.objectKey,
-        set: {
-          compressedSizeBytes: item.compressedSizeBytes,
-          createdAt: now,
-          expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
-        },
-      });
-    projectedUserBytes += item.compressedSizeBytes;
     results.push({
       agent: item.agent,
       agentSessionId: item.agentSessionId,
       relPath: item.relPath,
       status: "upload",
-      objectKey,
-      putUrl: await presignPut(objectKey, item.compressedSizeBytes),
+      objectKey: outcome.objectKey,
+      putUrl: await presignPut(outcome.objectKey, item.compressedSizeBytes),
     });
   }
   setSpanAttributes(span, {
