@@ -243,6 +243,13 @@ struct MemoryPressureResponderRegistryTests {
 @MainActor
 @Suite(.serialized)
 struct MemoryPressureMonitorTests {
+    @Test func dispatchSourceEventMappingIgnoresEmptyEvents() {
+        #expect(MemoryPressureMonitor.severity(forDispatchSourceEvent: []) == nil)
+        #expect(MemoryPressureMonitor.severity(forDispatchSourceEvent: [.warning]) == .warning)
+        #expect(MemoryPressureMonitor.severity(forDispatchSourceEvent: [.critical]) == .critical)
+        #expect(MemoryPressureMonitor.severity(forDispatchSourceEvent: [.warning, .critical]) == .critical)
+    }
+
     @Test func samplingInjectedFootprintDispatchesThroughRegistry() {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(

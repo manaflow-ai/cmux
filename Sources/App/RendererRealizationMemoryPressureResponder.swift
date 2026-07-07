@@ -13,10 +13,25 @@ final class RendererRealizationMemoryPressureResponder: MemoryPressureResponder 
     }
 
     func shedMemory(for snapshot: MemoryPressureSnapshot) -> MemoryPressureShedResult {
-        let reclaimedCount = controller.reclaimForSystemMemoryPressure(now: snapshot.sampledAt)
+        let responderID = memoryPressureResponderID
+        let severity = snapshot.severity
+        let result = controller.reclaimForSystemMemoryPressure(
+            now: snapshot.sampledAt
+        ) { retryResult, performedAt in
+            MemoryPressureResponderRegistry.logShedAction(
+                MemoryPressureShedAction(
+                    responderID: responderID,
+                    severity: severity,
+                    reclaimedItemCount: retryResult.reclaimedCount,
+                    estimatedBytes: nil,
+                    detail: retryResult.detail(prefix: "hidden-terminal-renderers-retry"),
+                    performedAt: performedAt
+                )
+            )
+        }
         return MemoryPressureShedResult(
-            reclaimedItemCount: reclaimedCount,
-            detail: "hidden-terminal-renderers"
+            reclaimedItemCount: result.reclaimedCount,
+            detail: result.detail(prefix: "hidden-terminal-renderers")
         )
     }
 }

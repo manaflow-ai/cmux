@@ -84,6 +84,18 @@ final class MemoryPressureMonitor {
         )
     }
 
+    nonisolated static func severity(
+        forDispatchSourceEvent event: DispatchSource.MemoryPressureEvent
+    ) -> MemoryPressureSeverity? {
+        if event.contains(.critical) {
+            return .critical
+        }
+        if event.contains(.warning) {
+            return .warning
+        }
+        return nil
+    }
+
     private func startMemoryPressureSourceIfNeeded() {
         guard memoryPressureSource == nil else { return }
         // DispatchSource memory-pressure notifications are the system signal
@@ -94,8 +106,10 @@ final class MemoryPressureMonitor {
             queue: queue
         )
         source.setEventHandler { [weak self, weak source] in
-            let event = source?.data ?? []
-            let severity: MemoryPressureSeverity = event.contains(.critical) ? .critical : .warning
+            guard let event = source?.data,
+                  let severity = Self.severity(forDispatchSourceEvent: event) else {
+                return
+            }
             let sampledAt = Date()
             Task { @MainActor in
                 self?.recordSystemPressure(severity, at: sampledAt)

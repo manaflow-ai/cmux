@@ -44,19 +44,19 @@ final class MemoryPressureResponderRegistry {
                 detail: result.detail,
                 performedAt: snapshot.sampledAt
             )
-            logShedAction(action)
+            Self.logShedAction(action)
             return action
         }
     }
 
-    private func logShedAction(_ action: MemoryPressureShedAction) {
+    static func logShedAction(_ action: MemoryPressureShedAction) {
         let estimatedBytes = action.estimatedBytes.map(String.init) ?? "unknown"
         let detail = action.detail ?? "none"
-        Self.logger.info(
+        logger.info(
             "memoryPressure.shed responder=\(action.responderID, privacy: .public) severity=\(action.severity.logName, privacy: .public) reclaimedItems=\(action.reclaimedItemCount, privacy: .public) estimatedBytes=\(estimatedBytes, privacy: .public) detail=\(detail, privacy: .public)"
         )
-        let signpostID = Self.signposter.makeSignpostID()
-        Self.signposter.emitEvent(
+        let signpostID = signposter.makeSignpostID()
+        signposter.emitEvent(
             "MemoryPressureShed",
             id: signpostID,
             "responder=\(action.responderID) severity=\(action.severity.logName) reclaimedItems=\(action.reclaimedItemCount)"
