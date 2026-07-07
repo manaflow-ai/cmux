@@ -3,8 +3,7 @@ import Testing
 import CmuxTerminalCore
 
 /// A deterministic stand-in for the browser domain: hosts containing a dot or
-/// equal to localhost are navigable, and scheme-less host-ish text becomes an
-/// HTTPS URL the way the embedded browser's omnibox would treat it.
+/// equal to localhost are accepted for explicit web URLs.
 private struct StubHostNormalizer: BrowserHostNormalizing {
     var rejectsEveryHost = false
 
@@ -14,14 +13,6 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         guard !trimmed.isEmpty else { return nil }
         guard trimmed.contains(".") || trimmed == "localhost" else { return nil }
         return trimmed
-    }
-
-    func navigableWebURL(_ input: String) -> URL? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
-        if URL(string: trimmed)?.scheme != nil { return URL(string: trimmed) }
-        guard trimmed.contains(".") || trimmed.lowercased().hasPrefix("localhost") else { return nil }
-        return URL(string: "https://\(trimmed)")
     }
 }
 
@@ -39,15 +30,18 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.path == "/path")
     }
 
-    @Test func resolvesBareDomainAsEmbeddedBrowser() throws {
-        let target = try #require(router.resolveOpenURLTarget("example.com/docs"))
-        guard case let .embeddedBrowser(url) = target else {
-            Issue.record("Expected bare domain to be normalized as an HTTPS browser URL")
-            return
-        }
-        #expect(url.scheme == "https")
-        #expect(url.host == "example.com")
-        #expect(url.path == "/docs")
+    @Test func schemelessBareDomainResolvesToNil() {
+        #expect(router.resolveOpenURLTarget("example.com/docs") == nil)
+    }
+
+    @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
+        let target = router.resolveOpenURLTarget("s/pipeline-failure-state-model.md")
+        #expect(target == nil)
+    }
+
+    @Test func unresolvedRelativePathDoesNotResolveAsHTTPSURL() {
+        let target = router.resolveOpenURLTarget("README.md")
+        #expect(target == nil)
     }
 
     @Test func resolvesFileSchemeAsExternal() throws {
@@ -102,19 +96,9 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.host == "example.com")
     }
 
-    @Test func rejectedHostRoutesBareDomainExternally() throws {
-        let rejecting = TerminalLinkRouter(
-            hostNormalizer: StubHostNormalizer(rejectsEveryHost: true)
-        )
-        // The rejecting stub also refuses navigableWebURL inputs only at the
-        // host check, so build one that still yields a URL but fails the host
-        // gate: navigableWebURL is unaffected by rejectsEveryHost.
-        let target = rejecting.resolveOpenURLTarget("example.com/docs")
-        guard case let .external(url)? = target else {
-            Issue.record("Expected bare domain with rejected host to open externally")
-            return
-        }
-        #expect(url.host == "example.com")
+    @Test func rejectedHostDoesNotAffectSchemelessText() {
+        let rejecting = TerminalLinkRouter(hostNormalizer: StubHostNormalizer(rejectsEveryHost: true))
+        #expect(rejecting.resolveOpenURLTarget("example.com/docs") == nil)
     }
 
     @Test func emptyTextResolvesToNil() {
@@ -122,18 +106,8 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(router.resolveOpenURLTarget("   \n") == nil)
     }
 
-    @Test func nonNavigableTokenFallsBackToExternalURL() {
-        // Scheme-less text the browser cannot navigate still becomes an
-        // external URL when Foundation can parse it as a relative URL.
-        // (Multi-word text is deliberately not asserted here: URL(string:)
-        // rejects spaces on macOS 14/15 but percent-encodes them on newer
-        // Foundation, so its routing is OS-dependent.)
-        let target = router.resolveOpenURLTarget("foo_bar")
-        guard case let .external(url)? = target else {
-            Issue.record("Expected non-navigable token to fall back to external routing")
-            return
-        }
-        #expect(url.absoluteString == "foo_bar")
+    @Test func schemelessNonPathTokenResolvesToNil() {
+        #expect(router.resolveOpenURLTarget("foo_bar") == nil)
     }
 
     @Test func openTargetURLAccessorReturnsDestination() throws {
