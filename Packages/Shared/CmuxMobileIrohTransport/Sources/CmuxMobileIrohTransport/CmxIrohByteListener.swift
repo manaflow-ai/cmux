@@ -99,7 +99,36 @@ public actor CmxIrohByteListener {
         case let .failure(error):
             throw error
         }
+
+        if relayEnabled, let endpoint {
+            // Dial-by-EndpointId through the relay only works once the endpoint
+            // holds its home relay connection, so wait (bounded) before start()
+            // returns and the host publishes the route — otherwise phones can be
+            // handed a route that times out until the relay comes up. Best
+            // effort on timeout/failure: the route's direct addrs still work
+            // on-LAN and the relay may connect later, while throwing here would
+            // take down the whole accept lane for a transient relay outage.
+            // `close()` from another thread unblocks the FFI wait.
+            let endpointBox = CmxIrohUnsafeBox(endpoint)
+            _ = await runBlocking { () -> Int32 in
+                let online = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
+                    cmux_iroh_endpoint_online(
+                        endpointBox.value,
+                        Self.relayOnlineWaitMilliseconds,
+                        kindPtr,
+                        errBuf,
+                        cap
+                    )
+                }
+                return online.result
+            }
+        }
     }
+
+    /// Bounded window ``start()`` gives the endpoint to reach its home relay
+    /// before the caller publishes the route. Typical relay connects take well
+    /// under a second; the cap only bounds relay-outage launches.
+    private static let relayOnlineWaitMilliseconds: UInt64 = 10_000
 
     /// The bound endpoint's EndpointId, or nil before ``start()``.
     public var endpointID: String? {
