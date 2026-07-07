@@ -1116,6 +1116,7 @@
 		C7B0FACE0000000000000006 /* SleepyEnergyMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000007 /* SleepyEnergyMode.swift */; };
 		C7B0000000000000000000B2 /* SleepyFaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000B1 /* SleepyFaceView.swift */; };
 		C7B0000000000000000000A2 /* SleepyModeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000A1 /* SleepyModeController.swift */; };
+		5E27010A0000000000000001 /* SleepyModeKeepAwakeReconcileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E27010A0000000000000002 /* SleepyModeKeepAwakeReconcileTests.swift */; };
 		C7B0FACE0000000000000000 /* SleepyOverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000001 /* SleepyOverlayWindow.swift */; };
 		C7B0FACE000000000000001C /* SleepyPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000001D /* SleepyPalette.swift */; };
 		C7B0FACE0000000000000010 /* SleepyPetFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000011 /* SleepyPetFrame.swift */; };
@@ -2546,6 +2547,7 @@
 		C7B0FACE0000000000000007 /* SleepyEnergyMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyEnergyMode.swift; sourceTree = "<group>"; };
 		C7B0000000000000000000B1 /* SleepyFaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyFaceView.swift; sourceTree = "<group>"; };
 		C7B0000000000000000000A1 /* SleepyModeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyModeController.swift; sourceTree = "<group>"; };
+		5E27010A0000000000000002 /* SleepyModeKeepAwakeReconcileTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SleepyModeKeepAwakeReconcileTests.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000001 /* SleepyOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyOverlayWindow.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000001D /* SleepyPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPalette.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000011 /* SleepyPetFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPetFrame.swift; sourceTree = "<group>"; };
@@ -4395,6 +4397,7 @@
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
+				5E27010A0000000000000002 /* SleepyModeKeepAwakeReconcileTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -6117,6 +6120,7 @@
 				C9A57505C9A57505C9A57505 /* SidebarWorkspaceScrollLayoutTests.swift in Sources */,
 				C0DE56010000000000000001 /* SidebarWorkspaceSelectionAnchorPolicyTests.swift in Sources */,
 					62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */,
+				5E27010A0000000000000001 /* SleepyModeKeepAwakeReconcileTests.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
 						F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,

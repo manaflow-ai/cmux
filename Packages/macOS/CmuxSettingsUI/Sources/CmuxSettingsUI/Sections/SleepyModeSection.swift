@@ -20,6 +20,18 @@ public struct SleepyModeSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode"), section: .sleepyMode)
 
+            // Amphetamine Mode: headless keep-awake driven by agent activity —
+            // a behavior toggle, separate from the screensaver appearance below.
+            SettingsCard {
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    String(localized: "sleepyMode.settings.keepAwake", defaultValue: "Prevent Mac from sleeping while agents are active"),
+                    subtitle: String(localized: "sleepyMode.settings.keepAwake.subtitle", defaultValue: "Keeps the Mac and display awake while any agent is actively running a command, so long tasks don\u{2019}t stall when the Mac would otherwise sleep. Releases automatically when every agent is idle.")
+                ) {
+                    Toggle("", isOn: $store.keepAwakeWhileAgentsActive).labelsHidden().controlSize(.small)
+                }
+            }
+
             SettingsCard {
                 SettingsCardRow(
                     configurationReview: .settingsOnly,

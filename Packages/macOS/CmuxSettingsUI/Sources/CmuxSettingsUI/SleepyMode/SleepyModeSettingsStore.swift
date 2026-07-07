@@ -49,6 +49,13 @@ public final class SleepyModeSettingsStore {
     /// Custom background color ("RRGGBB"), used when `glow == .custom`.
     public var customBackground: String { didSet { persist(customBackground, SleepyModeDefaultsKeys.customBackground) } }
 
+    /// Amphetamine Mode: when on, `SleepyModeController` holds IOKit power
+    /// assertions while any agent is actively working, so the Mac does not
+    /// idle-sleep mid-task. A *behavior* flag read by the controller — not an
+    /// appearance field, so it is deliberately absent from `SleepyModeConfig`
+    /// and `snapshot()` (the per-frame render config).
+    public var keepAwakeWhileAgentsActive: Bool { didSet { persist(keepAwakeWhileAgentsActive, SleepyModeDefaultsKeys.keepAwakeWhileAgentsActive) } }
+
     private let defaults: UserDefaults
 
     /// Loads persisted preferences from `defaults` (inject an isolated
@@ -71,6 +78,8 @@ public final class SleepyModeSettingsStore {
         customInk = defaults.string(forKey: SleepyModeDefaultsKeys.customInk) ?? fallback.customInk
         customLogo = defaults.string(forKey: SleepyModeDefaultsKeys.customLogo) ?? fallback.customLogo
         customBackground = defaults.string(forKey: SleepyModeDefaultsKeys.customBackground) ?? fallback.customBackground
+        // ponytail: default off; behavior flag, no SleepyModeConfig fallback needed.
+        keepAwakeWhileAgentsActive = defaults.object(forKey: SleepyModeDefaultsKeys.keepAwakeWhileAgentsActive) as? Bool ?? false
     }
 
     /// Returns an immutable snapshot of the current preferences for the renderer.
