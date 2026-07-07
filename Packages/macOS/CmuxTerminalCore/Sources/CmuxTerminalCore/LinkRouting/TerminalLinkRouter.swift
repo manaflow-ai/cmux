@@ -118,7 +118,7 @@ public struct TerminalLinkRouter: Sendable {
         if Self.fileExtensionTopLevelDomains.contains(fileExtension),
            let port = trailingNumericSuffix(value),
            hasSingleLocationSuffix(value, after: fileReference),
-           isValidPort(port) {
+           isPlausibleFileLikeHostPort(port) {
             return false
         }
         return true
@@ -198,8 +198,12 @@ public struct TerminalLinkRouter: Sendable {
         return value[..<colon].elementsEqual(fileReference)
     }
 
-    private static func isValidPort(_ value: some StringProtocol) -> Bool {
-        UInt16(value) != nil
+    private static func isPlausibleFileLikeHostPort(_ value: some StringProtocol) -> Bool {
+        guard let port = UInt16(value) else { return false }
+        // Bare `name.ext:number` is ambiguous when ext is also a TLD. Explicit
+        // schemes route before this guard; keep low diagnostic-like line
+        // numbers fail-closed while preserving common web/dev port shapes.
+        return port == 80 || port == 443 || port >= 500
     }
 
     private static let commonSourceBasenames: Set<String> = [
