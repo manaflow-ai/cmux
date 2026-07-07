@@ -414,6 +414,26 @@ import Testing
         )
     }
 
+    @Test @MainActor func hoverReconcilerRestoresCloseButtonAfterLifecycleHoverReset() {
+        var state = SidebarWorkspaceRowInteractionState()
+        state.setPointerHovering(true)
+        state.setPointerHovering(false)
+
+        let view = SidebarWorkspaceRowHoverReconcilerView()
+        view.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
+        view.onPointerHoverChanged = { state.setPointerHovering($0) }
+
+        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+
+        #expect(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "When sidebar updates or row reuse clear SwiftUI hover state while the pointer is still inside the row, the AppKit hover reconciler must restore the close affordance without waiting for another mouse move."
+        )
+    }
+
     @Test func contextMenuAppearanceHidesExistingCloseButtonUntilPointerIsReconciled() {
         var state = SidebarWorkspaceRowInteractionState()
 
