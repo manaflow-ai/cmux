@@ -75,8 +75,10 @@ struct SignInView: View {
                 brandHeader
                 SignInAuthRestoreStatusView()
 
-                ForEach(OAuthSignInProvider.allCases, id: \.self) { provider in
-                    oauthButton(for: provider)
+                VStack(spacing: 12) {
+                    ForEach(OAuthSignInProvider.allCases, id: \.self) { provider in
+                        oauthButton(for: provider)
+                    }
                 }
 
                 DividerLabel(text: L10n.string("mobile.signIn.emailDivider", defaultValue: "or continue with email"))
