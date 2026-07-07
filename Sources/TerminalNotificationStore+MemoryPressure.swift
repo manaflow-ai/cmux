@@ -24,7 +24,7 @@ extension TerminalNotificationStore {
 
         let afterCount = lastNotificationDateByCooldownKey.count
             + lastNotificationHookFailureDateByKey.count
-        return max(0, beforeCount - afterCount)
+        return Swift.max(0, beforeCount - afterCount)
     }
 
     private static func trimDateCache<Key: Hashable>(
@@ -41,6 +41,7 @@ extension TerminalNotificationStore {
             uniqueKeysWithValues: freshEntries
                 .sorted { lhs, rhs in lhs.value > rhs.value }
                 .prefix(maxEntries)
+                .map { ($0.key, $0.value) }
         )
     }
 }

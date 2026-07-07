@@ -502,14 +502,14 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
-    fileprivate struct NotificationHookFailureThrottleKey: Hashable {
+    struct NotificationHookFailureThrottleKey: Hashable {
         let hookId: String
         let sourcePath: String?
     }
 
     private static let notificationHookFailureThrottle: TimeInterval = 300
-    fileprivate var lastNotificationDateByCooldownKey: [String: Date] = [:]
-    fileprivate var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
