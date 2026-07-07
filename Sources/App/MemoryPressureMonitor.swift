@@ -75,10 +75,12 @@ final class MemoryPressureMonitor {
     }
 
     func recordSystemPressure(_ severity: MemoryPressureSeverity, at sampledAt: Date = Date()) {
-        activeSystemSeverity = severity
+        let heldSeverity = heldSystemSeverity(at: sampledAt) ?? .normal
+        let effectiveSeverity = max(severity, heldSeverity)
+        activeSystemSeverity = effectiveSeverity
         activeSystemSeverityExpiresAt = sampledAt.addingTimeInterval(systemPressureHoldDuration)
         apply(
-            systemSeverity: severity,
+            systemSeverity: effectiveSeverity,
             physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
             sampledAt: sampledAt
         )
@@ -121,6 +123,9 @@ final class MemoryPressureMonitor {
 
     private func startSampleTimerIfNeeded() {
         guard sampleTimer == nil else { return }
+        // task_vm_info has no push/async notification API for phys_footprint, so
+        // periodic sampling is required to detect footprint growth between
+        // system memory-pressure events.
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(
             deadline: .now() + sampleInterval,

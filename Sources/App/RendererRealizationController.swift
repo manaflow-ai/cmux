@@ -35,6 +35,7 @@ final class RendererRealizationController {
     private let systemMemoryPressureRetryPasses = 2
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
+    private var systemMemoryPressureRetryTask: Task<Void, Never>?
 
     private init() {}
 
@@ -60,6 +61,8 @@ final class RendererRealizationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        systemMemoryPressureRetryTask?.cancel()
+        systemMemoryPressureRetryTask = nil
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
@@ -186,18 +189,32 @@ final class RendererRealizationController {
         )
 
         if retryCandidateCount > 0, remainingSystemMemoryPressureRetries > 0 {
-            Task { @MainActor in
-                let retryResult = RendererRealizationController.shared.evaluate(
-                    now: Date(),
-                    trigger: .systemMemoryPressure,
-                    remainingSystemMemoryPressureRetries: remainingSystemMemoryPressureRetries - 1,
-                    onSystemMemoryPressureRetryResult: onSystemMemoryPressureRetryResult
-                )
-                if retryResult.reclaimedCount > 0 {
-                    onSystemMemoryPressureRetryResult?(retryResult, Date())
-                }
-            }
+            scheduleSystemMemoryPressureRetry(
+                remainingRetries: remainingSystemMemoryPressureRetries - 1,
+                onRetryResult: onSystemMemoryPressureRetryResult
+            )
         }
         return result
+    }
+
+    private func scheduleSystemMemoryPressureRetry(
+        remainingRetries: Int,
+        onRetryResult: (@MainActor (RendererRealizationMemoryPressureReclaimResult, Date) -> Void)?
+    ) {
+        systemMemoryPressureRetryTask?.cancel()
+        systemMemoryPressureRetryTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            self.systemMemoryPressureRetryTask = nil
+            let retryResult = self.evaluate(
+                now: Date(),
+                trigger: .systemMemoryPressure,
+                remainingSystemMemoryPressureRetries: remainingRetries,
+                onSystemMemoryPressureRetryResult: onRetryResult
+            )
+            guard !Task.isCancelled else { return }
+            if retryResult.reclaimedCount > 0 {
+                onRetryResult?(retryResult, Date())
+            }
+        }
     }
 }

@@ -298,7 +298,7 @@ struct MemoryPressureMonitorTests {
         #expect(responder.calls.map(\.severity) == [.critical, .critical])
     }
 
-    @Test func heldSystemPressureExpiresWithoutNewEvents() {
+    @Test func lowerSystemPressureEventDoesNotDowngradeHeldCriticalEvent() {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "renderer",
@@ -315,6 +315,31 @@ struct MemoryPressureMonitorTests {
             systemPressureHoldDuration: 30
         )
         let start = Date(timeIntervalSince1970: 6)
+
+        monitor.recordSystemPressure(.critical, at: start)
+        monitor.recordSystemPressure(.warning, at: start.addingTimeInterval(1))
+
+        #expect(monitor.currentSeverity == .critical)
+        #expect(responder.calls.map(\.severity) == [.critical, .critical])
+    }
+
+    @Test func heldSystemPressureExpiresWithoutNewEvents() {
+        let registry = MemoryPressureResponderRegistry()
+        let responder = RecordingMemoryPressureResponder(
+            id: "renderer",
+            minimumSeverity: .warning,
+            priority: 1
+        )
+        registry.register(responder)
+        let monitor = MemoryPressureMonitor(
+            registry: registry,
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            criticalPersistenceDuration: 10,
+            sampleInterval: 60,
+            systemPressureHoldDuration: 30
+        )
+        let start = Date(timeIntervalSince1970: 7)
 
         monitor.recordSystemPressure(.warning, at: start)
         monitor.samplePhysicalFootprint(at: start.addingTimeInterval(31))
