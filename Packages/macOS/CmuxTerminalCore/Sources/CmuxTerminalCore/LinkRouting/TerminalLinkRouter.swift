@@ -89,15 +89,22 @@ public struct TerminalLinkRouter: Sendable {
         let hostCandidate = String(trimmed[..<slashIndex])
         guard !hostCandidate.hasSuffix(":") else { return nil }
         guard let normalizedHost = hostNormalizer.normalizedHost(hostCandidate),
-              Self.isSchemelessWebHost(normalizedHost) else {
+              let scheme = Self.schemelessWebScheme(for: normalizedHost) else {
             return nil
         }
-        return URL(string: "https://\(trimmed)")
+        return URL(string: "\(scheme)://\(trimmed)")
     }
 
-    private static func isSchemelessWebHost(_ normalizedHost: String) -> Bool {
-        normalizedHost == "localhost"
-            || normalizedHost.contains(".")
-            || normalizedHost.contains(":")
+    private static func schemelessWebScheme(for normalizedHost: String) -> String? {
+        if normalizedHost == "localhost"
+            || normalizedHost == "127.0.0.1"
+            || normalizedHost == "::1"
+            || normalizedHost.hasSuffix(".localhost") {
+            return "http"
+        }
+        if normalizedHost.contains(".") || normalizedHost.contains(":") {
+            return "https"
+        }
+        return nil
     }
 }

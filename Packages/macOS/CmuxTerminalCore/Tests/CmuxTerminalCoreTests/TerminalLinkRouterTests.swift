@@ -8,9 +8,18 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
 
     func normalizedHost(_ rawHost: String) -> String? {
         guard !rejectsEveryHost else { return nil }
-        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return nil }
-        return trimmed
+        if trimmed.hasPrefix("["),
+           let closing = trimmed.firstIndex(of: "]") {
+            trimmed = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing])
+        } else if let colon = trimmed.lastIndex(of: ":"),
+                  trimmed[trimmed.index(after: colon)...].allSatisfy(\.isNumber),
+                  trimmed.filter({ $0 == ":" }).count == 1 {
+            trimmed = String(trimmed[..<colon])
+        }
+        let dotted = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return dotted.isEmpty ? nil : dotted
     }
 }
 
@@ -39,16 +48,22 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.path == "/docs")
     }
 
-    @Test func schemelessLocalhostPathResolvesAsEmbeddedBrowser() throws {
-        let target = try #require(router.resolveOpenURLTarget("localhost:3000/docs"))
-        guard case let .embeddedBrowser(url) = target else {
-            Issue.record("Expected localhost schemeless path to route to embedded browser")
-            return
+    @Test func schemelessLoopbackPathResolvesAsHTTPEmbeddedBrowser() throws {
+        for (rawValue, expectedHost, expectedPort) in [
+            ("localhost:3000/docs", "localhost", 3000),
+            ("127.0.0.1:5173/docs", "127.0.0.1", 5173),
+            ("deep.api.localhost/docs", "deep.api.localhost", nil),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected loopback schemeless path to route to embedded browser")
+                return
+            }
+            #expect(url.scheme == "http")
+            #expect(url.host == expectedHost)
+            #expect(url.port == expectedPort)
+            #expect(url.path == "/docs")
         }
-        #expect(url.scheme == "https")
-        #expect(url.host == "localhost")
-        #expect(url.port == 3000)
-        #expect(url.path == "/docs")
     }
 
     @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
