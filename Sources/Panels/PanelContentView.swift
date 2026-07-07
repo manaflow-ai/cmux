@@ -179,6 +179,16 @@ private struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {
+        // The panel paints the terminal theme's background (any color from the
+        // user's Ghostty config), but the text uses SwiftUI semantic colors
+        // (.primary/.secondary/.tertiary/.orange) that resolve against the
+        // *system* light/dark appearance, not this background. On a dark theme
+        // under a light system appearance (or vice versa) that renders dark
+        // text on a dark panel — unreadable. Pin the panel's color scheme to
+        // whichever contrasts better with the actual background so every theme
+        // stays legible.
+        let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
+        let readableScheme = WindowChromeColorResolver().readableColorScheme(for: backgroundColor)
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
         TimelineView(schedule) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
@@ -237,7 +247,8 @@ private struct CloudVMLoadingPanelView: View {
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+            .background(Color(nsColor: backgroundColor))
+            .environment(\.colorScheme, readableScheme)
         }
     }
 }
