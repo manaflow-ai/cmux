@@ -88,7 +88,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             pasteboardTypes: pasteboardTypes,
             eventType: .leftMouseDragged
         ))
-        #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+        #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: .leftMouseUp
         ))
@@ -117,13 +117,25 @@ struct DockPaneDropUnfocusedRoutingTests {
         let pointInWindow = host.convert(NSPoint(x: host.bounds.midX, y: host.bounds.midY), to: nil)
         let dragEvent = try Self.makeMouseEvent(type: .leftMouseDragged, at: pointInWindow, window: window)
         let dropEvent = try Self.makeMouseEvent(type: .leftMouseUp, at: pointInWindow, window: window)
+        let draggingInfo = DockPaneDropMockDraggingInfo(
+            window: window,
+            location: pointInWindow,
+            pasteboard: dragPasteboard
+        )
+        defer { PaneDropRoutingSession.clearActiveDropDrag(nil) }
 
-        let dragHit = host.performHitTest(
-            at: NSPoint(x: host.bounds.midX, y: host.bounds.midY),
+        _ = target.draggingEntered(draggingInfo)
+        #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+            pasteboardTypes: pasteboardTypes,
+            eventType: .leftMouseUp
+        ))
+        let pointInTarget = target.convert(pointInWindow, from: nil)
+        let dragHit = target.performHitTest(
+            at: pointInTarget,
             currentEvent: dragEvent
         )
-        let dropHit = host.performHitTest(
-            at: NSPoint(x: host.bounds.midX, y: host.bounds.midY),
+        let dropHit = target.performHitTest(
+            at: pointInTarget,
             currentEvent: dropEvent
         )
         #expect(dragHit === target)

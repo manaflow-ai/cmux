@@ -372,6 +372,7 @@ enum DragOverlayRoutingPolicy {
         }
     }
 
+    @MainActor
     static func shouldPassThroughTerminalPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
@@ -385,6 +386,7 @@ enum DragOverlayRoutingPolicy {
                 eventType: eventType
             ) || hasFileURL(pasteboardTypes)
         case .pointerUp:
+            guard PaneDropRoutingSession.hasActiveDropDrag else { return false }
             return hasBonsplitTabTransfer(pasteboardTypes) || hasFileDropPayload(pasteboardTypes)
         case .noEvent, .keyboard, .pointerDown, .pointerHover, .scroll, .appKitRouting, .other:
             return false

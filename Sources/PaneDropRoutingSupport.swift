@@ -50,6 +50,30 @@ struct PaneDragTransfer: Equatable {
 
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
+@MainActor
+enum PaneDropRoutingSession {
+    private static var activeSequenceNumbers: Set<Int> = []
+
+    static var hasActiveDropDrag: Bool {
+        !activeSequenceNumbers.isEmpty
+    }
+
+    static func noteActiveDropDrag(_ sender: any NSDraggingInfo) {
+        let types = sender.draggingPasteboard.types
+        guard DragOverlayRoutingPolicy.hasBonsplitTabTransfer(types)
+            || DragOverlayRoutingPolicy.hasFileDropPayload(types) else { return }
+        activeSequenceNumbers.insert(sender.draggingSequenceNumber)
+    }
+
+    static func clearActiveDropDrag(_ sender: (any NSDraggingInfo)?) {
+        guard let sender else {
+            activeSequenceNumbers.removeAll()
+            return
+        }
+        activeSequenceNumbers.remove(sender.draggingSequenceNumber)
+    }
+}
+
 enum PaneDropRouting {
     private static func fullPaneSize(for size: CGSize, topChromeHeight: CGFloat) -> CGSize {
         CGSize(width: size.width, height: size.height + max(0, topChromeHeight))
