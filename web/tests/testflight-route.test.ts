@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 const currentUser = {
-  id: "user-pro",
+  id: "testflight-route-user-no-stripe-row",
   isAnonymous: false,
   primaryEmail: "Pro@Example.com",
   displayName: "Pro User",
