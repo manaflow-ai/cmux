@@ -117,6 +117,7 @@ public struct TerminalLinkRouter: Sendable {
         if Self.commonSourceBasenames.contains(stem(fileReference)) { return true }
         if Self.fileExtensionTopLevelDomains.contains(fileExtension),
            let port = trailingNumericSuffix(value),
+           hasSingleLocationSuffix(value, after: fileReference),
            isValidPort(port) {
             return false
         }
@@ -187,6 +188,14 @@ public struct TerminalLinkRouter: Sendable {
     private static func trailingNumericSuffix(_ value: String) -> Substring? {
         guard let colon = value.lastIndex(of: ":") else { return nil }
         return value[value.index(after: colon)...]
+    }
+
+    private static func hasSingleLocationSuffix(
+        _ value: String,
+        after fileReference: some StringProtocol
+    ) -> Bool {
+        guard let colon = value.lastIndex(of: ":") else { return false }
+        return value[..<colon].elementsEqual(fileReference)
     }
 
     private static func isValidPort(_ value: some StringProtocol) -> Bool {

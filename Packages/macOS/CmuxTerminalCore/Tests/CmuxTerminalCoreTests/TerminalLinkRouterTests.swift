@@ -166,6 +166,8 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(router.resolveOpenURLTarget("Sources/App.swift:8080") == nil)
         #expect(router.resolveOpenURLTarget("App.swift:42:17") == nil)
         #expect(router.resolveOpenURLTarget("Sources/App.swift:42:17") == nil)
+        #expect(router.resolveOpenURLTarget("models.py:10:2") == nil)
+        #expect(router.resolveOpenURLTarget("docs.rs:12:5") == nil)
     }
 
     @Test func fileLikeTLDHostPortsResolveAsEmbeddedBrowser() throws {
