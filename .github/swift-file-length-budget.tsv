@@ -21,7 +21,7 @@
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5809	Sources/TextBoxInput.swift
 5573	cmuxTests/BrowserConfigTests.swift
-4758	Sources/cmuxApp.swift
+4760	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift
 4121	Sources/BrowserWindowPortal.swift
