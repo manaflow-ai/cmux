@@ -363,7 +363,8 @@ func makeRoutingConnectedStore(
     router: RoutingHostRouter,
     pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
         defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
-    )
+    ),
+    macScopedWorkspaceMutations: Bool = false
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -393,12 +394,13 @@ func makeRoutingConnectedStore(
         endpoint: .hostPort(host: "127.0.0.1", port: 56585)
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: RoutingHostRouter.workspaceID,
-        terminalID: RoutingHostRouter.terminalA,
+        workspaceID: macScopedWorkspaceMutations ? "" : RoutingHostRouter.workspaceID,
+        terminalID: macScopedWorkspaceMutations ? nil : RoutingHostRouter.terminalA,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
-        expiresAt: Date().addingTimeInterval(3600)
+        expiresAt: Date().addingTimeInterval(3600),
+        authToken: macScopedWorkspaceMutations ? "ticket-secret" : nil
     )
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,

@@ -1,9 +1,15 @@
 internal import CMUXMobileCore
+internal import CmuxMobileRPC
 internal import Foundation
 
 extension MobileShellComposite {
     var allowsMacScopedWorkspaceMutations: Bool {
-        Self.attachTicketAllowsMacScopedWorkspaceMutations(activeTicket, now: runtime?.now() ?? Date())
+        allowsMacScopedWorkspaceMutations(targetClient: nil)
+    }
+
+    func allowsMacScopedWorkspaceMutations(targetClient: MobileCoreRPCClient?) -> Bool {
+        let ticket = activeTicket ?? targetClient?.attachTicket
+        return Self.attachTicketAllowsMacScopedWorkspaceMutations(ticket, now: runtime?.now() ?? Date())
     }
 
     static func attachTicketAllowsMacScopedWorkspaceMutations(

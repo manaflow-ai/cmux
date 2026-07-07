@@ -242,15 +242,16 @@ extension MobileShellComposite {
     }
 
     private func macScopedWorkspaceMutationIsAuthorized(target: WorkspaceMutationTarget) -> Bool {
-        guard target.client != nil else { return true }
+        guard let client = target.client else { return true }
         let now = runtime?.now() ?? Date()
         if target.isForeground {
-            return Self.attachTicketAllowsMacScopedWorkspaceMutations(activeTicket, now: now)
+            return Self.attachTicketAllowsMacScopedWorkspaceMutations(
+                activeTicket ?? client.attachTicket,
+                now: now
+            )
         }
-        guard let macDeviceID = target.macDeviceID,
-              let ticket = secondaryMacSubscriptions[macDeviceID]?.ticket else {
-            return false
-        }
+        let ticket = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0]?.ticket }
+            ?? client.attachTicket
         return Self.attachTicketAllowsMacScopedWorkspaceMutations(ticket, now: now)
     }
 

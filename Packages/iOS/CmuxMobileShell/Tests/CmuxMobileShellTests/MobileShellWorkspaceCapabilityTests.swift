@@ -54,7 +54,8 @@ import Testing
                 "workspace.create_in_group.v1",
             ],
             ticketWorkspaceID: "",
-            ticketTerminalID: nil
+            ticketTerminalID: nil,
+            ticketLifetime: 1
         )
         let store = connected.store
         let router = connected.router
@@ -65,7 +66,7 @@ import Testing
             MobileWorkspaceGroupPreview(id: "group-a", name: "Group A", anchorWorkspaceID: workspaceID),
         ]
 
-        clock.advance(by: 3_601)
+        clock.advance(by: 2)
 
         guard case .failure(.authorizationFailed) = await store.moveWorkspace(
             id: workspaceID,
@@ -88,7 +89,8 @@ import Testing
     private func connectedStore(
         capabilities: [String],
         ticketWorkspaceID: String = "live-workspace",
-        ticketTerminalID: String? = "live-terminal"
+        ticketTerminalID: String? = "live-terminal",
+        ticketLifetime: TimeInterval = 3_600
     ) async throws -> (store: MobileShellComposite, router: LivenessHostRouter, clock: TestClock) {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -103,7 +105,8 @@ import Testing
         let connected = await store.connectPairingURL(try attachURL(for: try ticket(
             clock: clock,
             workspaceID: ticketWorkspaceID,
-            terminalID: ticketTerminalID
+            terminalID: ticketTerminalID,
+            lifetime: ticketLifetime
         )))
         #expect(connected, "scripted connect must succeed")
         let resolved = try await pollUntil { await router.count(of: "mobile.host.status") >= 1 }
@@ -114,7 +117,8 @@ import Testing
     private func ticket(
         clock: TestClock,
         workspaceID: String,
-        terminalID: String?
+        terminalID: String?,
+        lifetime: TimeInterval = 3_600
     ) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug_loopback",
@@ -128,7 +132,7 @@ import Testing
             macDisplayName: "Test Mac",
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [route],
-            expiresAt: clock.now.addingTimeInterval(3600),
+            expiresAt: clock.now.addingTimeInterval(lifetime),
             authToken: "ticket-secret"
         )
     }

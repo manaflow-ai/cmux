@@ -4,7 +4,7 @@ import SwiftUI
 
 extension WorkspaceListView {
     var hasPendingWorkspaceMove: Bool {
-        optimisticFlatWorkspaces != nil || optimisticGroupedItems != nil || optimisticGroupedWorkspaces != nil
+        isWorkspaceMovePending
     }
 
     var enablesWorkspaceReorder: Bool {
@@ -54,8 +54,10 @@ extension WorkspaceListView {
               case .workspace(let workspace, _) = items[sourceIndex] else {
             return
         }
+        isWorkspaceMovePending = true
         Task { @MainActor in
             await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup)
+            isWorkspaceMovePending = false
             syncOptimisticWorkspaceOrder()
         }
     }
@@ -92,8 +94,10 @@ extension WorkspaceListView {
         )
         optimisticGroupedWorkspaces = movedWorkspaces
         optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)
+        isWorkspaceMovePending = true
         Task { @MainActor in
             await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup)
+            isWorkspaceMovePending = false
             syncOptimisticWorkspaceOrder()
         }
     }

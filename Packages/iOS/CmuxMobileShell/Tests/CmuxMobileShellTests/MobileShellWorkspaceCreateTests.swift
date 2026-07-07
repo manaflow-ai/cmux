@@ -55,7 +55,7 @@ import Testing
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)
         await router.setRejectWorkspaceCreate(true)
-        let store = try await makeRoutingConnectedStore(router: router)
+        let store = try await makeRoutingConnectedStore(router: router, macScopedWorkspaceMutations: true)
 
         let firstCreate = Task { @MainActor in
             await store.createWorkspaceRequest(inGroup: "group-a")

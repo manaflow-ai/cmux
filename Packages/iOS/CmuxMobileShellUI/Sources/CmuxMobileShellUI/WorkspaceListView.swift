@@ -74,8 +74,7 @@ struct WorkspaceListView: View {
     /// Optional: close a workspace on the Mac. When present, each row offers a
     /// destructive Delete context-menu and swipe action.
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
-    /// Optional: move a workspace to a new group/order on the Mac. When present,
-    /// native row drag/drop is enabled while the list is unfiltered.
+    /// Optional: move a workspace to a new group/order on the Mac; enables native row drag/drop while unfiltered.
     var moveWorkspace: ((
         _ id: MobileWorkspacePreview.ID,
         _ groupID: MobileWorkspaceGroupPreview.ID?, _ beforeWorkspaceID: MobileWorkspacePreview.ID?,
@@ -122,6 +121,7 @@ struct WorkspaceListView: View {
     @State var optimisticFlatWorkspaces: [MobileWorkspacePreview]?
     @State var optimisticGroupedItems: [MobileWorkspaceListItem]?
     @State var optimisticGroupedWorkspaces: [MobileWorkspacePreview]?
+    @State var isWorkspaceMovePending = false
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
