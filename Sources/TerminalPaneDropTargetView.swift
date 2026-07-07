@@ -77,13 +77,15 @@ final class PaneDropTargetView: NSView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        PaneDropRoutingSession.noteActiveDropDrag(sender)
-        return updateDragState(sender, phase: "entered")
+        let operation = updateDragState(sender, phase: "entered")
+        PaneDropRoutingSession.updateActiveDropDrag(sender, operation: operation)
+        return operation
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        PaneDropRoutingSession.noteActiveDropDrag(sender)
-        return updateDragState(sender, phase: "updated")
+        let operation = updateDragState(sender, phase: "updated")
+        PaneDropRoutingSession.updateActiveDropDrag(sender, operation: operation)
+        return operation
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
@@ -109,7 +111,7 @@ final class PaneDropTargetView: NSView {
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess,
            let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-            // Registry-backed virtual drags reuse this payload without owning a live surface.
+           // Registry-backed virtual drags reuse this payload without owning a live surface.
            AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil,
            !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                pasteboardTypes: sender.draggingPasteboard.types,

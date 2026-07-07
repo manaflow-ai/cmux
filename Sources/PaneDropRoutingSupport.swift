@@ -58,7 +58,12 @@ enum PaneDropRoutingSession {
         !activeSequenceNumbers.isEmpty
     }
 
-    static func noteActiveDropDrag(_ sender: any NSDraggingInfo) {
+    static func updateActiveDropDrag(_ sender: any NSDraggingInfo, operation: NSDragOperation) {
+        guard !operation.isEmpty else {
+            clearActiveDropDrag(sender)
+            return
+        }
+
         let types = sender.draggingPasteboard.types
         guard DragOverlayRoutingPolicy.hasBonsplitTabTransfer(types)
             || DragOverlayRoutingPolicy.hasFileDropPayload(types) else { return }

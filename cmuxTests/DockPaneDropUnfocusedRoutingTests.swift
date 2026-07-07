@@ -64,82 +64,122 @@ private final class DockPaneDropMockDraggingInfo: NSObject, NSDraggingInfo {
 struct DockPaneDropUnfocusedRoutingTests {
     @Test("Drop mouse-up uses the same terminal portal route as hover")
     @MainActor
-    func dropMouseUpUsesSameTerminalPortalRouteAsHover() throws {
-        let tabId = UUID()
-        let sourcePaneId = UUID()
-        let payload = try Self.makePaneDragPayload(tabId: tabId, sourcePaneId: sourcePaneId)
-        let dragPasteboard = NSPasteboard(name: .drag)
-        dragPasteboard.clearContents()
-        dragPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-        defer { dragPasteboard.clearContents() }
+    func dropMouseUpUsesSameTerminalPortalRouteAsHover() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                PaneDropRoutingSession.clearActiveDropDrag(nil)
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
 
-        let pasteboardTypes = dragPasteboard.types
-        #expect(TerminalPaneDropTargetView.shouldCaptureHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseDragged
-        ))
-        #expect(TerminalPaneDropTargetView.shouldCaptureHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseUp
-        ))
-        #expect(WindowInputRoutingContext(eventType: .leftMouseDragged).allowsTerminalPortalDragRouting)
-        #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsTerminalPortalDragRouting)
-        #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseDragged
-        ))
-        #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseUp
-        ))
+            let workspace = try #require(manager.tabs.first)
+            let targetPanel = try #require(workspace.panels.values.first)
+            let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
+            let sourcePanel = try #require(workspace.newTerminalSurface(inPane: targetPane, focus: true))
+            let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
+            let payload = try Self.makePaneDragPayload(tabId: sourceTabId.uuid, sourcePaneId: targetPane.id)
+            let dragPasteboard = NSPasteboard(name: .drag)
+            dragPasteboard.clearContents()
+            dragPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            defer { dragPasteboard.clearContents() }
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let contentView = try #require(window.contentView)
-        let host = WindowTerminalHostView(frame: contentView.bounds)
-        host.autoresizingMask = [.width, .height]
-        let target = TerminalPaneDropTargetView(frame: host.bounds)
-        target.autoresizingMask = [.width, .height]
-        target.dropContext = PaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: PaneID(id: UUID())
-        )
-        host.addSubview(target)
-        contentView.addSubview(host)
+            let pasteboardTypes = dragPasteboard.types
+            #expect(TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .leftMouseDragged
+            ))
+            #expect(TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .leftMouseUp
+            ))
+            #expect(WindowInputRoutingContext(eventType: .leftMouseDragged).allowsTerminalPortalDragRouting)
+            #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsTerminalPortalDragRouting)
+            #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .leftMouseDragged
+            ))
+            #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .leftMouseUp
+            ))
 
-        #expect(!window.isKeyWindow)
-        let pointInWindow = host.convert(NSPoint(x: host.bounds.midX, y: host.bounds.midY), to: nil)
-        let dragEvent = try Self.makeMouseEvent(type: .leftMouseDragged, at: pointInWindow, window: window)
-        let dropEvent = try Self.makeMouseEvent(type: .leftMouseUp, at: pointInWindow, window: window)
-        let draggingInfo = DockPaneDropMockDraggingInfo(
-            window: window,
-            location: pointInWindow,
-            pasteboard: dragPasteboard
-        )
-        defer { PaneDropRoutingSession.clearActiveDropDrag(nil) }
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
+            let contentView = try #require(window.contentView)
+            let host = WindowTerminalHostView(frame: contentView.bounds)
+            host.autoresizingMask = [.width, .height]
+            let target = TerminalPaneDropTargetView(frame: host.bounds)
+            target.autoresizingMask = [.width, .height]
+            target.dropContext = PaneDropContext(
+                workspaceId: workspace.id,
+                panelId: targetPanel.id,
+                paneId: targetPane
+            )
+            host.addSubview(target)
+            contentView.addSubview(host)
 
-        _ = target.draggingEntered(draggingInfo)
-        #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-            pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseUp
-        ))
-        let pointInTarget = target.convert(pointInWindow, from: nil)
-        let dragHit = target.performHitTest(
-            at: pointInTarget,
-            currentEvent: dragEvent
-        )
-        let dropHit = target.performHitTest(
-            at: pointInTarget,
-            currentEvent: dropEvent
-        )
-        #expect(dragHit === target)
-        #expect(dropHit === target)
+            #expect(!window.isKeyWindow)
+            let pointInWindow = host.convert(NSPoint(x: host.bounds.midX, y: host.bounds.midY), to: nil)
+            let dragEvent = try Self.makeMouseEvent(type: .leftMouseDragged, at: pointInWindow, window: window)
+            let dropEvent = try Self.makeMouseEvent(type: .leftMouseUp, at: pointInWindow, window: window)
+            let draggingInfo = DockPaneDropMockDraggingInfo(
+                window: window,
+                location: pointInWindow,
+                pasteboard: dragPasteboard
+            )
+
+            #expect(target.draggingEntered(draggingInfo) == .move)
+            #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: pasteboardTypes,
+                eventType: .leftMouseUp,
+                hasActiveDropDrag: PaneDropRoutingSession.hasActiveDropDrag
+            ))
+            PaneDropRoutingSession.clearActiveDropDrag(draggingInfo)
+            let filePasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.file.\(UUID().uuidString)"))
+            filePasteboard.clearContents()
+            filePasteboard.declareTypes([.fileURL], owner: nil)
+            defer { filePasteboard.clearContents() }
+            let fileDraggingInfo = DockPaneDropMockDraggingInfo(
+                window: window,
+                location: pointInWindow,
+                pasteboard: filePasteboard,
+                sequenceNumber: 2
+            )
+            #expect(target.draggingEntered(fileDraggingInfo) == .copy)
+            #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: filePasteboard.types,
+                eventType: .leftMouseUp,
+                hasActiveDropDrag: PaneDropRoutingSession.hasActiveDropDrag
+            ))
+            PaneDropRoutingSession.clearActiveDropDrag(fileDraggingInfo)
+            #expect(target.draggingEntered(draggingInfo) == .move)
+            let pointInTarget = target.convert(pointInWindow, from: nil)
+            let dragHit = target.performHitTest(
+                at: pointInTarget,
+                currentEvent: dragEvent
+            )
+            let dropHit = target.performHitTest(
+                at: pointInTarget,
+                currentEvent: dropEvent
+            )
+            #expect(dragHit === target)
+            #expect(dropHit === target)
+        }
     }
 
     @Test("Drop mouse-up uses the same browser portal route as hover")
