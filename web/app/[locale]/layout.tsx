@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import {
   getMessages,
@@ -14,19 +13,43 @@ import { DevPanel } from "./components/spacing-control";
 import { ThemeBootstrapScript } from "./theme-bootstrap-script";
 import { darkThemeColor, lightThemeColor } from "./theme-colors";
 import { DOWNLOAD_URL } from "../lib/download";
-import "../globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 const themeBootstrapScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark");document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.content=light?"${lightThemeColor}":"${darkThemeColor}"})}catch(e){}})()`;
+
+type MessageTree = Record<string, unknown>;
+
+function isMessageTree(value: unknown): value is MessageTree {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function pruneClientMessages(messages: MessageTree): MessageTree {
+  const pruned: MessageTree = { ...messages };
+  const landing = isMessageTree(messages.landing)
+    ? { ...messages.landing }
+    : undefined;
+  if (landing && isMessageTree(landing.compare)) {
+    const compare = { ...landing.compare };
+    delete compare.pages;
+    landing.compare = compare;
+    pruned.landing = landing;
+  }
+
+  const blog = isMessageTree(messages.blog) ? { ...messages.blog } : undefined;
+  if (blog && isMessageTree(blog.posts)) {
+    blog.posts = Object.fromEntries(
+      Object.entries(blog.posts).map(([key, value]) => {
+        if (!isMessageTree(value)) {
+          return [key, value];
+        }
+        const { title, date, summary } = value;
+        return [key, { title, date, summary }];
+      }),
+    );
+    pruned.blog = blog;
+  }
+
+  return pruned;
+}
 
 export async function generateMetadata({
   params,
@@ -89,9 +112,7 @@ export default async function LocaleLayout({
 
   setRequestLocale(locale);
 
-  const messages = await getMessages();
-
-  const dir = locale === "ar" ? "rtl" : "ltr";
+  const messages = pruneClientMessages(await getMessages());
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -112,22 +133,16 @@ export default async function LocaleLayout({
   const jsonLdScript = JSON.stringify(jsonLd).replace(/</g, "\\u003c");
 
   return (
-    <html lang={locale} dir={dir} suppressHydrationWarning>
-      <head>
-        <meta name="theme-color" content={darkThemeColor} />
-        <script type="application/ld+json">{jsonLdScript}</script>
-        <ThemeBootstrapScript script={themeBootstrapScript} />
-      </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
-      >
-        <NextIntlClientProvider messages={messages}>
-          <Providers>
-            {children}
-            <DevPanel />
-          </Providers>
-        </NextIntlClientProvider>
-      </body>
-    </html>
+    <>
+      <meta name="theme-color" content={darkThemeColor} />
+      <script type="application/ld+json">{jsonLdScript}</script>
+      <ThemeBootstrapScript script={themeBootstrapScript} />
+      <NextIntlClientProvider messages={messages}>
+        <Providers>
+          {children}
+          <DevPanel />
+        </Providers>
+      </NextIntlClientProvider>
+    </>
   );
 }

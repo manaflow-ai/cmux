@@ -5,7 +5,6 @@ import SwiftUI
 
 struct ChatTranscriptTableConfiguration {
     let rows: [ChatTranscriptRow]
-    let expandedIDs: Set<String>
     let agentState: ChatAgentState
     let hasMoreHistory: Bool
     let hasLoadedInitialHistory: Bool
@@ -112,7 +111,6 @@ struct ChatTranscriptTableConfiguration {
         case .row(let row):
             ChatTranscriptRowView(
                 row: row,
-                isExpanded: expandedIDs.contains(row.id),
                 actions: actions
             )
             .equatable()

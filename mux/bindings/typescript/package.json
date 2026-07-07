@@ -1,0 +1,18 @@
+{
+  "name": "cmux-mux-client",
+  "version": "0.1.0",
+  "description": "Node.js client for the cmux-mux JSON-lines protocol",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "e2e": "tsc && node dist/e2e/e2e.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.25",
+    "typescript": "5.9.3"
+  }
+}
