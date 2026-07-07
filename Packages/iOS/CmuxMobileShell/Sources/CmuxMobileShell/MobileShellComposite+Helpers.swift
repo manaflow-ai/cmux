@@ -23,14 +23,15 @@ extension MobileShellComposite {
     }
 
     static func workspaceActionCapabilities(
-        from supportedHostCapabilities: Set<String>
+        from supportedHostCapabilities: Set<String>,
+        allowsMacScopedMutations: Bool
     ) -> MobileWorkspaceActionCapabilities {
         MobileWorkspaceActionCapabilities(
             supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
             supportsReadStateActions: supportedHostCapabilities.contains("workspace.read_state.v1"),
             supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1"),
-            supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1"),
-            supportsGroupActions: supportedHostCapabilities.contains("workspace.group_actions.v1")
+            supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1") && allowsMacScopedMutations,
+            supportsGroupActions: supportedHostCapabilities.contains("workspace.group_actions.v1") && allowsMacScopedMutations
         )
     }
 

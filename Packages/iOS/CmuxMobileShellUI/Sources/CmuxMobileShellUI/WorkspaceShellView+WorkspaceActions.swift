@@ -125,10 +125,12 @@ extension WorkspaceShellView {
     }
 
     var createWorkspaceInGroupInCompactStackClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard store.supportsWorkspaceCreateInGroup else { return nil }
         return { groupID in createWorkspaceInCompactStack(inGroup: groupID) }
     }
 
     var createWorkspaceInGroupIfConnectedClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard store.supportsWorkspaceCreateInGroup else { return nil }
         return { groupID in createWorkspaceIfConnected(inGroup: groupID) }
     }
 

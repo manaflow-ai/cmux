@@ -92,6 +92,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceCloseCapability = "workspace.close.v1"
     private static let workspaceMoveCapability = "workspace.move.v1"
     private static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
+    private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -312,9 +313,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
-    public var supportsWorkspaceMoveActions: Bool { supportedHostCapabilities.contains(Self.workspaceMoveCapability) }
+    public var supportsWorkspaceMoveActions: Bool { supportedHostCapabilities.contains(Self.workspaceMoveCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports workspace group mutation requests.
-    public var supportsWorkspaceGroupActions: Bool { supportedHostCapabilities.contains(Self.workspaceGroupActionsCapability) }
+    public var supportsWorkspaceGroupActions: Bool { supportedHostCapabilities.contains(Self.workspaceGroupActionsCapability) && allowsMacScopedWorkspaceMutations }
+    /// Whether the Mac supports creating a workspace directly inside a group.
+    public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Bumped whenever the applied terminal theme actually changes (a connect
@@ -3461,7 +3464,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             route: route,
             ticket: ticket,
             supportedHostCapabilities: capabilities,
-            actionCapabilities: Self.workspaceActionCapabilities(from: capabilities)
+            actionCapabilities: Self.workspaceActionCapabilities(
+                from: capabilities,
+                allowsMacScopedMutations: Self.attachTicketAllowsMacScopedWorkspaceMutations(ticket, now: runtime.now())
+            )
         )
     }
 
@@ -3866,7 +3872,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }
-        state.actionCapabilities = Self.workspaceActionCapabilities(from: supportedHostCapabilities)
+        state.actionCapabilities = Self.workspaceActionCapabilities(
+            from: supportedHostCapabilities,
+            allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
+        )
         workspacesByMac[foregroundMacKey] = state
     }
 
@@ -4009,7 +4018,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if let groups { state.groups = groups }
         state.status = .connected
-        state.actionCapabilities = Self.workspaceActionCapabilities(from: supportedHostCapabilities)
+        state.actionCapabilities = Self.workspaceActionCapabilities(
+            from: supportedHostCapabilities,
+            allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
+        )
         workspacesByMac[key] = state
     }
 
