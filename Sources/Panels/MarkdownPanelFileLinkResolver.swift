@@ -2,6 +2,9 @@ import Foundation
 
 enum MarkdownPanelFileLinkResolver {
     private static let markdownExtensions: Set<String> = ["md", "markdown", "mkd", "mdx"]
+    private static let knownExternalSchemes: Set<String> = [
+        "about", "blob", "data", "ftp", "http", "https", "javascript", "mailto", "sms", "tel"
+    ]
 
     static func isMarkdownPathLike(_ rawPath: String) -> Bool {
         let trimmed = stripFragmentAndQuery(rawPath)
@@ -45,12 +48,21 @@ enum MarkdownPanelFileLinkResolver {
             if let relativePath = webKitCoercedRelativePath(from: url, scheme: scheme) {
                 return relativeCandidatePaths(relativePath, relativeToMarkdownFile: markdownFilePath)
             }
+            if shouldTreatUnknownSchemeAsRelativePath(strippedPath, scheme: scheme) {
+                return relativeCandidatePaths(strippedPath, relativeToMarkdownFile: markdownFilePath)
+            }
             return []
         }
         if (strippedPath as NSString).isAbsolutePath {
             return [strippedPath]
         }
         return relativeCandidatePaths(strippedPath, relativeToMarkdownFile: markdownFilePath)
+    }
+
+    private static func shouldTreatUnknownSchemeAsRelativePath(_ path: String, scheme: String) -> Bool {
+        guard !knownExternalSchemes.contains(scheme) else { return false }
+        let lowercasedPath = path.lowercased()
+        return lowercasedPath.hasPrefix("\(scheme):") && !lowercasedPath.hasPrefix("\(scheme)://")
     }
 
     private static func relativeCandidatePaths(_ relativePath: String, relativeToMarkdownFile markdownFilePath: String) -> [String] {
