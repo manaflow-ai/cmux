@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "bindings/rust",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/mux-cdp",
