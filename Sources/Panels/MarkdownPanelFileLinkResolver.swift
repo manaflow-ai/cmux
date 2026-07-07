@@ -16,33 +16,67 @@ enum MarkdownPanelFileLinkResolver {
     }
 
     static func resolve(rawPath: String, relativeToMarkdownFile markdownFilePath: String) -> String? {
+        guard let localFile = resolveLocalFile(rawPath: rawPath, relativeToMarkdownFile: markdownFilePath),
+              isMarkdownPathLike(localFile) else {
+            return nil
+        }
+        return localFile
+    }
+
+    static func resolveLocalFile(rawPath: String, relativeToMarkdownFile markdownFilePath: String) -> String? {
         let stripped = stripFragmentAndQuery(rawPath)
         guard !stripped.isEmpty else { return nil }
 
-        let candidatePaths: [String] = {
-            if let url = URL(string: stripped), url.scheme == "file" {
-                return [url.path]
-            }
-            if (stripped as NSString).isAbsolutePath {
-                return [stripped]
-            }
-            let markdownDir = (markdownFilePath as NSString).deletingLastPathComponent
-            let pwd = FileManager.default.currentDirectoryPath
-            return [
-                (markdownDir as NSString).appendingPathComponent(stripped),
-                (pwd as NSString).appendingPathComponent(stripped)
-            ]
-        }()
-
-        for path in candidatePaths {
+        for path in candidatePaths(for: stripped, relativeToMarkdownFile: markdownFilePath) {
             let standardized = (path as NSString).standardizingPath
-            guard isMarkdownPathLike(standardized) else { continue }
             var isDir: ObjCBool = false
             if FileManager.default.fileExists(atPath: standardized, isDirectory: &isDir), !isDir.boolValue {
                 return standardized
             }
         }
         return nil
+    }
+
+    private static func candidatePaths(for strippedPath: String, relativeToMarkdownFile markdownFilePath: String) -> [String] {
+        if let url = URL(string: strippedPath), let scheme = url.scheme?.lowercased() {
+            if scheme == "file" {
+                return [url.path]
+            }
+            if let relativePath = webKitCoercedRelativePath(from: url, scheme: scheme) {
+                return relativeCandidatePaths(relativePath, relativeToMarkdownFile: markdownFilePath)
+            }
+            return []
+        }
+        if (strippedPath as NSString).isAbsolutePath {
+            return [strippedPath]
+        }
+        return relativeCandidatePaths(strippedPath, relativeToMarkdownFile: markdownFilePath)
+    }
+
+    private static func relativeCandidatePaths(_ relativePath: String, relativeToMarkdownFile markdownFilePath: String) -> [String] {
+        let markdownDir = (markdownFilePath as NSString).deletingLastPathComponent
+        let pwd = FileManager.default.currentDirectoryPath
+        return [
+            (markdownDir as NSString).appendingPathComponent(relativePath),
+            (pwd as NSString).appendingPathComponent(relativePath)
+        ]
+    }
+
+    private static func webKitCoercedRelativePath(from url: URL, scheme: String) -> String? {
+        guard scheme == "http" || scheme == "https",
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              let host = url.host?.removingPercentEncoding,
+              !host.isEmpty,
+              host != "localhost",
+              !host.contains("."),
+              !host.contains(":") else {
+            return nil
+        }
+        let path = url.path.removingPercentEncoding ?? url.path
+        guard path.hasPrefix("/"), path.count > 1 else { return nil }
+        return host + path
     }
 
     private static func stripFragmentAndQuery(_ rawPath: String) -> String {
