@@ -8082,14 +8082,6 @@ private final class CloudTerminalReconnectOverlayView: NSView {
         return nil
     }
 
-    override func mouseDown(with event: NSEvent) {
-        let pointInButton = reconnectButton.convert(event.locationInWindow, from: nil)
-        if reconnectButton.isHidden == false,
-           reconnectButton.bounds.contains(pointInButton) {
-            onReconnect?()
-        }
-    }
-
     func apply(_ presentation: CloudTerminalReconnectOverlayPolicy.Presentation) {
         guard currentPresentation != presentation else { return }
         currentPresentation = presentation
