@@ -1,4 +1,4 @@
-import { StackServerApp } from "@stackframe/stack";
+import { StackClientApp, StackServerApp } from "@stackframe/stack";
 import { env } from "../env";
 
 // env.ts trims every runtimeEnv source, so consumers receive sanitized values
@@ -8,27 +8,55 @@ const publishableClientKey = env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
 const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
 let stackServerAppCache: StackServerApp<true> | null = null;
+type StackHandlerApp = StackClientApp<true> | StackServerApp<true>;
+let stackHandlerAppCache: StackHandlerApp | null = null;
 
 export function isStackConfigured(): boolean {
-  return Boolean(projectId && publishableClientKey && secretServerKey);
+  return Boolean(projectId && publishableClientKey && hasRealSecretServerKey());
+}
+
+export function isStackHandlerConfigured(): boolean {
+  return Boolean(projectId && publishableClientKey);
 }
 
 export function getStackServerApp(): StackServerApp<true> {
-  if (!projectId || !publishableClientKey || !secretServerKey) {
+  if (!projectId || !publishableClientKey || !hasRealSecretServerKey()) {
     throw new Error("Stack Auth is not configured");
   }
 
   stackServerAppCache ??= new StackServerApp({
-    projectId,
-    publishableClientKey,
+    ...stackAppOptions(),
     secretServerKey,
-    tokenStore: "nextjs-cookie",
-    urls: {
-      afterSignIn: "/handler/after-sign-in",
-      afterSignUp: "/handler/after-sign-in",
-    },
   });
   return stackServerAppCache;
 }
 
+export function getStackHandlerApp(): StackHandlerApp {
+  if (!projectId || !publishableClientKey) {
+    throw new Error("Stack Auth handler is not configured");
+  }
+  if (hasRealSecretServerKey()) return getStackServerApp();
+
+  stackHandlerAppCache ??= new StackClientApp(stackAppOptions());
+  return stackHandlerAppCache;
+}
+
 export const stackServerApp = isStackConfigured() ? getStackServerApp() : null;
+export const stackHandlerApp = isStackHandlerConfigured() ? getStackHandlerApp() : null;
+
+function hasRealSecretServerKey(): boolean {
+  return Boolean(secretServerKey && secretServerKey !== "cmux-local-dev-placeholder");
+}
+
+function stackAppOptions() {
+  return {
+    projectId: projectId!,
+    publishableClientKey: publishableClientKey!,
+    tokenStore: "nextjs-cookie" as const,
+    noAutomaticPrefetch: true,
+    urls: {
+      afterSignIn: "/handler/after-sign-in",
+      afterSignUp: "/handler/after-sign-in",
+    },
+  };
+}

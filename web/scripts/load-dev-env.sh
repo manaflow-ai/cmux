@@ -115,13 +115,11 @@ export CMUX_CLIENT_CONFIG_RATE_LIMIT_ID="${CMUX_CLIENT_CONFIG_RATE_LIMIT_ID:-cmu
 export CMUX_PUSH_RATE_LIMIT_ID="${CMUX_PUSH_RATE_LIMIT_ID:-cmux-push-local}"
 
 # Local browser auth should boot on a fresh dev machine. The public DEBUG Stack
-# project/client key mirror the macOS DEBUG defaults; the placeholder server key
-# is enough for Stack's local sign-in UI to render, while real secret-file/env
-# values still win for server-side Stack calls.
+# project/client key mirror the macOS DEBUG defaults. A real Stack server key is
+# still required for server-side Stack calls.
 export NEXT_PUBLIC_STACK_PROJECT_ID="${NEXT_PUBLIC_STACK_PROJECT_ID:-454ecd03-1db2-4050-845e-4ce5b0cd9895}"
 export NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY="${NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY:-pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g}"
-export STACK_SECRET_SERVER_KEY="${STACK_SECRET_SERVER_KEY:-cmux-local-dev-placeholder}"
-if [[ "$STACK_SECRET_SERVER_KEY" == "cmux-local-dev-placeholder" ]]; then
+if [[ "${STACK_SECRET_SERVER_KEY:-}" == "cmux-local-dev-placeholder" ]]; then
   export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=1
 else
   export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=0

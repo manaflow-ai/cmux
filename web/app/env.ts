@@ -46,7 +46,7 @@ export const env = createEnv({
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID"),
-    STACK_SECRET_SERVER_KEY: z.string().min(1),
+    STACK_SECRET_SERVER_KEY: requireVercelNonPreviewValue("STACK_SECRET_SERVER_KEY"),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
     // CMUX_APNS_KEY_P8 holds the .p8 PEM (literal "\n" escapes are normalized

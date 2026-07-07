@@ -16,8 +16,8 @@ describe("load-dev-env", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("project=454ecd03-1db2-4050-845e-4ce5b0cd9895");
       expect(result.stdout).toContain("client=pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g");
-      expect(result.stdout).toContain("secret=cmux-local-dev-placeholder");
-      expect(result.stdout).toContain("placeholder=1");
+      expect(result.stdout).toContain("secret=");
+      expect(result.stdout).toContain("placeholder=0");
       expect(result.stdout).toContain("secret_file=");
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -72,6 +72,16 @@ describe("load-dev-env", () => {
   test("stripe dev reset refuses the local placeholder Stack secret", () => {
     const home = mkdtempSync(join(tmpdir(), "cmux-dev-reset-home-"));
     try {
+      const secrets = join(home, ".secrets");
+      mkdirSync(secrets, { recursive: true });
+      writeFileSync(
+        join(secrets, "cmuxterm-dev.env"),
+        [
+          "NEXT_PUBLIC_STACK_PROJECT_ID=454ecd03-1db2-4050-845e-4ce5b0cd9895",
+          "STACK_SECRET_SERVER_KEY=cmux-local-dev-placeholder",
+        ].join("\n"),
+      );
+
       const bin = join(home, "bin");
       mkdirSync(bin, { recursive: true });
       writeExecutable(join(bin, "curl"), "#!/usr/bin/env sh\nexit 0\n");
