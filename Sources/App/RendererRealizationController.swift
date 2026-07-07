@@ -83,7 +83,8 @@ final class RendererRealizationController {
         }
     }
 
-    func reclaimForSystemMemoryPressure(now: Date) {
+    @discardableResult
+    func reclaimForSystemMemoryPressure(now: Date) -> Int {
         evaluate(
             now: now,
             trigger: .systemMemoryPressure,
@@ -93,17 +94,19 @@ final class RendererRealizationController {
 
     /// Run one reclamation pass. Internal so a unit/integration test can drive it
     /// deterministically without the timer.
-    func evaluate(now: Date) {
+    @discardableResult
+    func evaluate(now: Date) -> Int {
         evaluate(now: now, trigger: .scheduled)
     }
 
+    @discardableResult
     private func evaluate(
         now: Date,
         trigger: RendererRealizationReclaimTrigger,
         remainingSystemMemoryPressureRetries: Int = 0
-    ) {
+    ) -> Int {
         let settings = RendererRealizationSettings.values()
-        guard settings.enabled else { return }
+        guard settings.enabled else { return 0 }
 
         // Iterate the global registry rather than re-deriving per-workspace
         // visibility: each TerminalSurface carries its own authoritative
@@ -140,10 +143,12 @@ final class RendererRealizationController {
             now: now.timeIntervalSince1970,
             trigger: trigger
         )
-        guard !selected.isEmpty else { return }
+        guard !selected.isEmpty else { return 0 }
         var needsSystemMemoryPressureRetry = false
+        var reclaimedCount = 0
         for surface in surfaces where selected.contains(surface.id) {
             surface.releaseRenderer()
+            reclaimedCount += 1
             // A dropped Ghostty mailbox enqueue leaves the renderer realized.
             // Retry with the pressure policy; scheduled policy may keep recent
             // hidden surfaces warm and skip the exact surface pressure selected.
@@ -163,5 +168,6 @@ final class RendererRealizationController {
                 )
             }
         }
+        return reclaimedCount
     }
 }

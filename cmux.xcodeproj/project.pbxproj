@@ -152,6 +152,7 @@
 		B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */; };
 		B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */; };
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
+		7490C0017490C0017490C001 /* BrowserHiddenWebViewMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */; };
 		4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */; };
 		BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */; };
 		BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */; };
@@ -725,7 +726,18 @@
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
 		A50014F9 /* MarkdownWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F8 /* MarkdownWebSupport.swift */; };
+		7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */; };
+		7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */; };
+		7490C0047490C0047490C004 /* MemoryPressureMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */; };
 		7490A0017490A0017490A001 /* MemoryPressureMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */; };
+		7490C0057490C0057490C005 /* MemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0057490D0057490D005 /* MemoryPressureResponder.swift */; };
+		7490C0067490C0067490C006 /* MemoryPressureResponderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0067490D0067490D006 /* MemoryPressureResponderRegistry.swift */; };
+		7490C0097490C0097490C009 /* MemoryPressureSeverity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0097490D0097490D009 /* MemoryPressureSeverity.swift */; };
+		7490C0077490C0077490C007 /* MemoryPressureShedAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0077490D0077490D007 /* MemoryPressureShedAction.swift */; };
+		7490C0087490C0087490C008 /* MemoryPressureShedResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0087490D0087490D008 /* MemoryPressureShedResult.swift */; };
+		7490C00A7490C00A7490C00A /* MemoryPressureSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00A7490D00A7490D00A /* MemoryPressureSnapshot.swift */; };
+		7490C00B7490C00B7490C00B /* MemoryPressureStateEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00B7490D00B7490D00B /* MemoryPressureStateEvaluation.swift */; };
+		7490C00C7490C00C7490C00C /* MemoryPressureStateTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00C7490D00C7490D00C /* MemoryPressureStateTracker.swift */; };
 		1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */; };
 		606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */; };
 		C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */; };
@@ -775,6 +787,7 @@
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
 		C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552010000000000000004 /* NotificationBurstCoalescer.swift */; };
+		7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */; };
 		D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */; };
 		C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */; };
 		B7F00002 /* NotificationSoundSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00001 /* NotificationSoundSettings.swift */; };
@@ -921,6 +934,7 @@
 		D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037010000000000000002 /* RenderableSystemSymbol.swift */; };
 		C58410010000000000000001 /* RenderableSystemSymbolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58410010000000000000002 /* RenderableSystemSymbolTests.swift */; };
 		D36A00040000000000000001 /* RendererRealizationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00040000000000000002 /* RendererRealizationController.swift */; };
+		7490C00E7490C00E7490C00E /* RendererRealizationMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00E7490D00E7490D00E /* RendererRealizationMemoryPressureResponder.swift */; };
 		D36A00060000000000000001 /* RendererRealizationPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00060000000000000002 /* RendererRealizationPlanner.swift */; };
 		D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */; };
 		D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */; };
@@ -1150,6 +1164,7 @@
 		C7A506000000000000000002 /* TaskManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A506000000000000000001 /* TaskManagerView.swift */; };
 		C7A507000000000000004529 /* TaskManagerViewSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */; };
 		C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A502000000000000000001 /* TaskManagerWindowController.swift */; };
+		7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
@@ -1207,6 +1222,7 @@
 		A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */; };
 		A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */; };
 		A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */; };
+		7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */; };
 		596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
@@ -1603,6 +1619,7 @@
 		B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardManager.swift; sourceTree = "<group>"; };
 		B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHiddenWebViewDiscardMemoryPressureTests.swift; sourceTree = "<group>"; };
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
+		7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/BrowserHiddenWebViewMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHistorySuggestionCacheTests.swift; sourceTree = "<group>"; };
 		BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPrompt.swift; sourceTree = "<group>"; };
 		BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPromptCoordinator.swift; sourceTree = "<group>"; };
@@ -2122,7 +2139,18 @@
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
 		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
+		7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintSampling.swift; sourceTree = "<group>"; };
+		7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintThresholds.swift; sourceTree = "<group>"; };
+		7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureMonitor.swift; sourceTree = "<group>"; };
 		7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPressureMonitorTests.swift; sourceTree = "<group>"; };
+		7490D0057490D0057490D005 /* MemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureResponder.swift; sourceTree = "<group>"; };
+		7490D0067490D0067490D006 /* MemoryPressureResponderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureResponderRegistry.swift; sourceTree = "<group>"; };
+		7490D0097490D0097490D009 /* MemoryPressureSeverity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureSeverity.swift; sourceTree = "<group>"; };
+		7490D0077490D0077490D007 /* MemoryPressureShedAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureShedAction.swift; sourceTree = "<group>"; };
+		7490D0087490D0087490D008 /* MemoryPressureShedResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureShedResult.swift; sourceTree = "<group>"; };
+		7490D00A7490D00A7490D00A /* MemoryPressureSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureSnapshot.swift; sourceTree = "<group>"; };
+		7490D00B7490D00B7490D00B /* MemoryPressureStateEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureStateEvaluation.swift; sourceTree = "<group>"; };
+		7490D00C7490D00C7490D00C /* MemoryPressureStateTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureStateTracker.swift; sourceTree = "<group>"; };
 		C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarExtraController.swift; sourceTree = "<group>"; };
 		606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarOnlyActivationPolicyTests.swift; sourceTree = "<group>"; };
 		C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingLauncher.swift; sourceTree = "<group>"; };
@@ -2172,6 +2200,7 @@
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
 		C06552010000000000000004 /* NotificationBurstCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBurstCoalescer.swift; sourceTree = "<group>"; };
+		7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NotificationCacheMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationDismissSyncTests.swift"; sourceTree = "<group>"; };
 		C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRowSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
@@ -2315,6 +2344,7 @@
 		D5037010000000000000002 /* RenderableSystemSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderableSystemSymbol.swift; sourceTree = "<group>"; };
 		C58410010000000000000002 /* RenderableSystemSymbolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderableSystemSymbolTests.swift; sourceTree = "<group>"; };
 		D36A00040000000000000002 /* RendererRealizationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationController.swift; sourceTree = "<group>"; };
+		7490D00E7490D00E7490D00E /* RendererRealizationMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		D36A00060000000000000002 /* RendererRealizationPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationPlanner.swift; sourceTree = "<group>"; };
 		D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererRealizationPlannerTests.swift; sourceTree = "<group>"; };
 		D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationReclaimTrigger.swift; sourceTree = "<group>"; };
@@ -2534,6 +2564,7 @@
 		C7A506000000000000000001 /* TaskManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerView.swift; sourceTree = "<group>"; };
 		C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerViewSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
 		C7A502000000000000000001 /* TaskManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowController.swift; sourceTree = "<group>"; };
+		7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TaskVMInfoMemoryPressureFootprintSampler.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
@@ -2591,6 +2622,7 @@
 		A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueue.swift; sourceTree = "<group>"; };
 		A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueueTests.swift; sourceTree = "<group>"; };
 		A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketActionTests.swift; sourceTree = "<group>"; };
+		7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+MemoryPressure.swift"; sourceTree = "<group>"; };
 		596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+NativeNotificationDeliveryTesting.swift"; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
@@ -3131,9 +3163,24 @@
 				9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */,
 				D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
+				7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */,
+				7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */,
+				7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */,
+				7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */,
+				7490D0057490D0057490D005 /* MemoryPressureResponder.swift */,
+				7490D0067490D0067490D006 /* MemoryPressureResponderRegistry.swift */,
+				7490D0077490D0077490D007 /* MemoryPressureShedAction.swift */,
+				7490D0087490D0087490D008 /* MemoryPressureShedResult.swift */,
+				7490D0097490D0097490D009 /* MemoryPressureSeverity.swift */,
+				7490D00A7490D00A7490D00A /* MemoryPressureSnapshot.swift */,
+				7490D00B7490D00B7490D00B /* MemoryPressureStateEvaluation.swift */,
+				7490D00C7490D00C7490D00C /* MemoryPressureStateTracker.swift */,
+				7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */,
 				D36A00040000000000000002 /* RendererRealizationController.swift */,
+				7490D00E7490D00E7490D00E /* RendererRealizationMemoryPressureResponder.swift */,
 				D36A00060000000000000002 /* RendererRealizationPlanner.swift */,
 				D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */,
+				7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */,
 				243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */,
 				D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */,
 				AABBCC00000000000000020B /* SidebarInlineRenameAction.swift */,
@@ -3488,6 +3535,7 @@
 				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
 				B7F00001 /* NotificationSoundSettings.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
+				7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */,
 				596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */,
 				D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */,
 				A5001097 /* TerminalNotificationPolicy.swift */,
@@ -4802,6 +4850,7 @@
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
+				7490C0017490C0017490C001 /* BrowserHiddenWebViewMemoryPressureResponder.swift in Sources */,
 				BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */,
 				BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */,
 				BABA2500000000000000000D /* BrowserHTTPBasicAuthPromptRequest.swift in Sources */,
@@ -5098,6 +5147,17 @@
 				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
 				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
 					A50014F9 /* MarkdownWebSupport.swift in Sources */,
+				7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */,
+				7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */,
+				7490C0047490C0047490C004 /* MemoryPressureMonitor.swift in Sources */,
+				7490C0057490C0057490C005 /* MemoryPressureResponder.swift in Sources */,
+				7490C0067490C0067490C006 /* MemoryPressureResponderRegistry.swift in Sources */,
+				7490C0097490C0097490C009 /* MemoryPressureSeverity.swift in Sources */,
+				7490C0077490C0077490C007 /* MemoryPressureShedAction.swift in Sources */,
+				7490C0087490C0087490C008 /* MemoryPressureShedResult.swift in Sources */,
+				7490C00A7490C00A7490C00A /* MemoryPressureSnapshot.swift in Sources */,
+				7490C00B7490C00B7490C00B /* MemoryPressureStateEvaluation.swift in Sources */,
+				7490C00C7490C00C7490C00C /* MemoryPressureStateTracker.swift in Sources */,
 					1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
 					C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */,
 					C0DE70550000000000000002 /* MenuBarProfilingMenuItem.swift in Sources */,
@@ -5132,6 +5192,7 @@
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
+				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
@@ -5232,6 +5293,7 @@
 				0F17C0DE0F17C0DE0F17C002 /* RemoteTmuxWindowRegistry.swift in Sources */,
 				D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */,
 				D36A00040000000000000001 /* RendererRealizationController.swift in Sources */,
+				7490C00E7490C00E7490C00E /* RendererRealizationMemoryPressureResponder.swift in Sources */,
 				D36A00060000000000000001 /* RendererRealizationPlanner.swift in Sources */,
 				D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */,
 				C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */,
@@ -5365,6 +5427,7 @@
 				C7A504000000000000000002 /* TaskManagerTypes.swift in Sources */,
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
+				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,
@@ -5411,6 +5474,7 @@
 				A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
 				A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */,
+				7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */,
 				A5001095 /* TerminalNotificationStore.swift in Sources */,
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,
