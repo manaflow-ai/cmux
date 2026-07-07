@@ -660,6 +660,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
     }
@@ -3466,7 +3467,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedHostCapabilities: capabilities,
             actionCapabilities: Self.workspaceActionCapabilities(
                 from: capabilities,
-                allowsMacScopedMutations: Self.attachTicketAllowsMacScopedWorkspaceMutations(ticket, now: runtime.now())
+                allowsMacScopedMutations: mobileShellAttachTicketAllowsMacScopedWorkspaceMutations(
+                    ticket,
+                    now: runtime.now()
+                )
             )
         )
     }

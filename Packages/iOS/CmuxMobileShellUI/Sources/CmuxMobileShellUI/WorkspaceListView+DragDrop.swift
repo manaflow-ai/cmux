@@ -38,8 +38,7 @@ extension WorkspaceListView {
         guard enablesWorkspaceReorder else { return }
         let sourceWorkspaces = optimisticFlatWorkspaces ?? filteredWorkspaces
         let items = sourceWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
-        guard let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        guard let intent = items.moveIntent(
             workspaces: sourceWorkspaces,
             groups: [],
             sourceOffsets: sourceOffsets,
@@ -66,8 +65,7 @@ extension WorkspaceListView {
         guard enablesWorkspaceReorder else { return }
         let sourceItems = optimisticGroupedItems ?? groupedListItems
         let sourceWorkspaces = optimisticGroupedWorkspaces ?? groupedWorkspaces
-        guard let intent = MobileWorkspaceListItem.moveIntent(
-            items: sourceItems,
+        guard let intent = sourceItems.moveIntent(
             workspaces: sourceWorkspaces,
             groups: groups,
             sourceOffsets: sourceOffsets,
@@ -87,10 +85,9 @@ extension WorkspaceListView {
         case .groupFooter:
             return
         }
-        let movedWorkspaces = MobileWorkspaceListItem.workspacesApplying(
+        let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
             intent,
-            movedWorkspaceID: movedWorkspaceID,
-            workspaces: sourceWorkspaces
+            movedWorkspaceID: movedWorkspaceID
         )
         optimisticGroupedWorkspaces = movedWorkspaces
         optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)

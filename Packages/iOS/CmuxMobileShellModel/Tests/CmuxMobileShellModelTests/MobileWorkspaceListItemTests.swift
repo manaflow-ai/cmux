@@ -193,8 +193,7 @@ import Testing
     @Test func listMoveIntentAdjustsDownwardDestinationBeforeRemoval() {
         let workspaces = [workspace("a"), workspace("b"), workspace("c")]
         let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: [],
             sourceOffsets: IndexSet(integer: 0),
@@ -206,8 +205,7 @@ import Testing
     @Test func listMoveIntentMovesUpwardBeforeTargetWorkspace() {
         let workspaces = [workspace("a"), workspace("b"), workspace("c")]
         let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: [],
             sourceOffsets: IndexSet(integer: 2),
@@ -225,8 +223,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 3),
@@ -243,8 +240,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 3),
@@ -264,8 +260,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 5),
@@ -281,10 +276,9 @@ import Testing
             workspace("root"),
             workspace("dragged"),
         ]
-        let moved = MobileWorkspaceListItem.workspacesApplying(
+        let moved = workspaces.applyingWorkspaceMoveIntent(
             MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "root"),
-            movedWorkspaceID: "dragged",
-            workspaces: workspaces
+            movedWorkspaceID: "dragged"
         )
         #expect(moved.map(\.id.rawValue) == ["anchor", "member", "dragged", "root"])
         #expect(moved.first(where: { $0.id == "dragged" })?.groupID == "g")
@@ -297,10 +291,9 @@ import Testing
             workspace("root"),
             workspace("dragged", group: "g"),
         ]
-        let moved = MobileWorkspaceListItem.workspacesApplying(
+        let moved = workspaces.applyingWorkspaceMoveIntent(
             MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root"),
-            movedWorkspaceID: "dragged",
-            workspaces: workspaces
+            movedWorkspaceID: "dragged"
         )
         #expect(moved.map(\.id.rawValue) == ["anchor", "member", "dragged", "root"])
         #expect(moved.first(where: { $0.id == "dragged" })?.groupID == nil)
@@ -315,8 +308,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 4),
@@ -338,8 +330,7 @@ import Testing
             group("b", anchor: "b-anchor"),
         ]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 6),
@@ -357,8 +348,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor", collapsed: true)]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 2),
@@ -376,8 +366,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 1),
@@ -389,8 +378,7 @@ import Testing
     @Test func listMoveIntentLandingAtVeryBottomAppendsUngroupedWorkspace() {
         let workspaces = [workspace("a"), workspace("b"), workspace("c")]
         let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: [],
             sourceOffsets: IndexSet(integer: 0),
@@ -403,8 +391,7 @@ import Testing
         let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g")]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 0),
@@ -421,8 +408,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = try #require(MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = try #require(items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 0),
@@ -433,10 +419,9 @@ import Testing
             beforeWorkspaceID: nil,
             movesGroup: true
         ))
-        let moved = MobileWorkspaceListItem.workspacesApplying(
+        let moved = workspaces.applyingWorkspaceMoveIntent(
             intent,
-            movedWorkspaceID: "anchor",
-            workspaces: workspaces
+            movedWorkspaceID: "anchor"
         )
         #expect(moved.map(\.id) == ["tail", "anchor", "member"])
         #expect(moved.suffix(2).allSatisfy { $0.groupID == "g" })
@@ -446,8 +431,7 @@ import Testing
         let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g"), workspace("tail")]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 2),
@@ -459,8 +443,7 @@ import Testing
     @Test func listMoveIntentRejectsNoOpMove() {
         let workspaces = [workspace("a"), workspace("b"), workspace("c")]
         let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: [],
             sourceOffsets: IndexSet(integer: 1),
@@ -477,8 +460,7 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        let intent = MobileWorkspaceListItem.moveIntent(
-            items: items,
+        let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 3),

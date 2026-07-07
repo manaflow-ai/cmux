@@ -10,11 +10,6 @@ import SwiftUI
 /// The anchor is represented by this header and never rendered as a separate row,
 /// so this split is what keeps the anchor's terminals reachable from the phone.
 struct WorkspaceGroupHeaderRow: View {
-    private enum PendingDestructiveAction {
-        case ungroup
-        case delete
-    }
-
     let group: MobileWorkspaceGroupPreview
     /// Aggregate unread state for the header dot, computed by
     /// `MobileWorkspaceListItem.items`: the anchor's unread while expanded,
@@ -43,7 +38,7 @@ struct WorkspaceGroupHeaderRow: View {
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
 
     @State private var isRenaming = false
-    @State private var pendingDestructiveAction: PendingDestructiveAction?
+    @State private var pendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
     /// collapses/expands and never opens the anchor.
