@@ -139,7 +139,7 @@ public struct ExtensionsSection: View {
             String(localized: "settings.extensions.marketplace", defaultValue: "Marketplace"),
             subtitle: String(
                 localized: "settings.extensions.marketplace.subtitle",
-                defaultValue: "Community extensions: public GitHub repositories tagged cmux-extension."
+                defaultValue: "Community extensions: the awesome-cmux directory of community projects."
             )
         ) {
             Button(String(localized: "settings.extensions.marketplace.button", defaultValue: "Browse…")) {
