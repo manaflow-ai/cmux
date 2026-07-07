@@ -71,6 +71,8 @@ extension ControlCommandCoordinator {
             return browserDisabledResult(outcome)
         case .tabPaneNotFound:
             return .err(code: "not_found", message: "Tab pane not found", data: nil)
+        case .fullWidthTabToggleFailed:
+            return .err(code: "invalid_state", message: "Failed to toggle full-width tab mode", data: nil)
         case .tabNotFoundInPane:
             return .err(code: "not_found", message: "Tab not found in pane", data: nil)
         case .createFailed:

@@ -135,7 +135,9 @@ extension TerminalController {
             guard let paneId = workspace.paneId(forPanelId: surfaceId) else {
                 return .tabPaneNotFound
             }
-            _ = workspace.toggleFullWidthTabMode(panelId: surfaceId)
+            guard workspace.toggleFullWidthTabMode(panelId: surfaceId) else {
+                return .fullWidthTabToggleFailed
+            }
             return finish(.fullWidthTabMode(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId)))
 
         case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":

@@ -88,6 +88,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// The surface's pane could not be resolved.
     case tabPaneNotFound
+    /// Bonsplit rejected the full-width tab mode toggle.
+    case fullWidthTabToggleFailed
     /// The anchor tab was not found in its pane (`close_left` / `close_right`).
     case tabNotFoundInPane
     /// Surface creation failed (`new_terminal_right` / `new_browser_right`).

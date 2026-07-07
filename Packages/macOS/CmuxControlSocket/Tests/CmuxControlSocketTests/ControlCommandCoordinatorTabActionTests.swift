@@ -70,4 +70,31 @@ struct ControlCommandCoordinatorTabActionTests {
         }
         #expect(supportedActions.contains(.string("toggle_full_width_tab")))
     }
+
+    @Test func failedFullWidthTabToggleReturnsInvalidState() throws {
+        let surfaceID = UUID()
+        let context = FakeTabActionControlCommandContext()
+        context.resolution = .fullWidthTabToggleFailed
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("toggle-full-width-tab"),
+                "surface_id": .string(surfaceID.uuidString),
+            ]
+        ))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected failed full-width tab toggle error")
+            return
+        }
+
+        #expect(context.actionKey == "toggle_full_width_tab")
+        #expect(context.surfaceID == surfaceID)
+        #expect(code == "invalid_state")
+        #expect(message == "Failed to toggle full-width tab mode")
+        #expect(data == nil)
+    }
 }
