@@ -7409,6 +7409,18 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleFullWidthTab",
+                title: constant(String(localized: "command.toggleFullWidthTab.title", defaultValue: "Toggle Full Width Tab")),
+                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
+                keywords: ["full", "width", "tab", "title", "header", "solo"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.hasFocusedPanel) &&
+                    context.bool(CommandPaletteContextKeys.panelHasPane)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
                 subtitle: workspaceSubtitle,
@@ -8091,6 +8103,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
             if !tabManager.toggleFocusedSplitZoom() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.toggleFullWidthTab") {
+            if !tabManager.toggleFocusedFullWidthTab() {
                 NSSound.beep()
             }
         }

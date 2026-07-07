@@ -7340,6 +7340,7 @@ struct CMUXCLI {
         if let tabHandle = formatTabHandle(payload, idFormat: idFormat) { summaryParts.append("tab=\(tabHandle)") }
         if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }
         if let closed = payload["closed"] { summaryParts.append("closed=\(closed)") }
+        if let enabled = payload["full_width_tab_mode"] { summaryParts.append("full_width_tab_mode=\(enabled)") }
         if let created = formatCreatedTabHandle(payload, idFormat: idFormat) { summaryParts.append("created=\(created)") }
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
@@ -15772,8 +15773,7 @@ struct CMUXCLI {
               new-terminal-right | new-browser-right
               move-to-new-workspace
               reload | duplicate
-              pin | unpin
-              mark-unread
+              pin | unpin | mark-unread | toggle-full-width-tab
 
             Flags:
               --action <name>              Action name (required if not positional)
