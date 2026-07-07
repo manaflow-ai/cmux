@@ -791,6 +791,32 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func mobileWorkspaceMoveBlankGroupIDUngroupsWorkspace() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let movingWorkspaceID = originalIds[1]
+        #expect(manager.tabs.first { $0.id == movingWorkspaceID }?.groupId == groupId)
+
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let result = TerminalController.shared.v2MobileWorkspaceMove(params: [
+            "workspace_id": movingWorkspaceID.uuidString,
+            "group_id": "   ",
+        ])
+
+        guard case .ok = result else {
+            return #expect(Bool(false), "blank group_id should be treated as nil, not invalid_params")
+        }
+        #expect(manager.tabs.first { $0.id == movingWorkspaceID }?.groupId == nil)
+    }
+
     @Test(arguments: [
         ("afterCurrent", WorkspaceGroupNewPlacement?.some(.afterCurrent)),
         ("after-current", WorkspaceGroupNewPlacement?.some(.afterCurrent)),

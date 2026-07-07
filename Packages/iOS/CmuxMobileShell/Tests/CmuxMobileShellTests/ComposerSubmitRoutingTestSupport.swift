@@ -49,6 +49,12 @@ actor RoutingHostRouter {
     private var firstPasteImageHeld = false
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var workspaceCreateCount = 0
+    private var rejectWorkspaceCreate = false
+    private var holdFirstWorkspaceCreate = false
+    private var firstWorkspaceCreateHeld = false
+    private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
+    private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -86,6 +92,27 @@ actor RoutingHostRouter {
         firstPasteImageContinuation = nil
         continuation?.resume()
     }
+
+    func setRejectWorkspaceCreate(_ reject: Bool) {
+        rejectWorkspaceCreate = reject
+    }
+
+    func setHoldFirstWorkspaceCreate(_ hold: Bool) {
+        holdFirstWorkspaceCreate = hold
+    }
+
+    func awaitFirstWorkspaceCreateReached() async {
+        if firstWorkspaceCreateHeld { return }
+        await withCheckedContinuation { firstWorkspaceCreateReachedWaiters.append($0) }
+    }
+
+    func releaseFirstWorkspaceCreate() {
+        let continuation = firstWorkspaceCreateContinuation
+        firstWorkspaceCreateContinuation = nil
+        continuation?.resume()
+    }
+
+    func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
@@ -144,6 +171,42 @@ actor RoutingHostRouter {
                 "stream_id": "test-stream",
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": false,
+            ])
+        case "workspace.create":
+            workspaceCreateCount += 1
+            if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
+                firstWorkspaceCreateHeld = true
+                let reachedWaiters = firstWorkspaceCreateReachedWaiters
+                firstWorkspaceCreateReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { firstWorkspaceCreateContinuation = $0 }
+            }
+            if rejectWorkspaceCreate {
+                return try? Self.errorFrame(id: id, message: "workspace.create rejected")
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "workspaces": [
+                    [
+                        "id": Self.workspaceID,
+                        "title": "Routing Workspace",
+                        "terminals": [],
+                    ],
+                    [
+                        "id": "workspace-created",
+                        "title": "Created Workspace",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "terminal-created",
+                                "title": "Created",
+                                "is_focused": true,
+                                "is_ready": true,
+                            ],
+                        ],
+                    ],
+                ],
+                "created_workspace_id": "workspace-created",
+                "created_terminal_id": "terminal-created",
             ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
