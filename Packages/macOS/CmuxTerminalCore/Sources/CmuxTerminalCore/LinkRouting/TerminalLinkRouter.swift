@@ -114,6 +114,7 @@ public struct TerminalLinkRouter: Sendable {
               hasKnownFileExtension(value[..<colon]) else {
             return false
         }
+        if value[..<colon].contains("/") { return true }
         guard !value[..<colon].contains(where: \.isUppercase),
               let port = Int(value[value.index(after: colon)...]) else {
             return true

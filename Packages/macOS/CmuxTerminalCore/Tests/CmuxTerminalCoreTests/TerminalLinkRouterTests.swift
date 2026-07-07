@@ -147,6 +147,8 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(router.resolveOpenURLTarget("README.md:12") == nil)
         #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:42") == nil)
+        #expect(router.resolveOpenURLTarget("src/main.swift:3000") == nil)
+        #expect(router.resolveOpenURLTarget("Sources/App.swift:8080") == nil)
     }
 
     @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
