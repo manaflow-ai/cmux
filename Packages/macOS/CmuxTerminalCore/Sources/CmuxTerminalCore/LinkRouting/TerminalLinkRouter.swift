@@ -59,7 +59,14 @@ public struct TerminalLinkRouter: Sendable {
             }
         }
 
-        if Self.looksLikeSingleLabelPathFragment(trimmed) {
+        if Self.looksLikeUnresolvedFileLineReference(trimmed) {
+            #if DEBUG
+            logDebugEvent("link.resolve result=nil (fileLine)")
+            #endif
+            return nil
+        }
+
+        if Self.looksLikeWrappedFilePathFragment(trimmed) {
             #if DEBUG
             logDebugEvent("link.resolve result=nil (pathFragment)")
             #endif
@@ -99,7 +106,22 @@ public struct TerminalLinkRouter: Sendable {
         return .embeddedBrowser(url)
     }
 
-    private static func looksLikeSingleLabelPathFragment(_ value: String) -> Bool {
+    private static func looksLikeUnresolvedFileLineReference(_ value: String) -> Bool {
+        guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let colon = value.lastIndex(of: ":"),
+              colon < value.index(before: value.endIndex),
+              value[value.index(after: colon)...].allSatisfy(\.isNumber),
+              hasKnownFileExtension(value[..<colon]) else {
+            return false
+        }
+        guard !value[..<colon].contains(where: \.isUppercase),
+              let port = Int(value[value.index(after: colon)...]) else {
+            return true
+        }
+        return !Self.commonWebPorts.contains(port)
+    }
+
+    private static func looksLikeWrappedFilePathFragment(_ value: String) -> Bool {
         guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
               let slash = value.firstIndex(of: "/"),
               slash > value.startIndex else {
@@ -107,6 +129,34 @@ public struct TerminalLinkRouter: Sendable {
         }
         let hostCandidate = value[..<slash].lowercased()
         guard hostCandidate != "localhost" else { return false }
-        return hostCandidate.rangeOfCharacter(from: CharacterSet(charactersIn: ".:[]")) == nil
+        guard hostCandidate.rangeOfCharacter(from: CharacterSet(charactersIn: ".:[]")) == nil else {
+            return false
+        }
+        let pathStart = value.index(after: slash)
+        let pathEnd = value[pathStart...].firstIndex { character in
+            character == "?" || character == "#"
+        } ?? value.endIndex
+        let path = value[pathStart..<pathEnd]
+        let lastComponentStart = path.lastIndex(of: "/").map(path.index(after:)) ?? path.startIndex
+        return hasKnownFileExtension(path[lastComponentStart...])
     }
+
+    private static func hasKnownFileExtension(_ value: some StringProtocol) -> Bool {
+        guard let dot = value.lastIndex(of: "."),
+              dot < value.index(before: value.endIndex) else {
+            return false
+        }
+        switch value[value.index(after: dot)...].lowercased() {
+        case "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java",
+             "js", "jsx", "json", "m", "md", "mm", "php", "py", "rb", "rs",
+             "sh", "swift", "toml", "ts", "tsx", "txt", "yaml", "yml", "zsh":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static let commonWebPorts: Set<Int> = [
+        80, 443, 3000, 3001, 4200, 5000, 5173, 5174, 8000, 8080, 8443, 9000,
+    ]
 }

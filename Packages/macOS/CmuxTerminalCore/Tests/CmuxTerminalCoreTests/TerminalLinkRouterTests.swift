@@ -93,14 +93,20 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
     }
 
     @Test func schemelessHostPathResolvesAsEmbeddedBrowser() throws {
-        let target = try #require(router.resolveOpenURLTarget("0.0.0.0.evil.example/docs"))
-        guard case let .embeddedBrowser(url) = target else {
-            Issue.record("Expected host-like schemeless path to route to embedded browser")
-            return
+        for (rawValue, expectedHost, expectedPath) in [
+            ("example.com/docs", "example.com", "/docs"),
+            ("0.0.0.0.evil.example/docs", "0.0.0.0.evil.example", "/docs"),
+            ("grafana/dashboard", "grafana", "/dashboard"),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected host-like schemeless path to route to embedded browser")
+                return
+            }
+            #expect(url.scheme == "https")
+            #expect(url.host == expectedHost)
+            #expect(url.path == expectedPath)
         }
-        #expect(url.scheme == "https")
-        #expect(url.host == "0.0.0.0.evil.example")
-        #expect(url.path == "/docs")
     }
 
     @Test func schemelessDottedHostPortResolvesAsEmbeddedBrowser() throws {
@@ -132,6 +138,12 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
             #expect(url.port == expectedPort)
             #expect(url.path == expectedPath)
         }
+    }
+
+    @Test func fileLineTokensDoNotResolveAsHostPorts() {
+        #expect(router.resolveOpenURLTarget("README.md:12") == nil)
+        #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
+        #expect(router.resolveOpenURLTarget("main.swift:42") == nil)
     }
 
     @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
