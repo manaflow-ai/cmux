@@ -64,8 +64,12 @@ private final class StubGroupHost: WorkspaceGroupHosting {
     }
 
     func createWorkspaceForGroup(
+        title: String?,
         workingDirectory: String?,
         initialSurface: NewWorkspaceInitialSurface,
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> CoordinatorStubTab {
