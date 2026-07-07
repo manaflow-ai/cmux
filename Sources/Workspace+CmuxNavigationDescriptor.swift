@@ -1,11 +1,11 @@
 import Foundation
 
 extension Workspace {
-    /// Snapshots this workspace's navigable identity — runtime and
-    /// restart-stable ids for the workspace and each tab in the layout — into
-    /// the pure descriptor ``CmuxNavigationTargetResolver`` resolves deep links
-    /// against. Panels not present in the bonsplit layout are excluded, matching
-    /// what `focusTab` can actually navigate to.
+    /// Snapshots durable-link identity for this workspace and navigable tabs.
+    ///
+    /// The descriptor includes runtime ids for same-session links and persisted
+    /// restart-stable ids for links copied before an app restart. Panels not in
+    /// the bonsplit layout are excluded, matching what `focusTab` can navigate to.
     var cmuxNavigationDescriptor: CmuxNavigationTargetResolver.WorkspaceDescriptor {
         CmuxNavigationTargetResolver.WorkspaceDescriptor(
             workspaceId: id,

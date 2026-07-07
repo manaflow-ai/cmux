@@ -1039,48 +1039,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
-    private var isApplyingSessionRestore = false
-    /// Durable `cmux://workspace/...` links that arrived before startup session
-    /// restore registered their target workspaces (cold-launch link click).
-    /// Replayed by `flushPendingStartupNavigationURLRequests()` once the
-    /// restore window closes; see `shouldDeferNavigationURLRequestsForStartupRestore`.
+    var isApplyingSessionRestore = false
+    /// Durable navigation links that arrived before startup restore registered
+    /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
-
-    /// True while startup session restore could still register workspaces a
-    /// navigation deep link targets: before the restore attempt runs, and while
-    /// restored windows are still being created asynchronously.
-    var shouldDeferNavigationURLRequestsForStartupRestore: Bool {
-        !didAttemptStartupSessionRestore || isApplyingSessionRestore
-    }
-
-    /// All restart-stable workspace and surface identities currently live
-    /// across open main windows. Restores that may duplicate an open session
-    /// exclude these so the copies mint fresh identities instead of making
-    /// durable deep links ambiguous.
-    func liveStableIdentitySet() -> Set<UUID> {
-        var identities: Set<UUID> = []
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                identities.insert(workspace.stableId)
-                for panel in workspace.panels.values {
-                    identities.insert(panel.stableSurfaceId)
-                }
-            }
-        }
-        return identities
-    }
-
-    /// Replays navigation links that were deferred during startup session
-    /// restore. Drains the queue before re-dispatching so an unresolvable link
-    /// is dropped (with a debug log) instead of re-queued forever.
-    func flushPendingStartupNavigationURLRequests() {
-        guard !pendingStartupNavigationURLRequests.isEmpty else { return }
-        let requests = pendingStartupNavigationURLRequests
-        pendingStartupNavigationURLRequests.removeAll()
-        for request in requests {
-            _ = handleCmuxNavigationURLRequest(request)
-        }
-    }
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -3342,9 +3304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
-        // Every exit below closes the defer window for navigation deep links
-        // unless additional restored windows are still being created (in which
-        // case completeSessionRestoreOperation flushes once they exist).
+        // Flush deferred navigation links unless additional restored windows remain pending.
         defer {
             if !isApplyingSessionRestore {
                 flushPendingStartupNavigationURLRequests()
@@ -3423,12 +3383,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
-        isManualReopen: Bool
-    ) -> Bool {
-        !isManualReopen
-    }
-
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
         guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
@@ -3455,17 +3409,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didAttemptStartupSessionRestore = true
         var createdWindowIds: [UUID] = []
 
-        // Manual reopen can restore a session whose workspaces are still open.
-        // Re-adopting their persisted stable identities would duplicate them and
-        // make durable deep links ambiguous between the copies; live identities
-        // are excluded so duplicates mint fresh ones instead.
-        let liveStableIdentities = liveStableIdentitySet()
-
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: false,
-                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentities
+                excludingStableIdentitiesFromSessionSnapshot: liveStableIdentitySet()
             )
             createdWindowIds.append(windowId)
         }
@@ -4191,13 +4139,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore: Bool
     ) -> Bool {
         !isTerminatingApp && !didApplyStartupSessionRestore && !isApplyingSessionRestore
-    }
-
-    nonisolated static func shouldSkipSessionSaveDuringRestore(
-        isApplyingSessionRestore: Bool,
-        includeScrollback: Bool
-    ) -> Bool {
-        isApplyingSessionRestore && !includeScrollback
     }
 
     nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
@@ -6067,7 +6008,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             discardOrphanedMainWindowContext(context)
         }
     }
-
 
     private func mainWindowId(for window: NSWindow) -> UUID? {
         if let context = mainWindowContexts[ObjectIdentifier(window)] {
@@ -8157,8 +8097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !didAttemptStartupSessionRestore {
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
-            // Explicit open intent cancels session restore, so deferred
-            // navigation links can never gain more targets — replay them now.
+            // Explicit open intent cancels restore; deferred links cannot gain targets.
             flushPendingStartupNavigationURLRequests()
         }
     }
@@ -15914,7 +15853,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (this preserves the prior UpdateController.validateMenuItem behavior).
         true
     }
-
 
     private func configureUserNotifications() {
         notificationDelivery.configureUserNotifications(delegate: self)

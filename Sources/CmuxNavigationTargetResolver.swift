@@ -51,6 +51,40 @@ struct CmuxNavigationTargetResolver {
     }
 
     let workspaces: [WorkspaceDescriptor]
+    private let workspaceByRuntimeId: [UUID: WorkspaceDescriptor]
+    private let workspaceByStableId: [UUID: WorkspaceDescriptor]
+    private let surfaceByRuntimeId: [UUID: (workspaceId: UUID, panelId: UUID)]
+    private let surfaceByStableId: [UUID: (workspaceId: UUID, panelId: UUID)]
+
+    init(workspaces: [WorkspaceDescriptor]) {
+        self.workspaces = workspaces
+        var workspaceByRuntimeId: [UUID: WorkspaceDescriptor] = [:]
+        var workspaceByStableId: [UUID: WorkspaceDescriptor] = [:]
+        var surfaceByRuntimeId: [UUID: (workspaceId: UUID, panelId: UUID)] = [:]
+        var surfaceByStableId: [UUID: (workspaceId: UUID, panelId: UUID)] = [:]
+        workspaceByRuntimeId.reserveCapacity(workspaces.count)
+        workspaceByStableId.reserveCapacity(workspaces.count)
+        for workspace in workspaces {
+            if workspaceByRuntimeId[workspace.workspaceId] == nil {
+                workspaceByRuntimeId[workspace.workspaceId] = workspace
+            }
+            if workspaceByStableId[workspace.stableId] == nil {
+                workspaceByStableId[workspace.stableId] = workspace
+            }
+            for surface in workspace.surfaces {
+                if surfaceByRuntimeId[surface.panelId] == nil {
+                    surfaceByRuntimeId[surface.panelId] = (workspace.workspaceId, surface.panelId)
+                }
+                if surfaceByStableId[surface.stableSurfaceId] == nil {
+                    surfaceByStableId[surface.stableSurfaceId] = (workspace.workspaceId, surface.panelId)
+                }
+            }
+        }
+        self.workspaceByRuntimeId = workspaceByRuntimeId
+        self.workspaceByStableId = workspaceByStableId
+        self.surfaceByRuntimeId = surfaceByRuntimeId
+        self.surfaceByStableId = surfaceByStableId
+    }
 
     /// Resolves a parsed navigation target to current-session identifiers, or
     /// nil when no open workspace/pane/surface matches either identity.
@@ -73,23 +107,21 @@ struct CmuxNavigationTargetResolver {
             // The tab may have moved to another workspace since the link was
             // copied (or its workspace was closed); surface identity wins over
             // the stale workspace route. Exact runtime ids beat stable ids.
-            let otherWorkspaces = workspaces.filter { $0.workspaceId != linkedWorkspace?.workspaceId }
-            for candidate in otherWorkspaces
-            where candidate.surfaces.contains(where: { $0.panelId == surfaceId }) {
-                return .surface(workspaceId: candidate.workspaceId, panelId: surfaceId)
+            let excludedWorkspaceId = linkedWorkspace?.workspaceId
+            if let target = surfaceByRuntimeId[surfaceId],
+               target.workspaceId != excludedWorkspaceId {
+                return .surface(workspaceId: target.workspaceId, panelId: target.panelId)
             }
-            for candidate in otherWorkspaces {
-                if let surface = candidate.surfaces.first(where: { $0.stableSurfaceId == surfaceId }) {
-                    return .surface(workspaceId: candidate.workspaceId, panelId: surface.panelId)
-                }
+            if let target = surfaceByStableId[surfaceId],
+               target.workspaceId != excludedWorkspaceId {
+                return .surface(workspaceId: target.workspaceId, panelId: target.panelId)
             }
             return nil
         }
     }
 
     private func resolveWorkspace(_ id: UUID) -> WorkspaceDescriptor? {
-        workspaces.first(where: { $0.workspaceId == id })
-            ?? workspaces.first(where: { $0.stableId == id })
+        workspaceByRuntimeId[id] ?? workspaceByStableId[id]
     }
 
     private func resolveSurface(_ id: UUID, in workspace: WorkspaceDescriptor) -> UUID? {

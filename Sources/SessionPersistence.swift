@@ -1640,72 +1640,10 @@ struct SessionProjectPanelSnapshot: Codable, Sendable {
     }
 }
 
-struct SessionNotificationSnapshot: Codable, Sendable {
-    var id: UUID
-    var title: String
-    var subtitle: String
-    var body: String
-    var createdAt: TimeInterval
-    var isRead: Bool
-    var paneFlash: Bool?
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        title: String,
-        subtitle: String,
-        body: String,
-        createdAt: TimeInterval,
-        isRead: Bool,
-        paneFlash: Bool? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    init(notification: TerminalNotification) {
-        self.init(
-            id: notification.id,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body,
-            createdAt: notification.createdAt.timeIntervalSince1970,
-            isRead: notification.isRead,
-            paneFlash: notification.paneFlash,
-            clickAction: notification.clickAction
-        )
-    }
-
-    func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
-        TerminalNotification(
-            id: id,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            createdAt: Date(timeIntervalSince1970: createdAt),
-            isRead: isRead,
-            paneFlash: paneFlash ?? true,
-            clickAction: clickAction
-        )
-    }
-}
-
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
-    /// Restart-stable surface identifier for durable deep links. Unlike `id` (a
-    /// runtime instance handle re-minted on restore), this value is re-adopted by
-    /// the restored panel so a copied `cmux://workspace/<ws>/surface/<id>` link
-    /// keeps resolving after an app restart. Legacy snapshots leave it nil.
+    /// Restart-stable surface identifier for durable deep links.
+    /// Legacy snapshots leave it nil.
     var stableSurfaceId: UUID? = nil
     var type: PanelType
     var title: String?
@@ -1827,11 +1765,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
     /// legacy or externally-created snapshots can leave it nil.
     var workspaceId: UUID? = nil
-    /// Restart-stable workspace identifier for durable deep links. Unlike
-    /// `workspaceId` (a runtime instance handle re-minted on restore), this value
-    /// is re-adopted by the restored workspace so a copied
-    /// `cmux://workspace/<id>` link keeps resolving after an app restart. Legacy
-    /// snapshots that pre-date durable links leave it nil.
+    /// Restart-stable workspace identifier for durable deep links.
+    /// Legacy snapshots leave it nil.
     var stableId: UUID? = nil
     var processTitle: String
     var customTitle: String?

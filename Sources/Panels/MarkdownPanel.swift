@@ -15,13 +15,7 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 @MainActor
 final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
-    /// Restart-stable surface identifier for durable deep links. See ``Panel/stableSurfaceId``.
-    private(set) var stableSurfaceId = UUID()
-
-    /// See ``Panel/adoptStableSurfaceId(_:)`` — restore/respawn-only write path.
-    func adoptStableSurfaceId(_ id: UUID) {
-        stableSurfaceId = id
-    }
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
 
     /// Absolute path to the markdown file being displayed.

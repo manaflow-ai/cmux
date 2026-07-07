@@ -283,25 +283,8 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unique identifier for this panel
     var id: UUID { get }
 
-    /// Restart-stable identifier for the surface (tab) this panel hosts.
-    ///
-    /// Unlike ``id``, which is a runtime instance handle re-minted every time the
-    /// panel is recreated (including session restore), `stableSurfaceId` is
-    /// persisted in the session snapshot and re-adopted on restore. Durable deep
-    /// links (`cmux://workspace/<workspace>/surface/<surface>`) encode this value
-    /// so a copied link keeps resolving to the same logical tab across app
-    /// restarts. A freshly created panel gets a fresh `stableSurfaceId`.
-    var stableSurfaceId: UUID { get }
-
-    /// Re-adopts a persisted `stableSurfaceId` onto this panel.
-    ///
-    /// The only sanctioned callers are identity-preserving panel replacement
-    /// paths: session/closed-tab restore (`applySessionPanelMetadata`) and
-    /// in-place terminal respawn. Keeping `stableSurfaceId` read-only with this
-    /// explicit adopt method stops arbitrary holders of `any Panel` from
-    /// silently rewriting a panel's durable identity, which would break
-    /// previously copied links.
-    func adoptStableSurfaceId(_ id: UUID)
+    /// Box that owns this panel's restart-stable surface identity.
+    var stableSurfaceIdentity: PanelStableSurfaceIdentity { get }
 
     /// The type of panel
     var panelType: PanelType { get }
@@ -400,6 +383,7 @@ final class CloudVMLoadingPanel: Panel {
 
     let id: UUID
     let workspaceId: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cloudVMLoading
     @Published var startedAt: Date
     @Published var phase: Phase = .loading

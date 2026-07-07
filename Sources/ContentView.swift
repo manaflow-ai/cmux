@@ -13591,11 +13591,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
-        // Links encode the restart-stable id so they survive an app relaunch.
-        let stableIds = ids.map { id in
-            tabManager.tabs.first(where: { $0.id == id })?.stableId ?? id
-        }
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(stableIds)
+        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids, resolvingStableIdsFrom: tabManager.tabs)
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
