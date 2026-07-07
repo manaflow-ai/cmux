@@ -98,6 +98,8 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
             ("0.0.0.0.evil.example/docs", "0.0.0.0.evil.example", "/docs"),
             ("grafana/dashboard", "grafana", "/dashboard"),
             ("grafana/dashboard.json", "grafana", "/dashboard.json"),
+            ("s/dashboard.json", "s", "/dashboard.json"),
+            ("x/app.js", "x", "/app.js"),
             ("wiki/docs/intro.md", "wiki", "/docs/intro.md"),
             ("gitlab/group/project/README.md", "gitlab", "/group/project/README.md"),
         ] {
@@ -145,13 +147,34 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
 
     @Test func fileLineTokensDoNotResolveAsHostPorts() {
         #expect(router.resolveOpenURLTarget("README.md:12") == nil)
+        #expect(router.resolveOpenURLTarget("README.md:443") == nil)
         #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
+        #expect(router.resolveOpenURLTarget("utils.py:42") == nil)
+        #expect(router.resolveOpenURLTarget("lib.rs:10") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:42") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:443") == nil)
         #expect(router.resolveOpenURLTarget("index.ts:3000") == nil)
         #expect(router.resolveOpenURLTarget("server.go:8080") == nil)
         #expect(router.resolveOpenURLTarget("src/main.swift:3000") == nil)
         #expect(router.resolveOpenURLTarget("Sources/App.swift:8080") == nil)
+    }
+
+    @Test func fileLikeTLDHostPortsResolveAsEmbeddedBrowser() throws {
+        for (rawValue, expectedHost, expectedPort) in [
+            ("docs.rs:443", "docs.rs", 443),
+            ("bun.sh:443", "bun.sh", 443),
+            ("example.md:443", "example.md", 443),
+            ("docs.md:8123", "docs.md", 8123),
+        ] {
+            let target = try #require(router.resolveOpenURLTarget(rawValue))
+            guard case let .embeddedBrowser(url) = target else {
+                Issue.record("Expected file-like TLD host:port to route through browser normalization")
+                return
+            }
+            #expect(url.scheme == "https")
+            #expect(url.host == expectedHost)
+            #expect(url.port == expectedPort)
+        }
     }
 
     @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
