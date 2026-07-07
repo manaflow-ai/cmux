@@ -2,8 +2,7 @@ import Foundation
 import Testing
 import CmuxTerminalCore
 
-/// A deterministic stand-in for the browser domain: hosts containing a dot or
-/// equal to localhost are accepted.
+/// A deterministic stand-in for the app normalizer, which accepts non-empty hosts.
 private struct StubHostNormalizer: BrowserHostNormalizing {
     var rejectsEveryHost = false
 
@@ -11,7 +10,6 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         guard !rejectsEveryHost else { return nil }
         let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.contains(".") || trimmed == "localhost" else { return nil }
         return trimmed
     }
 }
@@ -38,6 +36,18 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         }
         #expect(url.scheme == "https")
         #expect(url.host == "example.com")
+        #expect(url.path == "/docs")
+    }
+
+    @Test func schemelessLocalhostPathResolvesAsEmbeddedBrowser() throws {
+        let target = try #require(router.resolveOpenURLTarget("localhost:3000/docs"))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected localhost schemeless path to route to embedded browser")
+            return
+        }
+        #expect(url.scheme == "https")
+        #expect(url.host == "localhost")
+        #expect(url.port == 3000)
         #expect(url.path == "/docs")
     }
 

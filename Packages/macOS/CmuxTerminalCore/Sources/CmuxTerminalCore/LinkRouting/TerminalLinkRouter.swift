@@ -46,6 +46,13 @@ public struct TerminalLinkRouter: Sendable {
             return .external(URL(fileURLWithPath: trimmed))
         }
 
+        if let webURL = schemelessHostPathURL(from: trimmed) {
+            #if DEBUG
+            logDebugEvent("link.resolve result=embeddedBrowser(schemeless) url=\(webURL)")
+            #endif
+            return .embeddedBrowser(webURL)
+        }
+
         if let parsed = URL(string: trimmed),
            let scheme = parsed.scheme?.lowercased() {
             if scheme == "http" || scheme == "https" {
@@ -66,13 +73,6 @@ public struct TerminalLinkRouter: Sendable {
             return .external(parsed)
         }
 
-        if let webURL = schemelessHostPathURL(from: trimmed) {
-            #if DEBUG
-            logDebugEvent("link.resolve result=embeddedBrowser(schemeless) url=\(webURL)")
-            #endif
-            return .embeddedBrowser(webURL)
-        }
-
         #if DEBUG
         logDebugEvent("link.resolve result=nil (schemeless)")
         #endif
@@ -87,7 +87,17 @@ public struct TerminalLinkRouter: Sendable {
         }
 
         let hostCandidate = String(trimmed[..<slashIndex])
-        guard hostNormalizer.normalizedHost(hostCandidate) != nil else { return nil }
+        guard !hostCandidate.hasSuffix(":") else { return nil }
+        guard let normalizedHost = hostNormalizer.normalizedHost(hostCandidate),
+              Self.isSchemelessWebHost(normalizedHost) else {
+            return nil
+        }
         return URL(string: "https://\(trimmed)")
+    }
+
+    private static func isSchemelessWebHost(_ normalizedHost: String) -> Bool {
+        normalizedHost == "localhost"
+            || normalizedHost.contains(".")
+            || normalizedHost.contains(":")
     }
 }
