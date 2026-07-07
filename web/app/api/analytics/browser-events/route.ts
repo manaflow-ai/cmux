@@ -68,7 +68,7 @@ async function forwardBrowserEvent(event: {
           {
             event: event.event,
             distinct_id: event.distinctId,
-            properties: event.properties,
+            properties: postHogProperties(event),
             timestamp: event.timestamp,
           },
         ],
@@ -82,4 +82,18 @@ async function forwardBrowserEvent(event: {
   } catch {
     return { ok: false, status: 502 };
   }
+}
+
+function postHogProperties(event: {
+  readonly event: string;
+  readonly properties: Record<string, unknown>;
+}): Record<string, unknown> {
+  if (event.event === "cmuxterm_waitlist_signup") {
+    return event.properties;
+  }
+
+  return {
+    ...event.properties,
+    $process_person_profile: false,
+  };
 }

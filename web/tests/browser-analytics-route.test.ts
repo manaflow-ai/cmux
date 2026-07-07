@@ -64,6 +64,7 @@ describe("browser analytics route", () => {
         location: "hero",
         platform: "mac",
         nested: { kept: true },
+        $process_person_profile: true,
       },
       timestamp: "2026-07-07T12:00:00.000Z",
     }));
@@ -86,6 +87,7 @@ describe("browser analytics route", () => {
             location: "hero",
             platform: "mac",
             nested: { kept: true },
+            $process_person_profile: false,
           },
           timestamp: "2026-07-07T12:00:00.000Z",
         },
@@ -122,6 +124,7 @@ describe("browser analytics route", () => {
       },
       $set_once: { waitlist_email: "ada@example.com" },
     });
+    expect(body.batch[0].properties).not.toHaveProperty("$process_person_profile");
   });
 
   test("rejects arbitrary event names before forwarding", async () => {
