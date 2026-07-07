@@ -279,9 +279,10 @@ public final class MuxClient implements AutoCloseable {
         if (negotiated > 6 || (negotiated > 5 && !allowProtocolV6Attach)) {
             throw new MuxProtocolMismatchException("unsupported attach protocol " + negotiated);
         }
-        Map<String, Object> params = surfaceParams(surface);
-        params.put("id", nextId());
+        Map<String, Object> params = new LinkedHashMap<>();
         params.put("cmd", "attach-surface");
+        params.put("surface", surface);
+        params.put("id", nextId());
         return MuxStream.open(socketPath, timeout, params);
     }
 
@@ -417,6 +418,7 @@ public final class MuxClient implements AutoCloseable {
                         if (ready == 0) {
                             continue;
                         }
+                        selector.selectedKeys().clear();
                         ByteBuffer bytes = ByteBuffer.allocate(4096);
                         int read = channel.read(bytes);
                         if (read < 0) {
