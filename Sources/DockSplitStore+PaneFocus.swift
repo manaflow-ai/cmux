@@ -6,6 +6,24 @@ extension DockSplitStore {
         AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
 
+    /// Creates a Dock surface from a clicked Dock affordance.
+    ///
+    /// A click on an empty-pane button is explicit Dock interaction, matching the
+    /// Dock intent note from `GhosttyTerminalView.mouseDown` for issue #7522.
+    /// Plain `newSurface` stays intent-neutral for socket-created Dock surfaces.
+    @discardableResult
+    func newSurfaceFromDockAffordance(kind: DockSurfaceKind, inPane paneId: PaneID, window: NSWindow?) -> UUID? {
+        return newSurface(kind: kind, inPane: paneId, focus: true)
+    }
+
+    /// Focuses a Dock pane from a clicked Dock affordance.
+    ///
+    /// A pane-background click is explicit Dock interaction, matching the Dock
+    /// intent note from `GhosttyTerminalView.mouseDown` for issue #7522.
+    func focusPaneFromDockClick(_ paneId: PaneID, window: NSWindow?) {
+        bonsplitController.focusPane(paneId)
+    }
+
     func focusedDockPaneSelection() -> (pane: PaneID?, tab: TabID?) {
         let pane = bonsplitController.focusedPaneId
         return (pane, pane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id })

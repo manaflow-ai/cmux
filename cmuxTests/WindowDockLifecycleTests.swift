@@ -86,6 +86,69 @@ struct WindowDockLifecycleTests {
         try body(appDelegate)
     }
 
+    @Test("Empty Dock pane affordance routes creation shortcuts to the Dock")
+    @MainActor
+    func emptyPaneAffordanceRoutesCreationShortcutsToDock() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            _ = dock.newSurfaceFromDockAffordance(kind: .terminal, inPane: pane, window: nil)
+
+            #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) === dock)
+            let routed = try #require(appDelegate.routeCreateToFocusedDock(
+                .terminal,
+                focusAddressBar: false,
+                preferredWindow: nil
+            ))
+            #expect(dock.containsPanel(routed))
+        }
+    }
+
+    @Test("Dock pane click owns creation shortcut routing")
+    @MainActor
+    func dockPaneClickOwnsCreationShortcutRouting() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            dock.focusPaneFromDockClick(pane, window: nil)
+
+            #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) === dock)
+        }
+    }
+
+    @Test("Plain Dock surface creation does not claim shortcut routing")
+    @MainActor
+    func plainNewSurfaceDoesNotClaimShortcutRouting() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            _ = dock.newSurface(kind: .terminal, inPane: pane, focus: true)
+
+            #expect(appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) == nil)
+        }
+    }
+
     @Test("Each window gets its own independent Dock store")
     @MainActor
     func windowDocksAreIndependentPerWindow() throws {
