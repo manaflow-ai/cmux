@@ -7,6 +7,12 @@ extension DockSplitStore {
         // (`focusedDockStoreForShortcut` -> `preferredRegisteredMainWindowContext`)
         // so the note and the gate cannot disagree when the Dock interaction is
         // windowless; `keyboardFocusCoordinator(for:)` drops nil-window notes.
+        // Deliberately NOT resolved from this store's owning window: the gate
+        // reads intent only through the preferred-window chain, never by store
+        // identity, so a store-owner-bound note would be invisible to the gate
+        // whenever the two resolutions diverge — the exact routing split this
+        // seam closes. Real clicks pass the key window, which is the clicked
+        // store's window (`windowDock(forWindowId:)` renders per-window docks).
         AppDelegate.shared?
             .preferredRegisteredMainWindowContext(preferredWindow: window)?
             .keyboardFocusCoordinator
