@@ -7,10 +7,14 @@ public struct SessionPaneLayoutSnapshot: Codable, Sendable {
     public var panelIds: [UUID]
     /// The selected panel, or `nil` when the pane has no selection.
     public var selectedPanelId: UUID?
+    /// Whether the pane restored in full-width tab mode. `nil` means legacy
+    /// snapshots that predate this field.
+    public var isFullWidthTabMode: Bool?
 
     /// Creates a persisted pane snapshot.
-    public init(panelIds: [UUID], selectedPanelId: UUID?) {
+    public init(panelIds: [UUID], selectedPanelId: UUID?, isFullWidthTabMode: Bool? = nil) {
         self.panelIds = panelIds
         self.selectedPanelId = selectedPanelId
+        self.isFullWidthTabMode = isFullWidthTabMode
     }
 }

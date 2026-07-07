@@ -18,9 +18,14 @@ public import Foundation
 /// `.split(SessionSplitLayoutSnapshot(...))` directly; the package now produces
 /// the identical values and the conformer wraps them, byte-faithfully.
 public protocol SessionLayoutNodeBuilding: Sendable {
-    /// Builds a leaf pane node from the resolved panel-id list and selection,
-    /// reproducing the legacy `.pane(SessionPaneLayoutSnapshot(panelIds:selectedPanelId:))`.
-    static func sessionLayoutBuiltPane(panelIds: [UUID], selectedPanelId: UUID?) -> Self
+    /// Builds a leaf pane node from the resolved panel-id list, selection, and
+    /// full-width mode, reproducing the legacy
+    /// `.pane(SessionPaneLayoutSnapshot(panelIds:selectedPanelId:isFullWidthTabMode:))`.
+    static func sessionLayoutBuiltPane(
+        panelIds: [UUID],
+        selectedPanelId: UUID?,
+        isFullWidthTabMode: Bool?
+    ) -> Self
 
     /// Builds a split node from its orientation, divider position, and the two
     /// already-built children, reproducing the legacy

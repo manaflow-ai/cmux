@@ -27,6 +27,10 @@ public protocol WorkspaceSessionRestoreHosting: AnyObject {
     /// `Workspace.surfaceIdToPanelId`, stored in the pane-tree sub-model).
     var surfaceIdToPanelId: [TabID: UUID] { get }
 
+    /// Whether the live Bonsplit pane is currently in full-width tab mode,
+    /// read while building a persisted layout snapshot.
+    func sessionFullWidthTabMode(forPaneId paneId: UUID) -> Bool
+
     /// Applies a restored divider position to the live split, forwarding to
     /// `BonsplitController.setDividerPosition(_:forSplit:fromExternal:)` with
     /// `fromExternal: true` exactly as the legacy

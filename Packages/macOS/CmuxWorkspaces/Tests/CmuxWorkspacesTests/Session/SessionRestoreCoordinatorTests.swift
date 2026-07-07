@@ -9,20 +9,32 @@ import Bonsplit
 /// the read seam (``SessionLayoutPruning``, used by `applySessionDividerPositions`)
 /// and the build seam (``SessionLayoutNodeBuilding``, used by `sessionLayoutSnapshot`).
 private indirect enum CoordinatorLayoutFixture: SessionLayoutPruning, SessionLayoutNodeBuilding, Equatable {
-    case pane(panelIds: [UUID], selectedPanelId: UUID?)
+    case pane(panelIds: [UUID], selectedPanelId: UUID?, isFullWidthTabMode: Bool? = nil)
     case split(isVertical: Bool, dividerPosition: Double, first: CoordinatorLayoutFixture, second: CoordinatorLayoutFixture)
 
     var sessionLayoutPruneCase: SessionLayoutPruneCase<CoordinatorLayoutFixture> {
         switch self {
-        case let .pane(panelIds, selectedPanelId):
-            return .pane(panelIds: panelIds, selectedPanelId: selectedPanelId)
+        case let .pane(panelIds, selectedPanelId, isFullWidthTabMode):
+            return .pane(
+                panelIds: panelIds,
+                selectedPanelId: selectedPanelId,
+                isFullWidthTabMode: isFullWidthTabMode
+            )
         case let .split(_, dividerPosition, first, second):
             return .split(dividerPosition: dividerPosition, first: first, second: second)
         }
     }
 
-    static func sessionLayoutPrunedPane(panelIds: [UUID], selectedPanelId: UUID?) -> CoordinatorLayoutFixture {
-        .pane(panelIds: panelIds, selectedPanelId: selectedPanelId)
+    static func sessionLayoutPrunedPane(
+        panelIds: [UUID],
+        selectedPanelId: UUID?,
+        isFullWidthTabMode: Bool?
+    ) -> CoordinatorLayoutFixture {
+        .pane(
+            panelIds: panelIds,
+            selectedPanelId: selectedPanelId,
+            isFullWidthTabMode: isFullWidthTabMode
+        )
     }
 
     func sessionLayoutPrunedSplit(
@@ -36,8 +48,16 @@ private indirect enum CoordinatorLayoutFixture: SessionLayoutPruning, SessionLay
         return .split(isVertical: isVertical, dividerPosition: dividerPosition, first: first, second: second)
     }
 
-    static func sessionLayoutBuiltPane(panelIds: [UUID], selectedPanelId: UUID?) -> CoordinatorLayoutFixture {
-        .pane(panelIds: panelIds, selectedPanelId: selectedPanelId)
+    static func sessionLayoutBuiltPane(
+        panelIds: [UUID],
+        selectedPanelId: UUID?,
+        isFullWidthTabMode: Bool?
+    ) -> CoordinatorLayoutFixture {
+        .pane(
+            panelIds: panelIds,
+            selectedPanelId: selectedPanelId,
+            isFullWidthTabMode: isFullWidthTabMode
+        )
     }
 
     static func sessionLayoutBuiltSplit(
@@ -61,6 +81,10 @@ private final class FakeRestoreHost: WorkspaceSessionRestoreHosting {
 
     func applySessionDividerPosition(_ position: CGFloat, forSplit splitID: UUID) {
         appliedDividers.append((position, splitID))
+    }
+
+    func sessionFullWidthTabMode(forPaneId paneId: UUID) -> Bool {
+        false
     }
 }
 

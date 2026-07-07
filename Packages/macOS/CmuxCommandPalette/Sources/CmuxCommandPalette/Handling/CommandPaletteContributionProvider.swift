@@ -1127,6 +1127,18 @@ public struct CommandPaletteContributionProvider {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleFullWidthTab",
+                title: constant(split.toggleFullWidthTabTitle),
+                subtitle: constant(split.toggleSplitZoomSubtitle),
+                keywords: ["full", "width", "tab", "title", "header", "solo"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.hasFocusedPanel) &&
+                    context.bool(CommandPaletteContextKeys.panelHasPane)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: constant(workspace.equalizeSplitsTitle),
                 subtitle: workspaceSubtitle,

@@ -3628,7 +3628,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 terminalSplitBrowserDownTitle: String(localized: "command.terminalSplitBrowserDown.title", defaultValue: "Split Browser Down"),
                 terminalSplitBrowserDownSubtitle: String(localized: "command.terminalSplitBrowserDown.subtitle", defaultValue: "Terminal Layout"),
                 toggleSplitZoomTitle: String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom"),
-                toggleSplitZoomSubtitle: String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")
+                toggleSplitZoomSubtitle: String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout"),
+                toggleFullWidthTabTitle: String(localized: "command.toggleFullWidthTab.title", defaultValue: "Toggle Full Width Tab")
             )
         )
     }
@@ -4386,6 +4387,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
             if !tabManager.toggleFocusedSplitZoom() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.toggleFullWidthTab") {
+            if !tabManager.toggleFocusedFullWidthTab() {
                 NSSound.beep()
             }
         }

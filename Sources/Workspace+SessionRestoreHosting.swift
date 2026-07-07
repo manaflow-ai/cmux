@@ -15,6 +15,10 @@ import Foundation
 /// `applySessionDividerPositions` body did; the controller treats an unknown
 /// split id as a no-op, preserving the legacy optional handling.
 extension Workspace: WorkspaceSessionRestoreHosting {
+    func sessionFullWidthTabMode(forPaneId paneId: UUID) -> Bool {
+        bonsplitController.isFullWidthTabMode(inPane: PaneID(id: paneId))
+    }
+
     func applySessionDividerPosition(_ position: CGFloat, forSplit splitID: UUID) {
         _ = bonsplitController.setDividerPosition(
             position,

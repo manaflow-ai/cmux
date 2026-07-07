@@ -654,6 +654,7 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
         public let terminalSplitBrowserDownSubtitle: String
         public let toggleSplitZoomTitle: String
         public let toggleSplitZoomSubtitle: String
+        public let toggleFullWidthTabTitle: String
 
         public init(
             terminalSplitRightTitle: String,
@@ -665,7 +666,8 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
             terminalSplitBrowserDownTitle: String,
             terminalSplitBrowserDownSubtitle: String,
             toggleSplitZoomTitle: String,
-            toggleSplitZoomSubtitle: String
+            toggleSplitZoomSubtitle: String,
+            toggleFullWidthTabTitle: String
         ) {
             self.terminalSplitRightTitle = terminalSplitRightTitle
             self.terminalSplitRightSubtitle = terminalSplitRightSubtitle
@@ -677,6 +679,7 @@ public struct CommandPaletteContributionStrings: Sendable, Equatable {
             self.terminalSplitBrowserDownSubtitle = terminalSplitBrowserDownSubtitle
             self.toggleSplitZoomTitle = toggleSplitZoomTitle
             self.toggleSplitZoomSubtitle = toggleSplitZoomSubtitle
+            self.toggleFullWidthTabTitle = toggleFullWidthTabTitle
         }
     }
 }

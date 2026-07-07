@@ -10,9 +10,16 @@ import Foundation
 extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutNodeBuilding {
     public static func sessionLayoutBuiltPane(
         panelIds: [UUID],
-        selectedPanelId: UUID?
+        selectedPanelId: UUID?,
+        isFullWidthTabMode: Bool?
     ) -> SessionWorkspaceLayoutSnapshot {
-        .pane(SessionPaneLayoutSnapshot(panelIds: panelIds, selectedPanelId: selectedPanelId))
+        .pane(
+            SessionPaneLayoutSnapshot(
+                panelIds: panelIds,
+                selectedPanelId: selectedPanelId,
+                isFullWidthTabMode: isFullWidthTabMode
+            )
+        )
     }
 
     public static func sessionLayoutBuiltSplit(

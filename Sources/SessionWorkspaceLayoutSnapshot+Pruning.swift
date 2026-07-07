@@ -10,7 +10,11 @@ extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutPruning {
     public var sessionLayoutPruneCase: SessionLayoutPruneCase<SessionWorkspaceLayoutSnapshot> {
         switch self {
         case .pane(let pane):
-            return .pane(panelIds: pane.panelIds, selectedPanelId: pane.selectedPanelId)
+            return .pane(
+                panelIds: pane.panelIds,
+                selectedPanelId: pane.selectedPanelId,
+                isFullWidthTabMode: pane.isFullWidthTabMode
+            )
         case .split(let split):
             return .split(
                 dividerPosition: split.dividerPosition,
@@ -22,9 +26,16 @@ extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutPruning {
 
     public static func sessionLayoutPrunedPane(
         panelIds: [UUID],
-        selectedPanelId: UUID?
+        selectedPanelId: UUID?,
+        isFullWidthTabMode: Bool?
     ) -> SessionWorkspaceLayoutSnapshot {
-        .pane(SessionPaneLayoutSnapshot(panelIds: panelIds, selectedPanelId: selectedPanelId))
+        .pane(
+            SessionPaneLayoutSnapshot(
+                panelIds: panelIds,
+                selectedPanelId: selectedPanelId,
+                isFullWidthTabMode: isFullWidthTabMode
+            )
+        )
     }
 
     public func sessionLayoutPrunedSplit(

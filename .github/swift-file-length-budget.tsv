@@ -4,10 +4,10 @@
 35600	CLI/cmux.swift
 12947	Sources/AppDelegate.swift
 12345	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10898	Sources/Workspace.swift
+10911	Sources/Workspace.swift
 10477	Sources/GhosttyTerminalView.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-8974	Sources/ContentView.swift
+8980	Sources/ContentView.swift
 8017	CLI/cmux_open.swift
 7743	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7457	Sources/Panels/BrowserPanel.swift
@@ -20,7 +20,7 @@
 5585	cmuxTests/BrowserConfigTests.swift
 5443	Sources/TerminalController.swift
 4888	Sources/TextBoxInput.swift
-4651	Sources/TabManager.swift
+4659	Sources/TabManager.swift
 4362	cmuxTests/BrowserPanelTests.swift
 4008	cmuxTests/TabManagerUnitTests.swift
 3964	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
@@ -72,8 +72,8 @@
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1197	cmuxTests/VMDefaultCloudCommandTests.swift
 1172	Sources/TerminalController+ControlDebugContext.swift
+1155	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionProvider.swift
 1148	cmuxTests/PiVaultAgentPersistenceTests.swift
-1143	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionProvider.swift
 1130	Sources/TerminalController+ControlWorkspaceContext.swift
 1123	cmuxTests/AgentHibernationTests.swift
 1093	Sources/RemoteTmuxControlConnection.swift
@@ -133,8 +133,8 @@
 693	cmuxTests/TaskManagerResourcesTests.swift
 690	Sources/App/ShortcutRoutingSupport.swift
 688	cmuxTests/TerminalNotificationQueueTests.swift
+685	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionStrings.swift
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
-682	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionStrings.swift
 679	cmuxTests/SessionPersistenceResumeBindingTests.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 676	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift

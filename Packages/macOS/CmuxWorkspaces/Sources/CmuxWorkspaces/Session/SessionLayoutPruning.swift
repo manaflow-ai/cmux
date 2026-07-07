@@ -12,7 +12,7 @@ public import Foundation
 /// rebuild the same concrete type.
 public enum SessionLayoutPruneCase<Node: Sendable>: Sendable {
     /// A leaf pane: the panel ids it hosts and the selected panel.
-    case pane(panelIds: [UUID], selectedPanelId: UUID?)
+    case pane(panelIds: [UUID], selectedPanelId: UUID?, isFullWidthTabMode: Bool?)
     /// A split: its divider position and the two child subtrees.
     case split(dividerPosition: Double, first: Node, second: Node)
 }
@@ -32,7 +32,11 @@ public protocol SessionLayoutPruning: Sendable {
     var sessionLayoutPruneCase: SessionLayoutPruneCase<Self> { get }
 
     /// Rebuilds a leaf pane node from a surviving panel-id list and selection.
-    static func sessionLayoutPrunedPane(panelIds: [UUID], selectedPanelId: UUID?) -> Self
+    static func sessionLayoutPrunedPane(
+        panelIds: [UUID],
+        selectedPanelId: UUID?,
+        isFullWidthTabMode: Bool?
+    ) -> Self
 
     /// Rebuilds a split node from its divider position and pruned children,
     /// preserving the original split's orientation (carried by the conformer).
@@ -45,7 +49,7 @@ extension SessionLayoutPruning {
     /// the legacy `Workspace.prunedSessionLayoutSnapshot(_:keeping:)` did.
     public func sessionLayoutPruned(keeping panelIdsToKeep: Set<UUID>) -> Self? {
         switch sessionLayoutPruneCase {
-        case let .pane(panelIds, selectedPanelId):
+        case let .pane(panelIds, selectedPanelId, isFullWidthTabMode):
             let survivingPanelIds = panelIds.filter { panelIdsToKeep.contains($0) }
             guard !survivingPanelIds.isEmpty else { return nil }
             let resolvedSelectedPanelId = selectedPanelId.flatMap {
@@ -53,7 +57,8 @@ extension SessionLayoutPruning {
             } ?? survivingPanelIds.first
             return Self.sessionLayoutPrunedPane(
                 panelIds: survivingPanelIds,
-                selectedPanelId: resolvedSelectedPanelId
+                selectedPanelId: resolvedSelectedPanelId,
+                isFullWidthTabMode: isFullWidthTabMode
             )
         case let .split(dividerPosition, first, second):
             let prunedFirst = first.sessionLayoutPruned(keeping: panelIdsToKeep)

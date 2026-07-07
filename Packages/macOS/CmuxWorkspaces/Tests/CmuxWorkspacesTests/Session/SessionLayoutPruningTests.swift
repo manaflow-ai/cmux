@@ -7,13 +7,17 @@ import Testing
 /// orientation, and two children) so the prune algorithm is exercised exactly
 /// as the app will drive it, without importing the app target.
 private indirect enum LayoutFixture: SessionLayoutPruning, Equatable {
-    case pane(panelIds: [UUID], selectedPanelId: UUID?)
+    case pane(panelIds: [UUID], selectedPanelId: UUID?, isFullWidthTabMode: Bool? = nil)
     case split(orientation: String, dividerPosition: Double, first: LayoutFixture, second: LayoutFixture)
 
     var sessionLayoutPruneCase: SessionLayoutPruneCase<LayoutFixture> {
         switch self {
-        case let .pane(panelIds, selectedPanelId):
-            return .pane(panelIds: panelIds, selectedPanelId: selectedPanelId)
+        case let .pane(panelIds, selectedPanelId, isFullWidthTabMode):
+            return .pane(
+                panelIds: panelIds,
+                selectedPanelId: selectedPanelId,
+                isFullWidthTabMode: isFullWidthTabMode
+            )
         case let .split(_, dividerPosition, first, second):
             return .split(dividerPosition: dividerPosition, first: first, second: second)
         }
@@ -21,9 +25,14 @@ private indirect enum LayoutFixture: SessionLayoutPruning, Equatable {
 
     static func sessionLayoutPrunedPane(
         panelIds: [UUID],
-        selectedPanelId: UUID?
+        selectedPanelId: UUID?,
+        isFullWidthTabMode: Bool?
     ) -> LayoutFixture {
-        .pane(panelIds: panelIds, selectedPanelId: selectedPanelId)
+        .pane(
+            panelIds: panelIds,
+            selectedPanelId: selectedPanelId,
+            isFullWidthTabMode: isFullWidthTabMode
+        )
     }
 
     func sessionLayoutPrunedSplit(

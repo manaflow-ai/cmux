@@ -109,7 +109,8 @@ struct CommandPaletteContributionProviderTests {
                 terminalSplitDownTitle: "Split Down", terminalSplitDownSubtitle: "Terminal Layout",
                 terminalSplitBrowserRightTitle: "Split Browser Right", terminalSplitBrowserRightSubtitle: "Terminal Layout",
                 terminalSplitBrowserDownTitle: "Split Browser Down", terminalSplitBrowserDownSubtitle: "Terminal Layout",
-                toggleSplitZoomTitle: "Pane Zoom", toggleSplitZoomSubtitle: "Terminal Layout"
+                toggleSplitZoomTitle: "Pane Zoom", toggleSplitZoomSubtitle: "Terminal Layout",
+                toggleFullWidthTabTitle: "Full Width Tab"
             )
         )
     }

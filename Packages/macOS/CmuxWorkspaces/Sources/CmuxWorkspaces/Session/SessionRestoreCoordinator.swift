@@ -78,9 +78,13 @@ public final class SessionRestoreCoordinator<Layout> where Layout: SessionLayout
         case .pane(let pane):
             let panelIds = sessionPanelIDs(for: pane)
             let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
+            let isFullWidthTabMode = UUID(uuidString: pane.id).map { paneId in
+                host?.sessionFullWidthTabMode(forPaneId: paneId) ?? false
+            }
             return Layout.sessionLayoutBuiltPane(
                 panelIds: panelIds,
-                selectedPanelId: selectedPanelId
+                selectedPanelId: selectedPanelId,
+                isFullWidthTabMode: isFullWidthTabMode
             )
         case .split(let split):
             return Layout.sessionLayoutBuiltSplit(
