@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const loader = "scripts/load-dev-env.sh";
 const webDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const loader = join(webDir, "scripts/load-dev-env.sh");
 
 describe("load-dev-env", () => {
   test("boots local dev auth without a secrets file", () => {
@@ -100,6 +100,49 @@ describe("load-dev-env", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("stripe dev reset honors an explicit real Stack secret over a placeholder secret file", () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-dev-reset-real-secret-home-"));
+    try {
+      const secrets = join(home, ".secrets");
+      mkdirSync(secrets, { recursive: true });
+      writeFileSync(
+        join(secrets, "cmuxterm-dev.env"),
+        [
+          "NEXT_PUBLIC_STACK_PROJECT_ID=454ecd03-1db2-4050-845e-4ce5b0cd9895",
+          "STACK_SECRET_SERVER_KEY=cmux-local-dev-placeholder",
+        ].join("\n"),
+      );
+
+      const bin = join(home, "bin");
+      mkdirSync(bin, { recursive: true });
+      writeExecutable(join(bin, "curl"), "#!/usr/bin/env sh\nprintf '{\"items\":[]}\\n200\\n'\n");
+      writeExecutable(
+        join(bin, "stripe"),
+        "#!/usr/bin/env sh\nprintf 'test_mode_api_key = sk_test_fake\\n'\n",
+      );
+
+      const result = spawnSync(
+        "bash",
+        ["scripts/stripe/dev-reset.sh", "person@example.com"],
+        {
+          cwd: webDir,
+          env: {
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            HOME: home,
+            NODE_ENV: process.env.NODE_ENV ?? "test",
+            STACK_SECRET_SERVER_KEY: "real-stack-secret",
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("no Stack user found with primary email person@example.com");
+      expect(result.stderr).not.toContain("local web dev placeholder is not enough");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 function writeExecutable(path: string, contents: string) {
@@ -113,8 +156,9 @@ function sourceLoader(
   const result = spawnSync(
     "bash",
     [
-      "-lc",
+      "-c",
       [
+        "set -e",
         `source ${loader}`,
         'printf "project=%s\\n" "$NEXT_PUBLIC_STACK_PROJECT_ID"',
         'printf "client=%s\\n" "$NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"',

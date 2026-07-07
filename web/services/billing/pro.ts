@@ -125,6 +125,15 @@ export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer & {
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
 export type BillingManagementKind = "stripe" | "external" | "none";
 
+type BillingTeamUserLike = {
+  readonly selectedTeam?: unknown;
+  readonly listTeams?: () => Promise<readonly unknown[]>;
+};
+
+type BillingTeamLike = {
+  readonly id?: string;
+};
+
 export type ProPlanStatus = {
   readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
   readonly isPro: boolean;
@@ -239,6 +248,15 @@ export async function hasActiveTeamSubscriptionForTeam(
   }
 }
 
+export async function isTestflightEligible(
+  user: ProReconcileUser & BillingTeamUserLike,
+): Promise<boolean> {
+  const status = await resolveProPlanStatus(user);
+  if (status.isPro) return true;
+  const team = await billingTeamForUser(user);
+  return team?.id ? hasActiveTeamSubscriptionForTeam(team.id) : false;
+}
+
 export function metadataPlanId(raw: unknown): string | null {
   return planIdFromMetadata(proMetadataRecord(raw));
 }
@@ -303,6 +321,21 @@ function hasManualVmOverride(metadata: Record<string, unknown>): boolean {
 function planIdFromMetadata(metadata: Record<string, unknown>): string | null {
   const value = metadata.cmuxPlan;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function billingTeamForUser(user: BillingTeamUserLike): Promise<BillingTeamLike | null> {
+  const selected = teamFromUnknown(user.selectedTeam);
+  if (selected) return selected;
+  const teams = typeof user.listTeams === "function"
+    ? (await user.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeamLike => !!team)
+    : [];
+  return teams.length === 1 ? teams[0] : null;
+}
+
+function teamFromUnknown(value: unknown): BillingTeamLike | null {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as { id?: unknown }).id;
+  return typeof id === "string" && id ? { id } : null;
 }
 
 function isMissingDatabaseConfig(error: unknown): boolean {

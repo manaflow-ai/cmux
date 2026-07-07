@@ -21,17 +21,22 @@ import {
 } from "../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
+  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
+import {
+  imageUsesBakedFreestyleSignedAdmin,
+  resolveVmImage,
+} from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
-import { resolveVmImage } from "../../../services/vms/images/resolver";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
+  vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
   createVm,
@@ -161,7 +166,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle") {
+          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -284,6 +289,10 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_active": entitlements.maxActiveVms,
         });
 
+        if (isVmProGateBlocked(entitlements)) {
+          return vmRequiresProResponse();
+        }
+
         let created;
         try {
           created = await runVmWorkflow(createVm({
@@ -296,6 +305,7 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
+            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             timing,
           }));
         } catch (err) {

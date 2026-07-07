@@ -233,7 +233,7 @@ extension RemoteDaemonRPCClient {
     }
 
     static func usesSocketForwardTransport(configuration: WorkspaceRemoteConfiguration) -> Bool {
-        configuration.transport == .ssh && configuration.skipDaemonBootstrap
+        configuration.transport == .ssh && configuration.skipDaemonBootstrap && configuration.daemonWebSocketEndpoint == nil
     }
 
     static func allocateLoopbackPort() throws -> Int {

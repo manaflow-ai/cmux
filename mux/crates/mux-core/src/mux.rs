@@ -45,11 +45,21 @@ pub struct Mux {
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
+    #[cfg(test)]
+    test_surface_runtime: bool,
     pub session: String,
 }
 
 impl Mux {
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
+        Self::new_with_test_surface_runtime(session, surface_options, false)
+    }
+
+    fn new_with_test_surface_runtime(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+    ) -> Arc<Self> {
         let session = session.into();
         let mut surface_options = surface_options;
         surface_options.browser_session_name = session.clone();
@@ -67,8 +77,18 @@ impl Mux {
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
+            #[cfg(test)]
+            test_surface_runtime,
             session,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+    ) -> Arc<Self> {
+        Self::new_with_test_surface_runtime(session, surface_options, true)
     }
 
     fn next_id(&self) -> u64 {
@@ -107,6 +127,13 @@ impl Mux {
             opts.cols = cols.max(1);
             opts.rows = rows.max(1);
         }
+        #[cfg(test)]
+        let surface = if self.test_surface_runtime {
+            Surface::spawn_for_test(id, opts, Arc::downgrade(self))?
+        } else {
+            Surface::spawn(id, opts, Arc::downgrade(self))?
+        };
+        #[cfg(not(test))]
         let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
         Ok(surface)
@@ -926,6 +953,21 @@ impl Mux {
     }
 }
 
+impl Drop for Mux {
+    fn drop(&mut self) {
+        if let Ok(state) = self.state.get_mut() {
+            for surface in state.surfaces.values() {
+                surface.kill();
+            }
+        }
+        if let Ok(runtime) = self.browser_runtime.get_mut() {
+            if let Some(runtime) = runtime.take() {
+                runtime.shutdown();
+            }
+        }
+    }
+}
+
 /// Every surface in a screen (all panes, all tabs).
 fn screen_tabs(state: &State, screen: &Screen) -> Vec<SurfaceId> {
     let mut pane_ids = Vec::new();
@@ -1124,10 +1166,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn test_mux() -> Arc<Mux> {
-        // A child that stays alive without doing anything.
-        let opts =
-            SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
-        Mux::new("test", opts)
+        Mux::new_for_test("test", SurfaceOptions::default())
     }
 
     fn seed_split_ratio_tree(mux: &Mux) -> (PaneId, PaneId, PaneId) {
@@ -1192,6 +1231,28 @@ mod tests {
         mux.close_pane(p3);
         assert_eq!(mux.surface_count(), 0);
         mux.with_state(|s| assert!(s.workspaces.is_empty()));
+    }
+
+    #[test]
+    fn structural_test_mux_can_create_many_surfaces_without_ptys() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let pane = mux.with_state(|s| s.pane_of(first.id).unwrap());
+
+        for _ in 0..450 {
+            mux.new_tab(Some(pane), None, None).unwrap();
+        }
+
+        assert_eq!(mux.surface_count(), 451);
+        mux.with_state(|s| {
+            let pane = &s.panes[&pane];
+            assert_eq!(pane.tabs.len(), 451);
+            for surface in pane.tabs.iter().filter_map(|id| s.surfaces.get(id)) {
+                assert_eq!(surface.kind(), crate::surface::SurfaceKind::Pty);
+                assert_eq!(surface.size(), (120, 40));
+                assert!(!surface.is_dead());
+            }
+        });
     }
 
     #[test]

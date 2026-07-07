@@ -2789,6 +2789,12 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
+    // both the backend create idempotency key and the local daemon slot so every open,
+    // reconnect, session restore, and mobile attach targets the same provider VM once
+    // creation succeeds. Do not rotate it without a migration.
+    private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
+    private static let persistentCloudVMWorkspaceName = "sshd"
     private static let claudeCodeStatusKey = "claude_code"
 
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
@@ -2877,7 +2883,7 @@ struct CMUXCLI {
             return nil
         }
         let normalized = trimmed.lowercased()
-        guard normalized == "e2b" || normalized == "freestyle" else {
+        guard normalized == "e2b" || normalized == "freestyle" || normalized == "daytona" else {
             throw CLIError(message: """
                 vm new: unsupported Cloud VM service override.
 
@@ -2891,6 +2897,18 @@ struct CMUXCLI {
     private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
 
     private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
+
+    private static func validatedVMSessionIdentifier(_ value: String?, flag: String) throws -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        let safePattern = "^[A-Za-z0-9._:-]{1,200}$"
+        guard trimmed.range(of: safePattern, options: .regularExpression) != nil else {
+            throw CLIError(message: "\(flag) must contain only letters, numbers, dot, underscore, colon, or dash.")
+        }
+        return trimmed
+    }
 
     private static func vmCreateIdempotencyStoreURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -2918,7 +2936,14 @@ struct CMUXCLI {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
+    private static func activeVMCreateIdempotency(image: String?, provider: String?, usesPersistentDefaultCloud: Bool) throws -> ActiveVMCreateIdempotency {
+        if usesPersistentDefaultCloud {
+            return ActiveVMCreateIdempotency(
+                signature: "persistent-cloud-vm-slot",
+                key: persistentCloudVMSlotID
+            )
+        }
+
         let url = vmCreateIdempotencyStoreURL()
         let signature = vmCreateIdempotencySignature(image: image, provider: provider)
         let now = Date().timeIntervalSince1970
@@ -2942,6 +2967,13 @@ struct CMUXCLI {
         guard store.records[active.signature]?.key == active.key else { return }
         store.records.removeValue(forKey: active.signature)
         try? saveVMCreateIdempotencyStore(store, to: url)
+    }
+
+    private static func usesPersistentDefaultFreestyleCloud(image: String?, providerOption: String?) -> Bool {
+        let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedImage?.isEmpty != false else { return false }
+        let normalizedProvider = providerOption?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedProvider == nil || normalizedProvider == ""
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
@@ -3653,13 +3685,73 @@ struct CMUXCLI {
                     let provider = (vm["provider"] as? String) ?? "?"
                     let status = (vm["status"] as? String) ?? "unknown"
                     let image = (vm["image"] as? String) ?? "?"
-                    print("\(id)  [\(provider)]  \(status)  \(image)")
+                    print("\(id)  [\(provider)] \(status)  \(image)")
+                }
+
+            case "status", "info":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm status <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                let response = try client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let id = (response["id"] as? String) ?? vmId
+                let provider = (response["provider"] as? String) ?? "?"
+                let image = (response["image"] as? String) ?? "?"
+                let status = (response["status"] as? String) ?? "unknown"
+                print("\(id)  [\(provider)] \(status)")
+                print("image: \(image)")
+
+            case "base":
+                let baseAction = rest.first?.lowercased()
+                if baseAction == nil || baseAction == "open" {
+                    let baseArgs = baseAction == "open" ? Array(rest.dropFirst()) : rest
+                    try runPersistentBaseOpenCommand(
+                        args: baseArgs,
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat,
+                        windowId: windowId
+                    )
+                } else if baseAction == "reset" {
+                    try runPersistentBaseResetCommand(
+                        args: Array(rest.dropFirst()),
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat,
+                        windowId: windowId
+                    )
+                } else if rest.first?.hasPrefix("-") == true {
+                    try runPersistentBaseOpenCommand(
+                        args: rest,
+                        client: client,
+                        jsonOutput: jsonOutput,
+                        idFormat: idFormat,
+                        windowId: windowId
+                    )
+                } else {
+                    throw CLIError(message: """
+                        Usage:
+                          cmux vm base open [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+                          cmux vm base reset [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+
+                        Base is your persistent cloud workspace. Opening it reuses the
+                        same VM. Reset creates a new Base generation and retains the old VM.
+                        """)
                 }
 
             case "new", "create":
                 let (imageOpt, rem0) = parseOption(rest, name: "--image")
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
-                let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+                let (targetWorkspaceOpt, rem1a) = parseOption(rem1, name: "--workspace")
+                let (windowOpt, rem2) = parseOption(rem1a, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
@@ -3669,6 +3761,7 @@ struct CMUXCLI {
                         Known flags:
                           --image <image-id>
                           --provider <provider>
+                          --workspace <workspace-id>
                           --detach, -d
 
                         Try:
@@ -3695,8 +3788,19 @@ struct CMUXCLI {
                 var params: [String: Any] = [:]
                 if let imageOpt { params["image"] = imageOpt }
                 if let normalizedProvider { params["provider"] = normalizedProvider }
+                let usesPersistentDefaultCloud = Self.usesPersistentDefaultFreestyleCloud(
+                    image: imageOpt,
+                    providerOption: providerOpt
+                )
+                if usesPersistentDefaultCloud {
+                    params["provider"] = "freestyle"
+                }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
-                let idempotency = try Self.activeVMCreateIdempotency(image: imageOpt, provider: normalizedProvider)
+                let idempotency = try Self.activeVMCreateIdempotency(
+                    image: imageOpt,
+                    provider: normalizedProvider,
+                    usesPersistentDefaultCloud: usesPersistentDefaultCloud
+                )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
                 let response = try client.sendV2(
@@ -3725,19 +3829,141 @@ struct CMUXCLI {
                     print("  image:    \(image)")
                     break
                 }
-                // Create the VM then drop the user into a cmux-managed workspace. Freestyle
-                // attaches over SSH; E2B attaches over cmuxd-remote WebSocket PTY.
+                // Create the VM then drop the user into a cmux-managed workspace. Managed
+                // Cloud VMs use the cmuxd-remote WebSocket PTY so they can reconnect and
+                // attach from mobile clients without minting foreground SSH passwords.
                 let shortId = String(id.prefix(8))
-                print("Created \(id)  [\(provider)]  \(image)")
+                let createdMessage = String(
+                    format: String(
+                        localized: "cli.vm.create.createdCloudVM",
+                        defaultValue: "Created Cloud VM %@"
+                    ),
+                    id
+                )
+                print(createdMessage)
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(shortId)",
+                    workspaceName: usesPersistentDefaultCloud ? Self.persistentCloudVMWorkspaceName : "vm:\(shortId)",
                     windowRaw: targetWindow,
+                    targetWorkspaceId: targetWorkspaceOpt,
+                    forceSSH: false,
+                    shouldPinWorkspaceToTop: usesPersistentDefaultCloud,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
                 Self.clearVMCreateIdempotency(idempotency)
+
+            case "snapshot", "checkpoint":
+                let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
+                guard let vmId = snapshotArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm snapshot <id> [--name <name>]
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                var params: [String: Any] = ["id": vmId]
+                if let nameOpt { params["name"] = nameOpt }
+                let response = try client.sendV2(method: "vm.snapshot", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let snapshotId = (response["snapshot_id"] as? String) ?? (response["id"] as? String) ?? "?"
+                print("OK snapshot=\(snapshotId)")
+
+            case "fork":
+                let (nameOpt, rem0) = parseOption(rest, name: "--name")
+                let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+                let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
+                let vmArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                guard let vmId = vmArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d]
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                var params: [String: Any] = [
+                    "id": vmId,
+                    "idempotency_key": UUID().uuidString.lowercased(),
+                ]
+                if let nameOpt { params["name"] = nameOpt }
+                let response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let id = (response["id"] as? String) ?? "?"
+                let snapshotId = response["snapshot_id"] as? String
+                let provider = (response["provider"] as? String) ?? "?"
+                let image = (response["image"] as? String) ?? "?"
+                if detach {
+                    print("OK \(id)")
+                    print("  provider: \(provider)")
+                    print("  image:    \(image)")
+                    print("  snapshot: \(snapshotId ?? "native fork")")
+                    break
+                }
+                print("Forked Cloud VM \(id)")
+                print("  snapshot: \(snapshotId ?? "native fork")")
+                try vmOpenShell(
+                    id: id,
+                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    windowRaw: targetWindow,
+                    forceSSH: false,
+                    shouldPinWorkspaceToTop: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+
+            case "restore":
+                let (providerOpt, rem0) = parseOption(rest, name: "--provider")
+                let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+                let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
+                let restoreArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                guard let snapshotId = restoreArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+                    """)
+                }
+                let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
+                let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                var params: [String: Any] = [
+                    "snapshot_id": snapshotId,
+                    "idempotency_key": UUID().uuidString.lowercased(),
+                ]
+                if let normalizedProvider { params["provider"] = normalizedProvider }
+                let response = try client.sendV2(method: "vm.restore", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let id = (response["id"] as? String) ?? "?"
+                let provider = (response["provider"] as? String) ?? normalizedProvider ?? "?"
+                let image = (response["image"] as? String) ?? snapshotId
+                if detach {
+                    print("OK \(id)")
+                    print("  provider: \(provider)")
+                    print("  image:    \(image)")
+                    break
+                }
+                print("Restored Cloud VM \(id)")
+                try vmOpenShell(
+                    id: id,
+                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    windowRaw: targetWindow,
+                    forceSSH: false,
+                    shouldPinWorkspaceToTop: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
 
             case "shell", "attach":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
@@ -3754,6 +3980,8 @@ struct CMUXCLI {
                     id: vmId,
                     workspaceName: "vm:\(shortId)",
                     windowRaw: windowOpt ?? windowId,
+                    forceSSH: false,
+                    shouldPinWorkspaceToTop: false,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
@@ -3790,6 +4018,8 @@ struct CMUXCLI {
                     id: vmId,
                     workspaceName: "vm:\(shortId)",
                     windowRaw: windowOpt ?? windowId,
+                    forceSSH: true,
+                    shouldPinWorkspaceToTop: false,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
@@ -3863,13 +4093,76 @@ struct CMUXCLI {
                     throw CLIError(message: "exit \(exitCode)")
                 }
 
+            case "tools", "tool-inspector":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm tools <id>")
+                }
+                let command = [
+                    "printf 'shell: '; printf '%s\\n' \"$SHELL\"",
+                    "for tool in zsh git gh htop btop node bun python3; do if command -v \"$tool\" >/dev/null 2>&1; then printf '%-8s %s\\n' \"$tool\" \"$(command -v \"$tool\")\"; else printf '%-8s missing\\n' \"$tool\"; fi; done",
+                    "zsh --version 2>/dev/null || true",
+                    "gh --version 2>/dev/null | head -n 1 || true",
+                ].joined(separator: "; ")
+                let response = try client.sendV2(method: "vm.exec", params: ["id": vmId, "command": command, "timeout_ms": 30_000], responseTimeout: 35)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print((response["stdout"] as? String) ?? "")
+
+            case "ports":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm ports <id>")
+                }
+                let command = "if command -v ss >/dev/null 2>&1; then ss -ltnp; elif command -v netstat >/dev/null 2>&1; then netstat -ltnp; else echo 'No port inspector found'; fi"
+                let response = try client.sendV2(method: "vm.exec", params: ["id": vmId, "command": command, "timeout_ms": 30_000], responseTimeout: 35)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print((response["stdout"] as? String) ?? "")
+
+            case "handoff":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm handoff <id>")
+                }
+                let response = try client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let provider = (response["provider"] as? String) ?? "?"
+                let status = (response["status"] as? String) ?? "unknown"
+                print("cmux Cloud VM handoff")
+                print("id:       \(vmId)")
+                print("provider: \(provider)")
+                print("status:   \(status)")
+                print("attach:   cmux vm ssh \(vmId)")
+                print("inspect:  cmux vm tools \(vmId)")
+
+            case "promote-template":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm promote-template <id>")
+                }
+                let name = "template-\(String(vmId.prefix(12)))-\(Int(Date().timeIntervalSince1970))"
+                let response = try client.sendV2(method: "vm.snapshot", params: ["id": vmId, "name": name], responseTimeout: Self.vmCreateResponseTimeoutSeconds)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let snapshotId = (response["snapshot_id"] as? String) ?? (response["id"] as? String) ?? "?"
+                print("OK template=\(snapshotId)")
+
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
 
                     Common commands:
                       cmux vm ls
                       cmux vm new
+                      cmux vm status <id>
+                      cmux vm snapshot <id>
+                      cmux vm fork <id>
                       cmux vm ssh <id>
                       cmux vm rm <id>
                     """)
@@ -8247,8 +8540,11 @@ struct CMUXCLI {
         let sshOptions: [String]
         let extraArguments: [String]
         let agentSocketPath: String?
+        let passwordCredential: String?
         let localSocketPath: String
         let remoteRelayPort: Int
+        let pinWorkspaceToTop: Bool
+        let daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint?
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
@@ -8264,8 +8560,11 @@ struct CMUXCLI {
             sshOptions: [String],
             extraArguments: [String],
             agentSocketPath: String? = nil,
+            passwordCredential: String? = nil,
             localSocketPath: String,
             remoteRelayPort: Int,
+            pinWorkspaceToTop: Bool = false,
+            daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint? = nil,
             skipDaemonBootstrap: Bool = false
         ) {
             self.destination = destination
@@ -8278,8 +8577,11 @@ struct CMUXCLI {
             self.sshOptions = sshOptions
             self.extraArguments = extraArguments
             self.agentSocketPath = agentSocketPath
+            self.passwordCredential = passwordCredential
             self.localSocketPath = localSocketPath
             self.remoteRelayPort = remoteRelayPort
+            self.pinWorkspaceToTop = pinWorkspaceToTop
+            self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
             self.skipDaemonBootstrap = skipDaemonBootstrap
         }
     }
@@ -8289,11 +8591,12 @@ struct CMUXCLI {
         let headers: [String: String]
         let token: String
         let sessionId: String
+        let attachmentId: String
         let expiresAtUnix: Int64
         let daemon: VMDaemonWebSocketEndpoint?
     }
 
-    private struct VMDaemonWebSocketEndpoint {
+    struct VMDaemonWebSocketEndpoint {
         let url: String
         let headers: [String: String]
         let token: String
@@ -8306,6 +8609,7 @@ struct CMUXCLI {
         let headers: [String: String]
         let token: String
         let sessionId: String
+        let attachmentId: String
     }
 
     private struct TerminalSize {
@@ -8649,6 +8953,10 @@ struct CMUXCLI {
         let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil
             ? nil
             : deferredRemoteReconnectToken
+        let usesPersistentFreestyleCloud =
+            sshOptions.skipDaemonBootstrap &&
+            sshOptions.pinWorkspaceToTop &&
+            vmIDForSplitAttach != nil
         let usesPersistentSSHPTY =
             !sshOptions.skipDaemonBootstrap &&
             sshOptions.extraArguments.isEmpty &&
@@ -8656,7 +8964,7 @@ struct CMUXCLI {
             deferredRemoteReconnectCommandScript != nil
         let persistentDaemonSlot = usesPersistentSSHPTY
             ? "ssh-\(UUID().uuidString.lowercased())"
-            : nil
+            : (usesPersistentFreestyleCloud ? Self.persistentCloudVMSlotID : nil)
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -8675,6 +8983,7 @@ struct CMUXCLI {
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
                 localCommandScript: combinedLocalCommandScript,
+                passwordCredential: sshOptions.passwordCredential,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
             remoteTerminalSSHStartupCommand = buildReusableBootstrapSSHStartupCommand(
@@ -8683,6 +8992,7 @@ struct CMUXCLI {
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
                 localCommandScript: combinedLocalCommandScript,
+                passwordCredential: sshOptions.passwordCredential,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         } else {
@@ -8690,12 +9000,14 @@ struct CMUXCLI {
                 sshCommand: startupInitialSSHCommand,
                 shellFeatures: "",
                 remoteRelayPort: sshOptions.remoteRelayPort,
+                passwordCredential: sshOptions.passwordCredential,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
             remoteTerminalSSHStartupCommand = buildReusableSSHStartupCommand(
                 sshCommand: startupRemoteTerminalSSHCommand,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort,
+                passwordCredential: sshOptions.passwordCredential,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         }
@@ -8705,6 +9017,7 @@ struct CMUXCLI {
                 options: sshOptions,
                 remoteShellCommand: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
+                passwordCredential: sshOptions.passwordCredential,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
             initialSSHStartupCommand = ptyStartupCommand
@@ -8714,12 +9027,32 @@ struct CMUXCLI {
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
             let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-            let splitAttachCommand = "\(shellQuote(executablePath)) vm ssh-attach --id \(shellQuote(vmIDForSplitAttach))"
-            reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
-                sshCommand: splitAttachCommand,
-                shellFeatures: shellFeaturesValue,
-                remoteRelayPort: 0
-            )
+            if usesPersistentFreestyleCloud {
+                let splitAttachCommand = defaultFreestyleCloudSSHAttachLoopCommand(
+                    vmID: vmIDForSplitAttach,
+                    executablePath: executablePath
+                )
+                reusableTerminalStartupCommand = splitAttachCommand
+                initialSSHStartupCommand = reusableTerminalStartupCommand; remoteTerminalSSHStartupCommand = reusableTerminalStartupCommand
+            } else {
+                let splitAttachCommand = [
+                    "env",
+                    "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}",
+                    "CMUX_SSH_RECONNECT_DELAY_SECONDS=${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}",
+                    shellQuote(executablePath),
+                    "vm",
+                    "ssh-attach",
+                    "--id",
+                    shellQuote(vmIDForSplitAttach),
+                    "--default-freestyle-sshd",
+                ].joined(separator: " ")
+                reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
+                    sshCommand: splitAttachCommand,
+                    shellFeatures: shellFeaturesValue,
+                    remoteRelayPort: 0,
+                    reconnectLimitDefault: 86400
+                )
+            }
         } else {
             reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand
         }
@@ -8731,64 +9064,94 @@ struct CMUXCLI {
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
-        var workspaceCreateParams: [String: Any] = [
-            "initial_command": initialSSHStartupCommand,
-        ]
-        if let agentSocketPath = sshOptions.agentSocketPath {
-            workspaceCreateParams["initial_env"] = [
-                "SSH_AUTH_SOCK": agentSocketPath,
-            ]
-        }
-        try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
-
-        let workspaceCreateStartedAt = Date()
-        let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
-        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
-            throw CLIError(message: "workspace.create did not return workspace_id")
-        }
-        let rawWorkspaceInitialSurfaceId = (workspaceCreate["surface_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
-            ? rawWorkspaceInitialSurfaceId
+        let normalizedWorkspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingPinnedWorkspace = sshOptions.pinWorkspaceToTop
+            ? try reusableNamedWorkspace(
+                named: normalizedWorkspaceName,
+                windowRaw: sshOptions.windowRaw,
+                expectedManagedCloudVMID: usesPersistentFreestyleCloud ? vmIDForSplitAttach : nil,
+                expectedPersistentDaemonSlot: usesPersistentFreestyleCloud ? persistentDaemonSlot : nil,
+                client: client
+            )
             : nil
-        if usesPersistentSSHPTY && workspaceInitialSurfaceId == nil {
-            do {
-                workspaceInitialSurfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
-            } catch {
-                do {
-                    _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-                } catch {
-                    let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                    cliWriteStderr(warning)
-                }
-                throw CLIError(
-                    message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
-                )
+        let workspaceId: String
+        let workspaceWindowId: String?
+        var workspaceInitialSurfaceId: String?
+        let didCreateWorkspace: Bool
+        if let existingPinnedWorkspace {
+            workspaceId = existingPinnedWorkspace.workspaceId
+            workspaceWindowId = existingPinnedWorkspace.windowId
+            didCreateWorkspace = false
+            cliDebugLog(
+                "cli.ssh.workspace.reused workspace=\(String(workspaceId.prefix(8))) " +
+                "window=\(workspaceWindowId.map { String($0.prefix(8)) } ?? "nil")"
+            )
+        } else {
+            var workspaceCreateParams: [String: Any] = [
+                "initial_command": initialSSHStartupCommand,
+            ]
+            if let agentSocketPath = sshOptions.agentSocketPath {
+                workspaceCreateParams["initial_env"] = [
+                    "SSH_AUTH_SOCK": agentSocketPath,
+                ]
             }
+            try applyWindowOrCallerContext(to: &workspaceCreateParams, client: client, windowRaw: sshOptions.windowRaw)
+
+            let workspaceCreateStartedAt = Date()
+            let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
+            guard let createdWorkspaceId = workspaceCreate["workspace_id"] as? String, !createdWorkspaceId.isEmpty else {
+                throw CLIError(message: "workspace.create did not return workspace_id")
+            }
+            workspaceId = createdWorkspaceId
+            let rawWorkspaceInitialSurfaceId = (workspaceCreate["surface_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
+                ? rawWorkspaceInitialSurfaceId
+                : nil
+            if usesPersistentSSHPTY && workspaceInitialSurfaceId == nil {
+                do {
+                    workspaceInitialSurfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+                } catch {
+                    do {
+                        _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                    } catch {
+                        let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                        cliWriteStderr(warning)
+                    }
+                    throw CLIError(
+                        message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
+                    )
+                }
+            }
+            workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            didCreateWorkspace = true
+            cliDebugLog(
+                "cli.ssh.workspace.created workspace=\(String(workspaceId.prefix(8))) " +
+                "window=\(workspaceWindowId.map { String($0.prefix(8)) } ?? "nil")"
+            )
+            cliDebugLog(
+                "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
+                "workspace=\(String(workspaceId.prefix(8))) stage=workspace.create elapsedMs=\(Int(Date().timeIntervalSince(workspaceCreateStartedAt) * 1000))"
+            )
         }
-        let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        cliDebugLog(
-            "cli.ssh.workspace.created workspace=\(String(workspaceId.prefix(8))) " +
-            "window=\(workspaceWindowId.map { String($0.prefix(8)) } ?? "nil")"
-        )
-        cliDebugLog(
-            "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
-            "workspace=\(String(workspaceId.prefix(8))) stage=workspace.create elapsedMs=\(Int(Date().timeIntervalSince(workspaceCreateStartedAt) * 1000))"
-        )
         let configuredPayload: [String: Any]
         do {
-            if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if didCreateWorkspace,
+               let workspaceName = normalizedWorkspaceName,
                !workspaceName.isEmpty {
                 _ = try client.sendV2(method: "workspace.rename", params: [
                     "workspace_id": workspaceId,
                     "title": workspaceName,
                 ])
             }
+            if sshOptions.pinWorkspaceToTop {
+                try pinWorkspaceToTop(workspaceId: workspaceId, windowId: workspaceWindowId, client: client)
+            }
 
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
-                "destination": sshOptions.displayDestination,
+                "destination": sshOptions.destination,
                 "auto_connect": deferredRemoteReconnectCommandScript == nil,
             ]
             if let configuredForegroundAuthToken {
@@ -8812,6 +9175,17 @@ struct CMUXCLI {
                 configureParams["relay_token"] = relayToken
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
+            if let daemon = sshOptions.daemonWebSocketEndpoint {
+                configureParams["daemon_websocket_url"] = daemon.url
+                configureParams["daemon_websocket_headers"] = daemon.headers
+                configureParams["daemon_websocket_token"] = daemon.token
+                configureParams["daemon_websocket_session_id"] = daemon.sessionId
+                configureParams["daemon_websocket_expires_at_unix"] = daemon.expiresAtUnix
+                configureParams["local_socket_path"] = sshOptions.localSocketPath
+            }
+            if let vmIDForSplitAttach {
+                configureParams["managed_cloud_vm_id"] = vmIDForSplitAttach
+            }
             configureParams["terminal_startup_command"] = reusableTerminalStartupCommand
             if sshOptions.skipDaemonBootstrap {
                 configureParams["skip_daemon_bootstrap"] = true
@@ -8834,15 +9208,26 @@ struct CMUXCLI {
             if let workspaceWindowId, !workspaceWindowId.isEmpty {
                 selectParams["window_id"] = workspaceWindowId
             }
-            // `cmux ssh` is an explicit "open this remote workspace now" action,
-            // so we intentionally select the newly created workspace after wiring
-            // up the remote connection — unless --no-focus is passed.
             if !sshOptions.noFocus {
                 let selectStartedAt = Date()
                 _ = try client.sendV2(method: "workspace.select", params: selectParams)
                 cliDebugLog(
                     "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                     "workspace=\(String(workspaceId.prefix(8))) stage=workspace.select elapsedMs=\(Int(Date().timeIntervalSince(selectStartedAt) * 1000))"
+                )
+            }
+            if !didCreateWorkspace,
+               sshOptions.pinWorkspaceToTop {
+                let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+                let reconnectStartedAt = Date()
+                _ = try client.sendV2(method: "workspace.remote.reconnect", params: [
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                ])
+                cliDebugLog(
+                    "cli.ssh.timing target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
+                    "workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) " +
+                    "stage=workspace.remote.reconnect elapsedMs=\(Int(Date().timeIntervalSince(reconnectStartedAt) * 1000))"
                 )
             }
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
@@ -8857,19 +9242,21 @@ struct CMUXCLI {
             cliDebugLog(
                 "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
             )
-            do {
-                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-            } catch {
-                let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                cliWriteStderr(Data(warning.utf8))
+            if didCreateWorkspace {
+                do {
+                    _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                } catch {
+                    let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                    cliWriteStderr(Data(warning.utf8))
+                }
             }
             throw error
         }
 
         var payload = configuredPayload
 
-        let redactsDestination = sshOptions.destination != sshOptions.displayDestination
-        if redactsDestination {
+        let redactsCommandPayload = sshOptions.destination != sshOptions.displayDestination || sshOptions.passwordCredential?.isEmpty == false
+        if redactsCommandPayload {
             payload["ssh_command"] = "<redacted>"
             payload["ssh_terminal_command"] = "<redacted>"
             payload["ssh_startup_command"] = "<redacted>"
@@ -8899,6 +9286,74 @@ struct CMUXCLI {
             let state = (remote?["state"] as? String) ?? "unknown"
             print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) state=\(state)")
         }
+    }
+
+    private func reusableNamedWorkspace(
+        named rawName: String?,
+        windowRaw: String?,
+        expectedManagedCloudVMID: String? = nil,
+        expectedPersistentDaemonSlot: String? = nil,
+        client: SocketClient
+    ) throws -> (workspaceId: String, windowId: String?)? {
+        guard let name = rawName, !name.isEmpty else { return nil }
+        var params: [String: Any] = [:]
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
+        let payload = try client.sendV2(method: "workspace.list", params: params)
+        let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
+        var firstMatch: [String: Any]?
+        var firstPinnedMatch: [String: Any]?
+        let requiresRemoteIdentity = expectedManagedCloudVMID != nil || expectedPersistentDaemonSlot != nil
+        for workspace in workspaces {
+            guard (workspace["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == name else {
+                continue
+            }
+            if requiresRemoteIdentity {
+                let remote = workspace["remote"] as? [String: Any]
+                guard expectedManagedCloudVMID == normalizedOptionalWorkspaceString(remote?["managed_cloud_vm_id"]),
+                      expectedPersistentDaemonSlot == normalizedOptionalWorkspaceString(remote?["persistent_daemon_slot"]) else {
+                    continue
+                }
+            }
+            if firstMatch == nil {
+                firstMatch = workspace
+            }
+            if firstPinnedMatch == nil, workspaceIsPinned(workspace) {
+                firstPinnedMatch = workspace
+            }
+            if firstPinnedMatch != nil {
+                break
+            }
+        }
+        let match = firstPinnedMatch ?? firstMatch
+        guard let workspaceId = match?["id"] as? String, !workspaceId.isEmpty else {
+            return nil
+        }
+        let windowId = (match?["window_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (workspaceId, windowId?.isEmpty == false ? windowId : nil)
+    }
+
+    private func workspaceIsPinned(_ workspace: [String: Any]) -> Bool {
+        (workspace["pinned"] as? Bool) == true || (workspace["is_pinned"] as? Bool) == true
+    }
+
+    private func normalizedOptionalWorkspaceString(_ value: Any?) -> String? {
+        let trimmed = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func pinWorkspaceToTop(workspaceId: String, windowId: String?, client: SocketClient) throws {
+        var params: [String: Any] = ["workspace_id": workspaceId]
+        if let windowId, !windowId.isEmpty {
+            params["window_id"] = windowId
+        }
+
+        var pinParams = params
+        pinParams["action"] = "pin"
+        _ = try client.sendV2(method: "workspace.action", params: pinParams)
+
+        var moveParams = params
+        moveParams["action"] = "move_top"
+        _ = try client.sendV2(method: "workspace.action", params: moveParams)
     }
 
     private func parseSSHCommandOptions(
@@ -9109,6 +9564,7 @@ struct CMUXCLI {
         shellFeatures: String,
         remoteRelayPort: Int,
         localCommandScript: String? = nil,
+        passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
@@ -9121,6 +9577,7 @@ struct CMUXCLI {
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
             isShellSnippet: true,
+            passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
     }
@@ -9131,6 +9588,7 @@ struct CMUXCLI {
         shellFeatures: String,
         remoteRelayPort: Int,
         localCommandScript: String? = nil,
+        passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil
     ) -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
@@ -9143,6 +9601,7 @@ struct CMUXCLI {
             shellFeatures: shellFeatures,
             remoteRelayPort: remoteRelayPort,
             isShellSnippet: true,
+            passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
     }
@@ -9670,67 +10129,11 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
-    func buildSSHStartupCommand(
-        sshCommand: String,
-        shellFeatures: String,
-        remoteRelayPort: Int,
-        isShellSnippet: Bool = false,
-        controlPathPreflightShellFunction: String? = nil,
-        retryPTYAttachStatus: Bool = false
-    ) throws -> String {
-        let script = buildSSHStartupScriptBody(
-            sshCommand: sshCommand,
-            shellFeatures: shellFeatures,
-            remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet,
-            controlPathPreflightShellFunction: controlPathPreflightShellFunction,
-            retryPTYAttachStatus: retryPTYAttachStatus
-        )
-        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
-    }
-
-    func buildReusableSSHStartupCommand(
-        sshCommand: String,
-        shellFeatures: String,
-        remoteRelayPort: Int,
-        isShellSnippet: Bool = false,
-        controlPathPreflightShellFunction: String? = nil,
-        retryPTYAttachStatus: Bool = false
-    ) -> String {
-        let script = buildSSHStartupScriptBody(
-            sshCommand: sshCommand,
-            shellFeatures: shellFeatures,
-            remoteRelayPort: remoteRelayPort,
-            isShellSnippet: isShellSnippet,
-            controlPathPreflightShellFunction: controlPathPreflightShellFunction,
-            retryPTYAttachStatus: retryPTYAttachStatus
-        )
-        return reusableShellStartupCommand(
-            scriptBody: script,
-            tempPrefix: "cmux-ssh-startup"
-        )
-    }
-
-    private func buildReusableSSHPTYAttachStartupCommand(
-        remoteShellCommand: String,
-        remoteRelayPort: Int
-    ) -> String {
-        let attachScript = buildSSHPTYAttachScriptBody(
-            remoteShellCommand: remoteShellCommand
-        )
-        return buildReusableSSHStartupCommand(
-            sshCommand: attachScript,
-            shellFeatures: "",
-            remoteRelayPort: remoteRelayPort,
-            isShellSnippet: true,
-            retryPTYAttachStatus: true
-        )
-    }
-
     private func buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
         options: SSHCommandOptions,
         remoteShellCommand: String,
         localCommandScript: String?,
+        passwordCredential: String?,
         controlPathPreflightShellFunction: String?
     ) -> String {
         var authArguments = sshArgumentsOverridingHostRemoteCommand(baseSSHArguments(options, localCommandScript: localCommandScript))
@@ -9751,181 +10154,15 @@ struct CMUXCLI {
             shellFeatures: "",
             remoteRelayPort: options.remoteRelayPort,
             isShellSnippet: true,
+            passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
             retryPTYAttachStatus: true
         )
     }
 
-    private func buildSSHPTYAttachScriptBody(
-        remoteShellCommand: String
-    ) -> String {
-        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
-        let attachCommand = [
-            shellQuote(executablePath),
-            "ssh-pty-attach",
-            "--wait",
-            "--workspace", "\"$cmux_ssh_pty_workspace_id\"",
-            "--session-id", "\"$cmux_ssh_pty_session_id\"",
-            "--attachment-id", "\"$cmux_ssh_pty_surface_id\"",
-            "--command-b64", shellQuote(commandB64),
-        ].joined(separator: " ")
-        return [
-            "cmux_ssh_pty_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
-            "cmux_ssh_pty_surface_id=\"${CMUX_SURFACE_ID:-}\"",
-            "if [ -z \"$cmux_ssh_pty_workspace_id\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
-            "if [ -z \"$cmux_ssh_pty_surface_id\" ]; then printf '%s\\n' '[cmux] required terminal context missing for SSH PTY attach.' >&2; exit 1; fi",
-            "cmux_ssh_pty_session_id=\"ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id\"",
-            "exec \(attachCommand)",
-        ].joined(separator: "\n")
-    }
-
-    private func buildSSHStartupScriptBody(
-        sshCommand: String,
-        shellFeatures: String,
-        remoteRelayPort: Int,
-        isShellSnippet: Bool,
-        controlPathPreflightShellFunction: String?,
-        retryPTYAttachStatus: Bool
-    ) -> String {
-        let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
-            ? ""
-            : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
-        let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
-        let trimmedControlPathPreflight = controlPathPreflightShellFunction?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var scriptLines: [String] = []
-        if !shellFeaturesBootstrap.isEmpty {
-            scriptLines.append(shellFeaturesBootstrap)
-        }
-        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-            scriptLines.append(trimmedControlPathPreflight)
-        }
-        scriptLines += [
-            "rm -f -- \"$0\" 2>/dev/null || true",
-            "CMUX_SSH_SESSION_ENDED=0",
-            "CMUX_SSH_STARTUP_PID=$$",
-            "export CMUX_SSH_STARTUP_PID",
-            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
-            "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
-            "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
-            "CMUX_SSH_CHILD_PID=",
-            "CMUX_SSH_PENDING_SIGNAL=",
-            "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }; \(sshRemoteReconnectShellFunction())",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
-            "trap 'cmux_ssh_session_end' EXIT",
-            "trap 'cmux_ssh_signal_exit 129' HUP",
-            "trap 'cmux_ssh_signal_exit 130' INT",
-            "trap 'cmux_ssh_signal_exit 143' TERM",
-            "while :; do",
-            "  cmux_ssh_retry=0",
-            "  while :; do",
-        ]
-        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-            scriptLines.append("    cmux_ssh_preflight_control_path")
-        }
-        // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
-        // job control is off (the default for `/bin/sh -c …`), so ssh would
-        // never receive keystrokes from the surface PTY. Inheriting fd 0
-        // explicitly with `<&0` overrides that default and keeps the wrapper's
-        // own stdin (the terminal) wired into the backgrounded ssh process.
-        if isShellSnippet {
-            scriptLines += [
-                "    (",
-                "      \(sshCommand)",
-                "    ) <&0 &",
-            ]
-        } else {
-            scriptLines.append("    command \(sshCommand) <&0 &")
-        }
-        let retryableStatusPattern = retryPTYAttachStatus ? "254|255" : "255"
-        scriptLines += [
-            "    CMUX_SSH_CHILD_PID=$!",
-            "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_signal_exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
-            "    wait \"$CMUX_SSH_CHILD_PID\"",
-            "    cmux_ssh_status=$?",
-            "    CMUX_SSH_CHILD_PID=",
-            "    if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
-            "    case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
-            "    if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
-            "    cmux_ssh_retry=$((cmux_ssh_retry + 1))",
-            "    cmux_ssh_note \(shellQuote(sshAutoReconnectNoteFormat())) \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
-            "    if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
-            "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
-            "  done",
-            "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
-            "  cmux_ssh_session_end",
-            "  printf \(shellQuote(sshManualReconnectExitPromptFormat())) \"$cmux_ssh_status\" >&2 || true",
-            "  if IFS= read -r _cmux_dismiss_key 2>/dev/null; then",
-            "    case \"$_cmux_dismiss_key\" in",
-            "      r|R|retry|reconnect) cmux_ssh_remote_reconnect && CMUX_SSH_SESSION_ENDED=0 && continue ;;",
-            "    esac",
-            "  fi",
-            "  break",
-            "done",
-            "trap - EXIT HUP INT TERM",
-            "cmux_ssh_session_end",
-            "exit $cmux_ssh_status",
-        ]
-        return scriptLines.joined(separator: "\n")
-    }
-
-    private func writeSSHStartupScript(_ scriptBody: String, remoteRelayPort: Int) throws -> String {
-        let tempDir = FileManager.default.temporaryDirectory
-        let scriptURL = tempDir.appendingPathComponent(
-            "cmux-ssh-startup-\(remoteRelayPort)-\(UUID().uuidString.lowercased()).sh"
-        )
-        let script = "#!/bin/sh\n\(scriptBody)\n"
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-        return shellQuote(scriptURL.path)
-    }
-
-    private func reusableShellStartupCommand(
-        scriptBody: String,
-        tempPrefix: String
-    ) -> String {
-        let fullScript = "#!/bin/sh\n\(scriptBody)\n"
-        let encodedScript = Data(fullScript.utf8).base64EncodedString()
-        let encodedLiteral = shellQuote(encodedScript)
-        let wrapper = [
-            "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/\(tempPrefix).XXXXXX\") || exit 1",
-            "cmux_cleanup() { rm -f -- \"$cmux_tmp\" 2>/dev/null || true; }",
-            "trap 'cmux_cleanup' EXIT HUP INT TERM",
-            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
-            "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
-            "/bin/sh \"$cmux_tmp\"",
-            "cmux_status=$?",
-            "trap - EXIT HUP INT TERM",
-            "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
-            "unset -f cmux_cleanup 2>/dev/null || true",
-            "exit $cmux_status",
-        ].joined(separator: "\n")
-        return "/bin/sh -c \(shellQuote(wrapper))"
-    }
-
-    private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
-        [
-            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
-            "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
-            "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
-            "elif command -v cmux >/dev/null 2>&1",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
-            "fi",
-        ].joined(separator: " ")
-    }
-
-    /// Open an interactive cmux-managed shell on a cloud VM. Freestyle uses the existing SSH
-    /// workspace path. E2B uses the cmuxd-remote WebSocket PTY path because E2B does not expose
-    /// raw TCP/22.
+    /// Open an interactive cmux-managed shell on a cloud VM. The managed Cloud VM path requires
+    /// cmuxd-remote WebSocket attach so reconnects, mobile attach, and notification fanout all
+    /// use the same session primitive. SSH remains an explicit manual fallback.
     private func logVMTiming(
         _ stage: String,
         vmID: String,
@@ -9957,15 +10194,48 @@ struct CMUXCLI {
         id: String,
         workspaceName: String?,
         windowRaw: String?,
+        targetWorkspaceId: String? = nil,
+        forceSSH: Bool,
+        shouldPinWorkspaceToTop: Bool,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        if forceSSH {
+            let sshInfoStartedAt = Date()
+            let response = try client.sendV2(
+                method: "vm.ssh_info",
+                params: ["id": id],
+                responseTimeout: Self.vmAttachResponseTimeoutSeconds
+            )
+            logVMTiming("ssh_info", vmID: id, transport: "ssh", startedAt: sshInfoStartedAt)
+            let options = try vmSSHOptions(
+                fromAttachInfo: response,
+                workspaceName: workspaceName,
+                windowRaw: windowRaw,
+                client: client,
+                remoteRelayPort: generateRemoteRelayPort(),
+                pinWorkspaceToTop: shouldPinWorkspaceToTop
+            )
+            let relayID = UUID().uuidString.lowercased()
+            let relayToken = try randomHex(byteCount: 32)
+            try runSSHWithOptions(
+                options,
+                relayID: relayID,
+                relayToken: relayToken,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                vmIDForSplitAttach: id
+            )
+            return
+        }
+
         let attachInfoStartedAt = Date()
-        let response = try client.sendV2(
-            method: "vm.attach_info",
-            params: ["id": id, "require_daemon": true],
-            responseTimeout: Self.vmAttachResponseTimeoutSeconds
+        let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
+            vmID: id,
+            usesDefaultFreestyleSSHD: true,
+            client: client
         )
         let transport = (response["transport"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9992,6 +10262,8 @@ struct CMUXCLI {
                 endpoint: endpoint,
                 workspaceName: workspaceName,
                 windowRaw: windowRaw,
+                targetWorkspaceId: targetWorkspaceId,
+                shouldPinWorkspaceToTop: shouldPinWorkspaceToTop,
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat
@@ -10003,7 +10275,8 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             windowRaw: windowRaw,
             client: client,
-            remoteRelayPort: generateRemoteRelayPort()
+            remoteRelayPort: generateRemoteRelayPort(),
+            pinWorkspaceToTop: shouldPinWorkspaceToTop
         )
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
@@ -10018,12 +10291,192 @@ struct CMUXCLI {
         )
     }
 
+    private func runPersistentBaseOpenCommand(
+        args: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowId: String?
+    ) throws {
+        let (targetWorkspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+        let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
+        let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
+        if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
+            throw CLIError(message: """
+                vm base open: unknown flag '\(unknown)'.
+
+                Known flags:
+                  --workspace <workspace-id>
+                  --window <id|ref|index>
+                  --detach, -d
+                """)
+        }
+        if let extra = remaining.first(where: { !Self.isFlagToken($0) }) {
+            throw CLIError(message: """
+                vm base open: unexpected argument '\(extra)'.
+
+                Base is a single persistent cloud workspace. Use `cmux vm new`
+                when you want a brand new VM.
+                """)
+        }
+
+        let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+        let vmCreateStartedAt = Date()
+        let response = try client.sendV2(
+            method: "vm.base_open",
+            params: [:],
+            responseTimeout: Self.vmCreateResponseTimeoutSeconds
+        )
+        logVMTiming(
+            "base.open",
+            vmID: (response["id"] as? String) ?? "?",
+            provider: (response["provider"] as? String) ?? "freestyle",
+            startedAt: vmCreateStartedAt
+        )
+
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+
+        let id = (response["id"] as? String) ?? "?"
+        let provider = (response["provider"] as? String) ?? "freestyle"
+        let image = (response["image"] as? String) ?? "?"
+        let base = response["base"] as? [String: Any]
+        let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
+        if detach {
+            print("OK \(id)")
+            print("  provider: \(provider)")
+            print("  image:    \(image)")
+            print("  base:     true")
+            if let generation {
+                print("  gen:      \(generation)")
+            }
+            return
+        }
+
+        print("Opened Base \(id)")
+        if let generation {
+            print("Base generation \(generation).")
+        }
+        try vmOpenShell(
+            id: id,
+            workspaceName: Self.persistentCloudVMWorkspaceName,
+            windowRaw: targetWindow,
+            targetWorkspaceId: targetWorkspaceOpt,
+            forceSSH: false,
+            shouldPinWorkspaceToTop: true,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+    }
+
+    private func runPersistentBaseResetCommand(
+        args: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowId: String?
+    ) throws {
+        let (reasonOpt, rem0) = parseOption(args, name: "--reason")
+        let (targetWorkspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
+        let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+        let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
+        let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
+        if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
+            throw CLIError(message: """
+                vm base reset: unknown flag '\(unknown)'.
+
+                Known flags:
+                  --reason <text>
+                  --workspace <workspace-id>
+                  --window <id|ref|index>
+                  --detach, -d
+                """)
+        }
+        if let extra = remaining.first(where: { !Self.isFlagToken($0) }) {
+            throw CLIError(message: """
+                vm base reset: unexpected argument '\(extra)'.
+
+                Reset creates a new Base generation and retains the old VM.
+                """)
+        }
+
+        let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+        var params: [String: Any] = [:]
+        if let reasonOpt, !reasonOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            params["reason"] = reasonOpt
+        }
+        let vmCreateStartedAt = Date()
+        let response = try client.sendV2(
+            method: "vm.base_reset",
+            params: params,
+            responseTimeout: Self.vmCreateResponseTimeoutSeconds
+        )
+        logVMTiming(
+            "base.reset",
+            vmID: (response["id"] as? String) ?? "?",
+            provider: (response["provider"] as? String) ?? "freestyle",
+            startedAt: vmCreateStartedAt
+        )
+
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+
+        let id = (response["id"] as? String) ?? "?"
+        let provider = (response["provider"] as? String) ?? "freestyle"
+        let image = (response["image"] as? String) ?? "?"
+        let base = response["base"] as? [String: Any]
+        let generation = (base?["generation"] as? Int) ?? (base?["generation"] as? NSNumber)?.intValue
+        let retainedProviderVmId = base?["retainedProviderVmId"] as? String
+        if detach {
+            print("OK \(id)")
+            print("  provider: \(provider)")
+            print("  image:    \(image)")
+            print("  base:     true")
+            print("  reset:    true")
+            if let generation {
+                print("  gen:      \(generation)")
+            }
+            if let retainedProviderVmId, !retainedProviderVmId.isEmpty {
+                print("  retained: \(retainedProviderVmId)")
+            }
+            return
+        }
+
+        print("Reset Base \(id)")
+        if let generation {
+            print("Base generation \(generation).")
+        }
+        if let retainedProviderVmId, !retainedProviderVmId.isEmpty {
+            print("Previous Base generation was retained as \(retainedProviderVmId).")
+        } else {
+            print("Previous Base generation was retained.")
+        }
+        try vmOpenShell(
+            id: id,
+            workspaceName: Self.persistentCloudVMWorkspaceName,
+            windowRaw: targetWindow,
+            targetWorkspaceId: targetWorkspaceOpt,
+            forceSSH: false,
+            shouldPinWorkspaceToTop: true,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat
+        )
+    }
+
     private func vmSSHOptions(
         fromAttachInfo response: [String: Any],
         workspaceName: String?,
         windowRaw: String?,
         client: SocketClient,
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        pinWorkspaceToTop: Bool = false
     ) throws -> SSHCommandOptions {
         guard (response["transport"] as? String) == "ssh",
               let host = response["host"] as? String,
@@ -10087,23 +10540,28 @@ struct CMUXCLI {
         // so skip the StrictHostKeyChecking prompt and known_hosts caching.
         //
         // IdentitiesOnly=yes + IdentityFile=/dev/null is load-bearing: the gateway
-        // authenticates via the SSH "none" method with the token embedded in the username.
-        // If OpenSSH offers local pubkeys first, the gateway rejects before "none" can run.
+        // authenticates via the short-lived password credential. If OpenSSH offers
+        // local pubkeys first, the gateway rejects before password auth can run.
         //
         // Each VM pane needs an independent gateway session. Reusing OpenSSH control sockets
         // can make a new split disturb the original shell.
         let sshOptionStrings = [
             "StrictHostKeyChecking=no",
             "UserKnownHostsFile=/dev/null",
-            "LogLevel=ERROR",
+            "LogLevel=QUIET",
             "IdentitiesOnly=yes",
             "IdentityFile=/dev/null",
             "PreferredAuthentications=none,password",
+            "NumberOfPasswordPrompts=1",
             "ControlMaster=no",
         ]
+        let destination = "\(username)@\(host)"
+        let displayDestination = pinWorkspaceToTop
+            ? String(localized: "cli.cloud.managedDisplayTarget", defaultValue: "cloud VM")
+            : destination
         return SSHCommandOptions(
-            destination: "\(username):\(token)@\(host)",
-            displayDestination: "\(username)@\(host)",
+            destination: destination,
+            displayDestination: displayDestination,
             port: port,
             identityFile: nil,
             workspaceName: workspaceName,
@@ -10111,8 +10569,11 @@ struct CMUXCLI {
             noFocus: false,
             sshOptions: sshOptionStrings,
             extraArguments: [],
+            passwordCredential: token,
             localSocketPath: client.socketPath,
             remoteRelayPort: remoteRelayPort,
+            pinWorkspaceToTop: pinWorkspaceToTop,
+            daemonWebSocketEndpoint: parseVMDaemonWebSocketEndpoint(response["daemon"]),
             skipDaemonBootstrap: true
         )
     }
@@ -10128,14 +10589,13 @@ struct CMUXCLI {
         let username = (response["username"] as? String) ?? "?"
         let cred = (response["credential"] as? [String: Any]) ?? [:]
         let credKind = (cred["kind"] as? String) ?? "?"
-        let credValue = (cred["value"] as? String) ?? "?"
         if credKind == "password" {
             print("ssh \(username)@\(host) -p \(port)")
             print("")
             print("  host:      \(host)")
             print("  port:      \(port)")
             print("  username:  \(username)")
-            print("  password:  \(credValue)")
+            print("  password:  <redacted; run `cmux \(command) ssh \(vmID)` to connect>")
         } else {
             print("This Cloud VM does not support `cmux \(command) ssh-info` in this cmux build.")
             print("")
@@ -10147,20 +10607,29 @@ struct CMUXCLI {
 
     private func runVMSSHAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+        let usesDefaultFreestyleSSHD = hasFlag(remaining, name: "--default-freestyle-sshd")
+        let filteredRemaining = remaining.filter { $0 != "--default-freestyle-sshd" }
+        if let unknown = filteredRemaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "vm ssh-attach: unknown flag '\(unknown)'. Use `cmux vm ssh-attach --id <vm-id>`.")
         }
-        guard remaining.isEmpty else {
+        guard filteredRemaining.isEmpty else {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
         }
-        guard let vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard var vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
               !vmID.isEmpty else {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
         }
 
         let attachInfoStartedAt = Date()
-        let response = try client.sendV2(method: "vm.attach_info", params: ["id": vmID], responseTimeout: Self.vmAttachResponseTimeoutSeconds)
-        logVMTiming("attach_info", vmID: vmID, transport: "ssh", startedAt: attachInfoStartedAt)
+        let response = try defaultFreestyleSSHInfoWithRetryIfNeeded(
+            vmID: &vmID,
+            usesDefaultFreestyleSSHD: usesDefaultFreestyleSSHD,
+            client: client
+        )
+        if ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] == nil {
+            bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
+        }
+        logVMTiming("ssh_info", vmID: vmID, transport: "ssh", startedAt: attachInfoStartedAt)
         let options = try vmSSHOptions(
             fromAttachInfo: response,
             workspaceName: nil,
@@ -10168,15 +10637,514 @@ struct CMUXCLI {
             client: client,
             remoteRelayPort: 0
         )
-        let sshArguments = buildSSHCommandArguments(options)
+        let sshArguments = buildSSHCommandArguments(
+            options,
+            remoteBootstrapScript: Self.freestyleInteractiveShellScript(
+                suppressWelcome: ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil,
+                workspaceID: ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                surfaceID: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            )
+        )
         guard let launchPath = sshArguments.first else {
             throw CLIError(message: "vm ssh-attach could not construct an ssh command. Retry `cmux vm ssh <id>` from a normal cmux shell.")
         }
         client.close()
+        if let passwordCredential = options.passwordCredential, !passwordCredential.isEmpty {
+            let askpassRunner = try prepareSSHAskpassRunner(passwordCredential: passwordCredential)
+            try execInteractiveProgram(
+                launchPath: "/bin/sh",
+                arguments: [askpassRunner, launchPath] + Array(sshArguments.dropFirst())
+            )
+        }
         try execInteractiveProgram(
             launchPath: launchPath,
             arguments: Array(sshArguments.dropFirst())
         )
+    }
+
+    private func prepareSSHAskpassRunner(passwordCredential: String) throws -> String {
+        let fileManager = FileManager.default
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dirURL = tempRoot.appendingPathComponent("cmux-ssh-askpass.\(UUID().uuidString)", isDirectory: true)
+        let passwordURL = dirURL.appendingPathComponent("password", isDirectory: false)
+        let runnerURL = dirURL.appendingPathComponent("run", isDirectory: false)
+        try fileManager.createDirectory(at: dirURL, withIntermediateDirectories: false)
+        _ = chmod(dirURL.path, S_IRWXU)
+        guard let passwordData = passwordCredential.data(using: .utf8) else {
+            throw CLIError(message: "vm ssh-attach could not encode the Cloud VM credential.")
+        }
+        try passwordData.write(to: passwordURL, options: .atomic)
+        _ = chmod(passwordURL.path, S_IRUSR | S_IWUSR)
+        let runner = sshAskpassExecShellScript(passwordFilePath: passwordURL.path, cleanupDirectory: dirURL.path)
+        try runner.write(to: runnerURL, atomically: true, encoding: .utf8)
+        _ = chmod(runnerURL.path, S_IRWXU)
+        return runnerURL.path
+    }
+
+    private func defaultFreestyleCloudSSHAttachLoopCommand(vmID: String, executablePath: String) -> String {
+        let quotedCLI = shellQuote(executablePath)
+        let quotedVMID = shellQuote(vmID)
+        let lines = [
+            "cmux_freestyle_cli=\(quotedCLI)",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
+            "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
+            "export CMUX_SSH_RECONNECT_LIMIT CMUX_SSH_RECONNECT_DELAY_SECONDS",
+            "export CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS",
+            "cmux_freestyle_attach() {",
+            "  if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then",
+            "    \"$cmux_freestyle_cli\" --socket \"$CMUX_SOCKET_PATH\" vm-pty-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "  else",
+            "    \"$cmux_freestyle_cli\" vm-pty-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "  fi",
+            "}",
+            "cmux_freestyle_retry=0",
+            "while :; do",
+            "  if [ \"$cmux_freestyle_retry\" -gt 0 ]; then",
+            "    export CMUX_CLOUD_RECONNECT_ATTEMPT=\"$cmux_freestyle_retry\"",
+            "  else",
+            "    unset CMUX_CLOUD_RECONNECT_ATTEMPT",
+            "  fi",
+            "  cmux_freestyle_attach",
+            "  cmux_freestyle_status=$?",
+            "  case \"$cmux_freestyle_status\" in 254|255) ;; *) exit \"$cmux_freestyle_status\" ;; esac",
+            "  if [ \"$cmux_freestyle_retry\" -ge \"$CMUX_SSH_RECONNECT_LIMIT\" ]; then exit \"$cmux_freestyle_status\"; fi",
+            "  cmux_freestyle_retry=$((cmux_freestyle_retry + 1))",
+            "  sleep \"$CMUX_SSH_RECONNECT_DELAY_SECONDS\"",
+            "done",
+        ]
+        return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
+    }
+
+    private static func isVMNotFoundError(_ error: Error) -> Bool {
+        let message = String(describing: error).lowercased()
+        return message.contains("vm_not_found") || message.contains("was not found")
+    }
+
+    private func defaultFreestyleSSHInfoWithRetryIfNeeded(
+        vmID: inout String,
+        usesDefaultFreestyleSSHD: Bool,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var attempt = 0
+        var printedRetryNotice = false
+        let isReconnectAttach = ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
+        let retryLimit = Self.defaultFreestyleAttachRetryLimit()
+        let retryDelaySeconds = Self.defaultFreestyleAttachRetryDelaySeconds()
+        while true {
+            do {
+                let response = try client.sendV2(
+                    method: "vm.ssh_info",
+                    params: ["id": vmID],
+                    responseTimeout: Self.vmAttachResponseTimeoutSeconds
+                )
+                if !isReconnectAttach, printedRetryNotice {
+                    Self.writeStderr(Self.clearTerminalLinePrefix)
+                }
+                return response
+            } catch {
+                if usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) {
+                    throw CLIError(message: """
+                        The Cloud VM attached to this workspace no longer exists.
+
+                        What to do:
+                          Close this workspace and open a fresh Cloud VM workspace with the cloud button or `cmux vm new`.
+
+                        Details:
+                          cmux will not recreate the VM from inside an attached terminal because that would leave the workspace's saved Cloud VM id stale.
+                        """)
+                }
+                guard usesDefaultFreestyleSSHD,
+                      Self.isRetryableCloudVMServiceError(error),
+                      attempt < retryLimit else {
+                    if !isReconnectAttach, printedRetryNotice {
+                        Self.writeStderrLine("")
+                    }
+                    throw error
+                }
+                let retryAttempt = attempt + 1
+                if !isReconnectAttach {
+                    Self.writeStderr(
+                        Self.clearTerminalLinePrefix + Self.defaultFreestyleAttachRetryNotice(
+                            error: error,
+                            attempt: retryAttempt,
+                            retryLimit: retryLimit,
+                            retryDelaySeconds: retryDelaySeconds
+                        )
+                    )
+                    printedRetryNotice = true
+                }
+                cliDebugLog(
+                    "cli.vm.ssh_info.retry vm=\(String(vmID.prefix(8))) attempt=\(retryAttempt) retry_in_seconds=\(retryDelaySeconds) error=\(String(describing: error))"
+                )
+                attempt += 1
+                if retryDelaySeconds > 0 {
+                    usleep(useconds_t(retryDelaySeconds * 1_000_000))
+                }
+            }
+        }
+    }
+
+    private static func defaultFreestyleAttachRetryLimit() -> Int {
+        let environment = ProcessInfo.processInfo.environment
+        let raw = environment["CMUX_CLOUD_ATTACH_RETRY_LIMIT"]
+            ?? environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"]
+            ?? ""
+        guard let parsed = Int(raw), parsed >= 0 else {
+            return 120
+        }
+        return parsed
+    }
+
+    private static func defaultFreestyleAttachRetryDelaySeconds() -> Double {
+        let environment = ProcessInfo.processInfo.environment
+        let raw = environment["CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS"]
+            ?? environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"]
+            ?? ""
+        guard let parsed = Double(raw), parsed >= 0 else {
+            return 2
+        }
+        return parsed
+    }
+
+    private static let clearTerminalLinePrefix = "\r\u{001B}[2K"
+
+    private static func defaultFreestyleAttachRetryNotice(
+        error: Error,
+        attempt: Int,
+        retryLimit: Int,
+        retryDelaySeconds: Double
+    ) -> String {
+        let retryText = String(
+            localized: "cli.vm.sshInfo.retry.status",
+            defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (\(Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)))."
+        )
+        let errorText = String(describing: error)
+        if Self.isLocalCloudVMServiceUnreachable(errorText),
+           let url = Self.firstHTTPURL(in: errorText) {
+            let reason = String(
+                localized: "cli.vm.sshInfo.retry.localServerOffline",
+                defaultValue: "Waiting for the local cmux web server"
+            )
+            return "[cmux] \(reason) at \(url). \(retryText)"
+        }
+        if errorText.lowercased().contains("provider control plane") {
+            let reason = String(
+                localized: "cli.vm.sshInfo.retry.cloudProviderControlPlaneUnavailable",
+                defaultValue: "Waiting for the Cloud VM control plane"
+            )
+            return "[cmux] \(reason). \(retryText)"
+        }
+        let reason = String(
+            localized: "cli.vm.sshInfo.retry.cloudServiceUnavailable",
+            defaultValue: "Waiting for the Cloud VM service"
+        )
+        return "[cmux] \(reason). \(retryText)"
+    }
+
+    private static func retryAttemptLabel(attempt: Int, retryLimit: Int) -> String {
+        if retryLimit >= 86_400 {
+            return "attempt \(attempt)"
+        }
+        return "attempt \(attempt)/\(retryLimit)"
+    }
+
+    private static func retryDelayLabel(_ seconds: Double) -> String {
+        if seconds <= 0 {
+            return String(localized: "cli.vm.sshInfo.retry.now", defaultValue: "now")
+        }
+        if seconds.rounded(.towardZero) == seconds {
+            return "\(Int(seconds))s"
+        }
+        return String(format: "%.1fs", seconds)
+    }
+
+    private static func isLocalCloudVMServiceUnreachable(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        let mentionsLocalURL = lowercased.contains("http://localhost:") ||
+            lowercased.contains("http://127.0.0.1:") ||
+            lowercased.contains("http://[::1]:")
+        let mentionsConnectionFailure = lowercased.contains("cannot reach") ||
+            lowercased.contains("could not connect") ||
+            lowercased.contains("connection refused") ||
+            lowercased.contains("failed to connect")
+        return mentionsLocalURL && mentionsConnectionFailure
+    }
+
+    private static func firstHTTPURL(in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"https?://[^\s)\]]+"#) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let matchRange = Range(match.range, in: text) else {
+            return nil
+        }
+        return String(text[matchRange]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+    }
+
+    private static func isRetryableCloudVMServiceError(_ error: Error) -> Bool {
+        let message = String(describing: error).lowercased()
+        return message.contains("http 502") ||
+            message.contains("http 503") ||
+            message.contains("returned 502") ||
+            message.contains("returned 503") ||
+            message.contains("service unavailable") ||
+            message.contains("temporarily unavailable") ||
+            message.contains("vm_cloud_state_unavailable") ||
+            message.contains("provider control plane") ||
+            message.contains("cannot reach the cmux cloud vm service") ||
+            message.contains("local cmux web server is offline") ||
+            message.contains("connection refused") ||
+            message.contains("failed to connect") ||
+            message.contains("could not connect to the server") ||
+            message.contains("cmuxd websocket health check failed") ||
+            message.contains("operation was aborted") ||
+            message.contains("timed out") ||
+            message.contains("timeout") ||
+            message.contains("requires a cmuxd rpc endpoint")
+    }
+
+    private static func writeStderr(_ text: String) {
+        FileHandle.standardError.write(Data(text.utf8))
+    }
+
+    private static func writeStderrLine(_ text: String) {
+        FileHandle.standardError.write(Data((text + "\n").utf8))
+    }
+
+    private func bootstrapFreestyleZshEnvironmentIfPossible(
+        vmID: String,
+        username: String,
+        client: SocketClient
+    ) {
+        let command = "/bin/sh -lc \(shellQuote(freestyleZshBootstrapScript(username: username)))"
+        do {
+            _ = try client.sendV2(
+                method: "vm.exec",
+                params: ["id": vmID, "command": command],
+                responseTimeout: 180
+            )
+        } catch {
+            cliDebugLog(
+                "cli.vm.zsh_bootstrap.warning vm=\(String(vmID.prefix(8))) error=\(String(describing: error))"
+            )
+        }
+    }
+
+    private static func normalizedCloudContextValue(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func freestyleCloudContextExports(workspaceID: String?, surfaceID: String?) -> String {
+        var lines: [String] = []
+        if let workspaceID = normalizedCloudContextValue(workspaceID) {
+            lines.append("export CMUX_WORKSPACE_ID=\(shellSingleQuote(workspaceID))")
+            lines.append("export CMUX_TAB_ID=\"$CMUX_WORKSPACE_ID\"")
+        }
+        if let surfaceID = normalizedCloudContextValue(surfaceID) {
+            lines.append("export CMUX_SURFACE_ID=\(shellSingleQuote(surfaceID))")
+            lines.append("export CMUX_PANEL_ID=\"$CMUX_SURFACE_ID\"")
+        }
+        return lines.isEmpty ? ":" : lines.joined(separator: "\n")
+    }
+
+    private static func freestyleInteractiveShellScript(
+        suppressWelcome: Bool = false,
+        workspaceID: String? = nil,
+        surfaceID: String? = nil
+    ) -> String {
+        """
+        \(suppressWelcome ? "export CMUX_CLOUD_WELCOME=0" : ":")
+        \(freestyleCloudContextExports(workspaceID: workspaceID, surfaceID: surfaceID))
+        export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+        hash -r 2>/dev/null || true
+        if command -v zsh >/dev/null 2>&1; then
+          touch "$HOME/.hushlogin" 2>/dev/null || true
+          if [ ! -e "$HOME/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$HOME/.zshrc" 2>/dev/null; then
+            cat > "$HOME/.zshrc" <<'CMUX_USER_ZSHRC'
+        # cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.
+        mkdir -p "$HOME/.cmux" 2>/dev/null || true
+        printf '%s' '/tmp/cmux-cloud-cli.sock' > "$HOME/.cmux/socket_addr" 2>/dev/null || true
+        export CMUX_SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}"
+        if [ -r /etc/cmux/zshrc ]; then
+          source /etc/cmux/zshrc
+        else
+          export SHELL="$(command -v zsh)"
+          autoload -Uz colors 2>/dev/null && colors
+          setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
+          PROMPT_EOL_MARK=''
+          unsetopt prompt_sp 2>/dev/null || true
+          HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
+          HISTSIZE="${HISTSIZE:-50000}"
+          SAVEHIST="${SAVEHIST:-50000}"
+          bindkey -e 2>/dev/null || true
+          if [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+            source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+            ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}"
+          fi
+          : ${CMUX_PROMPT_USER:=cmux-cloud}
+          : ${CMUX_PROMPT_CHAR:=$'\\u03bb'}
+          PROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
+        fi
+        [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+        if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
+          export CMUX_CLOUD_WELCOME_SHOWN=1
+          printf '\\033[38;2;0;212;255m  ::\\033[0m\\n'
+          printf '\\033[38;2;24;181;250m    ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'
+          printf '\\033[38;2;48;150;245m      ::::::\\033[0m\\n'
+          printf '\\033[38;2;72;119;241m        ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'
+          printf '\\033[38;2;96;88;239m      ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'
+          printf '\\033[38;2;110;73;238m    ::::\\033[0m\\n'
+          printf '\\033[38;2;124;58;237m  ::\\033[0m\\n'
+          printf '\\n'
+        fi
+        CMUX_USER_ZSHRC
+          fi
+          if [ ! -e "$HOME/.zshrc.local" ]; then
+            cat > "$HOME/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
+        # Personal zsh overrides for this cloud VM.
+        # Examples:
+        #   CMUX_CLOUD_WELCOME=0
+        #   CMUX_PROMPT_USER='cmux-cloud'
+        #   CMUX_PROMPT_CHAR='>'
+        #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
+        CMUX_LOCAL_ZSHRC
+          fi
+          if command -v tmux >/dev/null 2>&1; then
+            cmux_cloud_tty_scope="${CMUX_WORKSPACE_ID:-workspace}-${CMUX_SURFACE_ID:-surface}"
+            if [ "$cmux_cloud_tty_scope" = "workspace-surface" ]; then
+              cmux_cloud_tty_scope="default"
+            fi
+            cmux_cloud_tty_scope="$(printf '%s' "$cmux_cloud_tty_scope" | tr -c 'A-Za-z0-9_.-' '-')"
+            cmux_cloud_tty_scope="${cmux_cloud_tty_scope#-}"
+            cmux_cloud_tty_scope="${cmux_cloud_tty_scope%-}"
+            [ -n "$cmux_cloud_tty_scope" ] || cmux_cloud_tty_scope=default
+            if [ "$cmux_cloud_tty_scope" != default ] && [ "${CMUX_CLOUD_TMUX_SESSION:-}" = "cmux-cloud" ]; then
+              unset CMUX_CLOUD_TMUX_SESSION
+            fi
+            if [ "$cmux_cloud_tty_scope" = default ]; then
+              export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud}"
+            else
+              export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud-$cmux_cloud_tty_scope}"
+            fi
+            if ! tmux has-session -t "$CMUX_CLOUD_TMUX_SESSION" >/dev/null 2>&1; then
+              tmux new-session -d -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l" >/dev/null 2>&1 || unset CMUX_CLOUD_TMUX_SESSION
+            fi
+            if [ -n "${CMUX_CLOUD_TMUX_SESSION:-}" ] && tmux has-session -t "$CMUX_CLOUD_TMUX_SESSION" >/dev/null 2>&1; then
+              tmux set-option -t "$CMUX_CLOUD_TMUX_SESSION" status off >/dev/null 2>&1 || true
+              tmux attach-session -t "$CMUX_CLOUD_TMUX_SESSION"
+              cmux_tmux_status=$?
+              [ "$cmux_tmux_status" -eq 0 ] && exit 0
+            fi
+          fi
+          exec zsh -l
+        fi
+        exec "${SHELL:-/bin/sh}" -l
+        """
+    }
+
+    private func freestyleZshBootstrapScript(username: String) -> String {
+        let quotedUsername = shellQuote(username)
+        return """
+        set -u
+        export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+        cmux_user=\(quotedUsername)
+        cmux_home="$(getent passwd "$cmux_user" 2>/dev/null | awk -F: '{print $6}')"
+        if [ -z "$cmux_home" ]; then
+          cmux_home="/home/$cmux_user"
+        fi
+
+        if [ ! -f /etc/cmux/zsh-bootstrap-v5 ] || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1 || ! command -v cmux >/dev/null 2>&1; then
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop tmux >/dev/null 2>&1 || true
+          fi
+        fi
+
+        if [ ! -x /usr/local/bin/cmux ] && [ -x /usr/local/bin/cmuxd-remote ]; then
+          ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux >/dev/null 2>&1 || true
+        fi
+        hash -r 2>/dev/null || true
+
+        mkdir -p /etc/cmux "$cmux_home/.config/cmux"
+        cat > /etc/cmux/zshrc <<'CMUX_ZSHRC'
+        # cmux default zsh profile. Put personal overrides in ~/.zshrc.local.
+        export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+        export SHELL="$(command -v zsh)"
+        mkdir -p "$HOME/.cmux" 2>/dev/null || true
+        printf '%s' '/tmp/cmux-cloud-cli.sock' > "$HOME/.cmux/socket_addr" 2>/dev/null || true
+        export CMUX_SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}"
+        autoload -Uz colors 2>/dev/null && colors
+        setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
+        PROMPT_EOL_MARK=''
+        unsetopt prompt_sp 2>/dev/null || true
+        HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
+        HISTSIZE="${HISTSIZE:-50000}"
+        SAVEHIST="${SAVEHIST:-50000}"
+        bindkey -e 2>/dev/null || true
+
+        if [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
+          source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+          ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}"
+        fi
+
+        : ${CMUX_PROMPT_USER:=cmux-cloud}
+        : ${CMUX_PROMPT_CHAR:=$'\\u03bb'}
+        PROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
+        CMUX_ZSHRC
+
+        if [ ! -e "$cmux_home/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$cmux_home/.zshrc" 2>/dev/null; then
+          cat > "$cmux_home/.zshrc" <<'CMUX_USER_ZSHRC'
+        # cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.
+        mkdir -p "$HOME/.cmux" 2>/dev/null || true
+        printf '%s' '/tmp/cmux-cloud-cli.sock' > "$HOME/.cmux/socket_addr" 2>/dev/null || true
+        export CMUX_SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}"
+        [ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc
+        [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+        if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
+          export CMUX_CLOUD_WELCOME_SHOWN=1
+          printf '\\033[38;2;0;212;255m  ::\\033[0m\\n'
+          printf '\\033[38;2;24;181;250m    ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'
+          printf '\\033[38;2;48;150;245m      ::::::\\033[0m\\n'
+          printf '\\033[38;2;72;119;241m        ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'
+          printf '\\033[38;2;96;88;239m      ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'
+          printf '\\033[38;2;110;73;238m    ::::\\033[0m\\n'
+          printf '\\033[38;2;124;58;237m  ::\\033[0m\\n'
+          printf '\\n'
+        fi
+        CMUX_USER_ZSHRC
+        fi
+
+        if [ ! -e "$cmux_home/.zshrc.local" ]; then
+          cat > "$cmux_home/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
+        # Personal zsh overrides for this cloud VM.
+        # Examples:
+        #   CMUX_CLOUD_WELCOME=0
+        #   CMUX_PROMPT_USER='cmux-cloud'
+        #   CMUX_PROMPT_CHAR='>'
+        #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
+        CMUX_LOCAL_ZSHRC
+        fi
+
+        if command -v zsh >/dev/null 2>&1; then
+          chsh -s "$(command -v zsh)" "$cmux_user" >/dev/null 2>&1 || true
+          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 /etc/cmux/zsh-bootstrap-v3 /etc/cmux/zsh-bootstrap-v4 /etc/cmux/zsh-bootstrap-v5 2>/dev/null || true
+        fi
+        touch "$cmux_home/.hushlogin" 2>/dev/null || true
+        chown "$cmux_user:$cmux_user" "$cmux_home/.zshrc" "$cmux_home/.zshrc.local" 2>/dev/null || true
+        chown "$cmux_user:$cmux_user" "$cmux_home/.hushlogin" 2>/dev/null || true
+        mkdir -p "$cmux_home/.config" 2>/dev/null || true
+        chown "$cmux_user:$cmux_user" "$cmux_home/.config" 2>/dev/null || true
+        chown -R "$cmux_user:$cmux_user" "$cmux_home/.config/cmux" 2>/dev/null || true
+        """
     }
 
     private func parseVMPtyWebSocketEndpoint(_ response: [String: Any]) throws -> VMPtyWebSocketEndpoint {
@@ -10202,34 +11170,51 @@ struct CMUXCLI {
                   Cloud VM attach details were incomplete.
                 """)
         }
+        let attachmentId = ((response["attachment_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? UUID().uuidString.lowercased()
         let headers = parseHeaders(response["headers"])
         let expiresAtUnix = (response["expires_at_unix"] as? Int64)
             ?? Int64((response["expires_at_unix"] as? Double) ?? 0)
-        let daemon: VMDaemonWebSocketEndpoint?
-        if let daemonResponse = response["daemon"] as? [String: Any],
-           let daemonURL = daemonResponse["url"] as? String,
-           let daemonToken = daemonResponse["token"] as? String,
-           let daemonSessionID = daemonResponse["session_id"] as? String {
-            let daemonHeaders = parseHeaders(daemonResponse["headers"])
-            let daemonExpiresAtUnix = (daemonResponse["expires_at_unix"] as? Int64)
-                ?? Int64((daemonResponse["expires_at_unix"] as? Double) ?? 0)
-            daemon = VMDaemonWebSocketEndpoint(
-                url: daemonURL,
-                headers: daemonHeaders,
-                token: daemonToken,
-                sessionId: daemonSessionID,
-                expiresAtUnix: daemonExpiresAtUnix
-            )
-        } else {
-            daemon = nil
-        }
+        let daemon = parseVMDaemonWebSocketEndpoint(response["daemon"])
         return VMPtyWebSocketEndpoint(
             url: url,
             headers: headers,
             token: token,
             sessionId: sessionId,
+            attachmentId: attachmentId,
             expiresAtUnix: expiresAtUnix,
             daemon: daemon
+        )
+    }
+
+    private func parseVMDaemonWebSocketEndpoint(_ value: Any?) -> VMDaemonWebSocketEndpoint? {
+        func parseHeaders(_ value: Any?) -> [String: String] {
+            guard let raw = value as? [String: Any] else { return [:] }
+            return raw.reduce(into: [String: String]()) { result, pair in
+                if let headerValue = pair.value as? String {
+                    result[pair.key] = headerValue
+                }
+            }
+        }
+        guard let daemonResponse = value as? [String: Any],
+              let daemonURL = daemonResponse["url"] as? String,
+              let daemonToken = daemonResponse["token"] as? String,
+              let daemonSessionID = (daemonResponse["session_id"] as? String) ?? (daemonResponse["sessionId"] as? String) else {
+            return nil
+        }
+        let daemonHeaders = parseHeaders(daemonResponse["headers"])
+        let daemonExpiresAtUnix = (daemonResponse["expires_at_unix"] as? Int64)
+            ?? (daemonResponse["expiresAtUnix"] as? Int64)
+            ?? Int64((daemonResponse["expires_at_unix"] as? Double)
+                ?? ((daemonResponse["expiresAtUnix"] as? Double) ?? 0))
+        return VMDaemonWebSocketEndpoint(
+            url: daemonURL,
+            headers: daemonHeaders,
+            token: daemonToken,
+            sessionId: daemonSessionID,
+            expiresAtUnix: daemonExpiresAtUnix
         )
     }
 
@@ -10238,6 +11223,8 @@ struct CMUXCLI {
         endpoint: VMPtyWebSocketEndpoint,
         workspaceName: String?,
         windowRaw: String?,
+        targetWorkspaceId: String? = nil,
+        shouldPinWorkspaceToTop: Bool,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -10254,19 +11241,46 @@ struct CMUXCLI {
            !workspaceName.isEmpty {
             params["title"] = workspaceName
         }
-        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
-        let workspaceCreateStartedAt = Date()
-        let workspaceCreate = try client.sendV2(method: "workspace.create", params: params)
-        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
-            throw CLIError(message: "workspace.create did not return workspace_id")
+        let normalizedTargetWorkspaceId = targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceCreate: [String: Any]
+        let workspaceId: String
+        let didCreateWorkspace: Bool
+        if let normalizedTargetWorkspaceId, !normalizedTargetWorkspaceId.isEmpty {
+            workspaceId = normalizedTargetWorkspaceId
+            didCreateWorkspace = false
+            var precreatedWorkspacePayload: [String: Any] = [
+                "workspace_id": workspaceId,
+                "workspace_ref": workspaceId,
+            ]
+            if let windowRaw, !windowRaw.isEmpty {
+                precreatedWorkspacePayload["window_id"] = windowRaw
+                precreatedWorkspacePayload["window_ref"] = windowRaw
+            }
+            workspaceCreate = precreatedWorkspacePayload
+            logVMTiming(
+                "workspace.precreated",
+                vmID: id,
+                transport: "websocket",
+                startedAt: startedAt,
+                extra: "workspace=\(String(workspaceId.prefix(8)))"
+            )
+        } else {
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
+            let workspaceCreateStartedAt = Date()
+            workspaceCreate = try client.sendV2(method: "workspace.create", params: params)
+            guard let createdWorkspaceId = workspaceCreate["workspace_id"] as? String, !createdWorkspaceId.isEmpty else {
+                throw CLIError(message: "workspace.create did not return workspace_id")
+            }
+            workspaceId = createdWorkspaceId
+            didCreateWorkspace = true
+            logVMTiming(
+                "workspace.create",
+                vmID: id,
+                transport: "websocket",
+                startedAt: workspaceCreateStartedAt,
+                extra: "workspace=\(String(workspaceId.prefix(8)))"
+            )
         }
-        logVMTiming(
-            "workspace.create",
-            vmID: id,
-            transport: "websocket",
-            startedAt: workspaceCreateStartedAt,
-            extra: "workspace=\(String(workspaceId.prefix(8)))"
-        )
 
         let target = URL(string: endpoint.url)?.host ?? "websocket"
         let configureStartedAt = Date()
@@ -10277,6 +11291,8 @@ struct CMUXCLI {
             "auto_connect": endpoint.daemon != nil,
             "terminal_startup_command": splitStartupCommand,
             "skip_daemon_bootstrap": true,
+            "local_socket_path": client.socketPath,
+            "managed_cloud_vm_id": id,
         ]
         if let daemon = endpoint.daemon {
             configureParams["daemon_websocket_url"] = daemon.url
@@ -10287,6 +11303,11 @@ struct CMUXCLI {
         }
         let configuredPayload: [String: Any]
         do {
+            if shouldPinWorkspaceToTop {
+                let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                try pinWorkspaceToTop(workspaceId: workspaceId, windowId: workspaceWindowId, client: client)
+            }
             configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
             logVMTiming(
                 "workspace.remote.configure",
@@ -10295,6 +11316,25 @@ struct CMUXCLI {
                 startedAt: configureStartedAt,
                 extra: "workspace=\(String(workspaceId.prefix(8)))"
             )
+
+            if normalizedTargetWorkspaceId?.isEmpty == false {
+                let readyStartedAt = Date()
+                _ = try client.sendV2(
+                    method: "workspace.cloud_vm_terminal_ready",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "initial_command": initialStartupCommand,
+                        "focus": true,
+                    ]
+                )
+                logVMTiming(
+                    "workspace.cloud_vm_terminal_ready",
+                    vmID: id,
+                    transport: "websocket",
+                    startedAt: readyStartedAt,
+                    extra: "workspace=\(String(workspaceId.prefix(8)))"
+                )
+            }
 
             var selectParams: [String: Any] = ["workspace_id": workspaceId]
             if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
@@ -10312,11 +11352,13 @@ struct CMUXCLI {
                 extra: "workspace=\(String(workspaceId.prefix(8)))"
             )
         } catch {
-            do {
-                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-            } catch {
-                let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                cliWriteStderr(Data(warning.utf8))
+            if didCreateWorkspace {
+                do {
+                    _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                } catch {
+                    let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                    cliWriteStderr(Data(warning.utf8))
+                }
             }
             throw error
         }
@@ -10351,7 +11393,8 @@ struct CMUXCLI {
             url: endpoint.url,
             headers: endpoint.headers,
             token: endpoint.token,
-            sessionId: endpoint.sessionId
+            sessionId: endpoint.sessionId,
+            attachmentId: endpoint.attachmentId
         )
         let data = try JSONEncoder().encode(config)
         let url = FileManager.default.temporaryDirectory
@@ -10386,17 +11429,23 @@ struct CMUXCLI {
     }
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
-        let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
-            throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'. Use `cmux vm-pty-attach --id <vm-id>`.")
+        let (vmIDOpt, rem0) = parseOption(commandArgs, name: "--id")
+        let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session")
+        let (attachmentIDOpt, remaining) = parseOption(rem1, name: "--attachment")
+        let usesDefaultFreestyleSSHD = hasFlag(remaining, name: "--default-freestyle-sshd")
+        let filteredRemaining = remaining.filter { $0 != "--default-freestyle-sshd" }
+        if let unknown = filteredRemaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'. Use `cmux vm-pty-attach --id <vm-id> [--session <session-id>]`.")
         }
-        guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id>")
+        guard filteredRemaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id> [--session <session-id>]")
         }
         guard let vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
               !vmID.isEmpty else {
-            throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id>")
+            throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id> [--session <session-id>]")
         }
+        let sessionID = try Self.validatedVMSessionIdentifier(sessionIDOpt, flag: "--session")
+        let attachmentID = try Self.validatedVMSessionIdentifier(attachmentIDOpt, flag: "--attachment")
 
         let startedAt = Date()
         func log(_ stage: String, extra: String = "") {
@@ -10404,18 +11453,121 @@ struct CMUXCLI {
         }
 
         let attachInfoStartedAt = Date()
-        let response = try client.sendV2(method: "vm.attach_info", params: ["id": vmID], responseTimeout: Self.vmAttachResponseTimeoutSeconds)
+        let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
+            vmID: vmID,
+            usesDefaultFreestyleSSHD: usesDefaultFreestyleSSHD,
+            client: client,
+            sessionID: sessionID,
+            attachmentID: attachmentID
+        )
         logVMTiming("attach_info", vmID: vmID, transport: "websocket", startedAt: attachInfoStartedAt)
         let endpoint = try parseVMPtyWebSocketEndpoint(response)
         let config = VMPtyWebSocketConfig(
             url: endpoint.url,
             headers: endpoint.headers,
             token: endpoint.token,
-            sessionId: endpoint.sessionId
+            sessionId: endpoint.sessionId,
+            attachmentId: endpoint.attachmentId
         )
         try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
             log(stage)
         }).run()
+    }
+
+    private func defaultFreestyleAttachInfoWithRetryIfNeeded(
+        vmID: String,
+        usesDefaultFreestyleSSHD: Bool,
+        client: SocketClient,
+        sessionID: String? = nil,
+        attachmentID: String? = nil
+    ) throws -> [String: Any] {
+        let method: String
+        var params: [String: Any]
+        if let sessionID {
+            method = "vm.session_attach_info"
+            params = [
+                "id": vmID,
+                "session_id": sessionID,
+                "attachment_id": attachmentID ?? "attach-\(UUID().uuidString.lowercased())",
+            ]
+        } else {
+            method = "vm.attach_info"
+            params = usesDefaultFreestyleSSHD
+                ? ["id": vmID, "require_daemon": true]
+                : ["id": vmID]
+        }
+        var attempt = 0
+        var printedRetryNotice = false
+        let isReconnectAttach = ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
+        let retryLimit = Self.defaultFreestyleAttachRetryLimit()
+        let retryDelaySeconds = Self.defaultFreestyleAttachRetryDelaySeconds()
+        while true {
+            do {
+                let rawResponse = try client.sendV2(
+                    method: method,
+                    params: params,
+                    responseTimeout: Self.vmAttachResponseTimeoutSeconds
+                )
+                if !isReconnectAttach, printedRetryNotice {
+                    Self.writeStderr(Self.clearTerminalLinePrefix)
+                }
+                if sessionID != nil {
+                    guard let endpoint = rawResponse["endpoint"] as? [String: Any] else {
+                        throw CLIError(message: """
+                            cmux could not read the session attach information for this Cloud VM.
+
+                            What to do:
+                              Close and reopen this Base terminal.
+
+                            Details:
+                              Cloud VM session attach details were incomplete.
+                            """)
+                    }
+                    return endpoint
+                }
+                let response = rawResponse
+                return response
+            } catch {
+                if usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) {
+                    throw CLIError(message: """
+                        The Cloud VM attached to this workspace no longer exists.
+
+                        What to do:
+                          Close this workspace and open a fresh Cloud VM workspace with the cloud button or `cmux vm new`.
+
+                        Details:
+                          cmux will not recreate the VM from inside an attached terminal because that would leave the workspace's saved Cloud VM id stale.
+                        """)
+                }
+                guard usesDefaultFreestyleSSHD,
+                      Self.isRetryableCloudVMServiceError(error),
+                      attempt < retryLimit else {
+                    if !isReconnectAttach, printedRetryNotice {
+                        Self.writeStderrLine("")
+                    }
+                    throw error
+                }
+                let retryAttempt = attempt + 1
+                if !isReconnectAttach {
+                    Self.writeStderr(
+                        Self.clearTerminalLinePrefix + Self.defaultFreestyleAttachRetryNotice(
+                            error: error,
+                            attempt: retryAttempt,
+                            retryLimit: retryLimit,
+                            retryDelaySeconds: retryDelaySeconds
+                        )
+                    )
+                    printedRetryNotice = true
+                }
+                cliDebugLog(
+                    "cli.vm.attach_info.retry vm=\(String(vmID.prefix(8))) attempt=\(retryAttempt) retry_in_seconds=\(retryDelaySeconds) error=\(String(describing: error))"
+                )
+                attempt += 1
+                if retryDelaySeconds > 0 {
+                    usleep(useconds_t(retryDelaySeconds * 1_000_000))
+                }
+            }
+        }
     }
 
     private final class VMPtyWebSocketBridgeDelegate: NSObject, URLSessionWebSocketDelegate {
@@ -10526,6 +11678,7 @@ struct CMUXCLI {
                 "type": "auth",
                 "token": config.token,
                 "session_id": config.sessionId,
+                "attachment_id": config.attachmentId,
                 "cols": size.cols,
                 "rows": size.rows,
             ]
@@ -14054,16 +15207,33 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
             Subcommands:
               ls                        List your cloud VMs.
+              status <id>                Print provider, status, and image.
+              base open [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+                                        Open Base, your persistent cloud workspace.
+                                        Reuses the same VM every time.
+              base reset [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+                                        Create a new Base generation. The previous
+                                        VM is retained so accidental resets are
+                                        recoverable.
               new [--image <template>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
-                                        Create a new VM. By default drops you into a shell on
-                                        the VM (like `docker run -it`). Pass --detach/-d to
-                                        just print the id and exit (scripting primitive).
+                                        Create a new VM. By default, with no image or
+                                        provider override, this is kept compatible with
+                                        Base. Pass --image or --provider to create a
+                                        separate VM.
+              snapshot <id> [--name <name>]
+                                        Create a provider snapshot/checkpoint and print its id.
+                                        Alias: `checkpoint`.
+              fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d]
+                                        Fork a VM as a tracked Cloud VM and open it unless
+                                        --detach is passed.
+              restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+                                        Restore a snapshot as a tracked Cloud VM.
               shell <id> [--window <id|ref|index>]
                                         Drop into an interactive shell on an existing VM.
                                         Alias: `attach <id>`.
@@ -14074,6 +15244,10 @@ struct CMUXCLI {
                                         exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
+              tools <id>                Inspect installed tools inside the VM.
+              ports <id>                Show listening TCP ports inside the VM.
+              handoff <id>              Print a short attach handoff block.
+              promote-template <id>     Snapshot a VM with a template-oriented name.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
@@ -14081,8 +15255,11 @@ struct CMUXCLI {
                                          local testing from the web worktree.
 
             Example:
+              cmux vm base open
+              cmux vm base reset
               cmux vm new
               cmux vm ls
+              cmux vm fork <id>
               cmux cloud exec <id> -- echo hello
               cmux vm rm <id>
             """
@@ -34237,7 +35414,7 @@ export default CMUXSessionRestore;
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

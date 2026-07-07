@@ -261,6 +261,7 @@ class TerminalController {
         "workspace.previous",
         "workspace.last",
         "workspace.group.focus",
+        "workspace.cloud_vm_open",
         "surface.focus",
         "pane.focus",
         "pane.last",
@@ -2222,6 +2223,10 @@ class TerminalController {
         // foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
         // terminal_session_end) handled by ControlCommandCoordinator. The worker-lane
         // workspace.remote.pty_* methods stay on the app-side worker path.
+        case "workspace.cloud_vm_open":
+            return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
+        case "workspace.cloud_vm_terminal_ready":
+            return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
 
@@ -2388,6 +2393,8 @@ class TerminalController {
             "window.display",
             "workspace.list",
             "workspace.create",
+            "workspace.cloud_vm_open",
+            "workspace.cloud_vm_terminal_ready",
             "workspace.env",
             "workspace.select",
             "workspace.current",

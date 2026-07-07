@@ -104,6 +104,11 @@ resolve_stack_env() {
   if [[ -n "$existing_secret_set" ]]; then
     export STACK_SECRET_SERVER_KEY="$existing_secret"
   fi
+  if [[ "$STACK_SECRET_SERVER_KEY" == "cmux-local-dev-placeholder" ]]; then
+    export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=1
+  else
+    export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=0
+  fi
 
   if [[ -z "${NEXT_PUBLIC_STACK_PROJECT_ID:-}" ]]; then
     die "NEXT_PUBLIC_STACK_PROJECT_ID is required"
