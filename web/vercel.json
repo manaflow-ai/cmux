@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/vm-alerts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-probe",
+      "schedule": "7,22,37,52 * * * *"
     }
   ]
 }
