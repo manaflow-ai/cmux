@@ -2628,7 +2628,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
-        preservesProxyFailureForSSHRemoteWorkspace && activeRemoteTerminalSessionCount > 0
+        preservesProxyFailureForSSHRemoteWorkspace
+            && remoteConfiguration?.preserveAfterTerminalExit != true
+            && activeRemoteTerminalSessionCount > 0
     }
 
     private var suppressesProxyOnlySidebarErrorWhileSSHTerminalIsAlive: Bool {
