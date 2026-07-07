@@ -21,9 +21,9 @@ import {
 } from "../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
+import { enforceVmProGate } from "../../../services/vms/proGate";
 import {
   imageUsesBakedFreestyleSignedAdmin,
   resolveVmImage,
@@ -36,7 +36,6 @@ import {
   vmErrorResponse,
   vmWorkflowErrorResponse,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
 import {
   createVm,
@@ -289,9 +288,8 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_active": entitlements.maxActiveVms,
         });
 
-        if (isVmProGateBlocked(entitlements)) {
-          return vmRequiresProResponse();
-        }
+        const proGateResponse = await enforceVmProGate({ entitlements, userId: user.id });
+        if (proGateResponse) return proGateResponse;
 
         let created;
         try {

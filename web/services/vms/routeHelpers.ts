@@ -242,6 +242,15 @@ export function vmRequiresProResponse(): Response {
   });
 }
 
+export function vmTrialExpiredResponse(): Response {
+  return vmErrorResponse({
+    error: "vm_trial_expired",
+    status: 402,
+    message: "Your Cloud VM free trial has ended.",
+    action: "Add a card at https://cmux.com/pricing to keep using Cloud VMs.",
+  });
+}
+
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
   if (isVmProviderOperationError(workflowError)) {

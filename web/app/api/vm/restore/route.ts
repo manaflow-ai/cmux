@@ -5,7 +5,6 @@ import {
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
 import {
@@ -17,9 +16,9 @@ import {
 } from "../../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
   resolveVmEntitlements,
 } from "../../../../services/vms/entitlements";
+import { enforceVmProGate } from "../../../../services/vms/proGate";
 import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 
@@ -76,9 +75,8 @@ export async function POST(request: Request): Promise<Response> {
         if (isVmBillingTeamResolutionError(err)) return billingTeamErrorResponse(err);
         throw err;
       }
-      if (isVmProGateBlocked(entitlements)) {
-        return vmRequiresProResponse();
-      }
+      const proGateResponse = await enforceVmProGate({ entitlements, userId: user.id });
+      if (proGateResponse) return proGateResponse;
       const idempotencyKey = idempotencyKeyFromRequest(request);
       setSpanAttributes(span, {
         "cmux.snapshot.id": snapshotId,

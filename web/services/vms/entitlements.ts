@@ -7,6 +7,8 @@ export type VmEntitlements = {
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
   readonly maxActiveVms: number;
+  /** ISO-8601 timestamp the no-card Pro trial started, or null if never started. */
+  readonly vmTrialStartedAt: string | null;
 };
 
 export type VmEntitlementOptions = {
@@ -46,6 +48,7 @@ export function resolveVmEntitlements(
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
     maxActiveVms: maxActiveVmsForPlan(planId, env),
+    vmTrialStartedAt: user.vmTrialStartedAt ?? null,
   };
 }
 
@@ -134,16 +137,86 @@ export function isVmProGateEnforced(
   return isVmRequireProFlag(env.CMUX_VM_REQUIRE_PRO);
 }
 
+/** Length of the no-card Pro trial in ms (CMUX_VM_TRIAL_DAYS, default 7). */
+export function vmTrialDurationMs(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const days = Number.parseInt(env.CMUX_VM_TRIAL_DAYS ?? "", 10);
+  const safeDays = Number.isFinite(days) && days > 0 ? days : 7;
+  return safeDays * 24 * 60 * 60 * 1000;
+}
+
+export type VmTrialState = {
+  /** Whether a trial has ever been started for this user. */
+  readonly started: boolean;
+  /** Within the trial window right now. */
+  readonly active: boolean;
+  /** Started but the window has elapsed. */
+  readonly expired: boolean;
+  /** Whole days remaining while active (0 once expired/never-started). */
+  readonly daysRemaining: number;
+  /** ISO end of the trial window, or null if never started. */
+  readonly endsAt: string | null;
+};
+
+/** Interpret a stored trial-start timestamp against the current instant. */
+export function resolveVmTrialState(
+  vmTrialStartedAt: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+  nowMs: number = Date.now(),
+): VmTrialState {
+  const startedMs = vmTrialStartedAt ? Date.parse(vmTrialStartedAt) : NaN;
+  if (!Number.isFinite(startedMs)) {
+    return { started: false, active: false, expired: false, daysRemaining: 0, endsAt: null };
+  }
+  const endMs = startedMs + vmTrialDurationMs(env);
+  const active = nowMs < endMs;
+  const daysRemaining = active ? Math.max(0, Math.ceil((endMs - nowMs) / (24 * 60 * 60 * 1000))) : 0;
+  return {
+    started: true,
+    active,
+    expired: !active,
+    daysRemaining,
+    endsAt: new Date(endMs).toISOString(),
+  };
+}
+
 /**
- * True when the caller's plan may NOT provision Cloud VMs: the gate is
- * enforced and the plan is not paid. Management verbs (list/rm/exec/ssh/
- * attach) must NOT consult this — only provisioning entry points.
+ * Reason-coded provisioning decision for a Cloud VM entry point.
+ * - "allowed": paid plan, active trial, or the gate is not enforced.
+ * - "trial_available": free user with no trial yet — the route should start
+ *   the no-card trial (persist the timestamp) and then proceed.
+ * - "trial_expired": free user whose trial window elapsed — show the upgrade
+ *   wall ("add a card to keep Cloud VMs").
+ */
+export type VmProGateDecision = "allowed" | "trial_available" | "trial_expired";
+
+export function resolveVmProGateDecision(
+  entitlements: Pick<VmEntitlements, "planId" | "vmTrialStartedAt">,
+  env: Record<string, string | undefined> = process.env,
+  nowMs: number = Date.now(),
+): VmProGateDecision {
+  if (!isVmProGateEnforced(env)) return "allowed";
+  if (isPaidVmPlan(entitlements.planId)) return "allowed";
+  const trial = resolveVmTrialState(entitlements.vmTrialStartedAt, env, nowMs);
+  if (trial.active) return "allowed";
+  if (trial.expired) return "trial_expired";
+  return "trial_available";
+}
+
+/**
+ * True when the caller may NOT provision Cloud VMs *without any further action*
+ * — i.e. the trial window has elapsed. "trial_available" is NOT blocked: the
+ * route starts the no-card trial and proceeds. Management verbs
+ * (list/rm/exec/ssh/attach) must NOT consult this — only provisioning entry
+ * points.
  */
 export function isVmProGateBlocked(
-  entitlements: Pick<VmEntitlements, "planId">,
+  entitlements: Pick<VmEntitlements, "planId" | "vmTrialStartedAt">,
   env: Record<string, string | undefined> = process.env,
+  nowMs: number = Date.now(),
 ): boolean {
-  return isVmProGateEnforced(env) && !isPaidVmPlan(entitlements.planId);
+  return resolveVmProGateDecision(entitlements, env, nowMs) === "trial_expired";
 }
 
 function isVmRequireProFlag(value: string | undefined): boolean {
