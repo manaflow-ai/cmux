@@ -293,6 +293,12 @@ html { scroll-behavior: smooth; }
       .replace(/>/g, '&gt;');
   }
 
+  function decodeHTML(s) {
+    var textarea = document.createElement('textarea');
+    textarea.innerHTML = String(s == null ? '' : s);
+    return textarea.value;
+  }
+
   function sanitizeLinkLabelHTML(html) {
     var template = document.createElement('template');
     template.innerHTML = String(html == null ? '' : html);
@@ -309,7 +315,8 @@ html { scroll-behavior: smooth; }
     while (walker.nextNode()) {
       elements.push(walker.currentNode);
     }
-    elements.forEach(function(el) {
+    elements.reverse().forEach(function(el) {
+      if (!el.parentNode) { return; }
       var tag = el.tagName.toLowerCase();
       if (!allowedInlineTags[tag]) {
         el.parentNode.replaceChild(document.createTextNode(el.textContent || ''), el);
@@ -1038,7 +1045,7 @@ html { scroll-behavior: smooth; }
       link(href, title, text) {
         var html = '<a href="' + escapeAttribute(href) + '"';
         if (title != null) {
-          html += ' title="' + String(title) + '"';
+          html += ' title="' + escapeAttribute(decodeHTML(title)) + '"';
         }
         return html + '>' + sanitizeLinkLabelHTML(text) + '</a>';
       }

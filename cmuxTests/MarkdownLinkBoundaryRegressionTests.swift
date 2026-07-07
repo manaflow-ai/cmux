@@ -33,14 +33,14 @@ final class MarkdownLinkBoundaryRegressionTests {
     func renderedInlineLinkTitleAndLabelAreEscapedOnce() async throws {
         try await withLoadedMarkdownShell { webView in
             let snapshot = try await renderLinkBoundarySnapshot(
-                #"See [<span onclick="x">label</span> **bold**](file.md "a & \" <q>")."#,
+                #"See [<span onclick="x">label <strong>raw</strong></span> **bold**](file.md "a & \" <q>")."#,
                 in: webView
             )
 
             #expect(snapshot.href == "file.md")
             #expect(snapshot.title == #"a & " <q>"#)
-            #expect(snapshot.text == "label bold")
-            #expect(snapshot.innerHTML == "label <strong>bold</strong>")
+            #expect(snapshot.text == "label raw bold")
+            #expect(snapshot.innerHTML == "label raw <strong>bold</strong>")
         }
     }
 
