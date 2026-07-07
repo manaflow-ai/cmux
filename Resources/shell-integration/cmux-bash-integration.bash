@@ -246,6 +246,15 @@ _cmux_install_cli_command_shim() {
         printf '%s\n' '#!/usr/bin/env bash'
         if [[ "$command_name" == "claude" ]]; then
             printf 'cmux_wrapper="%s"\n' "$escaped_wrapper"
+            printf '%s\n' 'cmux_prepare_claude_terminal_for_tui() {'
+            printf '%s\n' '    [[ -n "${CMUX_SURFACE_ID:-}" ]] || return 0'
+            printf '%s\n' '    [[ "${CMUX_CLAUDE_TERMINAL_PREPARED:-}" != "1" ]] || return 0'
+            printf '%s\n' '    [[ -t 1 ]] || return 0'
+            printf '%s\n' '    [[ -x "$cmux_wrapper" ]] || return 0'
+            printf '%s\n' '    "$cmux_wrapper" __cmux-should-prepare-terminal-for-tui "$@" >/dev/null 2>&1 || return 0'
+            printf '%s\n' "    printf '\\033[H\\033[2J'"
+            printf '%s\n' '    export CMUX_CLAUDE_TERMINAL_PREPARED=1'
+            printf '%s\n' '}'
             printf '%s\n' 'if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then'
             printf '%s\n' '    cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"'
             printf '%s\n' '    if [[ -x "$cmux_candidate" ]]; then'
@@ -263,6 +272,7 @@ _cmux_install_cli_command_shim() {
             printf '%s\n' 'fi'
             printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
             printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf '%s\n' 'cmux_prepare_claude_terminal_for_tui "$@"'
             printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
             printf '%s\n' '    exec "$cmux_wrapper" "$@"'
             printf '%s\n' 'fi'
@@ -281,6 +291,7 @@ _cmux_install_cli_command_shim() {
             printf '%s\n' 'done'
             printf '%s\n' 'IFS="$cmux_old_ifs"'
             printf '%s\n' 'export PATH="$cmux_path_without_shim"'
+            printf '%s\n' 'unset CMUX_CLAUDE_TERMINAL_PREPARED'
             printf '%s\n' 'exec claude "$@"'
         else
             printf 'exec "%s" "$@"\n' "$escaped_wrapper"

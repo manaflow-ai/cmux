@@ -121,6 +121,15 @@ extension TerminalSurface {
             let script = """
             #!/usr/bin/env bash
             cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
+            cmux_prepare_claude_terminal_for_tui() {
+                [[ -n "${CMUX_SURFACE_ID:-}" ]] || return 0
+                [[ "${CMUX_CLAUDE_TERMINAL_PREPARED:-}" != "1" ]] || return 0
+                [[ -t 1 ]] || return 0
+                [[ -x "$cmux_wrapper" ]] || return 0
+                "$cmux_wrapper" __cmux-should-prepare-terminal-for-tui "$@" >/dev/null 2>&1 || return 0
+                printf '\\033[H\\033[2J'
+                export CMUX_CLAUDE_TERMINAL_PREPARED=1
+            }
             if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
                 cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"
                 if [[ -x "$cmux_candidate" ]]; then
@@ -138,6 +147,7 @@ extension TerminalSurface {
             fi
             export CMUX_CLAUDE_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
             export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=\(shellSingleQuoted(shimDirectory.path))
+            cmux_prepare_claude_terminal_for_tui "$@"
             if [[ -x "$cmux_wrapper" ]]; then
                 exec "$cmux_wrapper" "$@"
             fi
@@ -156,6 +166,7 @@ extension TerminalSurface {
             done
             IFS="$cmux_old_ifs"
             export PATH="$cmux_path_without_shim"
+            unset CMUX_CLAUDE_TERMINAL_PREPARED
             exec claude "$@"
             """
             try script.write(to: shimURL, atomically: true, encoding: .utf8)
