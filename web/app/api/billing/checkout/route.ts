@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
+
 import { stackServerApp } from "../../../lib/stack";
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
+import { cloudDb } from "../../../../db/client";
+import { stripeCustomers } from "../../../../db/schema";
 import {
   PRO_PRODUCT_ID,
   TEAM_PRODUCT_ID,
@@ -12,6 +16,7 @@ import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
   resolveProPrice,
+  resolveTeamPrice,
   stripe,
   type ProBillingInterval,
 } from "../../../../services/billing/stripe";
@@ -34,6 +39,9 @@ export async function GET(request: NextRequest) {
 
   if (plan === "pro" && isStripeBillingConfigured()) {
     return stripeProCheckout(request);
+  }
+  if (plan === "team" && isStripeBillingConfigured()) {
+    return stripeTeamCheckout(request);
   }
 
   return legacyStackCheckout(request, plan);
@@ -94,6 +102,64 @@ async function stripeProCheckout(request: NextRequest) {
   }
 }
 
+async function stripeTeamCheckout(request: NextRequest) {
+  const user =
+    (await stackServerApp!.getUser({ or: "return-null" })) ??
+    (await stackServerApp!.getUser({ or: "anonymous" }));
+  const team = await checkoutTeamCustomer(user);
+  const teamId = team.id;
+  if (!teamId) {
+    throw new Error("Stack team checkout customer is missing an id");
+  }
+
+  const scheme = validatedNativeCallbackScheme(
+    request.nextUrl.searchParams.get("cmux_scheme"),
+    request,
+  );
+  const successUrl =
+    `${request.nextUrl.origin}/api/billing/complete` +
+    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
+  const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+  const metadata = {
+    stackTeamId: teamId,
+    plan: "team",
+    app: "cmux",
+  };
+
+  try {
+    const customerId = await stripeCustomerForTeam(team, user.id);
+    const session = await stripe().checkout.sessions.create({
+      mode: "subscription",
+      line_items: [
+        {
+          price: await resolveTeamPrice(),
+          quantity: await checkoutTeamSeatCount(team),
+          adjustable_quantity: {
+            enabled: true,
+            minimum: 1,
+          },
+        },
+      ],
+      customer: customerId,
+      client_reference_id: teamId,
+      metadata,
+      subscription_data: { metadata },
+      allow_promotion_codes: true,
+      success_url: successUrl,
+      cancel_url: cancelUrl.toString(),
+    });
+    if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    return NextResponse.redirect(session.url);
+  } catch (error) {
+    captureBillingError(error, {
+      route: "/api/billing/checkout",
+      plan: "team",
+      stackTeamId: teamId,
+    });
+    return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+  }
+}
+
 async function legacyStackCheckout(
   request: NextRequest,
   plan: "pro" | "team",
@@ -148,6 +214,9 @@ async function legacyStackCheckout(
 }
 
 type CheckoutTeamCustomer = {
+  readonly id?: string;
+  readonly displayName?: string | null;
+  listUsers?(): Promise<readonly unknown[]>;
   createCheckoutUrl(options: {
     productId: string;
     returnUrl?: string;
@@ -155,6 +224,7 @@ type CheckoutTeamCustomer = {
 };
 
 type CheckoutTeamUser = {
+  readonly id: string;
   readonly selectedTeam?: CheckoutTeamCustomer | null;
   listTeams?(): Promise<CheckoutTeamCustomer[]>;
   createTeam?(data: { displayName: string }): Promise<CheckoutTeamCustomer>;
@@ -175,6 +245,54 @@ async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTea
   return team;
 }
 
+async function stripeCustomerForTeam(
+  team: CheckoutTeamCustomer,
+  stackUserId: string,
+): Promise<string> {
+  if (!team.id) throw new Error("Stack team checkout customer is missing an id");
+  const [existing] = await cloudDb()
+    .select({ id: stripeCustomers.id })
+    .from(stripeCustomers)
+    .where(eq(stripeCustomers.stackTeamId, team.id))
+    .limit(1);
+  if (existing?.id) return existing.id;
+
+  const customer = await stripe().customers.create({
+    name: team.displayName?.trim() || "cmux Team",
+    metadata: {
+      stackTeamId: team.id,
+      app: "cmux",
+    },
+  });
+
+  try {
+    await cloudDb()
+      .insert(stripeCustomers)
+      .values({
+        id: customer.id,
+        stackUserId,
+        stackTeamId: team.id,
+        email: null,
+      });
+    return customer.id;
+  } catch (error) {
+    if (!isStackTeamUniqueConflict(error)) throw error;
+    const [raceWinner] = await cloudDb()
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(eq(stripeCustomers.stackTeamId, team.id))
+      .limit(1);
+    if (raceWinner?.id) return raceWinner.id;
+    throw error;
+  }
+}
+
+async function checkoutTeamSeatCount(team: CheckoutTeamCustomer): Promise<number> {
+  if (!team.listUsers) return 1;
+  const users = await team.listUsers();
+  return Math.max(1, users.length);
+}
+
 function checkoutPlan(raw: string | null): "pro" | "team" | null {
   if (!raw) return "pro";
   const plan = raw.trim().toLowerCase();
@@ -190,4 +308,17 @@ function isAlreadyGrantedError(error: unknown): boolean {
   const text =
     error instanceof Error ? `${error.name} ${error.message}` : String(error);
   return /already.{0,20}granted/i.test(text);
+}
+
+function isStackTeamUniqueConflict(error: unknown): boolean {
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  const candidate = (cause ?? error) as { code?: string; constraint?: string } | null;
+  if (
+    candidate?.code === "23505" &&
+    candidate.constraint === "stripe_customers_stack_team_id_unique"
+  ) {
+    return true;
+  }
+  const text = error instanceof Error ? error.message : String(error);
+  return /stripe_customers_stack_team_id_unique/.test(text);
 }

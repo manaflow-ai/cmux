@@ -67,6 +67,11 @@ export function makeBillingCompleteHandler(
             subscription: expandedSubscription(session),
             customer: expandedCustomer(session),
           });
+          if (session.metadata?.plan === "team") {
+            return NextResponse.redirect(
+              new URL("/dashboard/billing?welcome=team", request.nextUrl.origin),
+            );
+          }
           const success = new URL("/billing/success", request.nextUrl.origin);
           success.searchParams.set("session_id", session.id);
           success.searchParams.set("cmux_scheme", scheme);

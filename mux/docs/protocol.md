@@ -2,6 +2,8 @@
 
 As of protocol v6, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
+For shell use, prefer `cmux-mux <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
+
 Default socket path:
 
 ```text

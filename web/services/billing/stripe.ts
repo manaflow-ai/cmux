@@ -8,9 +8,11 @@ const PRO_PRICE_LOOKUP_KEYS: Record<ProBillingInterval, string> = {
   month: "cmux-pro-monthly",
   year: "cmux-pro-yearly",
 };
+const TEAM_PRICE_LOOKUP_KEY = "cmux-team-monthly";
 
 let stripeClient: Stripe | null = null;
 const resolvedPriceIds = new Map<ProBillingInterval, string>();
+let resolvedTeamPriceId: string | null = null;
 
 export function isStripeBillingConfigured(): boolean {
   return Boolean(env.STRIPE_SECRET_KEY);
@@ -46,5 +48,22 @@ export async function resolveProPrice(interval: ProBillingInterval): Promise<str
     throw new Error(`Stripe price lookup key not found: ${lookupKey}`);
   }
   resolvedPriceIds.set(interval, priceId);
+  return priceId;
+}
+
+export async function resolveTeamPrice(): Promise<string> {
+  if (env.STRIPE_TEAM_MONTHLY_PRICE_ID) return env.STRIPE_TEAM_MONTHLY_PRICE_ID;
+  if (resolvedTeamPriceId) return resolvedTeamPriceId;
+
+  const prices = await stripe().prices.list({
+    active: true,
+    lookup_keys: [TEAM_PRICE_LOOKUP_KEY],
+    limit: 1,
+  });
+  const priceId = prices.data[0]?.id;
+  if (!priceId) {
+    throw new Error(`Stripe price lookup key not found: ${TEAM_PRICE_LOOKUP_KEY}`);
+  }
+  resolvedTeamPriceId = priceId;
   return priceId;
 }

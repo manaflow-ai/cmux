@@ -13,6 +13,8 @@ const stripeModule = await import("../services/billing/stripe");
 const signedInUser = {
   id: "user-pro",
   isAnonymous: false,
+  selectedTeam: null as null | { id: string },
+  listTeams: mock(async () => [] as Array<{ id: string }>),
 };
 const anonymousUser = {
   id: "anonymous-pro",
@@ -94,6 +96,8 @@ describe("billing subscription route", () => {
     anonymousIfExistsUser = null;
     subscriptionRows = [{ id: "sub_123" }];
     dbUpdates.length = 0;
+    signedInUser.selectedTeam = null;
+    signedInUser.listTeams.mockClear();
     getUser.mockClear();
     updateSubscription.mockClear();
     mockImplementation(updateSubscription, stripeSubscriptionUpdateResult);
@@ -158,6 +162,51 @@ describe("billing subscription route", () => {
       cancel_at_period_end: false,
     });
     expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(false);
+  });
+
+  test("cancels the current user's Team subscription from the derived billing team", async () => {
+    signedInUser.selectedTeam = { id: "team-pro" };
+    subscriptionRows = [{ id: "sub_team" }];
+
+    const response = await postAction("cancel", {
+      scope: "team",
+      teamId: "team-pro",
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?billing=cancelled",
+    );
+    expect(updateSubscription).toHaveBeenCalledWith("sub_team", {
+      cancel_at_period_end: true,
+    });
+    expect(dbUpdates[0].values.cancelAtPeriodEnd).toBe(true);
+  });
+
+  test("rejects Team subscription changes for a posted team outside the user's billing team", async () => {
+    signedInUser.selectedTeam = { id: "team-a" };
+
+    const response = await postAction("cancel", {
+      scope: "team",
+      teamId: "team-b",
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?billing=error",
+    );
+    expect(updateSubscription).not.toHaveBeenCalled();
+    expect(dbUpdates).toHaveLength(0);
+  });
+
+  test("rejects Team scope when no billing team can be derived", async () => {
+    const response = await postAction("cancel", { scope: "team" });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/billing?billing=error",
+    );
+    expect(updateSubscription).not.toHaveBeenCalled();
   });
 
   test("redirects unauthenticated users to the localized dashboard sign-in path", async () => {
@@ -239,6 +288,8 @@ function postAction(
     referer?: string;
     origin?: string;
     secFetchSite?: string;
+    scope?: "user" | "team";
+    teamId?: string;
   } = {},
 ) {
   const headers = new Headers({
@@ -250,11 +301,15 @@ function postAction(
     headers.set("sec-fetch-site", options.secFetchSite);
   }
 
+  const body = new URLSearchParams({ action });
+  if (options.scope) body.set("scope", options.scope);
+  if (options.teamId) body.set("teamId", options.teamId);
+
   return POST(
     new NextRequest("https://cmux.test/api/billing/subscription", {
       method: "POST",
       headers,
-      body: new URLSearchParams({ action }),
+      body,
     }),
   );
 }
