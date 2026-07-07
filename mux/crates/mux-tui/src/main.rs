@@ -8,6 +8,7 @@
 
 mod app;
 mod browser_input;
+mod cli;
 mod config;
 mod host_colors;
 mod keys;
@@ -45,6 +46,7 @@ cmux-mux - terminal multiplexer backed by libghostty-vt
 USAGE:
   cmux-mux [OPTIONS]           Start a session (TUI + control socket)
   cmux-mux attach [OPTIONS]    Attach to an existing session's socket
+  cmux-mux <verb> [OPTIONS]    Run one control-socket command
 
 OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
@@ -69,6 +71,15 @@ MOUSE
   sidebar workspace or a status-bar screen for rename/close. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
   screen entries to switch screens (+ for a new screen).
+
+CLI VERBS
+  identify, list-workspaces, send, read-screen, vt-state, new-tab,
+  new-browser-tab, new-workspace, new-screen, split, set-ratio,
+  set-default-colors, close-surface, close-pane, close-screen,
+  close-workspace, rename-pane, rename-surface, rename-screen,
+  rename-workspace, resize-surface, focus-pane, select-tab,
+  select-screen, select-workspace, move-tab, move-workspace,
+  scroll-surface, subscribe, attach-surface
 ";
 
 struct Args {
@@ -79,7 +90,7 @@ struct Args {
     term: Option<String>,
 }
 
-fn parse_args() -> Args {
+fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     let mut out = Args {
         attach: false,
         session: "main".to_string(),
@@ -87,7 +98,7 @@ fn parse_args() -> Args {
         headless: false,
         term: None,
     };
-    let mut args = std::env::args().skip(1).peekable();
+    let mut args = args.into_iter().peekable();
     if args.peek().map(|s| s.as_str()) == Some("attach") {
         out.attach = true;
         args.next();
@@ -117,7 +128,15 @@ fn parse_args() -> Args {
 
 fn main() {
     install_signal_handlers();
-    let args = parse_args();
+    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
+        print!("{USAGE}");
+        std::process::exit(0);
+    }
+    if cli::is_cli_invocation(&raw_args) {
+        std::process::exit(cli::run(&raw_args, USAGE));
+    }
+    let args = parse_args(raw_args);
     let result = if args.attach { run_attach(args) } else { run_server(args) };
     if let Err(e) = result {
         eprintln!("cmux-mux: {e}");
