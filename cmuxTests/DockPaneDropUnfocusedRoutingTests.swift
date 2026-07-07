@@ -130,6 +130,42 @@ struct DockPaneDropUnfocusedRoutingTests {
         #expect(dropHit === target)
     }
 
+    @Test("Drop mouse-up uses the same browser portal route as hover")
+    @MainActor
+    func dropMouseUpUsesSameBrowserPortalRouteAsHover() throws {
+        let tabId = UUID()
+        let sourcePaneId = UUID()
+        let payload = try Self.makePaneDragPayload(tabId: tabId, sourcePaneId: sourcePaneId)
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        dragPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        defer { dragPasteboard.clearContents() }
+
+        let pasteboardTypes = dragPasteboard.types
+        #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
+            pasteboardTypes: pasteboardTypes,
+            eventType: .leftMouseDragged
+        ))
+        #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
+            pasteboardTypes: pasteboardTypes,
+            eventType: .leftMouseUp
+        ))
+        #expect(WindowInputRoutingContext(eventType: .leftMouseDragged).allowsBrowserPortalDragRouting)
+        #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsBrowserPortalDragRouting)
+        #expect(WindowBrowserHostView.shouldPassThroughToDragTargets(
+            pasteboardTypes: pasteboardTypes,
+            eventType: .leftMouseDragged
+        ))
+        #expect(WindowBrowserHostView.shouldPassThroughToDragTargets(
+            pasteboardTypes: pasteboardTypes,
+            eventType: .leftMouseUp
+        ))
+        #expect(!WindowBrowserHostView.shouldPassThroughToDragTargets(
+            pasteboardTypes: [.fileURL],
+            eventType: .leftMouseUp
+        ))
+    }
+
     @Test("Accepted unfocused Dock pane drop moves a main surface into the Dock")
     @MainActor
     func acceptedUnfocusedDockPaneDropMovesMainSurfaceIntoDock() async throws {
@@ -193,6 +229,73 @@ struct DockPaneDropUnfocusedRoutingTests {
             #expect(target.performDragOperation(draggingInfo))
             #expect(dock.containsPanel(sourcePanel.id))
             #expect(!workspace.panels.keys.contains(sourcePanel.id))
+        }
+    }
+
+    @Test("Accepted unfocused main pane drop moves a Dock surface out of the Dock")
+    @MainActor
+    func acceptedUnfocusedMainPaneDropMovesDockSurfaceOutOfDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let targetPanel = try #require(workspace.panels.values.first)
+            let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
+            let dock = workspace.dockSplit
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
+            let dockTabId = try #require(dock.surfaceId(forPanelId: dockPanelId))
+            let dockSourcePane = try #require(dock.paneId(forPanelId: dockPanelId) ?? dockPane)
+
+            let payload = try Self.makePaneDragPayload(tabId: dockTabId.uuid, sourcePaneId: dockSourcePane.id)
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.\(UUID().uuidString)"))
+            pasteboard.clearContents()
+            pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            defer { pasteboard.clearContents() }
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
+            let contentView = try #require(window.contentView)
+            let target = TerminalPaneDropTargetView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
+            target.dropContext = PaneDropContext(
+                workspaceId: workspace.id,
+                panelId: targetPanel.id,
+                paneId: targetPane
+            )
+            contentView.addSubview(target)
+
+            #expect(!window.isKeyWindow)
+            #expect(AppDelegate.shared?.dockForPane(targetPane) == nil)
+            #expect(AppDelegate.shared?.locateDockSurface(tabId: dockTabId.uuid)?.dock === dock)
+            let dropPoint = target.convert(NSPoint(x: target.bounds.midX, y: target.bounds.midY), to: nil)
+            let draggingInfo = DockPaneDropMockDraggingInfo(
+                window: window,
+                location: dropPoint,
+                pasteboard: pasteboard
+            )
+
+            #expect(target.draggingEntered(draggingInfo) == .move)
+            #expect(target.performDragOperation(draggingInfo))
+            #expect(workspace.panels.keys.contains(dockPanelId))
+            #expect(!dock.containsPanel(dockPanelId))
         }
     }
 
