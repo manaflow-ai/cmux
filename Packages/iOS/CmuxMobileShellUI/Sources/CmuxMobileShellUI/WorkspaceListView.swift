@@ -524,11 +524,11 @@ struct WorkspaceListView: View {
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
                     selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-                    createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
-                    renameGroup: anchorCapabilities.supportsWorkspaceActions ? renameWorkspaceGroup : nil,
-                    setGroupPinned: anchorCapabilities.supportsWorkspaceActions ? setGroupPinned : nil,
-                    ungroupWorkspaceGroup: anchorCapabilities.supportsWorkspaceActions ? ungroupWorkspaceGroup : nil,
-                    deleteWorkspaceGroup: anchorCapabilities.supportsWorkspaceActions ? deleteWorkspaceGroup : nil,
+                    createWorkspaceInGroup: canCreateWorkspaceInGroups && anchorCapabilities.supportsGroupActions ? createWorkspaceInGroup : nil,
+                    renameGroup: anchorCapabilities.supportsGroupActions ? renameWorkspaceGroup : nil,
+                    setGroupPinned: anchorCapabilities.supportsGroupActions ? setGroupPinned : nil,
+                    ungroupWorkspaceGroup: anchorCapabilities.supportsGroupActions ? ungroupWorkspaceGroup : nil,
+                    deleteWorkspaceGroup: anchorCapabilities.supportsGroupActions ? deleteWorkspaceGroup : nil,
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
@@ -570,9 +570,9 @@ struct WorkspaceListView: View {
                 confirmCloseWorkspace()
             } : nil
         )
-        .moveDisabled(!(enablesWorkspaceReorder && capabilities.supportsWorkspaceActions))
+        .moveDisabled(!(enablesWorkspaceReorder && capabilities.supportsMoveActions))
         .accessibilityHint(
-            enablesWorkspaceReorder && capabilities.supportsWorkspaceActions
+            enablesWorkspaceReorder && capabilities.supportsMoveActions
                 ? L10n.string(
                     "mobile.workspace.drag.a11y",
                     defaultValue: "Drag to reorder this workspace or move it between groups."

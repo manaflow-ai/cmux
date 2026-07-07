@@ -28,7 +28,9 @@ extension MobileShellComposite {
         MobileWorkspaceActionCapabilities(
             supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
             supportsReadStateActions: supportedHostCapabilities.contains("workspace.read_state.v1"),
-            supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1")
+            supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1"),
+            supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1"),
+            supportsGroupActions: supportedHostCapabilities.contains("workspace.group_actions.v1")
         )
     }
 

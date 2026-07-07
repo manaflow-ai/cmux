@@ -418,30 +418,30 @@ struct MobileHostAuthorizationTests {
         )
         #expect(error?.code == "forbidden")
     }
-    @Test func testWorkspaceMoveAcceptsMatchingWorkspaceForWorkspaceScopedTicket() throws {
+    @Test func testWorkspaceMoveRejectsMatchingWorkspaceForWorkspaceScopedTicket() throws {
         let error = try workspaceMoveAuthorizationError(
             ticketWorkspaceID: "workspace",
             workspaceID: "workspace",
             params: ["before_workspace_id": "other-workspace"]
         )
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
-    @Test func testWorkspaceMoveAcceptsCreatedWorkspaceForWorkspaceScopedTicket() throws {
+    @Test func testWorkspaceMoveRejectsCreatedWorkspaceForWorkspaceScopedTicket() throws {
         let error = try workspaceMoveAuthorizationError(
             ticketWorkspaceID: "workspace",
             workspaceID: "created-workspace",
             params: ["group_id": "group"],
             createdWorkspaceIDs: ["created-workspace"]
         )
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
-    @Test func testWorkspaceMoveTrimsTicketWorkspaceIDBeforeMatching() throws {
+    @Test func testWorkspaceMoveRejectsTrimmedWorkspaceScopedTicket() throws {
         let error = try workspaceMoveAuthorizationError(
             ticketWorkspaceID: " workspace ",
             workspaceID: "workspace",
             params: ["before_workspace_id": "other-workspace"]
         )
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
     @Test func testWorkspaceMoveTreatsWhitespaceTicketWorkspaceIDAsMacScoped() throws {
         let error = try workspaceMoveAuthorizationError(
@@ -463,36 +463,32 @@ struct MobileHostAuthorizationTests {
         let error = try workspaceGroupActionAuthorizationError(
             ticketWorkspaceID: "workspace",
             groupID: "group-foreign",
-            action: "rename",
-            groupAnchorWorkspaceIDs: ["group-foreign": "other-workspace"]
+            action: "rename"
         )
         #expect(error?.code == "forbidden")
     }
-    @Test func testWorkspaceGroupActionAcceptsMatchingGroupForWorkspaceScopedTicket() throws {
+    @Test func testWorkspaceGroupActionRejectsMatchingGroupForWorkspaceScopedTicket() throws {
         let error = try workspaceGroupActionAuthorizationError(
             ticketWorkspaceID: "workspace",
             groupID: "group-owned",
-            action: "pin",
-            groupAnchorWorkspaceIDs: ["group-owned": "workspace"]
+            action: "pin"
         )
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
-    @Test func testWorkspaceGroupActionAcceptsCreatedWorkspaceAnchorForWorkspaceScopedTicket() throws {
+    @Test func testWorkspaceGroupActionRejectsCreatedWorkspaceAnchorForWorkspaceScopedTicket() throws {
         let error = try workspaceGroupActionAuthorizationError(
             ticketWorkspaceID: "workspace",
             groupID: "group-created",
             action: "delete",
-            createdWorkspaceIDs: ["created-workspace"],
-            groupAnchorWorkspaceIDs: ["group-created": "created-workspace"]
+            createdWorkspaceIDs: ["created-workspace"]
         )
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
     @Test func testWorkspaceGroupActionAcceptsMacScopedTicket() throws {
         let error = try workspaceGroupActionAuthorizationError(
             ticketWorkspaceID: "",
             groupID: "group-foreign",
-            action: "ungroup",
-            groupAnchorWorkspaceIDs: ["group-foreign": "other-workspace"]
+            action: "ungroup"
         )
         #expect(error == nil)
     }
@@ -1053,6 +1049,8 @@ struct MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.actions.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
+        #expect(capabilities.contains("workspace.move.v1"))
+        #expect(capabilities.contains("workspace.group_actions.v1"))
         #expect(capabilities.contains("terminal.render_grid.v1"))
     }
     // MARK: - Mobile workspace.action sub-action gate
@@ -1108,8 +1106,7 @@ struct MobileHostAuthorizationTests {
         ticketWorkspaceID: String,
         groupID: String,
         action: String,
-        createdWorkspaceIDs: Set<String> = [],
-        groupAnchorWorkspaceIDs: [String: String]
+        createdWorkspaceIDs: Set<String> = []
     ) throws -> MobileHostRPCError? {
         let ticket = try scopedAttachTicket(workspaceID: ticketWorkspaceID, terminalID: nil)
         let request = MobileHostRPCRequest(
@@ -1121,8 +1118,7 @@ struct MobileHostAuthorizationTests {
         return MobileHostService.debugTicketAuthorizationError(
             ticket: ticket,
             request: request,
-            createdWorkspaceIDs: createdWorkspaceIDs,
-            groupAnchorWorkspaceIDs: groupAnchorWorkspaceIDs
+            createdWorkspaceIDs: createdWorkspaceIDs
         )
     }
     private func drainMobileHostMainQueue() async {

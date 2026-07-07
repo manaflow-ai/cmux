@@ -167,7 +167,12 @@ actor RoutingHostRouter {
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
-                "capabilities": ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"],
+                "capabilities": [
+                    "events.v1",
+                    "terminal.render_grid.v1",
+                    "terminal.replay.v1",
+                    "workspace.group_actions.v1",
+                ],
             ])
         case "mobile.events.subscribe":
             return try? Self.resultFrame(id: id, result: [

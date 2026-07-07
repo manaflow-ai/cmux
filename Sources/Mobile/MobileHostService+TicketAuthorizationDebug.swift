@@ -20,8 +20,7 @@ extension MobileHostService {
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest,
         createdWorkspaceIDs: Set<String> = [],
-        createdTerminalIDs: Set<String> = [],
-        groupAnchorWorkspaceIDs: [String: String] = [:]
+        createdTerminalIDs: Set<String> = []
     ) -> MobileHostRPCError? {
         ticketAuthorizationError(
             authorization: MobileAttachTicketAuthorization(
@@ -29,18 +28,7 @@ extension MobileHostService {
                 createdWorkspaceIDs: createdWorkspaceIDs,
                 createdTerminalIDs: createdTerminalIDs
             ),
-            request: request,
-            groupAnchorWorkspaceIDForGroupID: { groupAnchorWorkspaceIDs[$0] }
+            request: request
         )
-    }
-
-    static func groupSelectionWorkspaceID(
-        params: [String: Any],
-        groupAnchorWorkspaceIDForGroupID: (String) -> String?
-    ) -> String? {
-        guard let rawGroupID = params["group_id"] as? String else { return nil }
-        let trimmedGroupID = rawGroupID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedGroupID.isEmpty else { return nil }
-        return groupAnchorWorkspaceIDForGroupID(trimmedGroupID)
     }
 }

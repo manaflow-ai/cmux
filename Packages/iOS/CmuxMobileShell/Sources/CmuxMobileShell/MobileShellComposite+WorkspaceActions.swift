@@ -135,7 +135,7 @@ extension MobileShellComposite {
         toGroup groupID: MobileWorkspaceGroupPreview.ID?,
         before beforeWorkspaceID: MobileWorkspacePreview.ID?
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else {
+        guard workspaceActionCapabilities(for: id).supportsMoveActions else {
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         var params = workspaceMutationParams(id: id)
@@ -219,6 +219,13 @@ extension MobileShellComposite {
         workspaces.first { $0.id == id }?.actionCapabilities ?? .none
     }
 
+    private func workspaceGroupActionCapabilities(for id: MobileWorkspaceGroupPreview.ID) -> MobileWorkspaceActionCapabilities {
+        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
+            return .none
+        }
+        return workspaceActionCapabilities(for: anchorWorkspaceID)
+    }
+
     private func sendWorkspaceMutation(
         method: String,
         params: [String: Any],
@@ -246,6 +253,10 @@ extension MobileShellComposite {
         actionName: String
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         let target = workspaceGroupMutationTarget(for: id)
+        let hostDisplayName = workspaceGroupHostDisplayName(for: id, target: target)
+        guard workspaceGroupActionCapabilities(for: id).supportsGroupActions else {
+            return .failure(.unsupported(hostDisplayName: hostDisplayName))
+        }
         var params: [String: Any] = ["group_id": id.rawValue, "action": action]
         if let title {
             params["title"] = title
@@ -254,7 +265,7 @@ extension MobileShellComposite {
             method: "workspace.group.action",
             params: params,
             target: target,
-            hostDisplayName: workspaceGroupHostDisplayName(for: id, target: target),
+            hostDisplayName: hostDisplayName,
             logID: id.rawValue,
             actionName: actionName
         )

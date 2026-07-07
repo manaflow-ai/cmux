@@ -58,7 +58,6 @@ extension WorkspaceShellView {
         _ groupID: MobileWorkspaceGroupPreview.ID?,
         _ beforeWorkspaceID: MobileWorkspacePreview.ID?
     ) async -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, groupID, beforeWorkspaceID in
             let result = await store.moveWorkspace(id: id, toGroup: groupID, before: beforeWorkspaceID)
@@ -69,7 +68,6 @@ extension WorkspaceShellView {
     }
 
     var renameWorkspaceGroupClosure: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         let store = store
         return { id, title in
             Task { @MainActor in
@@ -80,7 +78,6 @@ extension WorkspaceShellView {
     }
 
     var setWorkspaceGroupPinnedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         let store = store
         return { id, pinned in
             Task { @MainActor in
@@ -94,7 +91,6 @@ extension WorkspaceShellView {
     }
 
     var ungroupWorkspaceGroupClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         let store = store
         return { id in
             Task { @MainActor in
@@ -105,7 +101,6 @@ extension WorkspaceShellView {
     }
 
     var deleteWorkspaceGroupClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         let store = store
         return { id in
             Task { @MainActor in
@@ -124,12 +119,10 @@ extension WorkspaceShellView {
     }
 
     var createWorkspaceInGroupInCompactStackClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         return { groupID in createWorkspaceInCompactStack(inGroup: groupID) }
     }
 
     var createWorkspaceInGroupIfConnectedClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
         return { groupID in createWorkspaceIfConnected(inGroup: groupID) }
     }
 

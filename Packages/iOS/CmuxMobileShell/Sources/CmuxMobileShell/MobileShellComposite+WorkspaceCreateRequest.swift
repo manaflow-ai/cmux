@@ -14,6 +14,9 @@ extension MobileShellComposite {
         guard remoteClient != nil else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
         }
+        if groupID != nil, !supportedHostCapabilities.isEmpty, !supportsWorkspaceGroupActions {
+            return .failure(.unsupported(hostDisplayName: connectedHostName))
+        }
         if let createWorkspaceTask {
             guard createWorkspaceTaskGroupID == groupID else {
                 return .failure(.busy(hostDisplayName: connectedHostName))

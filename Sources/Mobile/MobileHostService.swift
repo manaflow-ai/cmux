@@ -1354,8 +1354,7 @@ final class MobileHostService {
 
     static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
-        request: MobileHostRPCRequest,
-        groupAnchorWorkspaceIDForGroupID: (String) -> String? = { _ in nil }
+        request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
         let workspaceSelection = stringParamSelection(
             request.params,
@@ -1378,15 +1377,12 @@ final class MobileHostService {
         case "workspace.create":
             return nil
         case "workspace.move":
-            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
-        case "workspace.group.action":
-            return ticketWorkspaceAuthorizationError(
+            return ticketMacScopedWorkspaceMutationAuthorizationError(
                 authorization: authorization,
-                workspaceSelection: groupSelectionWorkspaceID(
-                    params: request.params,
-                    groupAnchorWorkspaceIDForGroupID: groupAnchorWorkspaceIDForGroupID
-                )
+                workspaceSelection: workspaceSelection.value
             )
+        case "workspace.group.action":
+            return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
             // terminal selection), so it is Mac-scoped like the workspace list and
@@ -1448,6 +1444,18 @@ final class MobileHostService {
             guard let workspaceSelection, workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
         }
         return nil
+    }
+
+    private static func ticketMacScopedWorkspaceMutationAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        workspaceSelection: String? = nil
+    ) -> MobileHostRPCError? {
+        let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ticketWorkspaceID.isEmpty else { return scopedTicketError }
+        return ticketWorkspaceAuthorizationError(
+            authorization: authorization,
+            workspaceSelection: workspaceSelection
+        )
     }
 
     private static var scopedTicketError: MobileHostRPCError { MobileHostRPCError(code: "forbidden", message: "Attach ticket is not valid for this workspace or terminal.") }
