@@ -108,21 +108,34 @@ public struct TerminalLinkRouter: Sendable {
 
     private static func looksLikeUnresolvedFileLineReference(_ value: String) -> Bool {
         guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              let colon = value.lastIndex(of: ":"),
-              colon < value.index(before: value.endIndex),
-              value[value.index(after: colon)...].allSatisfy(\.isNumber),
-              let fileExtension = knownFileExtension(value[..<colon]) else {
+              let fileReference = fileReferenceBeforeLocationSuffix(value),
+              let fileExtension = knownFileExtension(fileReference) else {
             return false
         }
-        let fileReference = value[..<colon]
         if fileReference.contains("/") { return true }
         if fileReference.contains(where: \.isUppercase) { return true }
         if Self.commonSourceBasenames.contains(stem(fileReference)) { return true }
         if Self.fileExtensionTopLevelDomains.contains(fileExtension),
-           isWebLikePort(value[value.index(after: colon)...]) {
+           let port = trailingNumericSuffix(value),
+           isWebLikePort(port) {
             return false
         }
         return true
+    }
+
+    private static func fileReferenceBeforeLocationSuffix(_ value: String) -> Substring? {
+        guard let lastColon = value.lastIndex(of: ":"),
+              lastColon < value.index(before: value.endIndex),
+              value[value.index(after: lastColon)...].allSatisfy(\.isNumber) else {
+            return nil
+        }
+        let beforeLastColon = value[..<lastColon]
+        if let lineColon = beforeLastColon.lastIndex(of: ":"),
+           lineColon < beforeLastColon.index(before: beforeLastColon.endIndex),
+           beforeLastColon[beforeLastColon.index(after: lineColon)...].allSatisfy(\.isNumber) {
+            return beforeLastColon[..<lineColon]
+        }
+        return beforeLastColon
     }
 
     private static func looksLikeWrappedFilePathFragment(_ value: String) -> Bool {
@@ -144,6 +157,9 @@ public struct TerminalLinkRouter: Sendable {
         let path = value[pathStart..<pathEnd]
         let lastComponentStart = path.lastIndex(of: "/").map(path.index(after:)) ?? path.startIndex
         let lastComponent = path[lastComponentStart...]
+        // The Ghostty callback gives Swift only selected text, not the click
+        // pin or wrapped logical line. Keep the fail-closed guard to the
+        // reported wrapped suffix shape instead of all one-letter hosts.
         return knownFileExtension(lastComponent) == "md" && lastComponent.contains("-")
     }
 
@@ -166,6 +182,11 @@ public struct TerminalLinkRouter: Sendable {
     private static func stem(_ value: some StringProtocol) -> String {
         guard let dot = value.lastIndex(of: ".") else { return value.lowercased() }
         return value[..<dot].lowercased()
+    }
+
+    private static func trailingNumericSuffix(_ value: String) -> Substring? {
+        guard let colon = value.lastIndex(of: ":") else { return nil }
+        return value[value.index(after: colon)...]
     }
 
     private static func isWebLikePort(_ value: some StringProtocol) -> Bool {
