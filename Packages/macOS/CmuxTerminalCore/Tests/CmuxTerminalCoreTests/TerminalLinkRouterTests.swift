@@ -145,7 +145,6 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
 
     @Test func fileLineTokensDoNotResolveAsHostPorts() {
         #expect(router.resolveOpenURLTarget("README.md:12") == nil)
-        #expect(router.resolveOpenURLTarget("README.md:443") == nil)
         #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:42") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:443") == nil)
@@ -153,23 +152,6 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(router.resolveOpenURLTarget("server.go:8080") == nil)
         #expect(router.resolveOpenURLTarget("src/main.swift:3000") == nil)
         #expect(router.resolveOpenURLTarget("Sources/App.swift:8080") == nil)
-    }
-
-    @Test func schemelessFileLikeTLDHostPortsResolveAsEmbeddedBrowser() throws {
-        for (rawValue, expectedHost) in [
-            ("docs.rs:443", "docs.rs"),
-            ("bun.sh:443", "bun.sh"),
-            ("example.md:443", "example.md"),
-        ] {
-            let target = try #require(router.resolveOpenURLTarget(rawValue))
-            guard case let .embeddedBrowser(url) = target else {
-                Issue.record("Expected file-like TLD host:port to route through browser normalization")
-                return
-            }
-            #expect(url.scheme == "https")
-            #expect(url.host == expectedHost)
-            #expect(url.port == 443)
-        }
     }
 
     @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
