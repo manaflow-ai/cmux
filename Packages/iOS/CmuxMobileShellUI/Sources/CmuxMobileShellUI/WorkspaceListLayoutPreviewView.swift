@@ -51,41 +51,43 @@ public struct WorkspaceListLayoutPreviewView: View {
     ]
 
     public var body: some View {
-        if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
-            WorkspaceDetailCreateDelayedTerminalPreviewView()
-        } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
-            WorkspaceDetailDelayedTerminalPreviewView()
-        } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
-            WorkspaceDetailDelayedTerminalPreviewView()
-        } else {
-            NavigationStack {
-                WorkspaceSurfaceGridView(
-                    workspaces: workspaces,
-                    selectedWorkspaceID: selectedWorkspaceID,
-                    selectedTerminalID: selectedTerminalID,
-                    host: L10n.string("mobile.preview.mockMacName", defaultValue: "Visual Mock Mac"),
-                    connectionStatus: .connected,
-                    canCreateWorkspace: true,
-                    canCreateTerminal: true,
-                    selectWorkspace: { selectedWorkspaceID = $0 },
-                    openTerminal: { workspaceID, terminalID in
-                        selectedWorkspaceID = workspaceID
-                        selectedTerminalID = terminalID
-                        browserStore.closeBrowser(for: workspaceID.rawValue)
-                    },
-                    openBrowser: { workspaceID in
-                        selectedWorkspaceID = workspaceID
-                        browserStore.openBrowser(for: workspaceID.rawValue)
-                    },
-                    closeBrowser: { workspaceID in
-                        browserStore.closeBrowser(for: workspaceID.rawValue)
-                    },
-                    createWorkspace: createWorkspace,
-                    createTerminal: createTerminal,
-                    showSettings: {},
-                    showDevices: {},
-                    reconnect: nil
-                )
+        Group {
+            if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+                WorkspaceDetailCreateDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
+                WorkspaceDetailDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
+                WorkspaceDetailDelayedTerminalPreviewView()
+            } else {
+                NavigationStack {
+                    WorkspaceSurfaceGridView(
+                        workspaces: workspaces,
+                        selectedWorkspaceID: selectedWorkspaceID,
+                        selectedTerminalID: selectedTerminalID,
+                        host: L10n.string("mobile.preview.mockMacName", defaultValue: "Visual Mock Mac"),
+                        connectionStatus: .connected,
+                        canCreateWorkspace: true,
+                        canCreateTerminal: true,
+                        selectWorkspace: { selectedWorkspaceID = $0 },
+                        openTerminal: { workspaceID, terminalID in
+                            selectedWorkspaceID = workspaceID
+                            selectedTerminalID = terminalID
+                            browserStore.closeBrowser(for: workspaceID.rawValue)
+                        },
+                        openBrowser: { workspaceID in
+                            selectedWorkspaceID = workspaceID
+                            browserStore.openBrowser(for: workspaceID.rawValue)
+                        },
+                        closeBrowser: { workspaceID in
+                            browserStore.closeBrowser(for: workspaceID.rawValue)
+                        },
+                        createWorkspace: createWorkspace,
+                        createTerminal: createTerminal,
+                        showSettings: {},
+                        showDevices: {},
+                        reconnect: nil
+                    )
+                }
             }
         }
         .environment(browserStore)
