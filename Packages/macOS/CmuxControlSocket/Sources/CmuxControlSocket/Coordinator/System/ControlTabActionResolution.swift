@@ -12,6 +12,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
         case title(String)
         /// `pin` / `unpin` — the `pinned` flag.
         case pinned(Bool)
+        /// `toggle_full_width_tab` — the resulting full-width tab mode flag.
+        case fullWidthTabMode(Bool)
         /// `duplicate` / `new_terminal_right` / `new_browser_right` — the
         /// created surface's `created_*` identity keys.
         case created(UUID)
