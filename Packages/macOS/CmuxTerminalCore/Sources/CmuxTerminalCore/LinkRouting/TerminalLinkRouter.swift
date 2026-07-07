@@ -195,7 +195,8 @@ public struct TerminalLinkRouter: Sendable {
     }
 
     private static let commonSourceBasenames: Set<String> = [
-        "app", "config", "index", "lib", "main", "package", "readme", "server", "utils",
+        "app", "build", "changelog", "config", "foo", "index", "lib", "main",
+        "package", "readme", "script", "server", "utils",
     ]
 
     private static let fileExtensionTopLevelDomains: Set<String> = [

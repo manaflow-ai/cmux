@@ -28,9 +28,10 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
         let lower = trimmed.lowercased()
         let bareHost = Self.bareHostCandidate(lower)
-        if bareHost == "localhost" || bareHost == "127.0.0.1" ||
-            bareHost == "0.0.0.0" || lower.hasPrefix("[::1]") ||
-            (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
+        let normalizedBareHost = bareHost.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        if normalizedBareHost == "localhost" || normalizedBareHost == "127.0.0.1" ||
+            normalizedBareHost == "0.0.0.0" || lower.hasPrefix("[::1]") ||
+            normalizedBareHost.hasSuffix(".localhost") {
             return URL(string: "http://\(trimmed)")
         }
         if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
@@ -129,9 +130,11 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         for (rawValue, expectedHost, expectedPort, expectedPath) in [
             ("localhost:3000", "localhost", 3000, ""),
             ("localhost:3000/docs", "localhost", 3000, "/docs"),
+            ("localhost.:3000/docs", "localhost.", 3000, "/docs"),
             ("127.0.0.1:5173/docs", "127.0.0.1", 5173, "/docs"),
             ("0.0.0.0:5173/docs", "0.0.0.0", 5173, "/docs"),
             ("deep.api.localhost/docs", "deep.api.localhost", nil, "/docs"),
+            ("api.localhost.:3000/docs", "api.localhost.", 3000, "/docs"),
         ] {
             let target = try #require(router.resolveOpenURLTarget(rawValue))
             guard case let .embeddedBrowser(url) = target else {
@@ -151,6 +154,10 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
         #expect(router.resolveOpenURLTarget("utils.py:42") == nil)
         #expect(router.resolveOpenURLTarget("lib.rs:10") == nil)
+        #expect(router.resolveOpenURLTarget("foo.py:443") == nil)
+        #expect(router.resolveOpenURLTarget("changelog.md:443") == nil)
+        #expect(router.resolveOpenURLTarget("build.rs:8080") == nil)
+        #expect(router.resolveOpenURLTarget("script.sh:1024") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:42") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:443") == nil)
         #expect(router.resolveOpenURLTarget("index.ts:3000") == nil)

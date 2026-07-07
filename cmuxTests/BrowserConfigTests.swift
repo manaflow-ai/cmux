@@ -5308,7 +5308,9 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
         for (rawValue, expectedHost, expectedPort, expectedPath) in [
             ("api.localhost:3000", "api.localhost", 3000, ""),
+            ("api.localhost.:3000", "api.localhost.", 3000, ""),
             ("deep.api.localhost/path", "deep.api.localhost", nil, "/path"),
+            ("localhost.:3000/status", "localhost.", 3000, "/status"),
             ("0.0.0.0:5173/status", "0.0.0.0", 5173, "/status"),
         ] {
             let resolved = try #require(resolveBrowserNavigableURL(rawValue))
@@ -5326,9 +5328,7 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
     @Test func resolvesDottedHostWithPortAsHTTPSURL() throws {
         // URL(string: "example.com:8443") parses "example.com" as a scheme, so
-        // the resolver must recover the bare host:port shape instead of
-        // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
-        // the omnibar inline completion displays history hosts this way).
+        // the resolver must recover the bare host:port shape instead of search.
         let resolved = try #require(resolveBrowserNavigableURL("example.com:8443"))
         #expect(resolved.scheme == "https")
         #expect(resolved.host == "example.com")
