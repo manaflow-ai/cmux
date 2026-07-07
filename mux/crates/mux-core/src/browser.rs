@@ -1146,7 +1146,7 @@ mod tests {
     };
     use crate::SurfaceOptions;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
     use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -1159,6 +1159,77 @@ mod tests {
             css_height: 48,
             seq,
         }
+    }
+
+    fn serve_json_version_until_stopped(
+        listener: TcpListener,
+        ready_tx: mpsc::Sender<()>,
+        stop_rx: mpsc::Receiver<()>,
+    ) {
+        listener.set_nonblocking(true).unwrap();
+        ready_tx.send(()).unwrap();
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    // Accepted sockets inherit the listener's O_NONBLOCK on
+                    // macOS; reads must block until the request arrives.
+                    stream.set_nonblocking(false).unwrap();
+                    serve_json_version(&mut stream);
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    match stop_rx.recv_timeout(Duration::from_millis(10)) {
+                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    }
+                }
+                Err(err) => panic!("failed to accept fake browser discovery connection: {err}"),
+            }
+        }
+    }
+
+    fn serve_json_version(stream: &mut TcpStream) {
+        stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut request = Vec::new();
+        let mut buf = [0u8; 512];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            match stream.read(&mut buf) {
+                Ok(0) => return,
+                Ok(n) => request.extend_from_slice(&buf[..n]),
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return;
+                }
+                Err(err) => panic!("failed to read fake browser discovery request: {err}"),
+            }
+        }
+        let body = r#"{"webSocketDebuggerUrl":"ws://127.0.0.1:9/devtools/browser/fake"}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+    }
+
+    fn runtime_endpoint_until_discovered(
+        opts: &SurfaceOptions,
+        deadline: Duration,
+    ) -> anyhow::Result<(String, Option<mux_cdp::Chrome>, BrowserSource)> {
+        let start = Instant::now();
+        let mut last_err = None;
+        while start.elapsed() < deadline {
+            match runtime_endpoint(opts) {
+                Ok(endpoint) => return Ok(endpoint),
+                Err(err) => last_err = Some(err),
+            }
+            thread::yield_now();
+        }
+        runtime_endpoint(opts).map_err(|err| last_err.unwrap_or(err))
     }
 
     #[test]
@@ -1206,20 +1277,9 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let (ready_tx, ready_rx) = mpsc::channel();
-        let server = thread::spawn(move || {
-            ready_tx.send(()).unwrap();
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0u8; 512];
-            let _ = stream.read(&mut request).unwrap();
-            let body = r#"{"webSocketDebuggerUrl":"ws://127.0.0.1:9/devtools/browser/fake"}"#;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            stream.write_all(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-        });
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server =
+            thread::spawn(move || serve_json_version_until_stopped(listener, ready_tx, stop_rx));
         ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
         let opts = SurfaceOptions {
@@ -1236,10 +1296,15 @@ mod tests {
         assert!(err.to_string().contains("configured browser.chrome_binary"));
 
         let discover_opts = SurfaceOptions { browser_discover: true, ..opts };
-        let (url, chrome, source) = runtime_endpoint(&discover_opts).unwrap();
+        let (url, chrome, source) =
+            runtime_endpoint_until_discovered(&discover_opts, Duration::from_secs(2))
+                .unwrap_or_else(|err| {
+                    panic!("browser discovery did not find fake endpoint within 2s: {err:#}")
+                });
         assert_eq!(url, "ws://127.0.0.1:9/devtools/browser/fake");
         assert!(chrome.is_none());
         assert_eq!(source, BrowserSource::External);
+        stop_tx.send(()).unwrap();
         server.join().unwrap();
     }
 
