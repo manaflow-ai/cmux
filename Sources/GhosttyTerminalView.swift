@@ -2835,7 +2835,8 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
-            DispatchQueue.main.async { surfaceView.terminalSurface?.hostedView.setLinkHoverURL(url) }
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }; terminalSurface?.hostedView.setLinkHoverURL(url) }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
@@ -8975,7 +8976,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
-        setLinkHoverURL(nil)
+        if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
