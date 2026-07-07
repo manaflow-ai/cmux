@@ -3836,10 +3836,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// then UserDefaults, then enabled by default. Env/defaults are kill switches
     /// for rollout control.
     private var multiMacAggregationEnabled: Bool {
-        MultiMacAggregationFlag.isEnabled(
+        MultiMacAggregationFlag(
             environment: ProcessInfo.processInfo.environment,
             defaults: multiMacAggregationDefaults
-        )
+        ).isEnabled
     }
 
     /// Sentinel key for the foreground Mac when its attach ticket carries no

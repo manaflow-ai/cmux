@@ -7,7 +7,7 @@ struct MultiMacAggregationFlagTests {
         let scopedDefaults = Self.makeDefaults()
         defer { Self.removeDefaults(scopedDefaults) }
 
-        #expect(MultiMacAggregationFlag.isEnabled(environment: [:], defaults: scopedDefaults.defaults))
+        #expect(MultiMacAggregationFlag(environment: [:], defaults: scopedDefaults.defaults).isEnabled)
     }
 
     @Test(arguments: ["0", "false", "off", "no", " FALSE ", "Off", "maybe"])
@@ -16,10 +16,10 @@ struct MultiMacAggregationFlagTests {
         defer { Self.removeDefaults(scopedDefaults) }
         scopedDefaults.defaults.set(true, forKey: "multiMacAggregation")
 
-        #expect(!MultiMacAggregationFlag.isEnabled(
+        #expect(!MultiMacAggregationFlag(
             environment: ["CMUX_MULTI_MAC_AGGREGATION": value],
             defaults: scopedDefaults.defaults
-        ))
+        ).isEnabled)
     }
 
     @Test(arguments: ["1", "true", "yes", "on", " TRUE ", "YeS"])
@@ -28,10 +28,10 @@ struct MultiMacAggregationFlagTests {
         defer { Self.removeDefaults(scopedDefaults) }
         scopedDefaults.defaults.set(false, forKey: "multiMacAggregation")
 
-        #expect(MultiMacAggregationFlag.isEnabled(
+        #expect(MultiMacAggregationFlag(
             environment: ["CMUX_MULTI_MAC_AGGREGATION": value],
             defaults: scopedDefaults.defaults
-        ))
+        ).isEnabled)
     }
 
     @Test(arguments: [false, true])
@@ -40,7 +40,7 @@ struct MultiMacAggregationFlagTests {
         defer { Self.removeDefaults(scopedDefaults) }
         scopedDefaults.defaults.set(value, forKey: "multiMacAggregation")
 
-        #expect(MultiMacAggregationFlag.isEnabled(environment: [:], defaults: scopedDefaults.defaults) == value)
+        #expect(MultiMacAggregationFlag(environment: [:], defaults: scopedDefaults.defaults).isEnabled == value)
     }
 
     private static func makeDefaults() -> (defaults: UserDefaults, suiteName: String) {
