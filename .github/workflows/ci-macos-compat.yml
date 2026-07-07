@@ -87,7 +87,13 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/cmux/cmux-iroh
-          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+          # Scope per matrix OS + Xcode, matching the DerivedData key below: the
+          # two legs (macos-15/26) use different Apple toolchains, and
+          # ensure-cmux-iroh.sh factors the active toolchain into its own
+          # content hash, so they build distinct artifacts. Without the
+          # matrix dimension both legs collide on one immutable key and the
+          # slower leg's cache save silently no-ops every run.
+          key: cmux-iroh-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
 
       - name: Build CmuxIrohFFI.xcframework
         run: ./scripts/ensure-cmux-iroh.sh
