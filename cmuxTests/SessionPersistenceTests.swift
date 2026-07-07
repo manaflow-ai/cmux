@@ -6285,9 +6285,9 @@ extension SessionPersistenceTests {
 
     func testMarkdownFileLinkResolverRecognizesMarkdownPathLikeStrings() {
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("other-markdown.md"))
-        XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("test/markdown.md"))
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("../notes/plan.mdx#section"))
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("file:///tmp/plan.markdown"))
+        XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("chapter:one.md"))
 
         XCTAssertFalse(MarkdownPanelFileLinkResolver.isMarkdownPathLike("https://example.com/plan.md"))
         XCTAssertFalse(MarkdownPanelFileLinkResolver.isMarkdownPathLike("mailto:person@example.com"))
@@ -6316,18 +6316,18 @@ extension SessionPersistenceTests {
         XCTAssertEqual(resolved, adjacentFile.path)
     }
 
-    func testMarkdownFileLinkResolverFallsBackToProcessWorkingDirectory() throws {
+    func testMarkdownFileLinkResolverDoesNotFallBackToProcessWorkingDirectory() throws {
         let originalCWD = FileManager.default.currentDirectoryPath
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-link-resolver-cwd-\(UUID().uuidString)", isDirectory: true)
         let docs = root.appendingPathComponent("docs", isDirectory: true)
         let openedFile = docs.appendingPathComponent("index.md")
-        let fallbackFile = root.appendingPathComponent("test/markdown.md")
+        let unrelatedCWDFile = root.appendingPathComponent("test/markdown.md")
 
         try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: fallbackFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unrelatedCWDFile.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "index".write(to: openedFile, atomically: true, encoding: .utf8)
-        try "fallback".write(to: fallbackFile, atomically: true, encoding: .utf8)
+        try "unrelated".write(to: unrelatedCWDFile, atomically: true, encoding: .utf8)
         defer {
             FileManager.default.changeCurrentDirectoryPath(originalCWD)
             try? FileManager.default.removeItem(at: root)
@@ -6338,7 +6338,7 @@ extension SessionPersistenceTests {
             rawPath: "test/markdown.md",
             relativeToMarkdownFile: openedFile.path
         )
-        XCTAssertEqual(resolved, fallbackFile.path)
+        XCTAssertNil(resolved)
     }
 
     func testMarkdownFileLinkResolverRejectsMissingAndNonMarkdownFiles() throws {

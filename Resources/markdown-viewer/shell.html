@@ -306,13 +306,19 @@ html { scroll-behavior: smooth; }
     else if (hi >= 0) { cut = hi; }
     return cut >= 0 ? s.slice(0, cut) : s;
   }
+  var knownExternalMarkdownLinkSchemes = {
+    about: true, blob: true, data: true, ftp: true, http: true,
+    https: true, javascript: true, mailto: true, sms: true, tel: true
+  };
   function isMarkdownPathLike(path) {
     var s = stripQueryFragment(path).trim();
     if (!s) { return false; }
     var colon = s.indexOf(':');
     if (colon > 0) {
       var scheme = s.slice(0, colon).toLowerCase();
-      if (scheme !== 'file') { return false; }
+      if (scheme !== 'file' && (knownExternalMarkdownLinkSchemes[scheme] || s.slice(colon, colon + 3) === '://')) {
+        return false;
+      }
     }
     var slash = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
     var leaf = slash >= 0 ? s.slice(slash + 1) : s;
@@ -815,6 +821,9 @@ html { scroll-behavior: smooth; }
     }
     if (compact.indexOf('data:') === 0) {
       return name === 'src' && isSafeDataImageURL(raw);
+    }
+    if (name === 'href' && isMarkdownPathLike(raw)) {
+      return true;
     }
 
     try {
@@ -1476,7 +1485,7 @@ html { scroll-behavior: smooth; }
 
   // Local markdown file links and inline-code spans.
   // Resolution is lazy: hover/focus asks Swift whether the path exists
-  // relative to the current markdown file (and PWD fallback). Click
+  // relative to the current markdown file. Click
   // opens a new cmux markdown tab when it resolves.
   var mdFileResolveCache = {}; // raw path -> { exists, path }
   var mdFileResolvePending = {}; // requestId -> { rawPath, elements }

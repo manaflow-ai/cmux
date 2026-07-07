@@ -11,7 +11,10 @@ enum MarkdownPanelFileLinkResolver {
         guard !trimmed.isEmpty else { return false }
         // Keep this intentionally path-like: code spans such as `foo.md`,
         // `docs/foo.md`, `../foo.md`, or `/tmp/foo.md` qualify. URLs do not.
-        if let url = URL(string: trimmed), url.scheme != nil, url.scheme != "file" {
+        if let url = URL(string: trimmed),
+           let scheme = url.scheme?.lowercased(),
+           scheme != "file",
+           !shouldTreatUnknownSchemeAsRelativePath(trimmed, scheme: scheme) {
             return false
         }
         let ext = (trimmed as NSString).pathExtension.lowercased()
@@ -67,11 +70,7 @@ enum MarkdownPanelFileLinkResolver {
 
     private static func relativeCandidatePaths(_ relativePath: String, relativeToMarkdownFile markdownFilePath: String) -> [String] {
         let markdownDir = (markdownFilePath as NSString).deletingLastPathComponent
-        let pwd = FileManager.default.currentDirectoryPath
-        return [
-            (markdownDir as NSString).appendingPathComponent(relativePath),
-            (pwd as NSString).appendingPathComponent(relativePath)
-        ]
+        return [(markdownDir as NSString).appendingPathComponent(relativePath)]
     }
 
     private static func webKitCoercedRelativePath(from url: URL, scheme: String) -> String? {
