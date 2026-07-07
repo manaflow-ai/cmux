@@ -1684,7 +1684,7 @@
   },
   "afterSignIn": {
     "title": "已登录 cmux",
-    "body": "继续使用此账号，或在返回 cmux 前选择其他账号。",
+    "body": "继续使用此账号以返回 cmux。",
     "button": "继续使用此账号",
     "switchAccountButton": "使用其他账号"
   },

@@ -1684,7 +1684,7 @@
   },
   "afterSignIn": {
     "title": "Prijavljeni ste u cmux",
-    "body": "Nastavite s ovim računom ili odaberite drugi račun prije povratka u cmux.",
+    "body": "Nastavite s ovim računom da se vratite u cmux.",
     "button": "Nastavi s ovim računom",
     "switchAccountButton": "Koristi drugi račun"
   },

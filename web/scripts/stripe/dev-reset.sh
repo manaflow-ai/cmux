@@ -111,6 +111,9 @@ resolve_stack_env() {
   if [[ -z "${STACK_SECRET_SERVER_KEY:-}" ]]; then
     die "STACK_SECRET_SERVER_KEY is required"
   fi
+  if [[ "${CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER:-0}" == "1" || "$STACK_SECRET_SERVER_KEY" == "cmux-local-dev-placeholder" ]]; then
+    die "STACK_SECRET_SERVER_KEY must be a real Stack server key; local web dev placeholder is not enough"
+  fi
 }
 
 resolve_stripe_secret_key() {

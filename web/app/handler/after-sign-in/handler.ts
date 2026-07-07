@@ -181,7 +181,8 @@ function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
   autoOpen: boolean,
-  switchAccountHref: string | null
+  switchAccountHref: string | null,
+  secureCookie: boolean
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
@@ -275,7 +276,7 @@ ${autoOpenScript}
       maxAge: 0,
       path: "/handler/after-sign-in",
       sameSite: "lax",
-      secure: requestIsSecure(),
+      secure: secureCookie,
     });
   }
   return response;
@@ -296,10 +297,6 @@ function switchAccountHref(request: NextRequest): string | null {
   const signOut = new URL("/handler/sign-out-and-sign-in", request.nextUrl.origin);
   signOut.searchParams.set("after_auth_return_to", `${nativeSignIn.pathname}${nativeSignIn.search}`);
   return `${signOut.pathname}${signOut.search}`;
-}
-
-function requestIsSecure(): boolean {
-  return process.env.NODE_ENV === "production";
 }
 
 export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependencies) {
@@ -350,7 +347,13 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
         const autoOpen =
           accountSwitchHref === null && verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen, accountSwitchHref);
+          return nativeReturnResponse(
+            href,
+            localizedMessages,
+            autoOpen,
+            accountSwitchHref,
+            request.nextUrl.protocol === "https:"
+          );
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
@@ -363,7 +366,15 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false, switchAccountHref(request));
+      if (fallback) {
+        return nativeReturnResponse(
+          fallback,
+          localizedMessages,
+          false,
+          switchAccountHref(request),
+          request.nextUrl.protocol === "https:"
+        );
+      }
     }
 
     return NextResponse.redirect(new URL("/", request.url));

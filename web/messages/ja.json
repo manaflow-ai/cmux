@@ -2582,7 +2582,7 @@
   },
   "afterSignIn": {
     "title": "cmux にサインインしました",
-    "body": "このアカウントで続行するか、cmux に戻る前に別のアカウントを選択してください。",
+    "body": "このアカウントで続行して cmux に戻ります。",
     "button": "このアカウントで続行",
     "switchAccountButton": "別のアカウントを使用"
   },

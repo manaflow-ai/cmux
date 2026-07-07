@@ -77,6 +77,7 @@ describe("after sign-in native handoff", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     const html = await response.text();
     expect(html).toContain("Signed in to cmux");
+    expect(html).toContain("Continue with this account to return to cmux.");
     expect(html).toContain("Continue with this account");
     expect(html).toContain("Use a different account");
     expect(html).not.toContain("window.location.replace");
@@ -96,6 +97,7 @@ describe("after sign-in native handoff", () => {
     expect(setCookie).toContain(`${HANDOFF_COOKIE}=;`);
     expect(setCookie).toContain("Max-Age=0");
     expect(setCookie).toContain("Path=/handler/after-sign-in");
+    expect(setCookie).toContain("Secure");
 
     const switchURL = new URL(switchAccountHref(html), "https://cmux.test");
     expect(switchURL.pathname).toBe("/handler/sign-out-and-sign-in");
@@ -138,6 +140,8 @@ describe("after sign-in native handoff", () => {
 
     expect(response.status).toBe(200);
     const html = await response.text();
+    expect(html).toContain("Continue with this account to return to cmux.");
+    expect(html).not.toContain("choose a different account before returning to cmux");
     expect(html).toContain("Continue with this account");
     expect(html).not.toContain("Use a different account");
   });

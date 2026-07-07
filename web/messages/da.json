@@ -1684,7 +1684,7 @@
   },
   "afterSignIn": {
     "title": "Logget ind på cmux",
-    "body": "Fortsæt med denne konto, eller vælg en anden konto, før du vender tilbage til cmux.",
+    "body": "Fortsæt med denne konto for at vende tilbage til cmux.",
     "button": "Fortsæt med denne konto",
     "switchAccountButton": "Brug en anden konto"
   },

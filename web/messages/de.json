@@ -1684,7 +1684,7 @@
   },
   "afterSignIn": {
     "title": "Bei cmux angemeldet",
-    "body": "Fahre mit diesem Konto fort oder wähle ein anderes Konto aus, bevor du zu cmux zurückkehrst.",
+    "body": "Fahren Sie mit diesem Konto fort, um zu cmux zurückzukehren.",
     "button": "Mit diesem Konto fortfahren",
     "switchAccountButton": "Anderes Konto verwenden"
   },

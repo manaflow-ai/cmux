@@ -1684,7 +1684,7 @@
   },
   "afterSignIn": {
     "title": "Accesso a cmux effettuato",
-    "body": "Continua con questo account oppure scegli un altro account prima di tornare a cmux.",
+    "body": "Continua con questo account per tornare a cmux.",
     "button": "Continua con questo account",
     "switchAccountButton": "Usa un altro account"
   },

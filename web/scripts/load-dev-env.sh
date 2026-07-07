@@ -34,9 +34,6 @@ if [[ -z "$cmux_secret_file" ]]; then
     cmux_secret_file="$HOME/.secret/cmuxterm.env"
   elif [[ -f "$HOME/.secrets/cmuxterm.env" ]]; then
     cmux_secret_file="$HOME/.secrets/cmuxterm.env"
-  else
-    echo "Missing cmux web secrets. Expected ~/.secrets/cmuxterm-dev.env." >&2
-    return 1 2>/dev/null || exit 1
   fi
 fi
 
@@ -50,10 +47,12 @@ if [[ -n "$cmux_extra_secret_file" ]]; then
   # shellcheck disable=SC1090
   source "$cmux_extra_secret_file"
 fi
-# shellcheck disable=SC1090
-source "$cmux_secret_file"
+if [[ -n "$cmux_secret_file" ]]; then
+  # shellcheck disable=SC1090
+  source "$cmux_secret_file"
+fi
 set +a
-if ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
+if [[ -z "$cmux_secret_file" ]] || ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
   unset STACK_SUPER_SECRET_ADMIN_KEY
 fi
 if [[ "$cmux_nounset_was_enabled" == "1" ]]; then
@@ -105,6 +104,19 @@ export CMUX_FEEDBACK_FROM_EMAIL="${CMUX_FEEDBACK_FROM_EMAIL:-dev@example.invalid
 export CMUX_FEEDBACK_RATE_LIMIT_ID="${CMUX_FEEDBACK_RATE_LIMIT_ID:-cmux-feedback-local}"
 export CMUX_CLIENT_CONFIG_RATE_LIMIT_ID="${CMUX_CLIENT_CONFIG_RATE_LIMIT_ID:-cmux-client-config-local}"
 export CMUX_PUSH_RATE_LIMIT_ID="${CMUX_PUSH_RATE_LIMIT_ID:-cmux-push-local}"
+
+# Local browser auth should boot on a fresh dev machine. The public DEBUG Stack
+# project/client key mirror the macOS DEBUG defaults; the placeholder server key
+# is enough for Stack's local sign-in UI to render, while real secret-file/env
+# values still win for server-side Stack calls.
+export NEXT_PUBLIC_STACK_PROJECT_ID="${NEXT_PUBLIC_STACK_PROJECT_ID:-454ecd03-1db2-4050-845e-4ce5b0cd9895}"
+export NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY="${NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY:-pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g}"
+export STACK_SECRET_SERVER_KEY="${STACK_SECRET_SERVER_KEY:-cmux-local-dev-placeholder}"
+if [[ "$STACK_SECRET_SERVER_KEY" == "cmux-local-dev-placeholder" ]]; then
+  export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=1
+else
+  export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=0
+fi
 
 export CMUX_WEB_SECRET_ENV_FILE="$cmux_secret_file"
 export CMUX_WEB_EXTRA_SECRET_ENV_FILE="$cmux_extra_secret_file"

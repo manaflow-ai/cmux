@@ -2625,7 +2625,7 @@
   },
   "afterSignIn": {
     "title": "Signed in to cmux",
-    "body": "Continue with this account, or choose a different account before returning to cmux.",
+    "body": "Continue with this account to return to cmux.",
     "button": "Continue with this account",
     "switchAccountButton": "Use a different account"
   },
