@@ -1125,7 +1125,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// captures are suppressed so a transient/OS-driven frame is never persisted
     /// over the good one.
     private var isSettlingScreenChange = false
-    private var settlingScreenChangeGraceTask: Task<Void, Never>?
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
@@ -3951,7 +3950,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// re-clamps any window whose titlebar is still unreachable (#6913 safety
     /// net). Ends the settling window so captures may resume.
     private func reconcileMainWindowFramesAfterScreenChange() {
-        defer { endSettlingScreenChangeAfterGrace() }
+        // Clear settling from real completion state, not elapsed time: this pass
+        // only runs after the reconcile debounce has seen 200ms with no further
+        // `didChangeScreenParameters` — i.e. the display list has stopped
+        // changing. A straggler notification re-arms settling and reschedules
+        // this pass, so the flag is driven by the actual event stream, never a
+        // fixed grace timer.
+        defer { isSettlingScreenChange = false }
 
         // Never fight a deliberate frame the restore path or teardown is
         // applying, and never persist a frame clamped against transient
@@ -4135,23 +4140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // MARK: - Settling window
 
+    /// Arms the capture firewall for a display reconfiguration. Cleared by
+    /// ``reconcileMainWindowFramesAfterScreenChange`` when the reconcile pass
+    /// actually runs (after the debounce sees the display list stop changing),
+    /// not by a wall-clock timer.
     private func beginSettlingScreenChange() {
         isSettlingScreenChange = true
-        settlingScreenChangeGraceTask?.cancel()
-        settlingScreenChangeGraceTask = nil
-    }
-
-    /// Clears the settling flag after a trailing grace window, so straggler
-    /// `didChangeScreenParameters`/frame notifications that arrive just after the
-    /// reconcile pass do not slip a transient frame into the ring.
-    private func endSettlingScreenChangeAfterGrace() {
-        settlingScreenChangeGraceTask?.cancel()
-        settlingScreenChangeGraceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, let self else { return }
-            self.isSettlingScreenChange = false
-            self.settlingScreenChangeGraceTask = nil
-        }
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
