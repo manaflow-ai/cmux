@@ -36,9 +36,9 @@ struct WorkspaceDetailView: View {
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     /// Detail content width, reported as the principal toolbar item's ideal
-    /// width so the navigation bar grants it the full inset region. Non-private
-    /// so the toolbar layout (WorkspaceDetailView+Toolbar.swift) can read it.
-    @State var toolbarContentWidth: CGFloat = 0
+    /// width so the navigation bar grants it the full inset region. Readable by
+    /// the toolbar layout; only this view's geometry callback should mutate it.
+    @State private(set) var toolbarContentWidth: CGFloat = 0
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
