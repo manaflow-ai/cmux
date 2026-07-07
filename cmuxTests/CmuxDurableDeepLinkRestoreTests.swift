@@ -113,6 +113,35 @@ struct CmuxDurableDeepLinkRestoreTests {
         #expect(resolution == .surface(workspaceId: workspace.id, panelId: panelId))
     }
 
+    @Test func terminalContextMenuSurfaceLinkUsesMappedPanelStableId() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newTerminalSurface(inPane: pane, focus: true))
+        let terminalSurfaceId = try #require(workspace.surfaceIdFromPanelId(panel.id)?.uuid)
+
+        let link = try #require(
+            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspace: workspace,
+                surfaceId: terminalSurfaceId
+            )
+        )
+
+        #expect(
+            link == CmuxNavigationURLRequest.surfaceLink(
+                workspaceId: workspace.stableId,
+                surfaceId: panel.stableSurfaceId,
+                scheme: scheme
+            )
+        )
+
+        let resolver = CmuxNavigationTargetResolver(
+            workspaces: manager.tabs.map(\.cmuxNavigationDescriptor)
+        )
+        let resolution = try resolver.resolve(parsedTarget(link))
+        #expect(resolution == .surface(workspaceId: workspace.id, panelId: panel.id))
+    }
+
     @Test func duplicateReopenWithLiveIdentitiesMintsFreshOnes() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

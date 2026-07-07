@@ -73,6 +73,12 @@ enum WorkspaceSurfaceIdentifierClipboardText {
         CmuxNavigationURLRequest.surfaceLink(workspaceId: workspaceId, surfaceId: surfaceId)
     }
 
+    static func makeSurfaceLink(workspace: Workspace, surfaceId: UUID) -> String? {
+        guard let panelId = workspace.panelId(forSurfaceId: surfaceId),
+              let panel = workspace.panels[panelId] else { return nil }
+        return makeSurfaceLink(workspaceId: workspace.stableId, surfaceId: panel.stableSurfaceId)
+    }
+
     @MainActor
     static func makeWorkspacePaneSurfaceIdentifiers(
         workspaceId: UUID,

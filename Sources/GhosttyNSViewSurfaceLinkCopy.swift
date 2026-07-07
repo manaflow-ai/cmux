@@ -4,15 +4,13 @@ extension GhosttyNSView {
     @IBAction func copyCurrentSurfaceLink(_ sender: Any?) {
         guard let terminalSurface,
               let workspace = terminalSurface.owningWorkspace(),
-              let panel = workspace.panels[terminalSurface.id] else {
+              let link = WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspace: workspace,
+                surfaceId: terminalSurface.id
+              ) else {
             NSSound.beep()
             return
         }
-        WorkspaceSurfaceIdentifierClipboardText.copy(
-            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
-                workspaceId: workspace.stableId,
-                surfaceId: panel.stableSurfaceId
-            )
-        )
+        WorkspaceSurfaceIdentifierClipboardText.copy(link)
     }
 }
