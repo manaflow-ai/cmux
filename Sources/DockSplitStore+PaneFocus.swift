@@ -3,7 +3,14 @@ import Bonsplit
 
 extension DockSplitStore {
     func noteKeyboardFocusIntent(window: NSWindow?) {
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+        // Resolve through the same chain the creation-shortcut gate uses
+        // (`focusedDockStoreForShortcut` -> `preferredRegisteredMainWindowContext`)
+        // so the note and the gate cannot disagree when the Dock interaction is
+        // windowless; `keyboardFocusCoordinator(for:)` drops nil-window notes.
+        AppDelegate.shared?
+            .preferredRegisteredMainWindowContext(preferredWindow: window)?
+            .keyboardFocusCoordinator
+            .noteRightSidebarInteraction(mode: .dock)
     }
 
     /// Creates a Dock surface from a clicked Dock affordance.
@@ -13,6 +20,7 @@ extension DockSplitStore {
     /// Plain `newSurface` stays intent-neutral for socket-created Dock surfaces.
     @discardableResult
     func newSurfaceFromDockAffordance(kind: DockSurfaceKind, inPane paneId: PaneID, window: NSWindow?) -> UUID? {
+        noteKeyboardFocusIntent(window: window)
         return newSurface(kind: kind, inPane: paneId, focus: true)
     }
 
@@ -21,6 +29,7 @@ extension DockSplitStore {
     /// A pane-background click is explicit Dock interaction, matching the Dock
     /// intent note from `GhosttyTerminalView.mouseDown` for issue #7522.
     func focusPaneFromDockClick(_ paneId: PaneID, window: NSWindow?) {
+        noteKeyboardFocusIntent(window: window)
         bonsplitController.focusPane(paneId)
     }
 
