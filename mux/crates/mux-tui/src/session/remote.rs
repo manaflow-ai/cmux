@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 
 use super::tree::{parse_tree, TreeView};
 
-const SUPPORTED_PROTOCOL_VERSIONS: &[u64] = &[4, 5, 6];
+const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
 #[derive(Clone)]
 struct RemoteBrowserFrame {
     frame: BrowserFrame,
@@ -70,6 +70,7 @@ impl RemoteSurface {
         *self.server_size.lock().unwrap() = (cols, rows);
     }
 
+    /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         let (cols, rows) = (cols.max(1), rows.max(1));
         self.set_server_size(cols, rows);
@@ -177,7 +178,6 @@ pub struct RemoteSession {
     tree: Mutex<TreeView>,
     tree_stale: AtomicBool,
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
-    protocol: AtomicU64,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
 }
 
@@ -195,7 +195,6 @@ impl RemoteSession {
             tree: Mutex::new(TreeView::default()),
             tree_stale: AtomicBool::new(true),
             subscribers: Mutex::new(Vec::new()),
-            protocol: AtomicU64::new(0),
             frame_logs: Mutex::new(HashMap::new()),
         });
 
@@ -220,12 +219,11 @@ impl RemoteSession {
             anyhow::bail!("socket endpoint is not a cmux-mux session");
         }
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
-        if !SUPPORTED_PROTOCOL_VERSIONS.contains(&protocol) {
+        if protocol != SUPPORTED_PROTOCOL_VERSION {
             anyhow::bail!(
-                "unsupported cmux-mux protocol {protocol}; this client supports protocols 4, 5, and 6"
+                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6 because attach-stream resize markers are authoritative; restart the cmux-mux server"
             );
         }
-        session.protocol.store(protocol, Ordering::Release);
         session.request(json!({"cmd": "subscribe"}))?;
         Ok(session)
     }
@@ -438,7 +436,7 @@ impl RemoteSession {
     }
 
     pub fn supports_browser_attach(&self) -> bool {
-        self.protocol.load(Ordering::Acquire) >= 6
+        true
     }
 
     /// Mirror for a surface, attaching on first use. When a size is
