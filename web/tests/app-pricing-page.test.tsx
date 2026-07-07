@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { stripeSubscriptions } from "../db/schema";
+
+const dbClientModule = await import("../db/client");
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+
 const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
@@ -30,6 +36,7 @@ mock.module("next/headers", () => ({
 
 let stackConfigured = false;
 let currentUser: unknown = null;
+let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 
 const proUser = {
   id: "user-pro",
@@ -60,6 +67,20 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
 }));
 
+mock.module("../db/client", () => ({
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: () => ({
+    select: () => ({
+      from: (table: unknown) => ({
+        where: () => ({
+          limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
+        }),
+      }),
+    }),
+  }),
+}));
+
 const { default: AppPricingPage } = await import("../app/app-pricing/page");
 
 describe("app pricing page", () => {
@@ -68,6 +89,7 @@ describe("app pricing page", () => {
     process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
     stackConfigured = false;
     currentUser = null;
+    stripeSubscriptionRows = [];
     proUser.listProducts.mockClear();
     proUser.update.mockClear();
   });
@@ -96,9 +118,29 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
-  test("renders Manage billing for active Pro users", async () => {
+  test("renders the external billing note without a portal link for Stack Pro users", async () => {
     stackConfigured = true;
     currentUser = proUser;
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).not.toContain('href="/api/billing/portal"');
+    expect(html).toContain(
+      "Your subscription is managed by our previous billing system. Contact support to make changes.",
+    );
+    expect(html).toContain("Current plan");
+  });
+
+  test("renders Manage billing for Stripe-managed Pro users", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    stripeSubscriptionRows = [{ id: "sub_123" }];
 
     const element = await AppPricingPage({
       searchParams: Promise.resolve({

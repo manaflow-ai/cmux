@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
+import { stripeCustomers, stripeSubscriptions } from "../db/schema";
+
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
@@ -10,10 +12,32 @@ const stripeModule = await import("../services/billing/stripe");
 const signedInUser = {
   id: "user-pro",
   isAnonymous: false,
+  clientReadOnlyMetadata: {},
+  listProducts: mock(async () =>
+    Object.assign(
+      stackProductsActive
+        ? [
+            {
+              id: "pro",
+              quantity: 1,
+              subscription: {
+                cancelAtPeriodEnd: false,
+                currentPeriodEnd: null,
+              },
+            },
+          ]
+        : [],
+      { nextCursor: null },
+    ),
+  ),
+  update: mock(async () => undefined),
 };
 const anonymousUser = {
   id: "anonymous-pro",
   isAnonymous: true,
+  clientReadOnlyMetadata: {},
+  listProducts: mock(async () => Object.assign([], { nextCursor: null })),
+  update: mock(async () => undefined),
 };
 
 let stackConfigured = true;
@@ -21,6 +45,8 @@ let stripeConfigured = true;
 let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
 let customerRows: { id: string }[] = [{ id: "cus_123" }];
+let stripeSubscriptionRows: { id: string }[] = [];
+let stackProductsActive = false;
 
 const getUser = mock(async (options?: unknown) => {
   const or =
@@ -49,9 +75,13 @@ mock.module("../db/client", () => ({
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => ({
     select: () => ({
-      from: () => ({
+      from: (table: unknown) => ({
         where: () => ({
-          limit: mock(async () => customerRows),
+          limit: mock(async () => {
+            if (table === stripeCustomers) return customerRows;
+            if (table === stripeSubscriptions) return stripeSubscriptionRows;
+            return [];
+          }),
         }),
       }),
     }),
@@ -83,7 +113,13 @@ describe("billing portal route", () => {
     returnNullUser = signedInUser;
     anonymousIfExistsUser = null;
     customerRows = [{ id: "cus_123" }];
+    stripeSubscriptionRows = [];
+    stackProductsActive = false;
     getUser.mockClear();
+    signedInUser.listProducts.mockClear();
+    signedInUser.update.mockClear();
+    anonymousUser.listProducts.mockClear();
+    anonymousUser.update.mockClear();
     createPortalSession.mockClear();
     createPortalSession.mockResolvedValue({
       url: "https://billing.stripe.com/session/test",
@@ -159,8 +195,9 @@ describe("billing portal route", () => {
     expect(createPortalSession).not.toHaveBeenCalled();
   });
 
-  test("redirects to billing unavailable when the user has no Stripe customer row", async () => {
+  test("redirects legacy Pro users without a Stripe customer row to external billing", async () => {
     customerRows = [];
+    stackProductsActive = true;
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),
@@ -168,9 +205,34 @@ describe("billing portal route", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/pricing?billing=unavailable",
+      "https://cmux.test/pricing?billing=external",
     );
     expect(captureBillingError).not.toHaveBeenCalled();
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
+  test("captures missing customer rows for Stripe-managed users and redirects external", async () => {
+    customerRows = [];
+    stripeSubscriptionRows = [{ id: "sub_123" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=external",
+    );
+    expect(captureBillingError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Stripe-managed billing user is missing a Stripe customer row",
+      }),
+      expect.objectContaining({
+        route: "/api/billing/portal",
+        stackUserId: "user-pro",
+        billingManagement: "stripe",
+      }),
+    );
     expect(createPortalSession).not.toHaveBeenCalled();
   });
 

@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
       billingAvailable: false,
       planId: FREE_PLAN_ID,
       isPro: false,
+      billingManagement: "none",
       user: null,
     });
   }
@@ -38,6 +39,7 @@ export async function GET(request: NextRequest) {
       billingAvailable: true,
       planId: FREE_PLAN_ID,
       isPro: false,
+      billingManagement: "none",
       user: null,
     });
   }
@@ -48,6 +50,7 @@ export async function GET(request: NextRequest) {
     billingAvailable: true,
     planId: status.planId,
     isPro: status.isPro,
+    billingManagement: status.billingManagement,
     metadataChanged: status.metadataChanged,
     hasManualVmPlanOverride: status.hasManualVmPlanOverride,
     user: {

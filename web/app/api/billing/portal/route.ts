@@ -5,6 +5,7 @@ import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { captureBillingError } from "../../../../services/errors";
+import { resolveProPlanStatus } from "../../../../services/billing/pro";
 import {
   isStripeBillingConfigured,
   stripe,
@@ -30,7 +31,18 @@ export async function GET(request: NextRequest) {
 
     const customerId = await stripeCustomerIdForStackUser(user.id);
     if (!customerId) {
-      return pricingRedirect(request, "unavailable");
+      const status = await resolveProPlanStatus(user);
+      if (status.billingManagement === "stripe") {
+        captureBillingError(
+          new Error("Stripe-managed billing user is missing a Stripe customer row"),
+          {
+            route: "/api/billing/portal",
+            stackUserId: user.id,
+            billingManagement: status.billingManagement,
+          },
+        );
+      }
+      return pricingRedirect(request, "external");
     }
 
     const session = await stripe().billingPortal.sessions.create({
@@ -68,7 +80,7 @@ async function stripeCustomerIdForStackUser(stackUserId: string): Promise<string
   return rows[0]?.id ?? null;
 }
 
-function pricingRedirect(request: NextRequest, billing: "unavailable" | "error") {
+function pricingRedirect(request: NextRequest, billing: "unavailable" | "external" | "error") {
   return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, request.url), 302);
 }
 
