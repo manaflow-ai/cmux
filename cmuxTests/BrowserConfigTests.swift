@@ -5338,8 +5338,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         #expect(withPath.scheme == "https")
         #expect(withPath.port == 8443)
         #expect(withPath.path == "/admin")
+        #expect(try #require(resolveBrowserNavigableURL("0.0.0.0.evil.example/path")).scheme == "https")
     }
-
     @Test func keepsRejectingDottedSchemeInputsWithoutNumericPort() {
         #expect(resolveBrowserNavigableURL("example.com:notaport") == nil)
         #expect(resolveBrowserNavigableURL("example.com:99999") == nil)

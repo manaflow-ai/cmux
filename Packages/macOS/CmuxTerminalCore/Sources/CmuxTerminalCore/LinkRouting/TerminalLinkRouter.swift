@@ -9,9 +9,9 @@ import CMUXDebugLog
 /// Routing precedence: absolute file-system paths open externally; `http` and
 /// `https` URLs open embedded when the injected ``BrowserHostNormalizing``
 /// accepts their host, externally otherwise; other schemes open externally;
-/// browser-navigable scheme-less text opens embedded; terminal file references
-/// and path fragments that did not already resolve through the caller's
-/// file-path pass are ignored.
+/// browser-navigable scheme-less text opens embedded; terminal path fragments
+/// that did not already resolve through the caller's file-path pass are
+/// ignored.
 public struct TerminalLinkRouter: Sendable {
     private let hostNormalizer: any BrowserHostNormalizing
 
@@ -59,13 +59,6 @@ public struct TerminalLinkRouter: Sendable {
             }
         }
 
-        if Self.looksLikeTerminalFileReference(trimmed) {
-            #if DEBUG
-            logDebugEvent("link.resolve result=nil (fileReference)")
-            #endif
-            return nil
-        }
-
         if Self.looksLikeSingleLabelPathFragment(trimmed) {
             #if DEBUG
             logDebugEvent("link.resolve result=nil (pathFragment)")
@@ -104,45 +97,6 @@ public struct TerminalLinkRouter: Sendable {
         logDebugEvent("link.resolve result=embeddedBrowser(\(reason)) url=\(url)")
         #endif
         return .embeddedBrowser(url)
-    }
-
-    private static func looksLikeTerminalFileReference(_ value: String) -> Bool {
-        looksLikeFileLineToken(value) || looksLikeBareFileToken(value)
-    }
-
-    private static func looksLikeFileLineToken(_ value: String) -> Bool {
-        guard let colon = value.lastIndex(of: ":"),
-              colon < value.index(before: value.endIndex),
-              value[value.index(after: colon)...].allSatisfy(\.isNumber) else {
-            return false
-        }
-        return looksLikeFileLineHost(String(value[..<colon]))
-    }
-
-    private static func looksLikeBareFileToken(_ value: String) -> Bool {
-        guard value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              !value.contains("/") else {
-            return false
-        }
-        let end = value.firstIndex { character in
-            character == "?" || character == "#"
-        } ?? value.endIndex
-        return looksLikeFileLineHost(String(value[..<end]))
-    }
-
-    private static func looksLikeFileLineHost(_ hostCandidate: String) -> Bool {
-        guard let dot = hostCandidate.lastIndex(of: "."),
-              dot < hostCandidate.index(before: hostCandidate.endIndex) else {
-            return false
-        }
-        switch hostCandidate[hostCandidate.index(after: dot)...].lowercased() {
-        case "c", "cc", "cpp", "css", "go", "h", "hpp", "html", "java",
-             "js", "jsx", "json", "m", "md", "mm", "php", "py", "rb", "rs",
-             "sh", "swift", "toml", "ts", "tsx", "txt", "yaml", "yml", "zsh":
-            return true
-        default:
-            return false
-        }
     }
 
     private static func looksLikeSingleLabelPathFragment(_ value: String) -> Bool {

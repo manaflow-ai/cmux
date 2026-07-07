@@ -6230,8 +6230,8 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     // URL(string: "localhost:3777") treats "localhost" as a scheme.
     let lower = trimmed.lowercased()
     let bareHost = browserBareHostCandidate(lower)
-    if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") ||
-        lower.hasPrefix("0.0.0.0") || lower.hasPrefix("[::1]") ||
+    if bareHost == "localhost" || bareHost == "127.0.0.1" ||
+        bareHost == "0.0.0.0" || lower.hasPrefix("[::1]") ||
         (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
         return URL(string: "http://\(trimmed)")
     }
