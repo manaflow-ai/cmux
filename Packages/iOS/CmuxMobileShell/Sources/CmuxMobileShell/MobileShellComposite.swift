@@ -3467,10 +3467,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedHostCapabilities: capabilities,
             actionCapabilities: Self.workspaceActionCapabilities(
                 from: capabilities,
-                allowsMacScopedMutations: mobileShellAttachTicketAllowsMacScopedWorkspaceMutations(
-                    ticket,
-                    now: runtime.now()
-                )
+                allowsMacScopedMutations: MobileShellWorkspaceMutationTicketPolicy(now: runtime.now())
+                    .allowsMacScopedWorkspaceMutations(ticket)
             )
         )
     }
