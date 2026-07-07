@@ -5,14 +5,14 @@ internal import Foundation
 extension MobileShellComposite {
     /// Create a workspace and surface success/failure to the caller.
     /// - Parameter groupID: Optional destination group for the new workspace.
-    /// - Returns: `success` when the workspace was created (or the local preview
-    ///   path synthesized one), otherwise the failure the UI should surface.
+    /// - Returns: `success` when the connected Mac created the workspace,
+    ///   otherwise the failure the UI should surface.
     @discardableResult
     public func createWorkspaceRequest(
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard remoteClient != nil else {
-            return createWorkspace(inGroup: groupID)
+            return .failure(.notConnected(hostDisplayName: connectedHostName))
         }
         if let createWorkspaceTask {
             guard createWorkspaceTaskGroupID == groupID else {

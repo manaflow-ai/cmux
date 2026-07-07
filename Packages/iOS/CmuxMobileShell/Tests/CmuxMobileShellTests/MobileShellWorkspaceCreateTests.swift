@@ -15,6 +15,18 @@ import Testing
         #expect(store.workspaces.map(\.id) == initialWorkspaceIDs)
     }
 
+    @Test func createWorkspaceRequestWithoutConnectionDoesNotCreateLocalWorkspace() async {
+        let store = MobileShellComposite.preview()
+        let initialWorkspaceIDs = store.workspaces.map(\.id)
+
+        let result = await store.createWorkspaceRequest()
+
+        guard case .failure(.notConnected) = result else {
+            return #expect(Bool(false), "disconnected request create should surface notConnected")
+        }
+        #expect(store.workspaces.map(\.id) == initialWorkspaceIDs)
+    }
+
     @Test func duplicateCreateWorkspaceRequestAwaitsInFlightResult() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)
