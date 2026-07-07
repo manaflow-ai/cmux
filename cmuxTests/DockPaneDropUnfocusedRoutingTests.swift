@@ -75,7 +75,6 @@ struct DockPaneDropUnfocusedRoutingTests {
             TerminalController.shared.setActiveTabManager(manager)
             let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
             defer {
-                PaneDropRoutingSession.clearActiveDropDrag(nil)
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
@@ -147,9 +146,9 @@ struct DockPaneDropUnfocusedRoutingTests {
             #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
                 eventType: .leftMouseUp,
-                hasActiveDropDrag: PaneDropRoutingSession.hasActiveDropDrag
+                hasActiveDropDrag: host.hasActivePaneDropDrag
             ))
-            PaneDropRoutingSession.clearActiveDropDrag(draggingInfo)
+            target.draggingExited(draggingInfo)
             let filePasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.file.\(UUID().uuidString)"))
             filePasteboard.clearContents()
             filePasteboard.declareTypes([.fileURL], owner: nil)
@@ -164,9 +163,9 @@ struct DockPaneDropUnfocusedRoutingTests {
             #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: filePasteboard.types,
                 eventType: .leftMouseUp,
-                hasActiveDropDrag: PaneDropRoutingSession.hasActiveDropDrag
+                hasActiveDropDrag: host.hasActivePaneDropDrag
             ))
-            PaneDropRoutingSession.clearActiveDropDrag(fileDraggingInfo)
+            target.draggingExited(fileDraggingInfo)
             #expect(target.draggingEntered(draggingInfo) == .move)
             let pointInTarget = target.convert(pointInWindow, from: nil)
             let dragHit = target.performHitTest(
@@ -218,6 +217,83 @@ struct DockPaneDropUnfocusedRoutingTests {
             pasteboardTypes: [.fileURL],
             eventType: .leftMouseUp
         ))
+    }
+
+    @Test("Nil exit clears only the target view active drag sequence")
+    @MainActor
+    func nilExitClearsOnlyTargetViewActiveDragSequence() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let targetPanel = try #require(workspace.panels.values.first)
+            let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
+            let sourcePanel = try #require(workspace.newTerminalSurface(inPane: targetPane, focus: true))
+            let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
+            let payload = try Self.makePaneDragPayload(tabId: sourceTabId.uuid, sourcePaneId: targetPane.id)
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
+            let contentView = try #require(window.contentView)
+            let host = WindowTerminalHostView(frame: contentView.bounds)
+            contentView.addSubview(host)
+            let firstTarget = TerminalPaneDropTargetView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+            let secondTarget = TerminalPaneDropTargetView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+            let dropContext = PaneDropContext(workspaceId: workspace.id, panelId: targetPanel.id, paneId: targetPane)
+            firstTarget.dropContext = dropContext
+            secondTarget.dropContext = dropContext
+            host.addSubview(firstTarget)
+            host.addSubview(secondTarget)
+
+            let firstPasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.first.\(UUID().uuidString)"))
+            let secondPasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.second.\(UUID().uuidString)"))
+            firstPasteboard.clearContents()
+            secondPasteboard.clearContents()
+            firstPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            secondPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            defer {
+                firstPasteboard.clearContents()
+                secondPasteboard.clearContents()
+            }
+
+            let firstDraggingInfo = DockPaneDropMockDraggingInfo(
+                window: window,
+                location: NSPoint(x: 10, y: 10),
+                pasteboard: firstPasteboard,
+                sequenceNumber: 11
+            )
+            let secondDraggingInfo = DockPaneDropMockDraggingInfo(
+                window: window,
+                location: NSPoint(x: 20, y: 20),
+                pasteboard: secondPasteboard,
+                sequenceNumber: 22
+            )
+
+            #expect(firstTarget.draggingEntered(firstDraggingInfo) == .move)
+            #expect(secondTarget.draggingEntered(secondDraggingInfo) == .move)
+            firstTarget.draggingExited(nil)
+            #expect(host.hasActivePaneDropDrag)
+            secondTarget.draggingExited(nil)
+            #expect(!host.hasActivePaneDropDrag)
+        }
     }
 
     @Test("Accepted unfocused Dock pane drop moves a main surface into the Dock")
@@ -355,7 +431,7 @@ struct DockPaneDropUnfocusedRoutingTests {
 
     private static func makePaneDragPayload(tabId: UUID, sourcePaneId: UUID) throws -> Data {
         try JSONSerialization.data(withJSONObject: [
-            "tab": ["id": tabId.uuidString, "kind": SurfaceKind.terminal.rawValue],
+            "tab": ["id": tabId.uuidString, "kind": "terminal"],
             "sourcePaneId": sourcePaneId.uuidString,
             "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
         ])

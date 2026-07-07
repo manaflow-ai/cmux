@@ -51,31 +51,100 @@ struct PaneDragTransfer: Equatable {
 typealias TerminalPaneDragTransfer = PaneDragTransfer
 
 @MainActor
-enum PaneDropRoutingSession {
-    private static var activeSequenceNumbers: Set<Int> = []
+final class PaneDropRoutingSession {
+    private var activeSequenceNumbers: Set<Int> = []
 
-    static var hasActiveDropDrag: Bool {
+    var hasActiveDropDrag: Bool {
         !activeSequenceNumbers.isEmpty
     }
 
-    static func updateActiveDropDrag(_ sender: any NSDraggingInfo, operation: NSDragOperation) {
+    func updateActiveDropDrag(_ sender: any NSDraggingInfo, operation: NSDragOperation) -> Bool {
         guard !operation.isEmpty else {
             clearActiveDropDrag(sender)
-            return
+            return false
         }
 
         let types = sender.draggingPasteboard.types
         guard DragOverlayRoutingPolicy.hasBonsplitTabTransfer(types)
-            || DragOverlayRoutingPolicy.hasFileDropPayload(types) else { return }
+            || DragOverlayRoutingPolicy.hasFileDropPayload(types) else { return false }
         activeSequenceNumbers.insert(sender.draggingSequenceNumber)
+        return true
     }
 
-    static func clearActiveDropDrag(_ sender: (any NSDraggingInfo)?) {
-        guard let sender else {
-            activeSequenceNumbers.removeAll()
+    func clearActiveDropDrag(_ sender: any NSDraggingInfo) {
+        activeSequenceNumbers.remove(sender.draggingSequenceNumber)
+    }
+
+    func clearActiveDropDrag(sequenceNumber: Int) {
+        activeSequenceNumbers.remove(sequenceNumber)
+    }
+}
+
+@MainActor
+final class PaneDropRoutingRegistration {
+    private weak var owner: WindowTerminalHostView?
+    private var sequenceNumber: Int?
+
+    func update(_ sender: any NSDraggingInfo, operation: NSDragOperation, targetView: NSView) {
+        guard let host = targetView.enclosingWindowTerminalHostView else {
+            clear(sender)
             return
         }
-        activeSequenceNumbers.remove(sender.draggingSequenceNumber)
+
+        if host.updateActivePaneDropRoutingSession(sender, operation: operation) {
+            owner = host
+            sequenceNumber = sender.draggingSequenceNumber
+        } else if sequenceNumber == sender.draggingSequenceNumber {
+            clear(sender)
+        }
+    }
+
+    func clear(_ sender: (any NSDraggingInfo)? = nil) {
+        if let sender {
+            owner?.clearActivePaneDropRoutingSession(sender)
+            if sequenceNumber == sender.draggingSequenceNumber {
+                sequenceNumber = nil
+                owner = nil
+            }
+            return
+        }
+
+        guard let sequenceNumber else { return }
+        owner?.clearActivePaneDropRoutingSession(sequenceNumber: sequenceNumber)
+        self.sequenceNumber = nil
+        owner = nil
+    }
+}
+
+@MainActor
+extension WindowTerminalHostView {
+    var hasActivePaneDropDrag: Bool {
+        paneDropRoutingSession.hasActiveDropDrag
+    }
+
+    func updateActivePaneDropRoutingSession(_ sender: any NSDraggingInfo, operation: NSDragOperation) -> Bool {
+        paneDropRoutingSession.updateActiveDropDrag(sender, operation: operation)
+    }
+
+    func clearActivePaneDropRoutingSession(_ sender: any NSDraggingInfo) {
+        paneDropRoutingSession.clearActiveDropDrag(sender)
+    }
+
+    func clearActivePaneDropRoutingSession(sequenceNumber: Int) {
+        paneDropRoutingSession.clearActiveDropDrag(sequenceNumber: sequenceNumber)
+    }
+}
+
+private extension NSView {
+    var enclosingWindowTerminalHostView: WindowTerminalHostView? {
+        var candidate = superview
+        while let view = candidate {
+            if let host = view as? WindowTerminalHostView {
+                return host
+            }
+            candidate = view.superview
+        }
+        return nil
     }
 }
 

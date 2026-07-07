@@ -8,6 +8,7 @@ final class PaneDropTargetView: NSView {
     weak var hostedView: GhosttySurfaceScrollView?
     var dropContext: PaneDropContext?
     private var activeZone: DropZone?
+    private let dropRoutingRegistration = PaneDropRoutingRegistration()
     private let dropZoneOverlayView = NSView(frame: .zero)
     private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
 #if DEBUG
@@ -29,7 +30,14 @@ final class PaneDropTargetView: NSView {
         nil
     }
 
-    deinit {}
+    deinit { dropRoutingRegistration.clear() }
+
+    override func willMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil {
+            dropRoutingRegistration.clear()
+        }
+        super.willMove(toSuperview: newSuperview)
+    }
 
     override func layout() {
         super.layout()
@@ -78,24 +86,24 @@ final class PaneDropTargetView: NSView {
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let operation = updateDragState(sender, phase: "entered")
-        PaneDropRoutingSession.updateActiveDropDrag(sender, operation: operation)
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
         return operation
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let operation = updateDragState(sender, phase: "updated")
-        PaneDropRoutingSession.updateActiveDropDrag(sender, operation: operation)
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
         return operation
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        PaneDropRoutingSession.clearActiveDropDrag(sender)
+        dropRoutingRegistration.clear(sender)
         clearDragState(phase: "exited")
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer {
-            PaneDropRoutingSession.clearActiveDropDrag(sender)
+            dropRoutingRegistration.clear(sender)
             clearDragState(phase: "perform.clear")
         }
 
