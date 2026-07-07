@@ -130,6 +130,38 @@ struct WindowDockLifecycleTests {
         }
     }
 
+    @Test("Dock affordance intent binds to the owning window, not ambient focus state")
+    @MainActor
+    func dockAffordanceIntentBindsToOwningWindowContext() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let firstManager = TabManager(autoWelcomeIfNeeded: false)
+            let secondManager = TabManager(autoWelcomeIfNeeded: false)
+            let firstWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: firstManager)
+            let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
+            defer {
+                firstManager.tabs.forEach { $0.teardownAllPanels() }
+                secondManager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let secondDock = appDelegate.windowDock(forWindowId: secondWindowId)
+            let pane = try #require(secondDock.resolvePane(requestedPaneID: nil))
+            _ = secondDock.newSurfaceFromDockAffordance(kind: .terminal, inPane: pane, window: nil)
+
+            let ownerCoordinator = try #require(
+                appDelegate.mainWindowContexts.values
+                    .first(where: { $0.windowId == secondWindowId })?
+                    .keyboardFocusCoordinator
+            )
+            let otherCoordinator = try #require(
+                appDelegate.mainWindowContexts.values
+                    .first(where: { $0.windowId == firstWindowId })?
+                    .keyboardFocusCoordinator
+            )
+            #expect(ownerCoordinator.activeRightSidebarMode == .dock)
+            #expect(otherCoordinator.activeRightSidebarMode != .dock)
+        }
+    }
+
     @Test("Plain Dock surface creation does not claim shortcut routing")
     @MainActor
     func plainNewSurfaceDoesNotClaimShortcutRouting() throws {

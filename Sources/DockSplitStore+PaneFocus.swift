@@ -3,20 +3,23 @@ import Bonsplit
 
 extension DockSplitStore {
     func noteKeyboardFocusIntent(window: NSWindow?) {
-        // Resolve through the same chain the creation-shortcut gate uses
-        // (`focusedDockStoreForShortcut` -> `preferredRegisteredMainWindowContext`)
-        // so the note and the gate cannot disagree when the Dock interaction is
-        // windowless; `keyboardFocusCoordinator(for:)` drops nil-window notes.
-        // Deliberately NOT resolved from this store's owning window: the gate
-        // reads intent only through the preferred-window chain, never by store
-        // identity, so a store-owner-bound note would be invisible to the gate
-        // whenever the two resolutions diverge — the exact routing split this
-        // seam closes. Real clicks pass the key window, which is the clicked
-        // store's window (`windowDock(forWindowId:)` renders per-window docks).
-        AppDelegate.shared?
-            .preferredRegisteredMainWindowContext(preferredWindow: window)?
+        guard let appDelegate = AppDelegate.shared else { return }
+        // Bind the note to this store's owning window context first: per-window
+        // docks satisfy `workspaceId == windowId` (`AppDelegate+WindowDock.swift`),
+        // and the Dock UI renders inside its owner, so the owner is the window
+        // the user interacted with regardless of transient key/main-window state
+        // (during a cross-window drag the SOURCE window can still be key; see
+        // the matching owner resolution in `AppDelegate+DockSurfaceMove.swift`).
+        // Workspace-scoped docks have no owning window; for them honor the
+        // caller-resolved window, as the pre-#7522 note did. Never fall back to
+        // ambient key/main/first-context state: noting a context that does not
+        // own the interaction would route the next creation shortcut into a
+        // Dock the user never touched. No owner and no window drops the note.
+        let coordinator = appDelegate.mainWindowContexts.values
+            .first(where: { $0.windowId == workspaceId })?
             .keyboardFocusCoordinator
-            .noteRightSidebarInteraction(mode: .dock)
+            ?? appDelegate.keyboardFocusCoordinator(for: window)
+        coordinator?.noteRightSidebarInteraction(mode: .dock)
     }
 
     /// Creates a Dock surface from a clicked Dock affordance.
