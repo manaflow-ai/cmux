@@ -1298,6 +1298,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var actionSourcePath: String?
     var iconSourcePath: String?
     var newWorkspaceMenu: Bool?
+    var terminalContextMenu: Bool?
 
     var terminalCommand: String? {
         action.terminalCommand
@@ -1312,6 +1313,12 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     /// actions default to true.
     var wantsNewWorkspaceMenu: Bool {
         newWorkspaceMenu ?? (action.inlineWorkspace != nil)
+    }
+
+    /// Whether this action should be offered in the terminal right-click
+    /// context menu. Opt-in only; defaults to false.
+    var wantsTerminalContextMenu: Bool {
+        terminalContextMenu ?? false
     }
 
     /// Synthetic named command for inline `type: "workspace"` actions so
@@ -1348,6 +1355,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         next.confirm = definition.confirm ?? next.confirm
         next.terminalCommandTarget = definition.terminalCommandTarget ?? next.terminalCommandTarget
         next.newWorkspaceMenu = definition.newWorkspaceMenu ?? next.newWorkspaceMenu
+        next.terminalContextMenu = definition.terminalContextMenu ?? next.terminalContextMenu
         next.actionSourcePath = sourcePath ?? next.actionSourcePath
         if let action = definition.action {
             next.action = action
@@ -1378,7 +1386,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             terminalCommandTarget: definition.terminalCommandTarget,
             actionSourcePath: sourcePath,
             iconSourcePath: definition.icon == nil ? nil : sourcePath,
-            newWorkspaceMenu: definition.newWorkspaceMenu
+            newWorkspaceMenu: definition.newWorkspaceMenu,
+            terminalContextMenu: definition.terminalContextMenu
         )
     }
 
@@ -2492,6 +2501,15 @@ final class CmuxConfigStore: ObservableObject {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
         return loadedActions.filter { action in
             action.palette && !builtInIDs.contains(action.id)
+        }
+    }
+
+    /// Custom actions that opted into the terminal right-click context menu
+    /// via `terminalContextMenu: true`.
+    func terminalContextMenuCustomActions() -> [CmuxResolvedConfigAction] {
+        let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
+        return loadedActions.filter { action in
+            action.wantsTerminalContextMenu && !builtInIDs.contains(action.id)
         }
     }
 

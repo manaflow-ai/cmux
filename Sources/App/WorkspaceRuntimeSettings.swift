@@ -109,6 +109,15 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalShiftRightClickMenuSettings {
+    static let enabledKey = "terminal.shiftRightClickShowsMenu"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+}
+
 enum TerminalTextBoxInputSettings {
     static let showOnNewTerminalsKey = "terminal.showTextBoxOnNewTerminals"
     static let focusOnNewTerminalsKey = "terminal.focusTextBoxOnNewTerminals"

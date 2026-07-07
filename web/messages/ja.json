@@ -1549,6 +1549,7 @@
         },
         "terminal": {
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
+          "shiftRightClickShowsMenu": "true の場合、マウスをキャプチャしているプログラム（tmux、Claude Code など）の実行中でも、shift+右クリックで cmux のコンテキストメニューを開きます。バイパスされたクリックはプログラムに転送されません。false の場合、マウスキャプチャ中はすべての右クリックがプログラムに転送されます。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",

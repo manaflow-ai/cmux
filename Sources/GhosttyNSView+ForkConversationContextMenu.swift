@@ -7,6 +7,9 @@ extension GhosttyNSView {
         }
         appendMoveCurrentSurfaceMoveMenuItems(to: menu)
         menu.addItem(.separator())
+        if AppDelegate.shared?.appendTerminalContextMenuConfigActions(to: menu, anchorView: self) == true {
+            menu.addItem(.separator())
+        }
     }
 
     @discardableResult

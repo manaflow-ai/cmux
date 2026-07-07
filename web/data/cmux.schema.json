@@ -450,6 +450,12 @@
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
+        "shiftRightClickShowsMenu": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.terminal.shiftRightClickShowsMenu",
+          "description": "When true, shift+right-click opens the cmux context menu even while a mouse-reporting program (tmux, Claude Code) has captured the mouse; the bypassed click is never forwarded to the program. When false, every right-click is forwarded while the mouse is captured."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

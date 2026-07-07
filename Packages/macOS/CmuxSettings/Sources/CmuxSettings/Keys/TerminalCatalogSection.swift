@@ -21,6 +21,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    public let shiftRightClickShowsMenu = DefaultsKey<Bool>(
+        id: "terminal.shiftRightClickShowsMenu",
+        defaultValue: true,
+        userDefaultsKey: "terminal.shiftRightClickShowsMenu"
+    )
+
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoResumeAgentSessions",
         defaultValue: true,
