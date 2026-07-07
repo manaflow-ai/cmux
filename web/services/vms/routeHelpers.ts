@@ -219,6 +219,13 @@ export function browserMutationOriginAllowed(request: Request): boolean {
   return allowedBrowserOrigins().has(origin);
 }
 
+export function browserMutationContentTypeAllowed(request: Request): boolean {
+  const contentType = request.headers.get("content-type");
+  if (!contentType) return false;
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/json";
+}
+
 function requestURLOrigin(request: Request): string | null {
   try {
     return new URL(request.url).origin;
