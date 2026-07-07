@@ -315,6 +315,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
+        case "workspace.group.action":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: nil
+            )
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.input", "terminal.input",

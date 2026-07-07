@@ -461,4 +461,5 @@ import Testing
         #expect(frame.stackAccessToken == "test-stack-token")
         #expect(frame.hasAuth)
     }
+
 }

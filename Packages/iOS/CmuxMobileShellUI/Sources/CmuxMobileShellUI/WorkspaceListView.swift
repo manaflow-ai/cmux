@@ -524,7 +524,7 @@ struct WorkspaceListView: View {
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
                     selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
-                    createWorkspaceInGroup: canCreateWorkspaceInGroups && anchorCapabilities.supportsGroupActions ? createWorkspaceInGroup : nil,
+                    createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
                     renameGroup: anchorCapabilities.supportsGroupActions ? renameWorkspaceGroup : nil,
                     setGroupPinned: anchorCapabilities.supportsGroupActions ? setGroupPinned : nil,
                     ungroupWorkspaceGroup: anchorCapabilities.supportsGroupActions ? ungroupWorkspaceGroup : nil,
