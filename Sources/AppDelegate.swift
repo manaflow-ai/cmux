@@ -1110,21 +1110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
     var mainWindowFrameReconcileTask: Task<Void, Never>?
-    /// Per-window LRU ring of remembered frames keyed by display configuration
-    /// (issue #2135). The persisted session snapshot is the source of truth; this
-    /// mirror lets capture/restore run without re-decoding the snapshot, and is
-    /// seeded from the snapshot at startup and merged back into it on save.
+    /// Per-window LRU ring of remembered frames keyed by display configuration.
+    /// Mirrored from the session snapshot to avoid re-decoding during capture/restore.
     var windowConfigFrames: [UUID: [SessionConfigFrameEntry]] = [:]
-    /// The display-configuration signature last applied by a restore/reconcile
-    /// pass. Seeded at `applicationDidFinishLaunching` so the first reconnect is
-    /// not misclassified as "no change"; restore only fires when the live
-    /// signature differs from this (so sleep/wake and Dock resize are no-ops).
+    /// Display signature last applied by a restore/reconcile pass.
     var lastAppliedConfigurationSignature: String?
-    /// True from the moment a display reconfiguration is observed until a
-    /// reconcile pass consumes the quiesced display list and records the latest
-    /// configuration signature. macOS exposes only a stream of display-change
-    /// notifications, not a public whole-transaction completion callback, so
-    /// skipped passes leave captures suppressed until a real reconcile completes.
+    /// True while display-change notifications are settling before reconcile.
     var isSettlingScreenChange = false
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
@@ -2095,9 +2086,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
-        // Seed the applied-configuration signature so the first display change
-        // after launch is correctly classified as a change (and can restore),
-        // rather than being mistaken for "no change".
+        // Seed so the first display change after launch can restore geometry.
         lastAppliedConfigurationSignature = currentDisplayConfigurationSignature()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
