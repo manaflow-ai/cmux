@@ -151,12 +151,14 @@ struct DockPaneDropUnfocusedRoutingTests {
             eventType: .leftMouseUp
         ))
         #expect(WindowInputRoutingContext(eventType: .leftMouseDragged).allowsBrowserPortalDragRouting)
-        #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsBrowserPortalDragRouting)
+        #expect(!WindowInputRoutingContext(eventType: .leftMouseUp).allowsBrowserPortalDragRouting)
+        #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsPortalPointerHitTesting)
+        #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsPaneDropHitTesting)
         #expect(WindowBrowserHostView.shouldPassThroughToDragTargets(
             pasteboardTypes: pasteboardTypes,
             eventType: .leftMouseDragged
         ))
-        #expect(WindowBrowserHostView.shouldPassThroughToDragTargets(
+        #expect(!WindowBrowserHostView.shouldPassThroughToDragTargets(
             pasteboardTypes: pasteboardTypes,
             eventType: .leftMouseUp
         ))
