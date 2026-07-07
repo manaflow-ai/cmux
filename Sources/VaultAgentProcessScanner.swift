@@ -76,6 +76,32 @@ extension RestorableAgentSessionIndex {
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
+        // Per-scan memo for Hermes state.db lookups. Several hermes panes/gateways
+        // in the same cwd resolve to one query per scan instead of one per process.
+        //
+        // Nested [stateDBPath: [cwd: String?]] rather than a joined string key:
+        // session identity is correctness-critical (a wrong bind cross-attaches two
+        // panes), so the key is collision-proof by construction — no separator char
+        // that a path could theoretically contain.
+        //
+        // The inner value is `String?`, so a "no match" is a *stored nil* that must
+        // still count as a cache hit (else an unresolved cwd re-queries state.db
+        // every scan on the main-queue save path). updateValue(_:forKey:) + an
+        // `if case .some` read make that explicit and immune to a future bare-`nil`
+        // assignment (`dict[key] = nil` on [_: String?] removes the key).
+        var hermesSessionIDByStateDBPath: [String: [String: String?]] = [:]
+        func latestHermesSessionID(stateDBPath: String, cwd: String) -> String? {
+            if let cwdCache = hermesSessionIDByStateDBPath[stateDBPath],
+               case .some(let cached) = cwdCache[cwd] {
+                return cached
+            }
+            let resolvedId = HermesAgentIndex.latestSessionID(cwdFilter: cwd, stateDBPath: stateDBPath)
+            var cwdCache = hermesSessionIDByStateDBPath[stateDBPath] ?? [:]
+            cwdCache.updateValue(resolvedId, forKey: cwd)
+            hermesSessionIDByStateDBPath[stateDBPath] = cwdCache
+            return resolvedId
+        }
+
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
             guard let workingDirectory else { return registry }
             let key = (workingDirectory as NSString).standardizingPath
@@ -108,7 +134,9 @@ extension RestorableAgentSessionIndex {
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
-                      fileManager: fileManager
+                      workingDirectory: cwd,
+                      fileManager: fileManager,
+                      latestHermesSessionID: latestHermesSessionID
                   ) else {
                 continue
             }
@@ -873,12 +901,54 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        workingDirectory: String?,
+        fileManager: FileManager,
+        latestHermesSessionID: (_ stateDBPath: String, _ cwd: String) -> String?
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
             guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+        case .stateDB:
+            // Hermes mints its own session id at startup and rejects a
+            // caller-supplied --resume id, so the id can only be read back from
+            // ~/.hermes/state.db. Scope to THIS process's working directory so
+            // concurrent hermes panes/gateways (all writing one state.db) never
+            // cross-bind.
+            //
+            // BY DESIGN, this records NO resume binding (returns nil) when:
+            //   - the process has no detectable working directory, or
+            //   - no state.db session row matches that cwd (incl. rows whose
+            //     own cwd is NULL/empty — see HermesAgentIndex).
+            // A missed resume is recoverable (the pane reopens as a plain hermes,
+            // and the session is still in state.db to resume by hand); a WRONG
+            // resume silently attaches two panes to one conversation. We prefer
+            // the recoverable failure. Do NOT "fix" this into a global-newest
+            // fallback — that reintroduces the cross-session mis-bind.
+            guard let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !workingDirectory.isEmpty else {
+                return nil
+            }
+            let stateDBPath = HermesAgentIndex.defaultStateDBPath(env: process.environment)
+            // Lean, copy-free, per-scan-cached lookup: HermesAgentIndex.latestSessionID
+            // opens state.db read-only and runs one indexed LIMIT-1 query (no
+            // GB-scale snapshot copy — this runs on cmux's main-queue quit/save
+            // path), and the injected cache collapses repeated (db, cwd) lookups
+            // within a single scan to one query.
+            //
+            // KNOWN LIMITATION (same as `.piSessionFile`, which infers newest
+            // session per cwd the same way): two hermes panes launched in the
+            // IDENTICAL cwd both resolve to that cwd's newest session, so they
+            // can bind to the same conversation. cwd disambiguates panes in
+            // DIFFERENT directories (the common case, incl. the per-profile
+            // gateway dirs); state.db records no PID/TTY to separate two panes
+            // sharing one cwd. The result is marked `.inferredLatestSessionFile`
+            // so the resolved id yields to an exact hook-store identity when one
+            // exists. A precise fix needs a per-process key (e.g. hermes writing
+            // its PID into the session row) — tracked in manaflow-ai/cmux#7042.
+            guard let sessionId = latestHermesSessionID(stateDBPath, workingDirectory),
+                  !sessionId.isEmpty else { return nil }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
         case .piSessionFile:
             if let session = process.piCompatibleSessionID {
                 let sessionId = PiSessionLocator.resolvedSessionPath(

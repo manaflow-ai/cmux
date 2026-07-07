@@ -681,7 +681,7 @@ extension SessionIndexStore {
         switch registration.sessionIdSource {
         case .argvOption:
             needsNativeSessionID = true
-        case .piSessionFile, .grokSessionDirectory:
+        case .piSessionFile, .grokSessionDirectory, .stateDB:
             needsNativeSessionID = false
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in

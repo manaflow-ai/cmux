@@ -501,6 +501,23 @@ enum AgentResumeCommandBuilder {
                     sessionId: sessionId
                 )
             }
+            if customRegistration.id == CmuxVaultAgentRegistration.builtInHermes.id {
+                // Resume by replaying the captured launch flags (so an interactive
+                // `hermes --tui` / `--model` / `--profile` session resumes in the
+                // SAME interface/model/profile) and appending `--resume <id>`. This
+                // routes through the existing hermes-agent argument policy (which
+                // passes --tui through and drops secrets), the one shared path the
+                // hermes-agent hook integration already uses — rather than a static
+                // template that would silently drop --tui and resume a TUI session
+                // into the classic REPL.
+                return resumeWithOption(
+                    kind: "hermes-agent",
+                    launchCommand: launchCommand,
+                    fallbackExecutable: customRegistration.defaultExecutable,
+                    option: "--resume",
+                    sessionId: sessionId
+                )
+            }
             let arguments = customResumeArguments(
                 registration: customRegistration,
                 sessionId: sessionId,

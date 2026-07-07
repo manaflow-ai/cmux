@@ -185,6 +185,30 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: "~/.grok/sessions"
         )
     }
+
+    static var builtInHermes: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            // Use the "hermes-agent" id so a single identity flows through every
+            // subsystem keyed on it: the SessionAgent.hermesAgent browser entry,
+            // the AgentLaunchSanitizer "hermes-agent" argv policy (preserves
+            // --tui/--model/--profile on resume), and the env policy that only
+            // passes HERMES_HOME through for kind == "hermes-agent". The detect
+            // rule still matches the `hermes` executable/process name.
+            id: "hermes-agent",
+            name: "Hermes",
+            detect: CmuxVaultAgentDetectRule(processName: "hermes", argvContains: ["hermes"]),
+            // Hermes assigns its own session id at startup and stores it in
+            // ~/.hermes/state.db (it rejects a caller-supplied --resume id that
+            // does not already exist), so the id can only be read back AFTER the
+            // process starts. `.stateDB` resolves it from state.db, scoped to the
+            // pane's working directory so concurrent hermes panes/gateways never
+            // cross-bind to each other's session.
+            sessionIdSource: .stateDB,
+            resumeCommand: "{{executable}} --resume {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.hermes"
+        )
+    }
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
@@ -246,6 +270,9 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
     case argvOption(String)
     case piSessionFile
     case grokSessionDirectory
+    /// Resolve the session id from the Hermes SQLite session store
+    /// (~/.hermes/state.db), scoped to the scanned process's working directory.
+    case stateDB
 
     private enum CodingKeys: String, CodingKey {
         case type, argvOption
@@ -260,6 +287,8 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 self = .piSessionFile
             case "grokSessionDirectory", "grok-session-directory":
                 self = .grokSessionDirectory
+            case "stateDB", "state-db":
+                self = .stateDB
             default:
                 guard !trimmed.isEmpty else {
                     throw DecodingError.dataCorrupted(
@@ -296,6 +325,17 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 )
             }
             self = .grokSessionDirectory
+        case "stateDB", "state-db":
+            if let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !option.isEmpty {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .argvOption,
+                    in: container,
+                    debugDescription: "stateDB must not include argvOption"
+                )
+            }
+            self = .stateDB
         case "argvOption", "argv-option":
             let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -326,6 +366,8 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             try container.encode("piSessionFile", forKey: .type)
         case .grokSessionDirectory:
             try container.encode("grokSessionDirectory", forKey: .type)
+        case .stateDB:
+            try container.encode("stateDB", forKey: .type)
         }
     }
 }
@@ -402,6 +444,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInOmp,
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
+            CmuxVaultAgentRegistration.builtInHermes,
         ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
