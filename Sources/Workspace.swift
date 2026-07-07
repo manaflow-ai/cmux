@@ -1761,232 +1761,13 @@ extension Workspace {
     }
 }
 
-// MARK: - cmux.json custom layout
+// MARK: - Config-driven terminal input delivery
 
 extension Workspace {
 
-    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
-        guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
-
-        var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
-        buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
-
-        // First leaf reuses the initial terminal created by addWorkspace;
-        // subsequent leaves were created via newTerminalSplit which also seeds
-        // a placeholder terminal.
-        var focusPanelId: UUID?
-        for leaf in leaves {
-            populateCustomPane(leaf.paneId, surfaces: leaf.surfaces, baseCwd: baseCwd, focusPanelId: &focusPanelId)
-        }
-
-        let liveRoot = bonsplitController.treeSnapshot()
-        applyCustomDividerPositions(configNode: layout, liveNode: liveRoot)
-
-        if let focusPanelId {
-            focusPanel(focusPanelId)
-        }
-    }
-
-    private func buildCustomLayoutTree(
-        _ node: CmuxLayoutNode,
-        inPane paneId: PaneID,
-        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])]
-    ) {
-        switch node {
-        case .pane(let pane):
-            leaves.append((paneId: paneId, surfaces: pane.surfaces))
-
-        case .split(let split):
-            guard split.children.count == 2 else {
-                #if DEBUG
-                NSLog("[CmuxConfig] split node requires exactly 2 children, got %d", split.children.count)
-                #endif
-                leaves.append((paneId: paneId, surfaces: []))
-                return
-            }
-
-            var anchorPanelId = bonsplitController
-                .tabs(inPane: paneId)
-                .compactMap { panelIdFromSurfaceId($0.id) }
-                .first
-
-            if anchorPanelId == nil {
-                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
-            }
-
-            guard let anchorPanelId,
-                  let newSplitPanel = newTerminalSplit(
-                      from: anchorPanelId,
-                      orientation: split.splitOrientation,
-                      insertFirst: false,
-                      focus: false
-                  ),
-                  let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
-                leaves.append((paneId: paneId, surfaces: []))
-                return
-            }
-
-            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves)
-            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves)
-        }
-    }
-
-    private func populateCustomPane(
-        _ paneId: PaneID,
-        surfaces: [CmuxSurfaceDefinition],
-        baseCwd: String,
-        focusPanelId: inout UUID?
-    ) {
-        let existingPanelIds = bonsplitController
-            .tabs(inPane: paneId)
-            .compactMap { panelIdFromSurfaceId($0.id) }
-
-        guard !surfaces.isEmpty else { return }
-
-        let firstSurface = surfaces[0]
-        if let placeholderPanelId = existingPanelIds.first {
-            configureExistingSurface(
-                panelId: placeholderPanelId,
-                inPane: paneId,
-                surface: firstSurface,
-                baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
-            )
-        }
-
-        for surfaceIndex in 1..<surfaces.count {
-            createNewSurface(
-                inPane: paneId,
-                surface: surfaces[surfaceIndex],
-                baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
-            )
-        }
-    }
-
-    private func configureExistingSurface(
-        panelId: UUID,
-        inPane paneId: PaneID,
-        surface: CmuxSurfaceDefinition,
-        baseCwd: String,
-        focusPanelId: inout UUID?
-    ) {
-        switch surface.type {
-        case .terminal where surface.cwd != nil || surface.env != nil:
-            // Placeholder can't change cwd/env — replace it
-            let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
-            if let panel = newTerminalSurface(
-                inPane: paneId,
-                focus: false,
-                workingDirectory: resolvedCwd,
-                startupEnvironment: surface.env ?? [:]
-            ) {
-                _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
-            }
-
-        case .terminal:
-            if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
-            if surface.focus == true { focusPanelId = panelId }
-            if let command = surface.command, let terminal = terminalPanel(for: panelId) {
-                sendInputWhenReady(command + "\n", to: terminal)
-            }
-
-        case .browser:
-            let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(
-                inPane: paneId,
-                url: url,
-                focus: false,
-                creationPolicy: .restoration
-            ) {
-                _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
-
-        case .project:
-            if let panel = newProjectSurface(
-                inPane: paneId,
-                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
-                focus: false
-            ) {
-                _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
-        }
-    }
-
-    private func createNewSurface(
-        inPane paneId: PaneID,
-        surface: CmuxSurfaceDefinition,
-        baseCwd: String,
-        focusPanelId: inout UUID?
-    ) {
-        switch surface.type {
-        case .terminal:
-            let resolvedCwd = CmuxConfigStore.resolveCwd(surface.cwd, relativeTo: baseCwd)
-            if let panel = newTerminalSurface(
-                inPane: paneId,
-                focus: false,
-                workingDirectory: resolvedCwd,
-                startupEnvironment: surface.env ?? [:]
-            ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
-            }
-
-        case .browser:
-            let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(
-                inPane: paneId,
-                url: url,
-                focus: false,
-                creationPolicy: .restoration
-            ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
-
-        case .project:
-            if let panel = newProjectSurface(
-                inPane: paneId,
-                projectPath: CmuxConfigStore.resolveCwd(surface.url ?? surface.cwd, relativeTo: baseCwd),
-                focus: false
-            ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
-        }
-    }
-
-    private func applyCustomDividerPositions(
-        configNode: CmuxLayoutNode,
-        liveNode: ExternalTreeNode
-    ) {
-        switch (configNode, liveNode) {
-        case (.split(let configSplit), .split(let liveSplit)):
-            if let splitID = UUID(uuidString: liveSplit.id) {
-                _ = bonsplitController.setDividerPosition(
-                    CGFloat(configSplit.clampedSplitPosition),
-                    forSplit: splitID,
-                    fromExternal: true
-                )
-            }
-            if configSplit.children.count == 2 {
-                applyCustomDividerPositions(configNode: configSplit.children[0], liveNode: liveSplit.first)
-                applyCustomDividerPositions(configNode: configSplit.children[1], liveNode: liveSplit.second)
-            }
-        default:
-            break
-        }
-    }
-
-    private func sendInputWhenReady(
+    /// Delivers config-driven startup input (`Workspace+CustomLayout.swift`) once
+    /// the terminal surface is ready, or immediately when it already is.
+    func sendInputWhenReady(
         _ text: String,
         to panel: TerminalPanel,
         reason: WorkspacePendingTerminalInputReason = .configurationCommand
@@ -3291,6 +3072,17 @@ final class Workspace: Identifiable, ObservableObject {
                             button: button,
                             builtInAction: nil,
                             workspaceCommand: workspaceCommand,
+                            terminalCommandSourcePath: nil
+                        )
+                    )
+                }
+                if button.action.inlineWorkspace != nil {
+                    return (
+                        button.id,
+                        SurfaceTabBarExecutableButton(
+                            button: button,
+                            builtInAction: nil,
+                            workspaceCommand: nil,
                             terminalCommandSourcePath: nil
                         )
                     )
@@ -12818,7 +12610,8 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        if let workspaceCommand = executable.workspaceCommand {
+        let inlineWorkspaceCommand = executable.button.inlineWorkspaceSyntheticCommand
+        if executable.workspaceCommand != nil || inlineWorkspaceCommand != nil {
             bonsplitController.focusPane(pane)
             if let selectedTab = bonsplitController.selectedTab(inPane: pane) {
                 applyTabSelection(tabId: selectedTab.id, inPane: pane)
@@ -12837,13 +12630,24 @@ extension Workspace: BonsplitDelegate {
             let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
             let baseCwd = trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
             guard let tabManager = owningTabManager else { return }
+            let command: CmuxCommandDefinition
+            let configSourcePath: String?
+            if let workspaceCommand = executable.workspaceCommand {
+                command = workspaceCommand.command
+                configSourcePath = workspaceCommand.sourcePath
+            } else if let inlineWorkspaceCommand {
+                command = inlineWorkspaceCommand
+                configSourcePath = executable.button.actionSourcePath ?? surfaceTabBarButtonSourcePath
+            } else {
+                return
+            }
             _ = CmuxConfigExecutor.execute(
-                command: workspaceCommand.command,
+                command: command,
                 tabManager: tabManager,
                 baseCwd: baseCwd,
-                configSourcePath: workspaceCommand.sourcePath,
+                configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
-                displayTitle: executable.button.title ?? executable.button.tooltip ?? workspaceCommand.command.name,
+                displayTitle: executable.button.title ?? executable.button.tooltip ?? command.name,
                 actionID: executable.button.id,
                 icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
                 iconSourcePath: executable.button.iconSourcePath,
