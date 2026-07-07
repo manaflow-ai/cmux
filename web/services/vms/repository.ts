@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,6 +15,13 @@ export type CloudVmStatus = CloudVmRow["status"];
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
   | { readonly inserted: false; readonly vm: CloudVmRow };
+
+export const FAILED_CREATE_RETRY_WINDOW_MS = 15 * 60 * 1000;
+
+const RETRYABLE_FAILED_CREATE_CODES = new Set([
+  "billing_credits_insufficient",
+  "billing_reserve_failed",
+]);
 
 export type BillingGrantClaim =
   | { readonly kind: "inserted"; readonly grantId: string }
@@ -45,6 +52,9 @@ export type VmRepositoryShape = {
   readonly activeLimitCandidates: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly reconciliationCandidates: (input: {
+    readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
@@ -137,6 +147,12 @@ async function findByIdempotencyKey(
   return existing ?? null;
 }
 
+function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {
+  if (vm.status !== "failed") return false;
+  if (vm.failureCode && RETRYABLE_FAILED_CREATE_CODES.has(vm.failureCode)) return true;
+  return now.getTime() - vm.updatedAt.getTime() >= FAILED_CREATE_RETRY_WINDOW_MS;
+}
+
 export const VmRepositoryLive = Layer.succeed(VmRepository, {
   listUserVms: (userId, billingTeamId) =>
     dbEffect("listUserVms", async () => {
@@ -218,23 +234,32 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         const db = cloudDb();
         try {
           return await db.transaction(async (tx) => {
+            const now = new Date();
             if (idempotencyKey) {
               const [existing] = await tx
                 .select()
                 .from(cloudVms)
                 .where(and(eq(cloudVms.userId, input.userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
                 .limit(1);
-              if (existing) return { inserted: false as const, vm: existing };
+              if (existing && !isRetryableFailedCreate(existing, now)) {
+                return { inserted: false as const, vm: existing };
+              }
             }
 
             await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.billingTeamId}, 0))`);
+            let retryableFailedVm: CloudVmRow | null = null;
             if (idempotencyKey) {
               const [existing] = await tx
                 .select()
                 .from(cloudVms)
                 .where(and(eq(cloudVms.userId, input.userId), eq(cloudVms.idempotencyKey, idempotencyKey)))
                 .limit(1);
-              if (existing) return { inserted: false as const, vm: existing };
+              if (existing) {
+                if (!isRetryableFailedCreate(existing, now)) {
+                  return { inserted: false as const, vm: existing };
+                }
+                retryableFailedVm = existing;
+              }
             }
 
             const [active] = await tx
@@ -256,6 +281,38 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 billingTeamId: input.billingTeamId,
                 limit: input.maxActiveVms,
               });
+            }
+
+            if (retryableFailedVm) {
+              const [vm] = await tx
+                .update(cloudVms)
+                .set({
+                  billingTeamId: input.billingTeamId,
+                  billingPlanId: input.billingPlanId,
+                  provider: input.provider,
+                  providerVmId: null,
+                  imageId: input.image,
+                  imageVersion: input.imageVersion ?? null,
+                  status: "provisioning",
+                  failureCode: null,
+                  failureMessage: null,
+                  destroyedAt: null,
+                  updatedAt: now,
+                })
+                .where(and(eq(cloudVms.id, retryableFailedVm.id), eq(cloudVms.status, "failed")))
+                .returning();
+              if (!vm) {
+                // Lost a cross-team race for the same idempotency key: another
+                // transaction already reset this row. Treat it like the insert
+                // conflict path instead of double-creating a provider VM.
+                const [current] = await tx
+                  .select()
+                  .from(cloudVms)
+                  .where(eq(cloudVms.id, retryableFailedVm.id));
+                if (!current) throw new Error("retryable failed VM row disappeared during create");
+                return { inserted: false as const, vm: current };
+              }
+              return { inserted: true as const, vm };
             }
 
             const [vm] = await tx
@@ -303,6 +360,17 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             ),
           ),
         );
+    }),
+
+  reconciliationCandidates: (input) =>
+    dbEffect("reconciliationCandidates", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
+        .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
     }),
 
   markProviderObservedStatus: (input) =>

@@ -23,6 +23,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
+        .package(path: "../../Packages/Shared/CmuxClientConfig"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/iOS/CmuxMobileAnalytics"),
         .package(path: "../../Packages/iOS/CmuxMobileBrowser"),
@@ -59,6 +60,7 @@ let package = Package(
                 .product(name: "CmuxMobileIrohTransport", package: "CmuxMobileIrohTransport"),
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
+                "CmuxClientConfig",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
@@ -87,6 +89,7 @@ let package = Package(
                 "cmuxFeature",
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
+                "CmuxClientConfig",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
