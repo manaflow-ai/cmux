@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import Foundation
 
 extension AppDelegate {
@@ -12,13 +13,25 @@ extension AppDelegate {
     }
 
     /// Whether the connected displays form a mirrored set (any two share a
-    /// screen origin+size). Mirroring is surfaced so a mirrored configuration
-    /// never collides with a single-display signature.
+    /// CoreGraphics mirror relationship). Mirroring is surfaced so a mirrored
+    /// configuration never collides with a single-display signature.
     nonisolated static func displaysAreMirrored() -> Bool {
-        let frames = NSScreen.screens.map(\.frame)
-        for i in frames.indices {
-            for j in frames.indices where j > i {
-                if frames[i].equalTo(frames[j]) { return true }
+        var displayCount: UInt32 = 0
+        guard CGGetOnlineDisplayList(0, nil, &displayCount) == .success,
+              displayCount > 0 else {
+            return false
+        }
+
+        var displayIDs = [CGDirectDisplayID](repeating: kCGNullDirectDisplay, count: Int(displayCount))
+        let error = displayIDs.withUnsafeMutableBufferPointer { buffer in
+            CGGetOnlineDisplayList(displayCount, buffer.baseAddress, &displayCount)
+        }
+        guard error == .success else { return false }
+
+        for displayID in displayIDs.prefix(Int(displayCount)) {
+            if CGDisplayIsInMirrorSet(displayID) != 0
+                || CGDisplayMirrorsDisplay(displayID) != kCGNullDirectDisplay {
+                return true
             }
         }
         return false
