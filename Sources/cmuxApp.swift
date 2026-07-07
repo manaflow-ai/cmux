@@ -2954,6 +2954,7 @@ private struct MenuBarExtraDebugView: View {
     }
 }
 
+#if DEBUG
 // MARK: - Split Button Layout Debug Window
 
 private final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
@@ -3277,6 +3278,7 @@ private struct SplitButtonLayoutDebugView: View {
         }
     }
 }
+#endif
 
 // MARK: - Tab Bar Backdrop Lab Window
 
