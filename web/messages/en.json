@@ -53,7 +53,8 @@
       "subrouterGroup": "subrouter",
       "subrouterOverview": "overview",
       "accountGroup": "account",
-      "billing": "billing"
+      "billing": "billing",
+      "testflight": "iOS TestFlight"
     },
     "home": {
       "title": "dashboard",
@@ -118,6 +119,50 @@
         "cancelSummary": "Cancel plan",
         "confirmCancel": "Confirm cancellation",
         "resume": "Resume plan"
+      }
+    },
+    "testflight": {
+      "eyebrow": "account",
+      "title": "iOS TestFlight",
+      "description": "join the cmux iOS beta from your active subscription.",
+      "banners": {
+        "joined": "Apple will email your TestFlight invite shortly.",
+        "left": "You have left the iOS TestFlight group.",
+        "error": "TestFlight could not be updated. Try again shortly.",
+        "ineligible": "An active Pro or Team subscription is required for iOS TestFlight.",
+        "needs_email": "Add a verified primary email before joining iOS TestFlight.",
+        "unavailable": "TestFlight enrollment is not available right now."
+      },
+      "notEligible": {
+        "title": "Subscription required",
+        "body": "iOS TestFlight access is available to active Pro users and members of a Team subscription."
+      },
+      "needsEmail": {
+        "title": "Verified email required",
+        "body": "Add a verified primary email to your account so Apple can send the TestFlight invite."
+      },
+      "unavailable": {
+        "title": "Enrollment unavailable",
+        "body": "TestFlight enrollment is not configured for this environment. Try again later."
+      },
+      "join": {
+        "title": "Join the iOS beta",
+        "body": "Apple will send a TestFlight invite to {email}. Install TestFlight on your iPhone, then accept the invite."
+      },
+      "enrolled": {
+        "title": "You are enrolled",
+        "body": "{email} is in the cmux iOS TestFlight group.",
+        "lapseNote": "Access ends automatically if your subscription lapses."
+      },
+      "details": {
+        "email": "Email",
+        "status": "Status",
+        "enrolled": "Enrolled"
+      },
+      "actions": {
+        "viewPricing": "View pricing",
+        "join": "Join iOS TestFlight",
+        "leave": "Leave TestFlight"
       }
     },
     "aiAccounts": {
