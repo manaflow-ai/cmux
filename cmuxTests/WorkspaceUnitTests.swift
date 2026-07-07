@@ -3225,6 +3225,9 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
+            initialBrowserURL: URL?,
+            initialBrowserOmnibarVisible: Bool,
+            initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
             allowTextBoxFocusDefault: Bool
         ) -> Workspace {
@@ -3238,6 +3241,9 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
@@ -3530,6 +3536,9 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
+            initialBrowserURL: URL?,
+            initialBrowserOmnibarVisible: Bool,
+            initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
             allowTextBoxFocusDefault: Bool
         ) -> Workspace {
@@ -3543,6 +3552,9 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
