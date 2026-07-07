@@ -3905,6 +3905,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+#if DEBUG
+                let names = NSScreen.screens.map(\.localizedName).joined(separator: ", ")
+                cmuxDebugLog(
+                    "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
+                )
+#endif
                 // Leading edge: snapshot every window's current (still-good) frame
                 // into its per-configuration ring under the PRE-change signature,
                 // before macOS moves anything. Then arm settling so no further
@@ -3958,6 +3964,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isMirrored: Self.displaysAreMirrored()
         )
         let signatureChanged = signature != lastAppliedConfigurationSignature
+#if DEBUG
+        cmuxDebugLog(
+            "monitorMemory.reconcile displays=\(displays.available.count) " +
+                "sigChanged=\(signatureChanged ? 1 : 0) " +
+                "was=\(Self.debugSignatureToken(lastAppliedConfigurationSignature)) " +
+                "now=\(Self.debugSignatureToken(signature))"
+        )
+#endif
         if let signature, signatureChanged {
             restoreRememberedFrames(for: signature, displays: displays)
         }
@@ -3994,10 +4008,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for window in mainWindowsForVisibilityController() {
             guard !window.styleMask.contains(.fullScreen) else { continue }
             guard let context = contextForMainTerminalWindow(window) else { continue }
+            let windowTag = context.windowId.uuidString.prefix(8)
             guard let entry = SessionConfigFramePolicy.entry(
                 for: signature,
                 in: windowConfigFrames[context.windowId]
-            ) else { continue }
+            ) else {
+#if DEBUG
+                let known = (windowConfigFrames[context.windowId] ?? []).count
+                cmuxDebugLog(
+                    "monitorMemory.restore.miss window=\(windowTag) " +
+                        "sig=\(Self.debugSignatureToken(signature)) rememberedConfigs=\(known)"
+                )
+#endif
+                continue
+            }
             guard let restored = Self.resolvedWindowFrame(
                 from: entry.frame,
                 display: entry.display,
@@ -4006,9 +4030,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else { continue }
 #if DEBUG
             cmuxDebugLog(
-                "window.configRestore window=\(context.windowId.uuidString.prefix(8)) " +
-                    "sig=\(signature.prefix(24)) " +
-                    "to={\(debugNSRectDescription(restored))}"
+                "monitorMemory.restore.hit window=\(windowTag) " +
+                    "sig=\(Self.debugSignatureToken(signature)) " +
+                    "remembered={\(debugSessionRectDescription(entry.frame))} " +
+                    "applied={\(debugNSRectDescription(restored))}"
             )
 #endif
             window.setFrame(restored, display: true)
@@ -4033,10 +4058,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 1. Never capture a deliberately-applied restore frame or a teardown
         //    frame, and never during the settling window after a screen change
         //    (except the leading-edge capture, which runs before settling arms).
-        guard !isApplyingSessionRestore, !isTerminatingApp, !isSettlingScreenChange else { return }
+        guard !isApplyingSessionRestore, !isTerminatingApp, !isSettlingScreenChange else {
+            logCaptureSkipped(window, reason: reason, guardName: "settling/restore/teardown")
+            return
+        }
         // 2. Fullscreen windows have no meaningful per-config frame to remember.
-        guard !window.styleMask.contains(.fullScreen) else { return }
-        guard let context = contextForMainTerminalWindow(window) else { return }
+        guard !window.styleMask.contains(.fullScreen) else {
+            logCaptureSkipped(window, reason: reason, guardName: "fullscreen")
+            return
+        }
+        guard let context = contextForMainTerminalWindow(window) else {
+            logCaptureSkipped(window, reason: reason, guardName: "noContext")
+            return
+        }
 
         let displays = currentDisplayGeometries()
         // 3. Key to the WRITE-TIME signature so a slipped write can only land in
@@ -4044,7 +4078,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let signature = DisplayConfigurationSignature.signature(
             for: displays.available,
             isMirrored: Self.displaysAreMirrored()
-        ) else { return }
+        ) else {
+            logCaptureSkipped(window, reason: reason, guardName: "noStableSignature")
+            return
+        }
 
         let frame = window.frame
         // 4. Never persist a stranded/transient frame: if the reconcile logic
@@ -4052,7 +4089,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard Self.reconciledFrameAfterScreenChange(
             frame: frame,
             availableDisplays: displays.available
-        ) == nil else { return }
+        ) == nil else {
+            logCaptureSkipped(window, reason: reason, guardName: "strandedFrame")
+            return
+        }
 
         let entry = SessionConfigFrameEntry(
             signature: signature,
@@ -4064,7 +4104,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowConfigFrames[context.windowId] ?? [],
             upserting: entry
         )
+#if DEBUG
+        cmuxDebugLog(
+            "monitorMemory.capture window=\(context.windowId.uuidString.prefix(8)) " +
+                "reason=\(reason) sig=\(Self.debugSignatureToken(signature)) " +
+                "frame={\(debugNSRectDescription(frame))} " +
+                "rememberedConfigs=\(windowConfigFrames[context.windowId]?.count ?? 0)"
+        )
+#endif
     }
+
+    private func logCaptureSkipped(_ window: NSWindow, reason: String, guardName: String) {
+#if DEBUG
+        let tag = contextForMainTerminalWindow(window)?.windowId.uuidString.prefix(8) ?? "??"
+        cmuxDebugLog(
+            "monitorMemory.capture.skip window=\(tag) reason=\(reason) guard=\(guardName) " +
+                "frame={\(debugNSRectDescription(window.frame))}"
+        )
+#endif
+    }
+
+#if DEBUG
+    /// Compact, human-readable rendering of a config signature for the debug log
+    /// (the full signature can be long with several displays).
+    private nonisolated static func debugSignatureToken(_ signature: String?) -> String {
+        guard let signature else { return "nil" }
+        // Show the display count and a short hash-ish suffix so transitions are
+        // visible without dumping the whole key.
+        let displayCount = signature.split(separator: "|").count
+        let tail = signature.suffix(20)
+        return "[\(displayCount)d …\(tail)]"
+    }
+#endif
 
     // MARK: - Settling window
 
