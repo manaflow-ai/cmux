@@ -122,6 +122,8 @@ final class DockSplitStore: BonsplitDelegate {
 
     func currentRemoteBrowserSettings() -> DockRemoteBrowserSettings { remoteBrowserSettingsProvider() }
 
+    func isBrowserPanelAvailable() -> Bool { browserAvailabilityProvider() }
+
     func panel(for tabId: TabID) -> (any Panel)? {
         guard let panelId = surfaceIdToPanelId[tabId] else { return nil }
         return panels[panelId]
@@ -444,102 +446,6 @@ final class DockSplitStore: BonsplitDelegate {
     }
 #endif
 
-    // MARK: - Panel construction
-
-    private func makePanel(
-        kind: DockSurfaceKind,
-        command: String?,
-        url: URL?,
-        initialRequest: URLRequest? = nil,
-        environment: [String: String],
-        workingDirectory: String,
-        tmuxStartCommand: String? = nil,
-        preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
-    ) -> (any Panel)? {
-        switch kind {
-        case .terminal:
-            return makeTerminalPanel(
-                command: command,
-                useLoginShellWrapper: false,
-                workingDirectory: workingDirectory,
-                environment: environment,
-                tmuxStartCommand: tmuxStartCommand,
-                controlId: nil,
-                controlTitle: nil
-            )
-        case .browser:
-            guard browserAvailabilityProvider() else {
-                if let externalURL = url ?? initialRequest?.url { _ = NSWorkspace.shared.open(externalURL) }
-                return nil
-            }
-            return makeBrowserPanel(
-                url: url,
-                initialRequest: initialRequest,
-                preferredProfileID: preferredProfileID,
-                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
-            )
-        }
-    }
-
-    private func makePanel(for def: DockControlDefinition, baseDirectory: String) -> (any Panel)? {
-        switch def.kind {
-        case .terminal:
-            let workingDirectory = Self.resolvedWorkingDirectory(def.cwd, baseDirectory: baseDirectory)
-            return makeTerminalPanel(
-                command: def.command,
-                useLoginShellWrapper: true,
-                workingDirectory: workingDirectory,
-                environment: def.env,
-                controlId: def.id,
-                controlTitle: def.title
-            )
-        case .browser:
-            guard browserAvailabilityProvider() else { return nil }
-            return makeBrowserPanel(url: def.url.flatMap { URL(string: $0) })
-        }
-    }
-
-    private func makeTerminalPanel(
-        command: String?,
-        useLoginShellWrapper: Bool,
-        workingDirectory: String,
-        environment: [String: String],
-        tmuxStartCommand: String? = nil,
-        controlId: String?,
-        controlTitle: String?
-    ) -> TerminalPanel {
-        var resolvedEnvironment = environment
-        if let controlId { resolvedEnvironment["CMUX_DOCK_CONTROL_ID"] = controlId }
-        if let controlTitle { resolvedEnvironment["CMUX_DOCK_CONTROL_TITLE"] = controlTitle }
-
-        let initialCommand: String?
-        if let command, !command.isEmpty {
-            initialCommand = useLoginShellWrapper
-                ? Self.shellStartupScript(command: command, workingDirectory: workingDirectory)
-                : command
-        } else {
-            initialCommand = nil
-        }
-
-        return TerminalPanel(
-            workspaceId: workspaceId,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            workingDirectory: workingDirectory,
-            initialCommand: initialCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialEnvironmentOverrides: resolvedEnvironment,
-            focusPlacement: .rightSidebarDock
-        )
-    }
-
-    private func tabKindRaw(_ kind: DockSurfaceKind) -> String {
-        switch kind {
-        case .terminal: return "terminal"
-        case .browser: return "browser"
-        }
-    }
-
     @discardableResult
     private func attachPanelAsTab(
         _ panel: any Panel,
@@ -797,7 +703,8 @@ final class DockSplitStore: BonsplitDelegate {
             let panel = entry.panel
             // Config terminals carry a user-supplied title; keep it static
             // (don't track the live process title) to match Dock's prior look.
-            let tracksTitle = definition.kind == .browser
+            let surfaceKind = definition.surfaceKind
+            let tracksTitle = surfaceKind == .browser
 
             if let previousPanelId, let sourcePaneId = paneId(forPanelId: previousPanelId) {
                 // Divider = the height share of everything already placed above
@@ -809,7 +716,7 @@ final class DockSplitStore: BonsplitDelegate {
                 let newTab = Bonsplit.Tab(
                     title: definition.title,
                     icon: panel.displayIcon,
-                    kind: tabKindRaw(definition.kind),
+                    kind: tabKindRaw(surfaceKind),
                     isDirty: panel.isDirty,
                     isPinned: false
                 )
@@ -832,7 +739,7 @@ final class DockSplitStore: BonsplitDelegate {
                 installSubscription(for: panel, tracksTerminalTitle: tracksTitle)
                 applyVisibility(to: panel)
             } else {
-                guard attachPanelAsTab(panel, kind: definition.kind, title: definition.title, inPane: rootPaneId, tracksTerminalTitle: tracksTitle) != nil else {
+                guard attachPanelAsTab(panel, kind: surfaceKind, title: definition.title, inPane: rootPaneId, tracksTerminalTitle: tracksTitle) != nil else {
                     continue
                 }
             }
@@ -845,7 +752,24 @@ final class DockSplitStore: BonsplitDelegate {
         guard resolution.isProjectSource, let sourceURL = resolution.sourceURL else { return nil }
         let descriptor = Self.trustDescriptor(for: resolution)
         guard !CmuxActionTrust.shared.isTrusted(descriptor) else { return nil }
-        return DockTrustRequest(descriptor: descriptor, configPath: sourceURL.path)
+        return DockTrustRequest(
+            descriptor: descriptor,
+            configPath: sourceURL.path,
+            controlSummaries: resolution.controls.map(Self.trustControlSummary(for:))
+        )
+    }
+
+    private static func trustControlSummary(for control: DockControlDefinition) -> DockTrustControlSummary {
+        let detail: DockTrustControlSummary.Detail
+        switch control.variant {
+        case .command(let command):
+            detail = .command(command)
+        case .terminal:
+            detail = .loginShell
+        case .browser(let url, _):
+            detail = .browser(url)
+        }
+        return DockTrustControlSummary(id: control.id, title: control.title, detail: detail)
     }
 
     func openConfiguration() {

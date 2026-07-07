@@ -204,11 +204,20 @@ private struct DockTrustView: View {
                 .font(.system(size: 13, weight: .semibold))
             Text(String(
                 localized: "dock.trust.message",
-                defaultValue: "This project wants to start commands from its Dock config."
+                defaultValue: "This project wants to add these controls from its Dock config."
             ))
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(request.controlSummaries) { summary in
+                        DockTrustControlSummaryRow(summary: summary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 160)
             Text(request.configPath)
                 .font(.system(size: 10, weight: .regular, design: .monospaced))
                 .foregroundStyle(.secondary)
@@ -222,6 +231,38 @@ private struct DockTrustView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct DockTrustControlSummaryRow: View {
+    let summary: DockTrustControlSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(summary.title)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(detailText)
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+    }
+
+    private var detailText: String {
+        switch summary.detail {
+        case .command(let command):
+            return command
+        case .loginShell:
+            return String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell")
+        case .browser(let url):
+            return url
+        }
     }
 }
 

@@ -536,6 +536,7 @@
 		DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
+		DCDC0000000000000000B101 /* DockPrimitiveControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000B102 /* DockPrimitiveControlTests.swift */; };
 		DCDC1000000000000000B00B /* DockRemoteBrowserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */; };
 		DCDC1000000000000000C020 /* DockScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C021 /* DockScope.swift */; };
 		D6212D0C0000000000000001 /* DockSocketLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C0000000000000002 /* DockSocketLifecycleTests.swift */; };
@@ -543,6 +544,7 @@
 		DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */; };
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
 		DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */; };
+		DCDC1000000000000000C051 /* DockSplitStore+PanelConstruction.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C052 /* DockSplitStore+PanelConstruction.swift */; };
 		DCDC1000000000000000C040 /* DockSplitStore+PortalDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */; };
 		DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */; };
 		DCDC1000000000000000B017 /* DockSplitStore+TerminalStartup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */; };
@@ -1974,6 +1976,7 @@
 		DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinitionDecodingTests.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockEmptyView.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
+		DCDC0000000000000000B102 /* DockPrimitiveControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPrimitiveControlTests.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockRemoteBrowserSettings.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000C021 /* DockScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockScope.swift; sourceTree = "<group>"; };
 		D6212D0C0000000000000002 /* DockSocketLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSocketLifecycleTests.swift; sourceTree = "<group>"; };
@@ -1981,6 +1984,7 @@
 		DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+CloseConfirmation.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PaneFocus.swift"; sourceTree = "<group>"; };
+		DCDC1000000000000000C052 /* DockSplitStore+PanelConstruction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PanelConstruction.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PortalDrop.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceTransfer.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+TerminalStartup.swift"; sourceTree = "<group>"; };
@@ -3899,6 +3903,7 @@
 				DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */,
 				DCDC0000000000000000A004 /* DockSplitStore+Config.swift */,
 				DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */,
+				DCDC1000000000000000C052 /* DockSplitStore+PanelConstruction.swift */,
 				DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */,
 				DCDC1000000000000000C021 /* DockScope.swift */,
 				DCDC1000000000000000C031 /* AppDelegate+WindowDock.swift */,
@@ -4073,6 +4078,7 @@
 				D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */,
 				C58410010000000000000002 /* RenderableSystemSymbolTests.swift */,
 				DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */,
+				DCDC0000000000000000B102 /* DockPrimitiveControlTests.swift */,
 				D7054D0C0000000000000002 /* DockTerminalReattachTests.swift */,
 				D6212D0C0000000000000002 /* DockSocketLifecycleTests.swift */,
 				D6212D0C00000000000000D2 /* WindowDockLifecycleTests.swift */,
@@ -5090,6 +5096,7 @@
 				DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */,
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
 				DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */,
+				DCDC1000000000000000C051 /* DockSplitStore+PanelConstruction.swift in Sources */,
 				DCDC1000000000000000C040 /* DockSplitStore+PortalDrop.swift in Sources */,
 				DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */,
 				DCDC1000000000000000B017 /* DockSplitStore+TerminalStartup.swift in Sources */,
@@ -5946,6 +5953,7 @@
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,
 				D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */,
 				DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */,
+				DCDC0000000000000000B101 /* DockPrimitiveControlTests.swift in Sources */,
 				D6212D0C0000000000000001 /* DockSocketLifecycleTests.swift in Sources */,
 				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,

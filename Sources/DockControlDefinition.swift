@@ -1,35 +1,55 @@
 import Foundation
 
+enum DockControlVariant: Equatable, Sendable {
+    case command(String)
+    case terminal
+    case browser(url: String, profile: String?)
+}
+
 /// A single Dock control loaded from `dock.json`.
-///
-/// Back-compat: existing terminal-only configs omit `type`/`url` and require
-/// `command`; those decode unchanged as `.terminal` entries. New configs may add
-/// `"type": "browser"` with a `url` to seed a browser pane.
 struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     let id: String
     let title: String
-    let kind: DockSurfaceKind
-    let command: String?
-    let url: String?
+    let variant: DockControlVariant
     let cwd: String?
     let height: Double?
     let env: [String: String]
 
+    var surfaceKind: DockSurfaceKind {
+        switch variant {
+        case .command, .terminal:
+            return .terminal
+        case .browser:
+            return .browser
+        }
+    }
+
+    var command: String? {
+        if case .command(let command) = variant { return command }
+        return nil
+    }
+
+    var url: String? {
+        if case .browser(let url, _) = variant { return url }
+        return nil
+    }
+
+    var profile: String? {
+        if case .browser(_, let profile) = variant { return profile }
+        return nil
+    }
+
     init(
         id: String,
         title: String,
-        kind: DockSurfaceKind = .terminal,
-        command: String? = nil,
-        url: String? = nil,
+        variant: DockControlVariant,
         cwd: String? = nil,
         height: Double? = nil,
         env: [String: String] = [:]
     ) {
         self.id = id
         self.title = title
-        self.kind = kind
-        self.command = command
-        self.url = url
+        self.variant = variant
         self.cwd = cwd
         self.height = height
         self.env = env
@@ -41,6 +61,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         case type
         case command
         case url
+        case profile
         case cwd
         case height
         case env
@@ -57,54 +78,56 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             )
         }
 
-        let resolvedKind: DockSurfaceKind
-        if let rawType = try container.decodeIfPresent(String.self, forKey: .type)?
+        let rawType = try container.decodeIfPresent(String.self, forKey: .type)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-            !rawType.isEmpty {
-            guard let parsed = DockSurfaceKind(rawValue: rawType) else {
-                throw Self.validationError(
-                    code: 3,
-                    message: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
-                )
-            }
-            resolvedKind = parsed
-        } else {
-            resolvedKind = .terminal
-        }
-
-        let rawTitle = try container.decodeIfPresent(String.self, forKey: .title) ?? rawID
-        let normalizedTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-
+            .lowercased()
         let normalizedCommand = try container.decodeIfPresent(String.self, forKey: .command)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedURL = try container.decodeIfPresent(String.self, forKey: .url)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedProfile = try container.decodeIfPresent(String.self, forKey: .profile)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        switch resolvedKind {
-        case .terminal:
+        let resolvedVariant: DockControlVariant
+        switch rawType {
+        case .none, .some(""), .some("command"):
             guard let normalizedCommand, !normalizedCommand.isEmpty else {
                 throw Self.validationError(
                     code: 4,
                     message: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
                 )
             }
-            command = normalizedCommand
-            url = nil
-        case .browser:
+            resolvedVariant = .command(normalizedCommand)
+        case .some("terminal"):
+            if let normalizedCommand, !normalizedCommand.isEmpty {
+                resolvedVariant = .command(normalizedCommand)
+            } else {
+                resolvedVariant = .terminal
+            }
+        case .some("browser"):
             guard let normalizedURL, !normalizedURL.isEmpty else {
                 throw Self.validationError(
                     code: 5,
                     message: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank.")
                 )
             }
-            url = normalizedURL
-            command = nil
+            resolvedVariant = .browser(
+                url: normalizedURL,
+                profile: normalizedProfile.flatMap { $0.isEmpty ? nil : $0 }
+            )
+        default:
+            throw Self.validationError(
+                code: 3,
+                message: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be command, terminal, or browser.")
+            )
         }
+
+        let rawTitle = try container.decodeIfPresent(String.self, forKey: .title) ?? rawID
+        let normalizedTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
 
         id = normalizedID
         title = normalizedTitle.isEmpty ? normalizedID : normalizedTitle
-        kind = resolvedKind
+        variant = resolvedVariant
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         height = try container.decodeIfPresent(Double.self, forKey: .height)
@@ -115,31 +138,15 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)
-        switch kind {
-        case .terminal:
-            // Terminal entries are encoded exactly as the legacy schema (no
-            // `type` key) so existing project-config trust fingerprints stay
-            // stable for unchanged configs.
-            guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !command.isEmpty else {
-                let context = EncodingError.Context(
-                    codingPath: container.codingPath + [CodingKeys.command],
-                    debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
-                )
-                throw EncodingError.invalidValue(command as Any, context)
-            }
+        switch variant {
+        case .command(let command):
             try container.encode(command, forKey: .command)
-        case .browser:
-            try container.encode(DockSurfaceKind.browser.rawValue, forKey: .type)
-            guard let url = url?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !url.isEmpty else {
-                let context = EncodingError.Context(
-                    codingPath: container.codingPath + [CodingKeys.url],
-                    debugDescription: String(localized: "dock.error.blankControlURL", defaultValue: "Dock browser control url must not be blank.")
-                )
-                throw EncodingError.invalidValue(url as Any, context)
-            }
+        case .terminal:
+            try container.encode("terminal", forKey: .type)
+        case .browser(let url, let profile):
+            try container.encode("browser", forKey: .type)
             try container.encode(url, forKey: .url)
+            try container.encodeIfPresent(profile, forKey: .profile)
         }
         try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encodeIfPresent(height, forKey: .height)
