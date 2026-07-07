@@ -63,6 +63,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelHasPane = CommandPaletteContextKeys(rawValue: "panel.hasPane")
     /// Whether the focused panel hosts a forkable agent.
     public static let panelHasForkableAgent = CommandPaletteContextKeys(rawValue: "panel.hasForkableAgent")
+    /// Whether the focused panel is backed by a local file that should open in the embedded browser.
+    public static let panelHasBrowserOpenableFile = CommandPaletteContextKeys(rawValue: "panel.hasBrowserOpenableFile")
     /// Whether the focused panel has a custom name.
     public static let panelHasCustomName = CommandPaletteContextKeys(rawValue: "panel.hasCustomName")
     /// Whether the focused panel should offer pinning.

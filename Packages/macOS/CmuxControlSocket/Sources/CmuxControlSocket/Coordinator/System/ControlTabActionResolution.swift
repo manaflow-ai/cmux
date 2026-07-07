@@ -81,6 +81,9 @@ public enum ControlTabActionResolution: Sendable, Equatable {
     case reloadNotBrowser
     /// `duplicate` on a non-browser surface.
     case duplicateNotBrowser
+    /// `open_in_browser` on a non-file-backed surface or a file that should not
+    /// route to the embedded browser.
+    case openInBrowserNotFile
     /// The cmux browser is disabled; the app already attempted the external
     /// open (shared `v2BrowserDisabledExternalOpenResult` outcome).
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)

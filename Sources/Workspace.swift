@@ -11331,15 +11331,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool,
         filePath: String
     ) -> (any Panel)? {
-        if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
-            return splitPaneWithMarkdown(
-                targetPane: paneId,
-                orientation: orientation,
-                insertFirst: insertFirst,
-                filePath: filePath
-            )
-        }
-        return splitPaneWithFilePreview(
+        splitPaneWithLocalFile(
             targetPane: paneId,
             orientation: orientation,
             insertFirst: insertFirst,
