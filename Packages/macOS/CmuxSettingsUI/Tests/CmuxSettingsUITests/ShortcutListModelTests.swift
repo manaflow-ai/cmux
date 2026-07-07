@@ -435,4 +435,50 @@ import CmuxSettings
                 )
         )
     }
+
+    @Test func editingOneActionPreservesHandAuthoredStringBinding() async throws {
+        // Regression for the cmux.json clobber bug: a binding authored directly
+        // in the file as a schema-valid *string* stroke (a form the Settings UI
+        // never emits and cannot decode into its typed model) must survive
+        // editing an unrelated action. Before merge-on-save, saving one shortcut
+        // rewrote the whole `shortcuts.bindings` block and silently dropped it.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shortcut-clobber-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let fileURL = tempDir.appendingPathComponent("cmux.json")
+
+        let seed = """
+        {
+          "shortcuts": {
+            "bindings": {
+              "focusDown": "cmd+shift+down"
+            }
+          }
+        }
+        """
+        try Data(seed.utf8).write(to: fileURL)
+
+        let store = JSONConfigStore(fileURL: fileURL)
+        let catalog = SettingCatalog()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: SettingsErrorLog())
+        model.startObserving()
+
+        // Edit an unrelated action through the UI model with an exotic,
+        // conflict-free stroke so the write actually lands.
+        await model.assign(
+            stroke: ShortcutStroke(key: "j", command: true, shift: true, option: true, control: true),
+            to: .closeWindow
+        )
+
+        // Read the raw file: BOTH the hand-authored string binding and the newly
+        // edited action must be present. (store.value can't be used here — the
+        // string form makes the all-or-nothing typed decode blank the map.)
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        let bindings = (raw?["shortcuts"] as? [String: Any])?["bindings"] as? [String: Any]
+        #expect(
+            bindings?["focusDown"] as? String == "cmd+shift+down",
+            "hand-authored string binding must be preserved verbatim after editing another action"
+        )
+        #expect(bindings?["closeWindow"] != nil, "the edited action must be written")
+    }
 }
