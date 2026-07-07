@@ -197,6 +197,16 @@ impl CdpClient {
         self.call("Target.closeTarget", json!({ "targetId": target_id }), None).map(|_| ())
     }
 
+    pub fn close_target_detached(&self, target_id: &str) -> anyhow::Result<()> {
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = json!({
+            "id": id,
+            "method": "Target.closeTarget",
+            "params": { "targetId": target_id },
+        });
+        self.send_value(&msg)
+    }
+
     pub fn page_enable(&self, session_id: &str) -> anyhow::Result<()> {
         self.call("Page.enable", json!({}), Some(session_id)).map(|_| ())
     }

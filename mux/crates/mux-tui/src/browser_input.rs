@@ -1,4 +1,4 @@
-//! Off-loop browser input forwarding.
+//! Off-loop browser command forwarding.
 //!
 //! Forwarding input to a browser surface ultimately performs blocking
 //! I/O: a CDP request/response on the shared WebSocket for local
@@ -16,9 +16,9 @@
 //!   call), events are dropped instead of blocking the UI. Dropped
 //!   input against a wedged browser was going nowhere anyway.
 //!
-//! Results are intentionally discarded: browser input has no caller
-//! that can act on a per-event error, and the surface's own status
-//! (`BrowserStatus`) is what the UI reports.
+//! Results are intentionally discarded: browser commands report their
+//! user-visible errors through the surface's own status (`BrowserStatus`)
+//! and status events.
 
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 
@@ -59,6 +59,11 @@ pub enum BrowserInputKind {
         text: Option<&'static str>,
     },
     InsertText(String),
+    Navigate(String),
+    Back,
+    Forward,
+    Reload,
+    Activate,
 }
 
 impl BrowserInputKind {
@@ -142,6 +147,11 @@ fn dispatch(event: &BrowserInputEvent) {
             *text,
         ),
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text),
+        BrowserInputKind::Navigate(url) => surface.browser_navigate(url),
+        BrowserInputKind::Back => surface.browser_back(),
+        BrowserInputKind::Forward => surface.browser_forward(),
+        BrowserInputKind::Reload => surface.browser_reload(),
+        BrowserInputKind::Activate => surface.browser_activate(),
     };
 }
 
