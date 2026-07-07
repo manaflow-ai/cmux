@@ -3488,5 +3488,53 @@
     "successBody": "Ti invieremo un'email quando la versione {platform} sarà pronta.",
     "successBodyAny": "Ti invieremo un'email quando cmux sarà pronto per la tua piattaforma.",
     "done": "Fatto"
+  },
+  "founders": {
+    "metaTitle": "Portale cmux Founder's Edition",
+    "metaDescription": "Accedi per gestire il tuo abbonamento cmux Founder's Edition tramite il portale di fatturazione Stripe.",
+    "title": "Founder's Edition",
+    "signedInAs": "Accesso effettuato come {email}",
+    "signIn": {
+      "lead": "Accedi con la stessa email usata per acquistare Founder's Edition.",
+      "note": "Dopo l’accesso assoceremo la tua email verificata al cliente Stripe e ti invieremo al portale di fatturazione sicuro.",
+      "cta": "Accedi per gestire"
+    },
+    "verify": {
+      "lead": "Verifica la tua email prima di mostrare i dettagli di fatturazione.",
+      "note": "Usiamo solo una email principale verificata per trovare il cliente Stripe corretto.",
+      "cta": "Apri impostazioni account",
+      "switchAccount": "Usa un altro account"
+    },
+    "manage": {
+      "lead": "Controlla il tuo abbonamento Founder's Edition e apri il portale Stripe per aggiornare il pagamento o scaricare le fatture.",
+      "fallbackProductName": "Abbonamento Founder's Edition",
+      "renewsOn": "Si rinnova il {date}",
+      "endsOn": "Termina il {date}",
+      "cta": "Gestisci abbonamento",
+      "help": "Hai bisogno di aiuto? Scrivi a <email>founders@manaflow.ai</email>.",
+      "switchAccount": "Cambia account"
+    },
+    "missing": {
+      "title": "Non abbiamo trovato un abbonamento Founder's Edition",
+      "body": "Non abbiamo trovato un abbonamento Founder's Edition collegato a {email}.",
+      "tip": "Se hai acquistato con un’altra email, passa a quell’account e riprova.",
+      "contact": "Se non ti sembra corretto, scrivi a <email>founders@manaflow.ai</email> e ti aiuteremo a collegare l’acquisto.",
+      "switchAccount": "Usa un altro account"
+    },
+    "errorBanner": "Non possiamo aprire il portale di fatturazione in questo momento. Riprova tra poco o scrivici se il problema continua.",
+    "unavailable": {
+      "title": "Portale Founder's Edition non disponibile",
+      "body": "La fatturazione o l’accesso non sono configurati al momento. Scrivi a <email>founders@manaflow.ai</email> e ti aiuteremo."
+    },
+    "statuses": {
+      "active": "Attivo",
+      "trialing": "In prova",
+      "past_due": "Scaduto",
+      "canceled": "Annullato",
+      "unpaid": "Non pagato",
+      "incomplete": "Incompleto",
+      "incomplete_expired": "Incompleto scaduto",
+      "paused": "In pausa"
+    }
   }
 }

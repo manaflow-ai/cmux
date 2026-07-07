@@ -3488,5 +3488,53 @@
     "successBody": "سنرسل لك بريدًا إلكترونيًا عندما تصبح نسخة {platform} جاهزة.",
     "successBodyAny": "سنرسل لك بريدًا إلكترونيًا عندما يصبح cmux جاهزًا لمنصتك.",
     "done": "تم"
+  },
+  "founders": {
+    "metaTitle": "بوابة Founder's Edition من cmux",
+    "metaDescription": "سجّل دخولك لإدارة اشتراك cmux Founder's Edition عبر بوابة فوترة Stripe.",
+    "title": "Founder's Edition",
+    "signedInAs": "تم تسجيل الدخول باسم {email}",
+    "signIn": {
+      "lead": "سجّل الدخول بالبريد الإلكتروني نفسه الذي استخدمته عند شراء Founder's Edition.",
+      "note": "بعد تسجيل الدخول، سنطابق بريدك الإلكتروني المؤكد مع عميل Stripe ونرسلك إلى بوابة الفوترة الآمنة.",
+      "cta": "تسجيل الدخول لإدارة الاشتراك"
+    },
+    "verify": {
+      "lead": "أكّد بريدك الإلكتروني قبل أن نعرض تفاصيل الفوترة.",
+      "note": "نستخدم البريد الأساسي المؤكد فقط للعثور على عميل Stripe الصحيح.",
+      "cta": "فتح إعدادات الحساب",
+      "switchAccount": "استخدام حساب مختلف"
+    },
+    "manage": {
+      "lead": "راجع اشتراك Founder's Edition وافتح بوابة Stripe لتحديث الدفع أو تنزيل الفواتير.",
+      "fallbackProductName": "اشتراك Founder's Edition",
+      "renewsOn": "يتجدد في {date}",
+      "endsOn": "ينتهي في {date}",
+      "cta": "إدارة الاشتراك",
+      "help": "هل تحتاج إلى مساعدة؟ راسل <email>founders@manaflow.ai</email>.",
+      "switchAccount": "تبديل الحساب"
+    },
+    "missing": {
+      "title": "لم نعثر على اشتراك Founder's Edition",
+      "body": "لم نجد اشتراك Founder's Edition مرتبطا بالبريد {email}.",
+      "tip": "إذا اشتريت باستخدام بريد إلكتروني مختلف، بدّل إلى ذلك الحساب وحاول مرة أخرى.",
+      "contact": "إذا كان هذا غير متوقع، راسل <email>founders@manaflow.ai</email> وسنساعدك في ربط عملية الشراء.",
+      "switchAccount": "استخدام حساب مختلف"
+    },
+    "errorBanner": "تعذر فتح بوابة الفوترة الآن. حاول مرة أخرى بعد قليل أو راسلنا إذا استمرت المشكلة.",
+    "unavailable": {
+      "title": "بوابة Founder's Edition غير متاحة",
+      "body": "الفوترة أو تسجيل الدخول غير مهيأ حاليا. راسل <email>founders@manaflow.ai</email> وسنساعدك."
+    },
+    "statuses": {
+      "active": "نشط",
+      "trialing": "فترة تجريبية",
+      "past_due": "متأخر الدفع",
+      "canceled": "ملغى",
+      "unpaid": "غير مدفوع",
+      "incomplete": "غير مكتمل",
+      "incomplete_expired": "انتهت مهلة عدم الاكتمال",
+      "paused": "متوقف مؤقتا"
+    }
   }
 }

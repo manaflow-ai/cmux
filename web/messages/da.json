@@ -3488,5 +3488,53 @@
     "successBody": "Vi sender dig en e-mail, når {platform}-versionen er klar.",
     "successBodyAny": "Vi sender dig en e-mail, når cmux er klar til din platform.",
     "done": "Færdig"
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition-portal",
+    "metaDescription": "Log ind for at administrere dit cmux Founder's Edition-abonnement via Stripe Billing Portal.",
+    "title": "Founder's Edition",
+    "signedInAs": "Logget ind som {email}",
+    "signIn": {
+      "lead": "Log ind med den samme mailadresse, du brugte, da du købte Founder's Edition.",
+      "note": "Efter login matcher vi din bekræftede mailadresse med din Stripe-kunde og sender dig til den sikre faktureringsportal.",
+      "cta": "Log ind for at administrere"
+    },
+    "verify": {
+      "lead": "Bekræft din mailadresse, før vi viser faktureringsoplysninger.",
+      "note": "Vi bruger kun en bekræftet primær mailadresse til at finde den rigtige Stripe-kunde.",
+      "cta": "Åbn kontoindstillinger",
+      "switchAccount": "Brug en anden konto"
+    },
+    "manage": {
+      "lead": "Gennemgå dit Founder's Edition-abonnement, og åbn Stripe-portalen for at opdatere betaling eller hente fakturaer.",
+      "fallbackProductName": "Founder's Edition-abonnement",
+      "renewsOn": "Fornyes den {date}",
+      "endsOn": "Slutter den {date}",
+      "cta": "Administrer abonnement",
+      "help": "Har du brug for hjælp? Skriv til <email>founders@manaflow.ai</email>.",
+      "switchAccount": "Skift konto"
+    },
+    "missing": {
+      "title": "Vi fandt ikke et Founder's Edition-abonnement",
+      "body": "Vi fandt ikke et Founder's Edition-abonnement knyttet til {email}.",
+      "tip": "Hvis du købte med en anden mailadresse, skal du skifte til den konto og prøve igen.",
+      "contact": "Hvis det ikke stemmer, så skriv til <email>founders@manaflow.ai</email>, og vi hjælper med at knytte købet.",
+      "switchAccount": "Brug en anden konto"
+    },
+    "errorBanner": "Vi kunne ikke åbne faktureringsportalen lige nu. Prøv igen om lidt, eller skriv til os, hvis problemet fortsætter.",
+    "unavailable": {
+      "title": "Founder's Edition-portalen er ikke tilgængelig",
+      "body": "Fakturering eller login er ikke konfigureret lige nu. Skriv til <email>founders@manaflow.ai</email>, så hjælper vi."
+    },
+    "statuses": {
+      "active": "Aktivt",
+      "trialing": "Prøveperiode",
+      "past_due": "Forfalden",
+      "canceled": "Annulleret",
+      "unpaid": "Ubetalt",
+      "incomplete": "Ufuldstændigt",
+      "incomplete_expired": "Ufuldstændigt og udløbet",
+      "paused": "Sat på pause"
+    }
   }
 }

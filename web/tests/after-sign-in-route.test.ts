@@ -7,12 +7,23 @@ process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "test-publishable-key";
 process.env.STACK_SECRET_SERVER_KEY = "test-secret-key";
 
 const HANDOFF_COOKIE = "cmux-native-auth-handoff";
+type TestStackAuthSession = {
+  getTokens: () => Promise<{
+    refreshToken?: string | null;
+    accessToken?: string | null;
+  }>;
+};
+type TestStackAuthUser = {
+  createSession: (options: { expiresInMillis: number }) => Promise<TestStackAuthSession>;
+};
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
-let getUserResponses: unknown[] = [];
-const getUser = mock(async (): Promise<any> => getUserResponses.shift() ?? null);
-const signOut = mock((_options?: unknown) => Promise.resolve());
+let getUserResponses: Array<TestStackAuthUser | null> = [];
+const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
+const signOut = mock(async (...args: unknown[]) => {
+  void args;
+});
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
 const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-and-sign-in/route");
@@ -209,6 +220,20 @@ describe("sign out and sign back in", () => {
     );
   }
 
+  function webSignInTarget(returnTo = "/en/founders"): string {
+    const afterSignIn = `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(returnTo)}`;
+    return `/handler/sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+  }
+
+  async function expectRejectedSwitch(afterAuthReturnTo: string) {
+    const response = await GET(switchRequest(afterAuthReturnTo));
+
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  }
+
   test("signs out and redirects back to the native sign-in flow", async () => {
     const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
     const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
@@ -239,6 +264,24 @@ describe("sign out and sign back in", () => {
     expect(setCookie).not.toContain("unrelated=;");
   });
 
+  test("signs out and redirects back to the web sign-in flow", async () => {
+    const webSignIn = webSignInTarget();
+
+    const response = await GET(switchRequest(webSignIn));
+
+    expect(signOut).toHaveBeenCalledWith({
+      redirectUrl: `https://cmux.test${webSignIn}`,
+    });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${webSignIn}`);
+
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain("stack-access=;");
+    expect(setCookie).toContain("__Host-stack-access=;");
+    expect(setCookie).toContain("stack-refresh-test-project=;");
+    expect(setCookie).not.toContain("unrelated=;");
+  });
+
   test("still clears cookies and redirects when Stack sign-out throws", async () => {
     const GET = makeSignOutAndSignInHandler({
       projectId: "test-project",
@@ -259,11 +302,7 @@ describe("sign out and sign back in", () => {
   });
 
   test("rejects non-native sign-in redirect targets", async () => {
-    const response = await GET(switchRequest("/docs"));
-
-    expect(signOut).not.toHaveBeenCalled();
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://cmux.test/");
+    await expectRejectedSwitch("/docs");
   });
 
   test("rejects nested after-sign-in redirect targets", async () => {
@@ -271,11 +310,24 @@ describe("sign out and sign back in", () => {
       "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123&after_auth_return_to=%2Fdocs";
     const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
 
-    const response = await GET(switchRequest(nativeSignIn));
+    await expectRejectedSwitch(nativeSignIn);
+  });
 
-    expect(signOut).not.toHaveBeenCalled();
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  test("rejects unsafe web sign-in targets", async () => {
+    const safeAfterSignIn = "/handler/after-sign-in?after_auth_return_to=%2Fen%2Ffounders";
+    const unsafeTargets = [
+      "https://evil.test/handler/sign-in",
+      "/handler/sign-in",
+      `/handler/sign-in?after_auth_return_to=${encodeURIComponent("/docs?after_auth_return_to=%2Fen%2Ffounders")}`,
+      `/handler/sign-in?after_auth_return_to=${encodeURIComponent("/handler/after-sign-in")}`,
+      `/handler/sign-in?after_auth_return_to=${encodeURIComponent("/handler/after-sign-in?after_auth_return_to=%2F%2Fcmux.test%2Fen%2Ffounders")}`,
+      `/handler/account-settings?after_auth_return_to=${encodeURIComponent(safeAfterSignIn)}`,
+    ];
+
+    for (const target of unsafeTargets) {
+      signOut.mockClear();
+      await expectRejectedSwitch(target);
+    }
   });
 
   test("rejects cross-site attempts to force sign-out", async () => {
@@ -287,6 +339,7 @@ describe("sign out and sign back in", () => {
     expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://cmux.test/");
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 
   test("rejects same-site attempts to force sign-out", async () => {
@@ -298,6 +351,7 @@ describe("sign out and sign back in", () => {
     expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://cmux.test/");
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 
   test("rejects sign-out attempts without a fetch metadata signal", async () => {
@@ -309,5 +363,6 @@ describe("sign out and sign back in", () => {
     expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://cmux.test/");
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 });

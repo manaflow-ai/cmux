@@ -3488,5 +3488,53 @@
     "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
     "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
     "done": "完成"
+  },
+  "founders": {
+    "metaTitle": "cmux Founder's Edition 门户",
+    "metaDescription": "登录后通过 Stripe 账单门户管理你的 cmux Founder's Edition 订阅。",
+    "title": "Founder's Edition",
+    "signedInAs": "已以 {email} 登录",
+    "signIn": {
+      "lead": "请使用购买 Founder's Edition 时使用的同一邮箱登录。",
+      "note": "登录后，我们会用已验证邮箱匹配你的 Stripe 客户，并将你转到安全的账单门户。",
+      "cta": "登录并管理"
+    },
+    "verify": {
+      "lead": "请先验证邮箱，然后我们才能显示账单详情。",
+      "note": "我们只使用已验证的主邮箱来查找正确的 Stripe 客户。",
+      "cta": "打开账号设置",
+      "switchAccount": "使用其他账号"
+    },
+    "manage": {
+      "lead": "查看你的 Founder's Edition 订阅，并打开 Stripe 门户更新付款方式或下载发票。",
+      "fallbackProductName": "Founder's Edition 订阅",
+      "renewsOn": "{date} 续订",
+      "endsOn": "{date} 结束",
+      "cta": "管理订阅",
+      "help": "需要帮助？请发送邮件至 <email>founders@manaflow.ai</email>。",
+      "switchAccount": "切换账号"
+    },
+    "missing": {
+      "title": "未找到 Founder's Edition 订阅",
+      "body": "我们没有找到与 {email} 关联的 Founder's Edition 订阅。",
+      "tip": "如果你使用其他邮箱购买，请切换到该账号后重试。",
+      "contact": "如果这不符合预期，请发送邮件至 <email>founders@manaflow.ai</email>，我们会帮你关联购买记录。",
+      "switchAccount": "使用其他账号"
+    },
+    "errorBanner": "现在无法打开账单门户。请稍后重试；如果问题仍然存在，请给我们发邮件。",
+    "unavailable": {
+      "title": "Founder's Edition 门户不可用",
+      "body": "当前未配置账单或登录。请发送邮件至 <email>founders@manaflow.ai</email>，我们会协助你。"
+    },
+    "statuses": {
+      "active": "有效",
+      "trialing": "试用中",
+      "past_due": "逾期",
+      "canceled": "已取消",
+      "unpaid": "未付款",
+      "incomplete": "未完成",
+      "incomplete_expired": "未完成且已过期",
+      "paused": "已暂停"
+    }
   }
 }
