@@ -16,7 +16,7 @@ const BROWSER_ANALYTICS_FORWARD_TIMEOUT_MS = 3_000;
 
 export async function POST(request: Request): Promise<Response> {
   if (process.env.VERCEL === "1") {
-    const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
+    const rateLimitId = process.env.CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID?.trim();
     if (!rateLimitId) {
       console.error("browser-events.route.rate_limit_not_configured");
       return jsonResponse({ error: "analytics_unavailable" }, 503);

@@ -22,9 +22,10 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
+    expect(result.stderr).not.toContain("CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID is required");
   });
 
-  test("requires the limiter id in explicit Vercel production deployments", () => {
+  test("requires limiter ids in explicit Vercel production deployments", () => {
     const result = importEnv({
       ...requiredEnv,
       VERCEL: "1",
@@ -33,14 +34,16 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
+    expect(result.stderr).toContain("CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID is required");
   });
 
-  test("accepts explicit Vercel production deployments with the limiter id", () => {
+  test("accepts explicit Vercel production deployments with limiter ids", () => {
     const result = importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID: "browser-analytics-rule",
     });
 
     expect(result.exitCode).toBe(0);

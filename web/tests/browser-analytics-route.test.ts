@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const originalFetch = globalThis.fetch;
 const originalVercel = process.env.VERCEL;
-const originalClientConfigRateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID;
+const originalBrowserAnalyticsRateLimitId = process.env.CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID;
 
 const fetchMock = mock(async () => new Response("ok", { status: 200 }));
 const checkRateLimit = mock(async () => ({ rateLimited: false, error: null }));
@@ -19,12 +19,12 @@ const { POSTHOG_PROJECT_KEY } = await import("../services/analytics/browserEvent
 afterAll(() => {
   globalThis.fetch = originalFetch;
   restoreEnv("VERCEL", originalVercel);
-  restoreEnv("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID", originalClientConfigRateLimitId);
+  restoreEnv("CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID", originalBrowserAnalyticsRateLimitId);
 });
 
 beforeEach(() => {
   process.env.VERCEL = "0";
-  process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
+  process.env.CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID = "cmux-browser-analytics-test";
   fetchMock.mockClear();
   fetchMock.mockResolvedValue(new Response("ok", { status: 200 }));
   checkRateLimit.mockClear();
@@ -141,7 +141,7 @@ describe("browser analytics route", () => {
 
   test("rate-limits Vercel requests before parsing or forwarding", async () => {
     process.env.VERCEL = "1";
-    process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = " cmux-client-config-test\n";
+    process.env.CMUX_BROWSER_ANALYTICS_RATE_LIMIT_ID = " cmux-browser-analytics-test\n";
     checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
 
     const response = await POST(rawRequest("{"));
@@ -152,7 +152,7 @@ describe("browser analytics route", () => {
     const calls = (checkRateLimit as unknown as {
       mock: { calls: Array<[string, { request: Request }]> };
     }).mock.calls;
-    expect(calls[0]?.[0]).toBe("cmux-client-config-test");
+    expect(calls[0]?.[0]).toBe("cmux-browser-analytics-test");
     expect(calls[0]?.[1]?.request.url).toBe("https://cmux.test/api/analytics/browser-events");
     expect(fetchMock).not.toHaveBeenCalled();
   });
