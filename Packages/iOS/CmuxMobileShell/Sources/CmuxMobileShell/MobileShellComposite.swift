@@ -4112,16 +4112,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[key] = state
     }
     /// Create a workspace locally or through the connected Mac, then select it.
-    @discardableResult
     public func createWorkspace(
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
-    ) -> Result<Void, MobileWorkspaceMutationFailure> {
+    ) {
         guard remoteClient == nil else {
-            if createWorkspaceTask != nil {
-                return createWorkspaceTaskGroupID == groupID
-                    ? .success(())
-                    : .failure(.busy(hostDisplayName: connectedHostName))
-            }
+            guard createWorkspaceTask == nil else { return }
             let taskID = UUID()
             createWorkspaceTaskID = taskID
             createWorkspaceTask = Task { @MainActor [weak self] in
@@ -4130,12 +4125,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return await self.createRemoteWorkspace(inGroup: groupID)
             }
             createWorkspaceTaskGroupID = groupID
-            return .success(())
+            return
         }
-        guard groupID == nil else {
-            return .failure(.notConnected(hostDisplayName: connectedHostName))
-        }
-        if createLocalWorkspaceWithoutTerminalForDelayedUITestIfNeeded() { return .success(()) }
+        guard groupID == nil else { return }
+        if createLocalWorkspaceWithoutTerminalForDelayedUITestIfNeeded() { return }
         let nextIndex = workspaces.count + 1
         let workspace = MobileWorkspacePreview(
             id: .init(rawValue: "workspace-\(nextIndex)"),
@@ -4151,7 +4144,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedWorkspaceID = workspace.id
         selectedTerminalID = workspace.terminals.first?.id
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
-        return .success(())
     }
 
     /// Creates a terminal in `workspaceID`, or the selected workspace when nil.

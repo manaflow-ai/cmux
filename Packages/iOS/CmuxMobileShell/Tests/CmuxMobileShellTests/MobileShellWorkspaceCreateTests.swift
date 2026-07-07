@@ -3,15 +3,12 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellWorkspaceCreateTests {
-    @Test func createWorkspaceInGroupWithoutConnectionReturnsNotConnected() {
+    @Test func createWorkspaceInGroupWithoutConnectionDoesNotCreateLocalWorkspace() {
         let store = MobileShellComposite.preview()
         let initialWorkspaceIDs = store.workspaces.map(\.id)
 
-        let result = store.createWorkspace(inGroup: "group-offline")
+        store.createWorkspace(inGroup: "group-offline")
 
-        guard case .failure(.notConnected) = result else {
-            return #expect(Bool(false), "offline group create should return a notConnected failure")
-        }
         #expect(store.workspaces.map(\.id) == initialWorkspaceIDs)
     }
 

@@ -310,12 +310,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create":
             return false
-        case "workspace.action", "workspace.close", "workspace.move":
+        case "workspace.action", "workspace.close":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
-        case "workspace.group.action":
+        case "workspace.move", "workspace.group.action":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: nil
