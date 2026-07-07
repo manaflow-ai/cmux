@@ -6,6 +6,9 @@ DEV_STACK_PROJECT_ID="454ecd03-1db2-4050-845e-4ce5b0cd9895"
 PROD_STACK_PROJECT_ID="9790718f-14cd-4f7e-824d-eaf527a82b82"
 STACK_API_BASE_URL="${STACK_API_BASE_URL:-https://api.stack-auth.com}"
 
+# shellcheck disable=SC1091
+source "$WEB_DIR/scripts/stack-placeholders.sh"
+
 EMAIL=""
 ALLOW_PROJECT=0
 DB_PORT=""
@@ -104,12 +107,20 @@ resolve_stack_env() {
   if [[ -n "$existing_secret_set" ]]; then
     export STACK_SECRET_SERVER_KEY="$existing_secret"
   fi
+  if [[ "${STACK_SECRET_SERVER_KEY:-}" == "$CMUX_STACK_LOCAL_DEV_PLACEHOLDER" ]]; then
+    export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=1
+  else
+    export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=0
+  fi
 
   if [[ -z "${NEXT_PUBLIC_STACK_PROJECT_ID:-}" ]]; then
     die "NEXT_PUBLIC_STACK_PROJECT_ID is required"
   fi
   if [[ -z "${STACK_SECRET_SERVER_KEY:-}" ]]; then
     die "STACK_SECRET_SERVER_KEY is required"
+  fi
+  if [[ "${CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER:-0}" == "1" ]]; then
+    die "STACK_SECRET_SERVER_KEY must be a real Stack server key; local web dev placeholder is not enough"
   fi
 }
 
