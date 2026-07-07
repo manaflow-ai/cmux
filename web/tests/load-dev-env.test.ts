@@ -111,6 +111,39 @@ describe("load-dev-env", () => {
     }
   });
 
+  test("stripe dev reset reports a missing Stack secret without nounset noise", () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-dev-reset-missing-secret-home-"));
+    try {
+      const bin = join(home, "bin");
+      mkdirSync(bin, { recursive: true });
+      writeExecutable(join(bin, "curl"), "#!/usr/bin/env sh\nexit 0\n");
+      writeExecutable(join(bin, "node"), "#!/usr/bin/env sh\nexit 0\n");
+      writeExecutable(
+        join(bin, "stripe"),
+        "#!/usr/bin/env sh\nprintf 'test_mode_api_key = sk_test_fake\\n'\n",
+      );
+
+      const result = spawnSync(
+        "bash",
+        ["scripts/stripe/dev-reset.sh", "person@example.com"],
+        {
+          cwd: webDir,
+          env: {
+            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            HOME: home,
+            NODE_ENV: process.env.NODE_ENV ?? "test",
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("STACK_SECRET_SERVER_KEY is required");
+      expect(result.stderr).not.toContain("unbound variable");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("stripe dev reset honors an explicit real Stack secret over a placeholder secret file", () => {
     const home = mkdtempSync(join(tmpdir(), "cmux-dev-reset-real-secret-home-"));
     try {

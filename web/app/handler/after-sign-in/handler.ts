@@ -303,7 +303,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
   return async function GET(request: NextRequest) {
     const projectId = dependencies.projectId;
     const authApp = dependencies.stackServerApp;
-    if (!authApp || !projectId) return NextResponse.redirect(new URL("/", request.url));
+    if (!projectId) return NextResponse.redirect(new URL("/", request.url));
     const localizedMessages = await afterSignInMessages(request);
 
     const stackCookies = await dependencies.getCookieStore();
@@ -317,18 +317,20 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     let accessToken = parsedAccess.accessToken;
     let accessCookie = decodeCookieValue(rawAccessCookie);
 
-    try {
-      const user =
-        (await authApp.getUser({ or: "return-null" })) ??
-        (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
-      if (user) {
-        const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
-        const tokens = await session.getTokens();
-        if (tokens.refreshToken) refreshToken = tokens.refreshToken;
-        if (tokens.accessToken) accessToken = tokens.accessToken;
+    if (authApp) {
+      try {
+        const user =
+          (await authApp.getUser({ or: "return-null" })) ??
+          (await authApp.getUser({ or: ANONYMOUS_IF_EXISTS }));
+        if (user) {
+          const session = await user.createSession({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
+          const tokens = await session.getTokens();
+          if (tokens.refreshToken) refreshToken = tokens.refreshToken;
+          if (tokens.accessToken) accessToken = tokens.accessToken;
+        }
+      } catch (error) {
+        console.error("[After Sign In] Failed to create fresh session", error);
       }
-    } catch (error) {
-      console.error("[After Sign In] Failed to create fresh session", error);
     }
 
     if (refreshToken && accessToken) {

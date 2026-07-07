@@ -31,6 +31,20 @@ const GET = makeAfterSignInHandler({
     ],
   }),
 });
+const GETWithoutServerApp = makeAfterSignInHandler({
+  projectId: "test-project",
+  stackServerApp: null,
+  getCookieStore: async () => ({
+    get: (name: string) => {
+      if (name === HANDOFF_COOKIE && handoffCookie) return { value: handoffCookie };
+      return undefined;
+    },
+    getAll: () => [
+      { name: "stack-refresh-test-project", value: rawRefreshCookie },
+      { name: "stack-access", value: rawAccessCookie },
+    ],
+  }),
+});
 
 function signInRequest(nativeReturnTo: string, handoffNonce: string): NextRequest {
   const encodedReturnTo = encodeURIComponent(nativeReturnTo);
@@ -180,6 +194,21 @@ describe("after sign-in native handoff", () => {
     expect(callbackURL.searchParams.get("stack_refresh")).toBe("anon-refresh");
     expect(callbackURL.searchParams.get("stack_access")).toBe(
       JSON.stringify(["anon-refresh", "anon-access"]),
+    );
+  });
+
+  test("uses existing Stack cookies when the server app is not configured", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+
+    const response = await GETWithoutServerApp(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(getUser).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    const callbackURL = new URL(returnHref(await response.text()));
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("refresh-token");
+    expect(callbackURL.searchParams.get("stack_access")).toBe(
+      JSON.stringify(["refresh-token", "access-token"]),
     );
   });
 });
