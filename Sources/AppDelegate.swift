@@ -3911,11 +3911,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
                 )
 #endif
-                // Leading edge: snapshot every window's current (still-good) frame
-                // into its per-configuration ring under the PRE-change signature,
-                // before macOS moves anything. Then arm settling so no further
-                // capture runs until the reconcile pass completes.
-                self.captureAllWindowConfigFrames(reason: "screenChange.leadingEdge")
+                // NOTE: no capture here. `didChangeScreenParameters` fires AFTER
+                // `NSScreen.screens` already reflects the new configuration, so a
+                // capture at this point would store the outgoing window frame
+                // under the INCOMING signature — corrupting the slot we are about
+                // to restore from (the exact #2135 failure). The per-config ring
+                // is instead populated only while a configuration is stable (the
+                // session-autosave tick and window close), which are correctly
+                // keyed. Arm settling so those stable-time captures are suppressed
+                // until this reconfiguration settles.
                 self.beginSettlingScreenChange()
                 self.scheduleMainWindowFrameReconcile()
             }
@@ -4041,14 +4045,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     // MARK: - Per-configuration frame capture (issue #2135)
-
-    /// Captures every main window's current frame into its per-configuration
-    /// ring under the current display signature, subject to the capture firewall.
-    private func captureAllWindowConfigFrames(reason: String) {
-        for window in mainWindowsForVisibilityController() {
-            captureWindowConfigFrame(window, reason: reason)
-        }
-    }
 
     /// Records `window`'s current frame under the current display signature —
     /// unless a guard forbids it. The guards are the corruption firewall for
