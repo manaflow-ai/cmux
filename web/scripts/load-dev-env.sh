@@ -6,6 +6,9 @@
 
 cmux_web_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# shellcheck disable=SC1091
+source "$cmux_web_dir/scripts/stack-placeholders.sh"
+
 cmux_existing_cmux_port_set="${CMUX_PORT+x}"
 cmux_existing_cmux_port="${CMUX_PORT-}"
 cmux_existing_port_set="${PORT+x}"
@@ -128,7 +131,7 @@ export CMUX_PUSH_RATE_LIMIT_ID="${CMUX_PUSH_RATE_LIMIT_ID:-cmux-push-local}"
 # still required for server-side Stack calls.
 export NEXT_PUBLIC_STACK_PROJECT_ID="${NEXT_PUBLIC_STACK_PROJECT_ID:-454ecd03-1db2-4050-845e-4ce5b0cd9895}"
 export NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY="${NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY:-pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g}"
-if [[ "${STACK_SECRET_SERVER_KEY:-}" == "cmux-local-dev-placeholder" ]]; then
+if [[ "${STACK_SECRET_SERVER_KEY:-}" == "$CMUX_STACK_LOCAL_DEV_PLACEHOLDER" ]]; then
   export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=1
 else
   export CMUX_STACK_SECRET_SERVER_KEY_PLACEHOLDER=0
