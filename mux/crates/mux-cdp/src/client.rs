@@ -171,6 +171,15 @@ impl CdpClient {
         self.call("Target.setDiscoverTargets", json!({ "discover": discover }), None).map(|_| ())
     }
 
+    pub fn browser_version(&self) -> anyhow::Result<String> {
+        let result = self.call("Browser.getVersion", json!({}), None)?;
+        result
+            .get("userAgent")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("Browser.getVersion response missing userAgent"))
+    }
+
     pub fn create_target(&self, url: &str) -> anyhow::Result<String> {
         let result = self.call("Target.createTarget", json!({ "url": url }), None)?;
         result
@@ -209,6 +218,15 @@ impl CdpClient {
 
     pub fn page_enable(&self, session_id: &str) -> anyhow::Result<()> {
         self.call("Page.enable", json!({}), Some(session_id)).map(|_| ())
+    }
+
+    pub fn set_user_agent(&self, session_id: &str, user_agent: &str) -> anyhow::Result<()> {
+        self.call(
+            "Emulation.setUserAgentOverride",
+            json!({ "userAgent": user_agent }),
+            Some(session_id),
+        )
+        .map(|_| ())
     }
 
     pub fn start_screencast(

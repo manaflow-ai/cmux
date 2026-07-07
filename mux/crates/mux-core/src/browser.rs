@@ -175,6 +175,7 @@ pub struct BrowserRuntime {
     client: CdpClient,
     chrome: Option<Chrome>,
     source: BrowserSource,
+    stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
     closed: AtomicBool,
 }
@@ -214,13 +215,27 @@ const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
         let (web_socket_url, chrome, source) = runtime_endpoint(opts)?;
+        Self::connect_to_endpoint(&web_socket_url, chrome, source)
+    }
+
+    fn connect_to_endpoint(
+        web_socket_url: &str,
+        chrome: Option<Chrome>,
+        source: BrowserSource,
+    ) -> anyhow::Result<Arc<Self>> {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
-        let client = CdpClient::connect(&web_socket_url, event_tx)?;
+        let client = CdpClient::connect(web_socket_url, event_tx)?;
         client.set_discover_targets(true)?;
+        let stealth_user_agent = if source == BrowserSource::Launched {
+            client.browser_version().ok().and_then(|ua| clean_headless_user_agent(&ua))
+        } else {
+            None
+        };
         let runtime = Arc::new(BrowserRuntime {
             client,
             chrome,
             source,
+            stealth_user_agent,
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
         });
@@ -281,6 +296,10 @@ impl BrowserRuntime {
         };
         if browser.is_dead() {
             anyhow::bail!("browser surface was closed before it started");
+        }
+        if let Some(user_agent) = self.stealth_user_agent.as_deref() {
+            // Best-effort: a UA override rejection must never fail a surface.
+            let _ = self.client.set_user_agent(session_id, user_agent);
         }
         self.client.page_enable(session_id)?;
         let (pixel_w, pixel_h) = browser.pixel_size();
@@ -462,12 +481,17 @@ fn runtime_endpoint(
     }
     let chrome = Chrome::launch_with(ChromeLaunchOptions {
         binary: opts.chrome_binary.clone(),
+        mode: opts.browser_mode,
         user_data_dir: opts.browser_user_data_dir.as_deref().map(PathBuf::from),
         session_name: opts.browser_session_name.clone(),
         ephemeral: opts.browser_ephemeral,
     })?;
     let web_socket_url = chrome.web_socket_url().to_string();
     Ok((web_socket_url, Some(chrome), BrowserSource::Launched))
+}
+
+fn clean_headless_user_agent(user_agent: &str) -> Option<String> {
+    user_agent.contains("HeadlessChrome").then(|| user_agent.replace("HeadlessChrome", "Chrome"))
 }
 
 fn start_router(runtime: Arc<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
@@ -1509,6 +1533,9 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
+    use serde_json::{json, Value};
+    use tungstenite::{accept, Message};
+
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
             session_id: "session-test".to_string(),
@@ -1522,6 +1549,229 @@ mod tests {
     fn test_surface() -> Arc<crate::Surface> {
         let opts = SurfaceOptions::default();
         new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new())
+    }
+
+    fn read_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>) -> Value {
+        loop {
+            match ws.read().unwrap() {
+                Message::Text(text) => return serde_json::from_str(&text).unwrap(),
+                Message::Binary(bytes) => return serde_json::from_slice(&bytes).unwrap(),
+                _ => {}
+            }
+        }
+    }
+
+    fn write_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>, value: Value) {
+        ws.send(Message::Text(value.to_string())).unwrap();
+    }
+
+    #[test]
+    fn launched_runtime_cleans_headless_user_agent_once_and_replays_per_surface() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (seen_tx, seen_rx) = mpsc::channel();
+
+        let server = thread::Builder::new()
+            .name("browser-stealth-ua-fake-cdp".into())
+            .spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            let mut start_count = 0;
+            loop {
+                let request = read_ws_json(&mut ws);
+                let id = request["id"].clone();
+                let method = request["method"].as_str().unwrap().to_string();
+                seen_tx.send(request.clone()).unwrap();
+                match method.as_str() {
+                    "Target.setDiscoverTargets" => {
+                        write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                    }
+                    "Browser.getVersion" => {
+                        write_ws_json(
+                            &mut ws,
+                            json!({
+                                "id": id,
+                                "result": {
+                                    "userAgent": "Mozilla/5.0 HeadlessChrome/136.0 HeadlessChrome/136.0 Safari/537.36"
+                                }
+                            }),
+                        );
+                    }
+                    "Emulation.setUserAgentOverride" => {
+                        assert_eq!(
+                            request["params"]["userAgent"],
+                            "Mozilla/5.0 Chrome/136.0 Chrome/136.0 Safari/537.36"
+                        );
+                        write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                    }
+                    "Page.enable"
+                    | "Emulation.setDeviceMetricsOverride"
+                    | "Page.startScreencast" => {
+                        write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                        if method == "Page.startScreencast" {
+                            start_count += 1;
+                            if start_count == 2 {
+                                break;
+                            }
+                        }
+                    }
+                    method => panic!("unexpected CDP method {method}"),
+                }
+            }
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::Launched,
+        )
+        .unwrap();
+        let opts = SurfaceOptions::default();
+        let first =
+            new_surface(11, "https://one.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+        runtime
+            .setup_attached_surface(&first, "target-1", "session-1", "https://one.test")
+            .unwrap();
+        let second =
+            new_surface(12, "https://two.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+        runtime
+            .setup_attached_surface(&second, "target-2", "session-2", "https://two.test")
+            .unwrap();
+
+        server.join().unwrap();
+        let methods = seen_rx
+            .try_iter()
+            .map(|value| value["method"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods.iter().filter(|method| method.as_str() == "Browser.getVersion").count(),
+            1
+        );
+        assert_eq!(
+            methods
+                .iter()
+                .filter(|method| method.as_str() == "Emulation.setUserAgentOverride")
+                .count(),
+            2
+        );
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn launched_runtime_continues_when_browser_version_fails() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (seen_tx, seen_rx) = mpsc::channel();
+
+        let server = thread::Builder::new()
+            .name("browser-stealth-version-failure-fake-cdp".into())
+            .spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            loop {
+                let request = read_ws_json(&mut ws);
+                let id = request["id"].clone();
+                let method = request["method"].as_str().unwrap().to_string();
+                seen_tx.send(request.clone()).unwrap();
+                match method.as_str() {
+                    "Target.setDiscoverTargets" => {
+                        write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                    }
+                    "Browser.getVersion" => {
+                        write_ws_json(
+                            &mut ws,
+                            json!({"id": id, "error": {"code": -32000, "message": "unavailable"}}),
+                        );
+                    }
+                    "Page.enable"
+                    | "Emulation.setDeviceMetricsOverride"
+                    | "Page.startScreencast" => {
+                        write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                        if method == "Page.startScreencast" {
+                            break;
+                        }
+                    }
+                    "Emulation.setUserAgentOverride" => {
+                        panic!("user agent override should be skipped after getVersion failure")
+                    }
+                    method => panic!("unexpected CDP method {method}"),
+                }
+            }
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::Launched,
+        )
+        .unwrap();
+        let surface = test_surface();
+        runtime
+            .setup_attached_surface(&surface, "target-1", "session-1", "https://example.test")
+            .unwrap();
+
+        server.join().unwrap();
+        let methods = seen_rx
+            .try_iter()
+            .map(|value| value["method"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(methods.iter().any(|method| method == "Browser.getVersion"));
+        assert!(!methods.iter().any(|method| method == "Emulation.setUserAgentOverride"));
+        runtime.shutdown();
+    }
+
+    #[test]
+    fn external_runtime_does_not_query_or_override_user_agent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = thread::Builder::new()
+            .name("browser-external-stealth-negative-fake-cdp".into())
+            .spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = accept(stream).unwrap();
+                loop {
+                    let request = read_ws_json(&mut ws);
+                    let id = request["id"].clone();
+                    let method = request["method"].as_str().unwrap().to_string();
+                    match method.as_str() {
+                        "Target.setDiscoverTargets" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                        }
+                        "Page.enable"
+                        | "Emulation.setDeviceMetricsOverride"
+                        | "Page.startScreencast" => {
+                            write_ws_json(&mut ws, json!({"id": id, "result": {}}));
+                            if method == "Page.startScreencast" {
+                                break;
+                            }
+                        }
+                        "Browser.getVersion" | "Emulation.setUserAgentOverride" => {
+                            panic!(
+                                "external runtimes must not receive launched-runtime stealth calls"
+                            )
+                        }
+                        method => panic!("unexpected CDP method {method}"),
+                    }
+                }
+            })
+            .unwrap();
+
+        let runtime = super::BrowserRuntime::connect_to_endpoint(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            None,
+            BrowserSource::External,
+        )
+        .unwrap();
+        let surface = test_surface();
+        runtime
+            .setup_attached_surface(&surface, "target-1", "session-1", "https://example.test")
+            .unwrap();
+
+        server.join().unwrap();
+        runtime.shutdown();
     }
 
     #[test]
@@ -1747,6 +1997,15 @@ mod tests {
             browser_discover_ports: vec![port],
             ..Default::default()
         };
+        let explicit_opts = SurfaceOptions {
+            cdp_url: Some("ws://127.0.0.1:9/devtools/browser/explicit".to_string()),
+            ..opts.clone()
+        };
+        let (url, chrome, source) = runtime_endpoint(&explicit_opts).unwrap();
+        assert_eq!(url, "ws://127.0.0.1:9/devtools/browser/explicit");
+        assert!(chrome.is_none());
+        assert_eq!(source, BrowserSource::External);
+
         let err = match runtime_endpoint(&opts) {
             Ok((url, _, source)) => {
                 panic!("default config should launch, not discover; got {source:?} {url}")

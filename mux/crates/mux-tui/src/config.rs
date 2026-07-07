@@ -26,6 +26,7 @@
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+//!     "mode": "headful",
 //!     "cdp_url": "http://127.0.0.1:9222",
 //!     "discover": false,
 //!     "discover_ports": [9222],
@@ -50,6 +51,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use mux_core::BrowserMode;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 
@@ -120,6 +122,7 @@ struct RawSidebar {
 #[serde(deny_unknown_fields)]
 struct RawBrowser {
     chrome_binary: Option<String>,
+    mode: Option<RawBrowserMode>,
     cdp_url: Option<String>,
     discover: Option<bool>,
     discover_ports: Option<Vec<u16>>,
@@ -127,6 +130,22 @@ struct RawBrowser {
     ephemeral: Option<bool>,
     max_capture_megapixels: Option<f64>,
     capture_scale: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum RawBrowserMode {
+    Headful,
+    Headless,
+}
+
+impl From<RawBrowserMode> for BrowserMode {
+    fn from(value: RawBrowserMode) -> Self {
+        match value {
+            RawBrowserMode::Headful => BrowserMode::Headful,
+            RawBrowserMode::Headless => BrowserMode::Headless,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -244,6 +263,7 @@ impl Default for Sidebar {
 #[derive(Debug, Clone)]
 pub struct Browser {
     pub chrome_binary: Option<String>,
+    pub mode: BrowserMode,
     pub cdp_url: Option<String>,
     pub discover: bool,
     pub discover_ports: Vec<u16>,
@@ -257,6 +277,7 @@ impl Default for Browser {
     fn default() -> Self {
         Browser {
             chrome_binary: None,
+            mode: BrowserMode::Headful,
             cdp_url: None,
             discover: false,
             discover_ports: vec![9222],
@@ -569,6 +590,9 @@ pub fn load() -> Config {
         config.sidebar.width = w.clamp(10, 60);
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
+    if let Some(mode) = raw.browser.mode {
+        config.browser.mode = mode.into();
+    }
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
     if let Some(discover) = raw.browser.discover {
         config.browser.discover = discover;
@@ -754,6 +778,7 @@ mod tests {
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
                 "sidebar": {"width": 30},
+                "browser": {"mode": "headless"},
                 "scrollbar": {"position": "border"},
                 "keys": {"rename-pane": "r"}
             }"##,
@@ -770,6 +795,7 @@ mod tests {
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
+        assert_eq!(config.browser.mode, BrowserMode::Headless);
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
@@ -777,6 +803,19 @@ mod tests {
         );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
+    }
+
+    #[test]
+    fn browser_mode_defaults_headful_and_rejects_invalid_values() {
+        let raw: RawConfig = serde_json::from_str(r##"{"browser": {}}"##).unwrap();
+        assert!(raw.browser.mode.is_none());
+        assert_eq!(Browser::default().mode, BrowserMode::Headful);
+
+        let err = serde_json::from_str::<RawConfig>(r##"{"browser": {"mode": "stealth"}}"##)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown variant `stealth`"), "{err}");
+        assert!(err.contains("headful") && err.contains("headless"), "{err}");
     }
 
     #[test]

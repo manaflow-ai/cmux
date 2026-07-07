@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
+use mux_cdp::BrowserMode;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -42,6 +43,8 @@ pub struct SurfaceOptions {
     pub extra_env: Vec<(String, String)>,
     /// Optional Chrome/Chromium binary for browser surfaces.
     pub chrome_binary: Option<String>,
+    /// Whether launched browser surfaces use visible Chrome or headless Chrome.
+    pub browser_mode: BrowserMode,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
     pub cdp_url: Option<String>,
     /// Whether browser panes should probe local debuggable Chrome ports.
@@ -71,6 +74,7 @@ impl Default for SurfaceOptions {
             scrollback: 10_000,
             extra_env: Vec::new(),
             chrome_binary: None,
+            browser_mode: BrowserMode::Headful,
             cdp_url: None,
             browser_discover: false,
             browser_discover_ports: vec![9222],

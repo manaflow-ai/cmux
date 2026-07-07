@@ -12,9 +12,17 @@ static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Clone)]
 pub struct ChromeLaunchOptions {
     pub binary: Option<String>,
+    pub mode: BrowserMode,
     pub user_data_dir: Option<PathBuf>,
     pub session_name: String,
     pub ephemeral: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BrowserMode {
+    #[default]
+    Headful,
+    Headless,
 }
 
 /// A launched Chrome/Chromium process plus its profile dir.
@@ -26,11 +34,12 @@ pub struct Chrome {
 }
 
 impl Chrome {
-    /// Launch Chrome in headless mode and wait for the browser CDP
+    /// Launch Chrome and wait for the browser CDP
     /// endpoint printed on stderr.
     pub fn launch(explicit_binary: Option<&str>) -> anyhow::Result<Self> {
         Chrome::launch_with(ChromeLaunchOptions {
             binary: explicit_binary.map(str::to_string),
+            mode: BrowserMode::default(),
             user_data_dir: None,
             session_name: "default".to_string(),
             ephemeral: true,
@@ -41,16 +50,9 @@ impl Chrome {
         let binary = find_chrome_binary(options.binary.as_deref())?;
         let (profile_dir, profile_ephemeral) = profile_dir_for(&options)?;
         std::fs::create_dir_all(&profile_dir)?;
-        let mut child = Command::new(&binary)
-            .arg("--headless=new")
-            .arg("--remote-debugging-port=0")
-            .arg("--no-first-run")
-            .arg("--no-default-browser-check")
-            .arg("--disable-background-timer-throttling")
-            .arg("--disable-backgrounding-occluded-windows")
-            .arg("--disable-renderer-backgrounding")
-            .arg(format!("--user-data-dir={}", profile_dir.display()))
-            .arg("about:blank")
+        let mut command = Command::new(&binary);
+        command.args(chrome_args_for(&profile_dir, options.mode));
+        let mut child = command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -208,6 +210,31 @@ fn make_profile_dir() -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
+fn chrome_args_for(profile_dir: &Path, mode: BrowserMode) -> Vec<String> {
+    let mut args = Vec::new();
+    if mode == BrowserMode::Headless {
+        args.push("--headless=new".to_string());
+    }
+    args.extend([
+        "--remote-debugging-port=0".to_string(),
+        "--no-first-run".to_string(),
+        "--no-default-browser-check".to_string(),
+        // Launched headful Chrome receives the same anti-throttle flags as
+        // headless so an occluded controlled window keeps streaming; black
+        // external headful windows are a separate path we do not launch.
+        "--disable-background-timer-throttling".to_string(),
+        "--disable-backgrounding-occluded-windows".to_string(),
+        "--disable-renderer-backgrounding".to_string(),
+        "--disable-blink-features=AutomationControlled".to_string(),
+        format!("--user-data-dir={}", profile_dir.display()),
+    ]);
+    if mode == BrowserMode::Headful {
+        args.push("--window-size=1280,900".to_string());
+    }
+    args.push("about:blank".to_string());
+    args
+}
+
 fn profile_dir_for(options: &ChromeLaunchOptions) -> anyhow::Result<(PathBuf, bool)> {
     if options.ephemeral {
         return Ok((make_profile_dir()?, true));
@@ -281,6 +308,7 @@ mod tests {
 
         let options = ChromeLaunchOptions {
             binary: None,
+            mode: BrowserMode::Headful,
             user_data_dir: Some(explicit_dir.clone()),
             session_name: "ignored".to_string(),
             ephemeral: true,
@@ -298,12 +326,14 @@ mod tests {
     fn default_profile_dir_is_scoped_by_session_name() {
         let first = ChromeLaunchOptions {
             binary: None,
+            mode: BrowserMode::Headful,
             user_data_dir: None,
             session_name: "main".to_string(),
             ephemeral: false,
         };
         let second = ChromeLaunchOptions {
             binary: None,
+            mode: BrowserMode::Headful,
             user_data_dir: None,
             session_name: "side/session".to_string(),
             ephemeral: false,
@@ -324,6 +354,7 @@ mod tests {
             std::env::temp_dir().join(format!("cmux-mux-cdp-verbatim-{}", std::process::id()));
         let options = ChromeLaunchOptions {
             binary: None,
+            mode: BrowserMode::Headful,
             user_data_dir: Some(explicit_dir.clone()),
             session_name: "main".to_string(),
             ephemeral: false,
@@ -332,5 +363,35 @@ mod tests {
 
         assert!(!ephemeral);
         assert_eq!(selected, explicit_dir);
+    }
+
+    #[test]
+    fn headful_args_omit_headless_and_keep_stealth_throttle_profile_window() {
+        let profile = PathBuf::from("/tmp/cmux profile");
+        let args = chrome_args_for(&profile, BrowserMode::Headful);
+
+        assert!(!args.iter().any(|arg| arg == "--headless=new"));
+        assert!(args.iter().any(|arg| arg == "--remote-debugging-port=0"));
+        assert!(args.iter().any(|arg| arg == "--no-first-run"));
+        assert!(args.iter().any(|arg| arg == "--no-default-browser-check"));
+        assert!(args.iter().any(|arg| arg == "--disable-background-timer-throttling"));
+        assert!(args.iter().any(|arg| arg == "--disable-backgrounding-occluded-windows"));
+        assert!(args.iter().any(|arg| arg == "--disable-renderer-backgrounding"));
+        assert!(args.iter().any(|arg| arg == "--disable-blink-features=AutomationControlled"));
+        assert!(args.iter().any(|arg| arg == "--user-data-dir=/tmp/cmux profile"));
+        assert!(args.iter().any(|arg| arg == "--window-size=1280,900"));
+        assert_eq!(args.last().map(String::as_str), Some("about:blank"));
+    }
+
+    #[test]
+    fn headless_args_add_headless_and_omit_window_size() {
+        let profile = PathBuf::from("/tmp/cmux-profile");
+        let args = chrome_args_for(&profile, BrowserMode::Headless);
+
+        assert!(args.iter().any(|arg| arg == "--headless=new"));
+        assert!(args.iter().any(|arg| arg == "--disable-blink-features=AutomationControlled"));
+        assert!(args.iter().any(|arg| arg == "--user-data-dir=/tmp/cmux-profile"));
+        assert!(!args.iter().any(|arg| arg == "--window-size=1280,900"));
+        assert_eq!(args.last().map(String::as_str), Some("about:blank"));
     }
 }

@@ -7,7 +7,9 @@
 mod chrome;
 mod client;
 
-pub use chrome::{default_user_data_dir, find_chrome_binary, Chrome, ChromeLaunchOptions};
+pub use chrome::{
+    default_user_data_dir, find_chrome_binary, BrowserMode, Chrome, ChromeLaunchOptions,
+};
 pub use client::{
     discover_browser_ws_url, resolve_browser_ws_url, CdpClient, CdpEvent, CdpKeyEvent,
     NavigationEntry, NavigationHistory, ScreencastFrame, TargetCreated, TargetInfo,

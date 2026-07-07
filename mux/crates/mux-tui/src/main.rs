@@ -136,6 +136,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     let mut surface_options = SurfaceOptions::default();
     let config = config::load();
     surface_options.chrome_binary = config.browser.chrome_binary.clone();
+    surface_options.browser_mode = config.browser.mode;
     surface_options.cdp_url = config.browser.cdp_url.clone();
     surface_options.browser_discover = config.browser.discover;
     surface_options.browser_discover_ports = config.browser.discover_ports.clone();
