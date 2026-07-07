@@ -121,8 +121,10 @@ struct MobileHostAuthorizationTests {
         service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: 61234)
         defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil); service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: nil) }
         let payload = try await service.createAttachTicket(workspaceID: "workspace-main", terminalID: nil, ttl: 3600)
-        let attachToken = try #require((try #require(payload["ticket"] as? [String: Any]))["auth_token"] as? String)
+        let ticketPayload = try #require(payload["ticket"] as? [String: Any])
+        let attachToken = try #require(ticketPayload["auth_token"] as? String)
         for (method, params) in [
+            ("workspace.create", ["group_id": "group-main"]),
             ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
             (
                 "workspace.group.action",
