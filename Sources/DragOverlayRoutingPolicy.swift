@@ -365,9 +365,13 @@ enum DragOverlayRoutingPolicy {
             return hasTabTransfer
                 || hasFilePreviewTransfer(pasteboardTypes)
                 || hasSidebarReorder
+        case .pointerUp:
+            return hasTabTransfer
+                || hasFilePreviewTransfer(pasteboardTypes)
+                || hasSidebarReorder
         case .pointerHover:
             return hasTabTransfer || hasSidebarReorder
-        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+        case .noEvent, .keyboard, .pointerDown, .scroll, .appKitRouting, .other:
             return false
         }
     }

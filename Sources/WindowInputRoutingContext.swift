@@ -92,9 +92,9 @@ struct WindowInputRoutingContext: Equatable {
 
     var allowsBrowserPortalDragRouting: Bool {
         switch eventKind {
-        case .pointerDrag, .pointerHover:
+        case .pointerDrag, .pointerUp, .pointerHover:
             return true
-        case .noEvent, .keyboard, .pointerDown, .pointerUp, .scroll, .appKitRouting, .other:
+        case .noEvent, .keyboard, .pointerDown, .scroll, .appKitRouting, .other:
             return false
         }
     }
