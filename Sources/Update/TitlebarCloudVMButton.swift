@@ -20,23 +20,110 @@ enum TitlebarNewWorkspaceCloudSplitButtonMetrics {
     }
 }
 
+#if DEBUG
+enum TitlebarNewWorkspaceCloudSplitButtonForcedHoverSegment: String, CaseIterable, Identifiable {
+    case newTab
+    case cloudMenu
+    case both
+
+    var id: String { rawValue }
+
+    static func stored(rawValue: String) -> Self {
+        Self(rawValue: rawValue) ?? .newTab
+    }
+
+    fileprivate func includes(_ segment: TitlebarNewWorkspaceCloudSplitButtonSegment) -> Bool {
+        switch (self, segment) {
+        case (.newTab, .newTab), (.cloudMenu, .cloudMenu), (.both, _):
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+enum TitlebarNewWorkspaceCloudSplitButtonDebugSettings {
+    static let alwaysHoverKey = "debugTitlebarSplitButtonAlwaysHover"
+    static let forcedHoverSegmentKey = "debugTitlebarSplitButtonForcedHoverSegment"
+    static let plusWidthOffsetKey = "debugTitlebarSplitButtonPlusWidthOffset"
+    static let caretWidthOffsetKey = "debugTitlebarSplitButtonCaretWidthOffset"
+    static let plusPaddingTopKey = "debugTitlebarSplitButtonPlusPaddingTop"
+    static let plusPaddingLeadingKey = "debugTitlebarSplitButtonPlusPaddingLeading"
+    static let plusPaddingBottomKey = "debugTitlebarSplitButtonPlusPaddingBottom"
+    static let plusPaddingTrailingKey = "debugTitlebarSplitButtonPlusPaddingTrailing"
+    static let caretPaddingTopKey = "debugTitlebarSplitButtonCaretPaddingTop"
+    static let caretPaddingLeadingKey = "debugTitlebarSplitButtonCaretPaddingLeading"
+    static let caretPaddingBottomKey = "debugTitlebarSplitButtonCaretPaddingBottom"
+    static let caretPaddingTrailingKey = "debugTitlebarSplitButtonCaretPaddingTrailing"
+
+    static let defaultAlwaysHover = false
+    static let defaultForcedHoverSegment = TitlebarNewWorkspaceCloudSplitButtonForcedHoverSegment.newTab
+    static let defaultWidthOffset = 0.0
+    static let defaultPadding = 0.0
+}
+#endif
+
 struct TitlebarNewWorkspaceCloudSplitButton: View {
     let config: TitlebarControlsStyleConfig
     let foregroundColor: Color
     let onNewTab: () -> Void
     @State private var cloudMenuAnchorView: NSView?
     @State private var hoveredSegment: TitlebarNewWorkspaceCloudSplitButtonSegment?
+#if DEBUG
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.alwaysHoverKey)
+    private var debugAlwaysHover = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultAlwaysHover
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.forcedHoverSegmentKey)
+    private var debugForcedHoverSegmentRaw = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultForcedHoverSegment.rawValue
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusWidthOffsetKey)
+    private var debugPlusWidthOffset = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultWidthOffset
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretWidthOffsetKey)
+    private var debugCaretWidthOffset = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultWidthOffset
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingTopKey)
+    private var debugPlusPaddingTop = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingLeadingKey)
+    private var debugPlusPaddingLeading = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingBottomKey)
+    private var debugPlusPaddingBottom = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.plusPaddingTrailingKey)
+    private var debugPlusPaddingTrailing = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingTopKey)
+    private var debugCaretPaddingTop = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingLeadingKey)
+    private var debugCaretPaddingLeading = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingBottomKey)
+    private var debugCaretPaddingBottom = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+    @AppStorage(TitlebarNewWorkspaceCloudSplitButtonDebugSettings.caretPaddingTrailingKey)
+    private var debugCaretPaddingTrailing = TitlebarNewWorkspaceCloudSplitButtonDebugSettings.defaultPadding
+#endif
 
     private var dropdownWidth: CGFloat {
-        TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+        let baseWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+#if DEBUG
+        return max(
+            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config) + 4,
+            baseWidth + CGFloat(debugCaretWidthOffset)
+        )
+#else
+        return baseWidth
+#endif
     }
 
     private var primaryWidth: CGFloat {
-        TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+        let baseWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+#if DEBUG
+        return max(config.iconSize + 4, baseWidth + CGFloat(debugPlusWidthOffset))
+#else
+        return baseWidth
+#endif
     }
 
     private var isHovering: Bool {
-        hoveredSegment != nil
+#if DEBUG
+        if debugAlwaysHover {
+            return true
+        }
+#endif
+        return hoveredSegment != nil
     }
 
     private var foregroundOpacity: Double {
@@ -47,11 +134,44 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
         titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: false, isEnabled: true)
     }
 
+#if DEBUG
+    private var debugForcedHoverSegment: TitlebarNewWorkspaceCloudSplitButtonForcedHoverSegment {
+        TitlebarNewWorkspaceCloudSplitButtonForcedHoverSegment.stored(rawValue: debugForcedHoverSegmentRaw)
+    }
+#endif
+
+    private var plusIconPadding: EdgeInsets {
+#if DEBUG
+        EdgeInsets(
+            top: CGFloat(debugPlusPaddingTop),
+            leading: CGFloat(debugPlusPaddingLeading),
+            bottom: CGFloat(debugPlusPaddingBottom),
+            trailing: CGFloat(debugPlusPaddingTrailing)
+        )
+#else
+        EdgeInsets()
+#endif
+    }
+
+    private var caretIconPadding: EdgeInsets {
+#if DEBUG
+        EdgeInsets(
+            top: CGFloat(debugCaretPaddingTop),
+            leading: CGFloat(debugCaretPaddingLeading),
+            bottom: CGFloat(debugCaretPaddingBottom),
+            trailing: CGFloat(debugCaretPaddingTrailing)
+        )
+#else
+        EdgeInsets()
+#endif
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             Button(action: onNewTab) {
                 Image(systemName: "plus")
                     .font(.system(size: config.iconSize, weight: .medium))
+                    .padding(plusIconPadding)
                     .frame(width: primaryWidth, height: config.buttonSize)
             }
             .buttonStyle(.plain)
@@ -91,6 +211,7 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
                             size: TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config),
                             weight: .bold
                         ))
+                        .padding(caretIconPadding)
                 }
                 .frame(width: dropdownWidth, height: config.buttonSize)
                 .contentShape(Rectangle())
@@ -118,7 +239,7 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
             .safeHelp(String(localized: "titlebar.cloudVM.menu.tooltip", defaultValue: "Cloud VM actions"))
         }
         .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
-        .frame(width: TitlebarNewWorkspaceCloudSplitButtonMetrics.totalWidth(config: config), height: config.buttonSize)
+        .frame(width: primaryWidth + dropdownWidth, height: config.buttonSize)
         .background {
             if config.buttonBackground && !isHovering {
                 RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
@@ -139,6 +260,22 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
     }
 
     private func segmentBackgroundOpacity(for segment: TitlebarNewWorkspaceCloudSplitButtonSegment) -> Double {
+#if DEBUG
+        if debugAlwaysHover {
+            if debugForcedHoverSegment.includes(segment) {
+                return titlebarControlActiveHoverBackgroundOpacity(
+                    isHovering: true,
+                    isPressed: false,
+                    isEnabled: true
+                )
+            }
+            return titlebarControlPassiveHoverBackgroundOpacity(
+                isHovering: true,
+                isPressed: false,
+                isEnabled: true
+            )
+        }
+#endif
         if hoveredSegment == segment {
             return titlebarControlActiveHoverBackgroundOpacity(
                 isHovering: isHovering,
@@ -430,7 +567,12 @@ private final class CloudVMMouseDownMenuItemView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isHighlighted else { return }
+        // Match native menu selection: rounded highlight, not a sharp rect.
         NSColor.selectedContentBackgroundColor.setFill()
-        bounds.insetBy(dx: 5, dy: 2).fill()
+        NSBezierPath(
+            roundedRect: bounds.insetBy(dx: 5, dy: 2),
+            xRadius: 5,
+            yRadius: 5
+        ).fill()
     }
 }
