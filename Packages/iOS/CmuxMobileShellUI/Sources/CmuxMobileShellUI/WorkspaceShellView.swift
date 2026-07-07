@@ -52,7 +52,9 @@ struct WorkspaceShellView: View {
         return store.workspaceListConnectionStatus
     }
 
-    private var canCreateWorkspaceOnForegroundConnection: Bool { true }
+    private var canCreateWorkspaceOnForegroundConnection: Bool {
+        store.connectionState == .connected
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
