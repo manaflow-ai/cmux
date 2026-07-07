@@ -5357,6 +5357,9 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
+        if BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window) {
+            return
+        }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
@@ -5375,11 +5378,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
-
         let popupsToClose = popupControllers; popupControllers.removeAll()
-
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
-
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
