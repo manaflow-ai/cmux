@@ -13,6 +13,8 @@ const signedInUser = {
   id: "user-pro",
   isAnonymous: false,
   clientReadOnlyMetadata: {},
+  selectedTeam: null as null | { id: string; displayName?: string },
+  listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
   listProducts: mock(async () =>
     Object.assign(
       stackProductsActive
@@ -115,6 +117,8 @@ describe("billing portal route", () => {
     customerRows = [{ id: "cus_123" }];
     stripeSubscriptionRows = [];
     stackProductsActive = false;
+    signedInUser.selectedTeam = null;
+    signedInUser.listTeams.mockClear();
     getUser.mockClear();
     signedInUser.listProducts.mockClear();
     signedInUser.update.mockClear();
@@ -161,6 +165,38 @@ describe("billing portal route", () => {
     expect(getUser).toHaveBeenCalledWith({ or: "anonymous-if-exists[deprecated]" });
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_anonymous",
+      return_url: "https://cmux.test/pricing",
+    });
+  });
+
+  test("opens the Team customer portal when scope is team", async () => {
+    signedInUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    customerRows = [{ id: "cus_team" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?scope=team"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://billing.stripe.com/session/test",
+    );
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_team",
+      return_url: "https://cmux.test/dashboard/billing",
+    });
+  });
+
+  test("falls back to user scope when Team scope is requested without a billing team", async () => {
+    customerRows = [{ id: "cus_user" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?scope=team"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_user",
       return_url: "https://cmux.test/pricing",
     });
   });

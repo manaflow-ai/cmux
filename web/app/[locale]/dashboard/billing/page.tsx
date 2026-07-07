@@ -10,6 +10,7 @@ import { Link } from "@/i18n/navigation";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
+  TEAM_PLAN_ID,
   resolveProPlanStatus,
 } from "@/services/billing/pro";
 
@@ -23,9 +24,15 @@ type StripeSubscriptionRow = {
   id: string;
   status: string;
   priceId: string | null;
+  seats: number | null;
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   raw: Record<string, unknown> | null;
+};
+
+type BillingTeam = {
+  id: string;
+  displayName: string | null;
 };
 
 export default async function DashboardBillingPage({
@@ -48,9 +55,12 @@ export default async function DashboardBillingPage({
 
   const t = await getTranslations({ locale, namespace: "dashboard.billing" });
   const status = await resolveProPlanStatus(user);
-  const [subscription, hasStripeCustomer] = await Promise.all([
+  const billingTeam = await billingTeamForUser(user);
+  const [subscription, hasStripeCustomer, teamSubscription, hasTeamStripeCustomer] = await Promise.all([
     latestActiveStripeSubscription(user.id),
     hasCustomerRow(user.id),
+    billingTeam ? latestActiveStripeSubscriptionForTeam(billingTeam.id) : Promise.resolve(null),
+    billingTeam ? hasTeamCustomerRow(billingTeam.id) : Promise.resolve(false),
   ]);
   const banner = billingBanner(Array.isArray(query?.billing) ? query?.billing[0] : query?.billing);
 
@@ -80,6 +90,16 @@ export default async function DashboardBillingPage({
       ) : (
         <LegacyPlan t={t} />
       )}
+
+      {billingTeam && teamSubscription ? (
+        <TeamPlan
+          t={t}
+          locale={locale}
+          team={billingTeam}
+          subscription={teamSubscription}
+          canManageBilling={hasTeamStripeCustomer}
+        />
+      ) : null}
     </div>
   );
 }
@@ -90,6 +110,7 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
       id: stripeSubscriptions.id,
       status: stripeSubscriptions.status,
       priceId: stripeSubscriptions.priceId,
+      seats: stripeSubscriptions.seats,
       currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
       cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
       raw: stripeSubscriptions.raw,
@@ -98,7 +119,33 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
     .where(
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
         eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+      ),
+    )
+    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promise<StripeSubscriptionRow | null> {
+  const rows = await cloudDb()
+    .select({
+      id: stripeSubscriptions.id,
+      status: stripeSubscriptions.status,
+      priceId: stripeSubscriptions.priceId,
+      seats: stripeSubscriptions.seats,
+      currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+      cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
+      raw: stripeSubscriptions.raw,
+    })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.stackTeamId, stackTeamId),
+        eq(stripeSubscriptions.scope, "team"),
+        eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
@@ -114,6 +161,41 @@ async function hasCustomerRow(stackUserId: string): Promise<boolean> {
     .where(eq(stripeCustomers.stackUserId, stackUserId))
     .limit(1);
   return rows.length > 0;
+}
+
+async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
+  const rows = await cloudDb()
+    .select({ id: stripeCustomers.id })
+    .from(stripeCustomers)
+    .where(eq(stripeCustomers.stackTeamId, stackTeamId))
+    .limit(1);
+  return rows.length > 0;
+}
+
+async function billingTeamForUser(user: unknown): Promise<BillingTeam | null> {
+  const stackUser = user as {
+    selectedTeam?: unknown;
+    listTeams?: () => Promise<readonly unknown[]>;
+  };
+  const selected = teamFromUnknown(stackUser.selectedTeam);
+  if (selected) return selected;
+  const teams = typeof stackUser.listTeams === "function"
+    ? (await stackUser.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeam => !!team)
+    : [];
+  return teams.length === 1 ? teams[0] : null;
+}
+
+function teamFromUnknown(value: unknown): BillingTeam | null {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as { id?: unknown }).id;
+  if (typeof id !== "string" || !id) return null;
+  const displayName = (value as { displayName?: unknown }).displayName;
+  return {
+    id,
+    displayName: typeof displayName === "string" && displayName.trim()
+      ? displayName
+      : null,
+  };
 }
 
 function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
@@ -204,6 +286,96 @@ function StripePlan({
         {canManageBilling ? (
           <a
             href="/api/billing/portal"
+            className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+          >
+            {t("actions.manageBilling")}
+          </a>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function TeamPlan({
+  t,
+  locale,
+  team,
+  subscription,
+  canManageBilling,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  locale: string;
+  team: BillingTeam;
+  subscription: StripeSubscriptionRow;
+  canManageBilling: boolean;
+}) {
+  const periodDate = subscription.currentPeriodEnd
+    ? formatBillingDate(subscription.currentPeriodEnd, locale)
+    : t("dates.unknown");
+  const seats = String(subscription.seats ?? 1);
+
+  return (
+    <section className="mt-3 border border-border p-3">
+      <h2 className="text-sm font-medium">{t("team.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">
+        {subscription.cancelAtPeriodEnd
+          ? t("team.pendingBody", { date: periodDate, team: team.displayName ?? t("team.fallbackName") })
+          : t("team.activeBody", { date: periodDate, team: team.displayName ?? t("team.fallbackName") })}
+      </p>
+
+      <div className="mt-4 grid border border-border sm:grid-cols-3">
+        <BillingMetric
+          label={subscription.cancelAtPeriodEnd ? t("details.endsOn") : t("details.renewsOn")}
+          value={periodDate}
+        />
+        <BillingMetric label={t("details.seats")} value={seats} />
+        <BillingMetric label={t("details.price")} value={t("team.price")} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-start gap-2">
+        {subscription.cancelAtPeriodEnd ? (
+          <form method="post" action="/api/billing/subscription">
+            <input type="hidden" name="scope" value="team" />
+            <input type="hidden" name="teamId" value={team.id} />
+            <input type="hidden" name="action" value="resume" />
+            <button
+              type="submit"
+              className="border border-border bg-foreground px-3 py-1.5 text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+            >
+              {t("actions.resume")}
+            </button>
+          </form>
+        ) : (
+          <details className="border border-border px-3 py-1.5">
+            <summary className="cursor-pointer text-foreground">{t("actions.cancelSummary")}</summary>
+            <form method="post" action="/api/billing/subscription" className="mt-3 max-w-md">
+              <input type="hidden" name="scope" value="team" />
+              <input type="hidden" name="teamId" value={team.id} />
+              <input type="hidden" name="action" value="cancel" />
+              <p className="text-muted">{t("cancel.teamBody", { date: periodDate })}</p>
+              <label className="mt-3 flex items-start gap-2 text-muted">
+                <input
+                  required
+                  type="checkbox"
+                  name="confirm"
+                  value="yes"
+                  className="mt-0.5"
+                />
+                <span>{t("cancel.checkbox")}</span>
+              </label>
+              <button
+                type="submit"
+                className="mt-3 border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+              >
+                {t("actions.confirmCancel")}
+              </button>
+            </form>
+          </details>
+        )}
+
+        {canManageBilling ? (
+          <a
+            href="/api/billing/portal?scope=team"
             className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
           >
             {t("actions.manageBilling")}

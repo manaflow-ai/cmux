@@ -88,19 +88,28 @@
         "activeBody": "プランは{date}に更新されます。",
         "pendingBody": "プランは{date}に終了する予定です。"
       },
+      "team": {
+        "name": "cmux Team",
+        "fallbackName": "チーム",
+        "activeBody": "{team}は{date}に更新されます。",
+        "pendingBody": "{team}は{date}に終了する予定です。",
+        "price": "$35/シート/月"
+      },
       "legacy": {
         "body": "サブスクリプションは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。"
       },
       "details": {
         "renewsOn": "更新日",
         "endsOn": "終了日",
-        "price": "料金"
+        "price": "料金",
+        "seats": "シート数"
       },
       "dates": {
         "unknown": "不明"
       },
       "cancel": {
         "body": "Proアクセスは{date}まで有効です。請求期間の終了時にキャンセルすることを確認するには、チェックボックスを選択してください。",
+        "teamBody": "Teamアクセスは{date}まで有効です。請求期間の終了時にキャンセルすることを確認するには、チェックボックスを選択してください。",
         "checkbox": "現在の請求期間の終了時にプランが終了することを理解しました。"
       },
       "actions": {
