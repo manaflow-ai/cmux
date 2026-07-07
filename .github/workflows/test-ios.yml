@@ -115,7 +115,11 @@ jobs:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 10
+    # 30 (was 10): CmuxMobileShell now depends on CmuxMobileIrohTransport, so
+    # its swift test resolves the CmuxIrohFFI.xcframework local binaryTarget and
+    # a cache miss adds a ~9 min cold Rust build. A timeout also cancels the
+    # post-job cache save, which would keep every subsequent run cold.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -140,6 +144,21 @@ jobs:
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
+
+      - name: Cache CmuxIrohFFI.xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Provision CmuxIrohFFI
+        run: |
+          # CmuxMobileShell depends on CmuxMobileIrohTransport, which links
+          # CmuxIrohFFI.xcframework via a local-path binaryTarget, so the
+          # xcframework must exist at the repo root before its swift test
+          # resolves. Built from Native/cmux-iroh.
+          ./scripts/install-rust-ci.sh
+          ./scripts/ensure-cmux-iroh.sh
 
       - name: Run CMUXMobileCore package tests
         run: |
