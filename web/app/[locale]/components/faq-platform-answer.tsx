@@ -1,8 +1,8 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import posthog from "posthog-js";
 import { useState } from "react";
+import { captureAnalyticsClick } from "../../lib/analytics";
 import { WaitlistDialog } from "./waitlist-dialog";
 
 const LOCATION = "faq";
@@ -24,7 +24,7 @@ export function FaqPlatformAnswer({ linkClass }: { linkClass: string }) {
             <button
               type="button"
               onClick={() => {
-                posthog.capture("cmuxterm_waitlist_opened", {
+                captureAnalyticsClick("cmuxterm_waitlist_opened", {
                   location: LOCATION,
                   platform: "any",
                 });

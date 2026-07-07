@@ -1,8 +1,8 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import posthog from "posthog-js";
 import { useState } from "react";
+import { captureAnalyticsClick } from "../../lib/analytics";
 import { WaitlistDialog } from "./waitlist-dialog";
 
 /**
@@ -27,7 +27,7 @@ export function WaitlistCallout({
         <button
           type="button"
           onClick={() => {
-            posthog.capture("cmuxterm_waitlist_opened", {
+            captureAnalyticsClick("cmuxterm_waitlist_opened", {
               location,
               platform: "any",
             });
