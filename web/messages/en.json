@@ -89,7 +89,7 @@
         "pendingBody": "Your plan is scheduled to end on {date}."
       },
       "legacy": {
-        "body": "You have cmux Pro through a legacy Stack subscription. This plan is managed outside Stripe self-serve billing."
+        "body": "Your subscription is managed by our previous billing system. Contact support to make changes."
       },
       "details": {
         "renewsOn": "Renews on",
@@ -558,6 +558,7 @@
     "welcomePendingAction": "Check again",
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
+    "billingExternal": "Your subscription is managed by our previous billing system. Contact support to make changes.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "welcomeTeam": "Your cmux Team purchase is complete."

@@ -122,10 +122,12 @@ export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer & {
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
+export type BillingManagementKind = "stripe" | "external" | "none";
 
 export type ProPlanStatus = {
   readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
   readonly isPro: boolean;
+  readonly billingManagement: BillingManagementKind;
   readonly metadataPlanId: string | null;
   readonly hasManualVmPlanOverride: boolean;
   readonly metadataChanged: boolean;
@@ -164,7 +166,11 @@ export async function resolveProPlanStatus(
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
-  const isPro = await hasAnyActiveProSubscription(user, options.hasActiveStripeSubscription);
+  const subscriptionState = await activeProSubscriptionState(
+    user,
+    options.hasActiveStripeSubscription,
+  );
+  const isPro = subscriptionState.stackActive || subscriptionState.stripeActive;
   let metadataChanged = false;
 
   if (!hasManualVmPlanOverride && isPro !== (metadataPlanId === PRO_PLAN_ID)) {
@@ -175,6 +181,11 @@ export async function resolveProPlanStatus(
   return {
     planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
     isPro,
+    billingManagement: subscriptionState.stripeActive
+      ? "stripe"
+      : isPro
+        ? "external"
+        : "none",
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
@@ -207,12 +218,20 @@ async function hasAnyActiveProSubscription(
   user: ProReconcileUser,
   hasActiveStripeSubscription: ActiveStripeSubscriptionQuery = hasActiveStripeProSubscription,
 ): Promise<boolean> {
+  const state = await activeProSubscriptionState(user, hasActiveStripeSubscription);
+  return state.stackActive || state.stripeActive;
+}
+
+async function activeProSubscriptionState(
+  user: ProReconcileUser,
+  hasActiveStripeSubscription: ActiveStripeSubscriptionQuery = hasActiveStripeProSubscription,
+): Promise<{ stackActive: boolean; stripeActive: boolean }> {
   const stackActive =
     typeof user.listProducts === "function"
       ? await hasActiveProSubscription(user)
       : false;
-  if (stackActive) return true;
-  return user.id ? hasActiveStripeSubscription(user.id) : false;
+  const stripeActive = user.id ? await hasActiveStripeSubscription(user.id) : false;
+  return { stackActive, stripeActive };
 }
 
 function proMetadataRecord(raw: unknown): Record<string, unknown> {
