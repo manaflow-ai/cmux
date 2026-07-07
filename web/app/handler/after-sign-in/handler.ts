@@ -10,6 +10,7 @@ import { locales, routing } from "../../../i18n/routing";
 const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
 const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
+const STACK_ACCESS_COOKIE_NAMES = ["hexclave-access", "stack-access"] as const;
 
 type AfterSignInMessages = {
   title: string;
@@ -53,18 +54,20 @@ type AfterSignInHandlerDependencies = {
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
-  baseName: string
+  baseNames: readonly string[]
 ): string | undefined {
   const all = cookieStore.getAll();
-  for (const prefix of ["__Host-", "__Secure-", ""]) {
-    const withBranch = all.find(
-      (c) => c.name.startsWith(`${prefix}${baseName}--`) && c.value
-    );
-    if (withBranch) return withBranch.value;
-    const exact = all.find(
-      (c) => c.name === `${prefix}${baseName}` && c.value
-    );
-    if (exact) return exact.value;
+  for (const baseName of baseNames) {
+    for (const prefix of ["__Host-", "__Secure-", ""]) {
+      const withBranch = all.find(
+        (c) => c.name.startsWith(`${prefix}${baseName}--`) && c.value
+      );
+      if (withBranch) return withBranch.value;
+      const exact = all.find(
+        (c) => c.name === `${prefix}${baseName}` && c.value
+      );
+      if (exact) return exact.value;
+    }
   }
   return undefined;
 }
@@ -308,9 +311,12 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     const localizedMessages = await afterSignInMessages(request);
 
     const stackCookies = await dependencies.getCookieStore();
-    const refreshBaseName = `stack-refresh-${projectId}`;
-    const rawRefreshCookie = findStackCookie(stackCookies, refreshBaseName);
-    const rawAccessCookie = findStackCookie(stackCookies, "stack-access");
+    const rawRefreshCookie = findStackCookie(stackCookies, [
+      `hexclave-refresh-${projectId}`,
+      `stack-refresh-${projectId}`,
+      "stack-refresh",
+    ]);
+    const rawAccessCookie = findStackCookie(stackCookies, STACK_ACCESS_COOKIE_NAMES);
     const parsedAccess = decodeAccessCookie(rawAccessCookie);
     const parsedRefresh = decodeRefreshCookie(rawRefreshCookie);
 
