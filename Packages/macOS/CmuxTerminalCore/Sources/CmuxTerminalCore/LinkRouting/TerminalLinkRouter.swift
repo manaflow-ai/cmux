@@ -9,6 +9,7 @@ import CMUXDebugLog
 /// Routing precedence: absolute file-system paths open externally; `http` and
 /// `https` URLs open embedded when the injected ``BrowserHostNormalizing``
 /// accepts their host, externally otherwise; other schemes open externally;
+/// accepted scheme-less `host/path` text opens embedded as HTTPS; other
 /// scheme-less text that did not already resolve through the caller's
 /// file-path pass is ignored.
 public struct TerminalLinkRouter: Sendable {
@@ -65,9 +66,28 @@ public struct TerminalLinkRouter: Sendable {
             return .external(parsed)
         }
 
+        if let webURL = schemelessHostPathURL(from: trimmed) {
+            #if DEBUG
+            logDebugEvent("link.resolve result=embeddedBrowser(schemeless) url=\(webURL)")
+            #endif
+            return .embeddedBrowser(webURL)
+        }
+
         #if DEBUG
         logDebugEvent("link.resolve result=nil (schemeless)")
         #endif
         return nil
+    }
+
+    private func schemelessHostPathURL(from trimmed: String) -> URL? {
+        guard trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              let slashIndex = trimmed.firstIndex(of: "/"),
+              slashIndex > trimmed.startIndex else {
+            return nil
+        }
+
+        let hostCandidate = String(trimmed[..<slashIndex])
+        guard hostNormalizer.normalizedHost(hostCandidate) != nil else { return nil }
+        return URL(string: "https://\(trimmed)")
     }
 }

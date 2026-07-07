@@ -3,7 +3,7 @@ import Testing
 import CmuxTerminalCore
 
 /// A deterministic stand-in for the browser domain: hosts containing a dot or
-/// equal to localhost are accepted for explicit web URLs.
+/// equal to localhost are accepted.
 private struct StubHostNormalizer: BrowserHostNormalizing {
     var rejectsEveryHost = false
 
@@ -30,8 +30,15 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.path == "/path")
     }
 
-    @Test func schemelessBareDomainResolvesToNil() {
-        #expect(router.resolveOpenURLTarget("example.com/docs") == nil)
+    @Test func schemelessHostPathResolvesAsEmbeddedBrowser() throws {
+        let target = try #require(router.resolveOpenURLTarget("example.com/docs"))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected host-like schemeless path to route to embedded browser")
+            return
+        }
+        #expect(url.scheme == "https")
+        #expect(url.host == "example.com")
+        #expect(url.path == "/docs")
     }
 
     @Test func wrappedPathFragmentDoesNotResolveAsHTTPSURL() {
@@ -96,9 +103,13 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.host == "example.com")
     }
 
-    @Test func rejectedHostDoesNotAffectSchemelessText() {
+    @Test func rejectedHostLeavesSchemelessTextUnresolved() {
         let rejecting = TerminalLinkRouter(hostNormalizer: StubHostNormalizer(rejectsEveryHost: true))
         #expect(rejecting.resolveOpenURLTarget("example.com/docs") == nil)
+    }
+
+    @Test func schemelessHostWithoutPathResolvesToNil() {
+        #expect(router.resolveOpenURLTarget("example.com") == nil)
     }
 
     @Test func emptyTextResolvesToNil() {

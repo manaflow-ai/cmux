@@ -5571,8 +5571,16 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
-    func testSchemelessBareDomainResolvesToNil() throws {
-        XCTAssertNil(resolveTerminalOpenURLTarget("example.com/docs"))
+    func testSchemelessHostPathResolvesAsEmbeddedBrowser() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
+        switch target {
+        case let .embeddedBrowser(url):
+            XCTAssertEqual(url.scheme, "https")
+            XCTAssertEqual(url.host, "example.com")
+            XCTAssertEqual(url.path, "/docs")
+        default:
+            XCTFail("Expected host-like schemeless path to route to embedded browser")
+        }
     }
 
     func testResolvesFileSchemeAsExternal() throws {
