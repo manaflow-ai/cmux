@@ -96,13 +96,13 @@ import Testing
     @Test func mouseOverLinkActionDecodesURLAndClearsEmptyHover() {
         var bytes = Array("https://example.com/path?q=cmux".utf8CString)
         let decoded = bytes.withUnsafeBufferPointer { buffer in
-            cmuxGhosttyMouseOverLinkURL(from: ghostty_action_mouse_over_link_s(
+            GhosttySurfaceScrollView.linkHoverURL(from: ghostty_action_mouse_over_link_s(
                 url: buffer.baseAddress,
                 len: bytes.count - 1
             ))
         }
         #expect(decoded == "https://example.com/path?q=cmux")
-        #expect(cmuxGhosttyMouseOverLinkURL(from: ghostty_action_mouse_over_link_s(url: nil, len: 0)) == nil)
+        #expect(GhosttySurfaceScrollView.linkHoverURL(from: ghostty_action_mouse_over_link_s(url: nil, len: 0)) == nil)
     }
 
     // MARK: libghostty translation mods -> AppKit translation flags

@@ -10,11 +10,6 @@ final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
     }
 }
 
-nonisolated func cmuxGhosttyMouseOverLinkURL(from link: ghostty_action_mouse_over_link_s) -> String? {
-    guard link.len > 0, let bytes = link.url else { return nil }
-    return String(data: Data(bytes: bytes, count: Int(link.len)), encoding: .utf8)
-}
-
 final class TerminalLinkHoverIndicatorView: NSView {
     private let backdrop = GhosttyPassthroughVisualEffectView(frame: .zero)
     private let label = NSTextField(labelWithString: "")
@@ -73,6 +68,11 @@ final class TerminalLinkHoverIndicatorView: NSView {
 }
 
 extension GhosttySurfaceScrollView {
+    nonisolated static func linkHoverURL(from link: ghostty_action_mouse_over_link_s) -> String? {
+        guard link.len > 0, let bytes = link.url else { return nil }
+        return String(data: Data(bytes: bytes, count: Int(link.len)), encoding: .utf8)
+    }
+
     func setLinkHoverURL(_ url: String?) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in self?.setLinkHoverURL(url) }

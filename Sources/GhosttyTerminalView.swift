@@ -2834,7 +2834,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
-            let url = cmuxGhosttyMouseOverLinkURL(from: action.action.mouse_over_link)
+            let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
             DispatchQueue.main.async { surfaceView.terminalSurface?.hostedView.setLinkHoverURL(url) }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
@@ -8823,7 +8823,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func attachDropZoneOverlayIfNeeded() {
-        // Keep the hover indicator outside the hosted terminal subtree so it cannot perturb layout.
+        // Keep the drop-zone overlay outside the hosted terminal subtree so it cannot perturb layout.
         let container = dropZoneOverlayContainerView()
         if dropZoneOverlayView.superview !== container {
             dropZoneOverlayView.removeFromSuperview()
