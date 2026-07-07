@@ -1422,6 +1422,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case manual
         case presencePush
         case livenessProbe
+
         var description: String {
             switch self {
             case .networkChange: return "networkChange"
@@ -1429,6 +1430,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .presencePush: return "presencePush"
             case .livenessProbe: return "livenessProbe"
             }
+        }
+    }
+
+    private enum RecoveryPlan {
+        case resyncConnectedClient
+        case reconnectStoredMac
+    }
+
+    private func recoveryPlan(for trigger: RecoveryTrigger) -> RecoveryPlan {
+        switch trigger {
+        case .livenessProbe, .presencePush:
+            return .reconnectStoredMac
+        case .manual:
+            return macConnectionStatus == .connected ? .resyncConnectedClient : .reconnectStoredMac
+        case .networkChange:
+            // macConnectionStatus is the health authority for a logical
+            // connection whose transport may already be wedged: unavailable
+            // means rebuild from the stored Mac instead of reusing the client.
+            return macConnectionStatus == .unavailable ? .reconnectStoredMac : .resyncConnectedClient
         }
     }
 
@@ -1453,10 +1473,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
         connectionRecoveryFailed = false
-        recoverMobileConnection(
-            trigger: .manual,
-            forceReconnectConnectedClient: macConnectionStatus != .connected
-        )
+        recoverMobileConnection(trigger: .manual)
     }
 
     /// Single guarded recovery entry for every trigger (network change, manual
@@ -1465,19 +1482,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resync re-subscribes and requests a render-grid replay to repaint.
     /// Otherwise the connection dropped, so reconnect once; on failure the UI
     /// shows Retry and the next network change re-attempts automatically.
-    private func recoverMobileConnection(
-        trigger: RecoveryTrigger,
-        forceReconnectConnectedClient: Bool = false
-    ) {
+    private func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
+        guard !recoveryInFlight else { return }
+        let plan = recoveryPlan(for: trigger)
         if connectionState == .connected,
            remoteClient != nil,
-           (!forceReconnectConnectedClient || pairedMacStore == nil) {
+           (plan == .resyncConnectedClient || pairedMacStore == nil) {
             markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
             return
         }
-        guard !recoveryInFlight else { return }
         recoveryInFlight = true
         isRecoveringConnection = true
         connectionRecoveryFailed = false
@@ -6653,10 +6668,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // after iOS suspension. Reusing that same client just repeats the
             // timeout loop; reconnect from the saved Mac record so the transport,
             // reader, writer, and subscription state are all rebuilt together.
-            self.recoverMobileConnection(
-                trigger: .livenessProbe,
-                forceReconnectConnectedClient: true
-            )
+            self.recoverMobileConnection(trigger: .livenessProbe)
         }
     }
 

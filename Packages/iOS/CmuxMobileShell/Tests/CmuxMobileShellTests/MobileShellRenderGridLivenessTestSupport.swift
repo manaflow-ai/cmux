@@ -1,14 +1,11 @@
 import CMUXMobileCore
-import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-// Shared fixtures for the render-grid liveness watchdog tests
-// (MobileShellRenderGridLivenessTests.swift): injected clock, scripted
-// host router, transport mocks, and the connected-store builder.
+// Shared render-grid liveness fixtures: clock, host router, transport mocks, and connected-store builder.
 
 // MARK: - Injected clock
 
@@ -302,7 +299,7 @@ actor LivenessHostRouter {
                 "capabilities": capabilities,
             ])
         case "mobile.attach_ticket.create":
-            return try? Self.manualAttachTicketResultFrame(id: id)
+            return try? LivenessManualAttachTicketResultFrame(id: id).make()
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
@@ -398,28 +395,6 @@ actor LivenessHostRouter {
             "result": result,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-    }
-
-    private static func manualAttachTicketResultFrame(id: String?) throws -> Data {
-        let route = try CmxAttachRoute(
-            id: "debug_loopback",
-            kind: .debugLoopback,
-            endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-        )
-        let ticket = try CmxAttachTicket(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            macDeviceID: "test-mac",
-            macDisplayName: "Test Mac",
-            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
-            routes: [route],
-            expiresAt: Date().addingTimeInterval(3600),
-            authToken: "test-attach-token"
-        )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let ticketObject = try JSONSerialization.jsonObject(with: encoder.encode(ticket))
-        return try resultFrame(id: id, result: ["ticket": ticketObject])
     }
 
     private static func errorFrame(id: String?, message: String) throws -> Data {
@@ -659,33 +634,4 @@ func installFreshLivenessRemoteClient(
         ticket: ticket,
         allowsStackAuthFallback: true
     )
-}
-
-@MainActor
-func makeReconnectableConnectedStore(
-    router: LivenessHostRouter,
-    box: TransportBox,
-    clock: TestClock,
-    probeTimeoutNanoseconds: UInt64 = 200_000_000
-) async throws -> MobileShellComposite {
-    let runtime = LivenessTestRuntime(
-        transportFactory: LivenessTransportFactory(router: router, box: box),
-        now: { clock.now },
-        livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
-    )
-    let databaseURL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("cmux-liveness-\(UUID().uuidString).sqlite3")
-    let pairedMacStore = try MobilePairedMacStore(databaseURL: databaseURL)
-    let store = MobileShellComposite(
-        runtime: runtime,
-        pairedMacStore: pairedMacStore,
-        identityProvider: StaticIdentityProvider(userID: "user-1"),
-        reachability: AlwaysOnlineReachability(),
-        deliveredNotificationClearer: NoopDeliveredNotificationClearer()
-    )
-    store.signIn()
-    let ticket = try makeTicket(clock: clock)
-    let connected = await store.connectPairingURL(try attachURL(for: ticket))
-    #expect(connected, "scripted connect must succeed")
-    return store
 }
