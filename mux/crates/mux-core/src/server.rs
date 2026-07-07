@@ -543,7 +543,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         Command::ReadScreen { surface } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            let text = surface.try_with_terminal(|t| t.plain_text())??;
+            let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
         }
         Command::VtState { surface } => {

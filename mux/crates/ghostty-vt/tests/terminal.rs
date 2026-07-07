@@ -122,6 +122,23 @@ fn plain_text_dump() {
 }
 
 #[test]
+fn viewport_text_does_not_clear_render_dirty_state() {
+    let mut term = Terminal::new(40, 5, 1000, Callbacks::default()).unwrap();
+    let mut rs = RenderState::new().unwrap();
+
+    rs.update(&mut term).unwrap();
+    rs.set_clean();
+
+    term.vt_write(b"alpha\r\nbeta");
+    let text = term.viewport_text().unwrap();
+    assert!(text.contains("alpha"), "viewport was {text:?}");
+    assert!(text.contains("beta"), "viewport was {text:?}");
+
+    rs.update(&mut term).unwrap();
+    assert_ne!(rs.dirty(), Dirty::Clean);
+}
+
+#[test]
 fn selection_text_extracts_range() {
     let mut term = Terminal::new(40, 5, 0, Callbacks::default()).unwrap();
     term.vt_write(b"hello world\r\nsecond line");
