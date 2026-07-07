@@ -568,57 +568,66 @@ class GhosttyApp {
                     target: target
                 )
 
-                TerminalImageTransferPlanner.execute(
+                let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
                     plan: plan,
                     operation: operation,
-                    uploadWorkspaceRemote: { fileURLs, operation, finish in
-                        guard let workspace = MainActor.assumeIsolated({
-                            callbackContext.terminalSurface?.owningWorkspace()
-                        }) else {
-                            finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
-                            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            return
-                        }
-                        workspace.uploadDroppedFilesForRemoteTerminal(
-                            fileURLs,
-                            operation: operation,
-                            completion: { result in
-                                finish(result)
-                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            }
-                        )
-                    },
-                    uploadDetectedSSH: { session, fileURLs, operation, finish in
-                        session.uploadDroppedFiles(
-                            fileURLs,
-                            operation: operation,
-                            completion: { result in
-                                finish(result)
-                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            }
-                        )
-                    },
-                    insertText: { text in
-                        MainActor.assumeIsolated {
-                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                for: operation
-                            )
-                        }
-                        completeClipboardRequest(with: text)
-                    },
-                    onFailure: { _ in
-                        MainActor.assumeIsolated {
-                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                for: operation
-                            )
-                        }
-                        NSSound.beep()
-#if DEBUG
-                        cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
-#endif
-                        completeClipboardRequest(with: "")
-                    }
+                    callbackContext: callbackContext,
+                    completeClipboardRequest: completeClipboardRequest
                 )
+
+                if !handledByCustomUpload {
+                    TerminalImageTransferPlanner.execute(
+                        plan: plan,
+                        operation: operation,
+                        uploadWorkspaceRemote: { fileURLs, operation, finish in
+                            guard let workspace = MainActor.assumeIsolated({
+                                callbackContext.terminalSurface?.owningWorkspace()
+                            }) else {
+                                finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
+                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                return
+                            }
+                            workspace.uploadDroppedFilesForRemoteTerminal(
+                                fileURLs,
+                                operation: operation,
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
+                            )
+                        },
+                        uploadDetectedSSH: { session, fileURLs, operation, finish in
+                            session.uploadDroppedFiles(
+                                fileURLs,
+                                operation: operation,
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
+                            )
+                        },
+                        insertText: { text in
+                            MainActor.assumeIsolated {
+                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                    for: operation
+                                )
+                            }
+                            completeClipboardRequest(with: text)
+                        },
+                        onFailure: { _ in
+                            MainActor.assumeIsolated {
+                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                    for: operation
+                                )
+                            }
+                            NSSound.beep()
+#if DEBUG
+                            cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
+#endif
+                            completeClipboardRequest(with: "")
+                        }
+                    )
+                }
             }
         }
 
@@ -2818,6 +2827,12 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RENDER:
             return false
+        case GHOSTTY_ACTION_MOUSE_SHAPE:
+            let shape = action.action.mouse_shape
+            DispatchQueue.main.async {
+                surfaceView.updateGhosttyMouseShape(shape)
+            }
+            return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
@@ -2892,7 +2907,7 @@ class GhosttyApp {
                   let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
             DispatchQueue.main.async {
-                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateSurfaceDirectory(
+                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     directory: pwd
@@ -3415,11 +3430,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
         return { retention.release() }
+    }
+
+    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+        switch shape {
+        case GHOSTTY_MOUSE_SHAPE_DEFAULT:
+            return .arrow
+        case GHOSTTY_MOUSE_SHAPE_TEXT:
+            return .iBeam
+        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
+            return .iBeamCursorForVerticalLayout
+        case GHOSTTY_MOUSE_SHAPE_POINTER:
+            return .pointingHand
+        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+             GHOSTTY_MOUSE_SHAPE_CELL:
+            return .crosshair
+        case GHOSTTY_MOUSE_SHAPE_GRAB:
+            return .openHand
+        case GHOSTTY_MOUSE_SHAPE_GRABBING,
+             GHOSTTY_MOUSE_SHAPE_MOVE:
+            return .closedHand
+        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED,
+             GHOSTTY_MOUSE_SHAPE_NO_DROP:
+            return .operationNotAllowed
+        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+            return .contextualMenu
+        case GHOSTTY_MOUSE_SHAPE_COPY:
+            return .dragCopy
+        case GHOSTTY_MOUSE_SHAPE_ALIAS:
+            return .dragLink
+        case GHOSTTY_MOUSE_SHAPE_W_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_E_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_EW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_COL_RESIZE:
+            return .resizeLeftRight
+        case GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_NS_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_ROW_RESIZE:
+            return .resizeUpDown
+        default:
+            return .arrow
+        }
+    }
+
+    fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
+        guard ghosttyMouseShape != shape else { return }
+        ghosttyMouseShape = shape
+        window?.invalidateCursorRects(for: self)
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -3794,6 +3858,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
             appliedColorScheme = nil
+            // Reset any OSC 22 mouse shape carried over from the previous
+            // surface; the newly-bound surface re-emits its own shape via
+            // GHOSTTY_ACTION_MOUSE_SHAPE if it has one.
+            updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -3918,6 +3986,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         super.viewDidEndLiveResize()
         updateSurfaceSize(bypassLiveResizeCoalescing: true)
         invalidateTextInputCoordinates()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: Self.ghosttyMouseCursor(for: ghosttyMouseShape))
     }
 
     override var isOpaque: Bool { false }
@@ -7206,6 +7279,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        appendReconnectRemotePaneMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())
             let identifiersItem = menu.addItem(
@@ -7272,7 +7346,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @objc private func resetTerminal(_ sender: Any?) {
         _ = performBindingAction("reset")
     }
-
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
@@ -7355,6 +7428,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        // Forward right-button drags so mouse-reporting apps receive pointer
+        // motion while the right button is held. Without this, tmux's
+        // right-click context menu (press to open, drag to highlight, release
+        // to select) never sees the drag and cannot track hover state. Mirrors
+        // mouseDragged and matches upstream Ghostty, which funnels every drag
+        // variant to the same position-forwarding path.
+        mouseDragged(with: event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        // Only the middle button (buttonNumber 2) is forwarded to Ghostty, to
+        // stay consistent with otherMouseDown/otherMouseUp above.
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        mouseDragged(with: event)
     }
 
 #if DEBUG
@@ -7575,6 +7668,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
+        if let operation, handleCustomDropUploadIfMatched(plan: plan, operation: operation) {
+            return true
+        }
+
         TerminalImageTransferPlanner.execute(
             plan: plan,
             operation: operation,
@@ -7610,20 +7707,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let operation {
                         self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                     }
-                    guard let surface = self?.terminalSurface else { return }
-                    // Mirror panes need tmux paste-buffer so dropped image paths
-                    // arrive as a real bracketed paste in the remote pane.
-                    let handledByMirror = MainActor.assumeIsolated {
-                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
-                            surfaceId: surface.id,
-                            text: text
-                        ) ?? false
-                    }
-                    if handledByMirror { return }
-                    // Use the text/paste path (ghostty_surface_text) instead of the key event
-                    // path (ghostty_surface_key) so bracketed paste mode is triggered and the
-                    // insertion is instant, matching upstream Ghostty behaviour.
-                    surface.sendText(text)
+                    self?.deliverUploadResultText(text)
                 }
                 if Thread.isMainThread {
                     send()

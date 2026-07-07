@@ -7,6 +7,20 @@ import Foundation
 /// helpers the lifted v1 sidebar bodies relied on, keyed by the coordinator's
 /// Sendable target types instead of the legacy file-private enums.
 extension TerminalController {
+    /// The worker-lane hop primitive of the sidebar seam: forwards to
+    /// `v2MainSync`, so the hop collapses to an inline call when the caller is
+    /// already on the main thread, propagates the focus-allowance stack, and
+    /// records per-hop timing exactly like every other socket main hop. The
+    /// body receives `self` back as its main-actor seam parameter (see the
+    /// protocol requirement's doc).
+    nonisolated func controlSidebarOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlSidebarContext) -> T
+    ) -> T {
+        v2MainSync {
+            body(self)
+        }
+    }
+
     /// The byte-faithful twin of the deleted file-private
     /// `resolveTabForReport(_:)`, taking the pre-parsed `--tab` option value
     /// instead of re-parsing the full argument string (the parse result is
@@ -88,10 +102,15 @@ extension TerminalController {
     /// The byte-faithful twin of the deleted file-private
     /// `scheduleSidebarMutation(target:mutation:)`: enqueue on the mutation bus
     /// and resolve the tab inside the deferred closure, exactly as the legacy
-    /// body did.
-    func controlSidebarScheduleMutation(
+    /// body did. `nonisolated` because the bus enqueue is lock-guarded and the
+    /// worker-lane telemetry bodies enqueue from the socket-worker thread; the
+    /// mutation closure is `@MainActor` so witness call sites' closure
+    /// literals (which touch `Workspace`/store state) carry main-actor
+    /// isolation even when formed off-main — the bus runs them on the main
+    /// actor at drain.
+    nonisolated func controlSidebarScheduleMutation(
         target: ControlSidebarTabTarget,
-        mutation: @escaping (TerminalController, Workspace) -> Void
+        mutation: @escaping @MainActor (TerminalController, Workspace) -> Void
     ) {
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
             guard let self, let tab = self.controlSidebarResolveMutationTab(target) else { return }
@@ -103,10 +122,12 @@ extension TerminalController {
     /// `schedulePanelMetadataMutation(args:options:missingPanelUsage:mutation:)`
     /// (the parse-level head moved into the coordinator's
     /// `sidebarPanelMutationTarget`): the explicit-scope fast path, then the
-    /// report-tab fallback, both deferred on the mutation bus.
-    func controlSidebarSchedulePanelMetadataMutation(
+    /// report-tab fallback, both deferred on the mutation bus. `nonisolated`
+    /// with a `@MainActor` mutation closure, for the same reasons as
+    /// `controlSidebarScheduleMutation`.
+    nonisolated func controlSidebarSchedulePanelMetadataMutation(
         target: ControlSidebarPanelMutationTarget,
-        mutation: @escaping (Workspace, UUID) -> Void
+        mutation: @escaping @MainActor (Workspace, UUID) -> Void
     ) {
         if let scope = target.scope {
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
@@ -134,6 +155,74 @@ extension TerminalController {
             guard let surfaceId = surfaceIdFromOptions ?? tab.focusedPanelId else { return }
             guard validSurfaceIds.contains(surfaceId) else { return }
             mutation(tab, surfaceId)
+        }
+    }
+
+    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: TerminalMutationReplaceKey(
+                tabId: scope.workspaceID,
+                surfaceId: scope.panelID,
+                kind: .directory
+            )
+        ) {
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            guard validSurfaceIds.contains(scope.panelID) else { return }
+            self.controlSidebarApplyDirectoryReport(
+                tabManager: tabManager,
+                tab: tab,
+                surfaceId: scope.panelID,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    func controlSidebarUpdateDirectory(
+        tabArg: String?,
+        panelArg: String?,
+        directory: String,
+        displayLabel: String?
+    ) -> ControlSidebarPanelWriteResolution {
+        controlSidebarResolvePanelWrite(
+            tabArg: tabArg,
+            panelArg: panelArg,
+            prune: true,
+            requireLiveSurface: true
+        ) { tab, surfaceId in
+            controlSidebarApplyDirectoryReport(
+                tabManager: AppDelegate.shared?.tabManagerFor(tabId: tab.id) ?? tabManager,
+                tab: tab,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    private func controlSidebarApplyDirectoryReport(
+        tabManager: TabManager?,
+        tab: Workspace,
+        surfaceId: UUID,
+        directory: String,
+        displayLabel: String?
+    ) {
+        if let tabManager {
+            tabManager.updateReportedSurfaceDirectory(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        } else if tab.isRemoteTerminalSurface(surfaceId) {
+            _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
+        } else {
+            _ = tab.updatePanelDirectory(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
         }
     }
 

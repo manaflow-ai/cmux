@@ -72,16 +72,31 @@ use_existing_zig_if_available() {
 
 use_existing_zig_if_available
 
-case "$(uname -m)" in
-  arm64 | aarch64) ZIG_ARCH="aarch64" ;;
-  x86_64) ZIG_ARCH="x86_64" ;;
+case "$(uname -s)" in
+  Darwin)
+    ZIG_OS="macos"
+    ZIG_UNSUPPORTED_OS="macOS"
+    ;;
+  Linux)
+    ZIG_OS="linux"
+    ZIG_UNSUPPORTED_OS="Linux"
+    ;;
   *)
-    echo "Unsupported macOS architecture: $(uname -m)" >&2
+    echo "Unsupported operating system: $(uname -s)" >&2
     exit 1
     ;;
 esac
 
-ZIG_NAME="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
+case "$(uname -m)" in
+  arm64 | aarch64) ZIG_ARCH="aarch64" ;;
+  x86_64) ZIG_ARCH="x86_64" ;;
+  *)
+    echo "Unsupported ${ZIG_UNSUPPORTED_OS} architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
 mkdir -p "$ZIG_WORK_PARENT"
 ZIG_WORK_ROOT="$(mktemp -d "${ZIG_WORK_PARENT%/}/cmux-zig-install-${ZIG_REQUIRED}.XXXXXX")"
 cleanup_work_root() {
@@ -93,7 +108,7 @@ ZIG_SIG="${ZIG_TAR}.minisig"
 ZIG_DIR="${ZIG_WORK_ROOT}/${ZIG_NAME}"
 ZIG_OFFICIAL_URL="https://ziglang.org/download/${ZIG_REQUIRED}/${ZIG_NAME}.tar.xz"
 ZIG_MIRROR_URL="${ZIG_MIRROR_URL:-https://zigmirror.hryx.net/zig/${ZIG_NAME}.tar.xz}"
-ZIG_INDEX_ARCH="${ZIG_ARCH}-macos"
+ZIG_INDEX_ARCH="${ZIG_ARCH}-${ZIG_OS}"
 
 download_file() {
   local url="$1"
@@ -143,7 +158,11 @@ PY
 
 verify_zig_sha256() {
   local expected_sha256="$1"
-  printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | shasum -a 256 -c -
+  if [ "$ZIG_OS" = "linux" ]; then
+    printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | sha256sum -c -
+  else
+    printf '%s  %s\n' "$expected_sha256" "$ZIG_TAR" | shasum -a 256 -c -
+  fi
 }
 
 install_zig_without_sudo() {

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -181,7 +182,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   `tmux -CC` control client; interactive prompts are handled only by
     ///   ``interactiveAuthInvocation()`` running in the user's terminal.
     func sshControlArguments(controlPersistSeconds: Int, batchMode: Bool) -> [String] {
-        var args = [
+        // Every ssh-tmux invocation supplies its own remote command (`true`,
+        // `tmux -CC …`, one-shot discovery), which OpenSSH refuses while a
+        // host-configured RemoteCommand is in effect (issue #7246).
+        var args = SSHHostConfiguredRemoteCommand().overrideArguments
+        args += [
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(controlSocketPath)",
             "-o", "ControlPersist=\(controlPersistSeconds)",
@@ -277,6 +282,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             .joined(separator: " ")
     }
 
+    /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
+    static let tmuxNotFoundSentinel = "cmux-remote-tmux: tmux not found"
+
     // Keep this one physical line: the remote login shell parses it before /bin/sh -c runs.
     private static let tmuxResolverShellScript =
         "cmux_tmux=\"\"; " +
@@ -285,7 +293,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "if [ -x \"$cmux_dir/tmux\" ]; then cmux_tmux=\"$cmux_dir/tmux\"; break; fi; done; " +
         "if [ -z \"$cmux_tmux\" ] && [ -x /usr/libexec/path_helper ]; then eval \"$(/usr/libexec/path_helper -s 2>/dev/null)\"; " +
         "if command -v tmux >/dev/null 2>&1; then cmux_tmux=\"$(command -v tmux)\"; fi; fi; fi; " +
-        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; exec tmux \"$@\""
+        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; " +
+        "printf '%s\\n' '\(tmuxNotFoundSentinel)' >&2; exit 127"
 
     /// Returns a non-empty tmux control-mode command argument, or `nil` when the
     /// value could break the line-oriented control stream. Shell quoting is not
