@@ -192,6 +192,19 @@ struct BrowserWindowPortalRegistryNotificationTests {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
 
         var retainedPanel: BrowserPanel? = panel
+        BrowserWindowPortalRegistry.updateSearchOverlay(
+            for: webView,
+            configuration: BrowserPortalSearchOverlayConfiguration(
+                panelId: panel.id,
+                searchState: BrowserSearchState(),
+                focusRequestGeneration: 0,
+                canApplyFocusRequest: { _ in retainedPanel != nil },
+                onNext: { _ = retainedPanel?.id },
+                onPrevious: { _ = retainedPanel?.id },
+                onClose: { _ = retainedPanel?.id },
+                onFieldDidFocus: { _ = retainedPanel?.id }
+            )
+        )
         let item = OmnibarSuggestion.search(engineName: "Google", query: "news")
         BrowserWindowPortalRegistry.updateOmnibarSuggestions(
             for: webView,
@@ -211,12 +224,14 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
         let slot = try #require(webView.superview as? WindowBrowserSlotView)
         #expect(BrowserWindowPortalRegistry.debugSnapshot(for: webView) != nil)
+        #expect(slot.browserPortalTestSearchOverlayView != nil)
         #expect(hasOmnibarSuggestionsOverlay(in: slot))
 
         panel.close()
 
         #expect(BrowserWindowPortalRegistry.debugSnapshot(for: webView) == nil)
         #expect(slot.superview == nil)
+        #expect(slot.browserPortalTestSearchOverlayView == nil)
         #expect(!hasOmnibarSuggestionsOverlay(in: slot))
         retainedPanel = nil
     }
