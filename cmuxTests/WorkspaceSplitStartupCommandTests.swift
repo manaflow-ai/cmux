@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminal
 import Bonsplit
 import AppKit
 import SwiftUI
@@ -283,7 +284,7 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             XCTAssertEqual(respawnedPanel.surface.startupEnvironmentValue(key), value)
         }
         XCTAssertTrue(
-            TerminalSurfaceRegistry.shared.surface(id: originalPanelId) === respawnedPanel.surface,
+            GhosttyApp.terminalSurfaceRegistry.surface(id: originalPanelId) === respawnedPanel.surface,
             "Respawn should replace the registered terminal surface for the existing cmux surface id"
         )
     }

@@ -1,5 +1,5 @@
 import AppKit
-import CmuxFileWatch
+import CmuxFoundation
 import Combine
 import Foundation
 

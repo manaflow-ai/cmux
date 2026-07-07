@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminal
 import AppKit
 import Bonsplit
 
@@ -91,6 +92,53 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    func testReportPwdPathOptionKeepsDisplayLabelSeparateFromFilesystemDirectory() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let filesystemDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-report-pwd-path-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: filesystemDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: filesystemDirectory) }
+
+        let displayLabel = "MyPackage  mainline"
+        let response = TerminalController.shared.handleSocketLine(
+            "report_pwd \"\(displayLabel)\" --path=\(filesystemDirectory.path) --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertEqual(workspace.currentDirectory, filesystemDirectory.path)
+        XCTAssertEqual(workspace.panelDirectories[panelId], filesystemDirectory.path)
+        XCTAssertEqual(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]), [displayLabel])
+        XCTAssertEqual(workspace.sidebarFinderDirectory(), filesystemDirectory.path)
     }
 
     func testWorkspaceReorderManyRoutesByWorkspaceOwnerWhenWindowIsOmitted() throws {
@@ -470,7 +518,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: surfaceId) === terminalPanel.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
         XCTAssertEqual(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
 
         try assertWorkspaceListContains(try workspaceListPayload(surfaceId: surfaceId), workspaceId: workspace.id)
@@ -570,7 +618,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             panelId: panelId
         ))
 
-        for key in ["surface_id", "tab_id"] {
+        for key in ["surface_id", "terminal_id", "tab_id"] {
             for method in ["surface.resume.set", "surface.resume.get", "surface.resume.clear"] {
                 var params: [String: Any] = [
                     "window_id": windowId.uuidString,
@@ -913,7 +961,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: surfaceId) === terminalPanel.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
         XCTAssertEqual(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
 
         try assertWorkspaceListContains(try v2Result(method: "workspace.list"), workspaceId: workspace.id)
@@ -1024,7 +1072,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
         let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
 
         app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
         TerminalController.shared.setActiveTabManager(nil)
@@ -1118,7 +1166,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         let terminalWorkspace = try XCTUnwrap(terminalManager.selectedWorkspace)
         let terminalPanel = try XCTUnwrap(terminalWorkspace.focusedTerminalPanel)
-        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: terminalPanel.id) === terminalPanel.surface)
+        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
 
         let browserOnlyWorkspace = try XCTUnwrap(browserOnlyManager.selectedWorkspace)
         let browserOnlyTerminal = try XCTUnwrap(browserOnlyWorkspace.focusedTerminalPanel)
@@ -1175,12 +1223,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         TerminalController.shared.setActiveTabManager(staleManager)
 
         let originalLiveWorkspaceCount = liveManager.tabs.count
-        let createdWorkspaceId = app.addWorkspaceInPreferredMainWindow(
+        let createdWorkspace = app.addWorkspaceInPreferredMainWindow(
             shouldBringToFront: false,
             debugSource: "test.issue2907.staleActiveContext"
         )
 
-        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspaceId)
+        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspace).id
         XCTAssertEqual(liveManager.tabs.count, originalLiveWorkspaceCount + 1)
         XCTAssertTrue(liveManager.tabs.contains { $0.id == unwrappedCreatedWorkspaceId })
     }

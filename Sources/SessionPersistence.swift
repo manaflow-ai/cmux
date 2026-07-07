@@ -1,6 +1,8 @@
 import CoreGraphics
+import CmuxCore
 import Foundation
 import Bonsplit
+import CmuxWorkspaces
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -14,9 +16,13 @@ enum SessionSnapshotSchema {
 
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
-    static let defaultSidebarWidth: Double = 220
-    static let defaultMinimumSidebarWidth: Double = 216
-    static let minimumSidebarWidth: Double = 216
+    // Keep the default equal to the minimum so a fresh sidebar starts at the
+    // minimum width. The titlebar title tracks the sidebar's actual width only
+    // when it is wider than the minimum, so a default above the minimum would make
+    // the folder/title shift when toggling the sidebar at the default width.
+    static let defaultSidebarWidth: Double = 240
+    static let defaultMinimumSidebarWidth: Double = 240
+    static let minimumSidebarWidth: Double = 240
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
@@ -300,9 +306,10 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         updatedAt: TimeInterval = Date().timeIntervalSince1970
     ) {
         let normalizedCwd = Self.normalized(cwd)
+        let normalizedKind = Self.normalized(kind)
         let normalizedSource = Self.normalized(source)
         self.name = Self.normalized(name)
-        self.kind = Self.normalized(kind)
+        self.kind = normalizedKind
         self.command = Self.sanitizedStartupCommand(
             command,
             cwd: normalizedCwd,
@@ -356,6 +363,29 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
     }
 
+    func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
+        guard isAgentHookBinding else { return self }
+        let normalizedCwd = Self.normalized(workingDirectory)
+        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: command,
+            previousWorkingDirectory: cwd,
+            workingDirectory: normalizedCwd
+        )
+        return SurfaceResumeBindingSnapshot(
+            name: name,
+            kind: kind,
+            command: retargetedCommand,
+            cwd: normalizedCwd,
+            checkpointId: checkpointId,
+            source: source,
+            environment: environment,
+            autoResume: autoResume,
+            approvalPolicy: approvalPolicy,
+            approvalRecordId: approvalRecordId,
+            updatedAt: updatedAt
+        )
+    }
+
     static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
 
     var startupInput: String? {
@@ -363,34 +393,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     var inlineStartupInput: String? {
-        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard let environment, !environment.isEmpty else {
-            return trimmed + "\n"
-        }
-        let assignments = environment.keys.sorted().compactMap { key -> String? in
-            guard let value = environment[key] else { return nil }
-            return "\(key)=\(value)"
-        }
-        let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
-        return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
-    }
-
-    private var startupCommand: String {
-        Self.sanitizedStartupCommand(command, cwd: cwd, source: source)
-    }
-
-    private static func sanitizedStartupCommand(
-        _ command: String,
-        cwd: String?,
-        source: String?
-    ) -> String {
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard source == "agent-hook" else { return trimmed }
-        return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
-            in: trimmed,
-            workingDirectory: cwd
-        )
+        inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
     func startupInputWithLauncherScript(
@@ -474,8 +477,14 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         return sensitiveFragments.contains { uppercasedKey.contains($0) }
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
+    static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+extension SurfaceResumeBindingSnapshot: WorkspaceSurfaceResumeBinding {
+    var requiresPromptApproval: Bool {
+        approvalPolicy == .prompt
     }
 }
 
@@ -683,6 +692,7 @@ enum SurfaceResumeCommandCanonicalizer {
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
 }
 
 enum SurfaceResumeApprovalSignature {
@@ -1270,20 +1280,19 @@ enum SurfaceResumeApprovalStore {
 nonisolated enum TerminalStartupReturnShellScript {
     private static let shellLine = #"_cmux_resume_shell="${SHELL:-/bin/zsh}""#
     private static let zshIntegrationReentryLines = [
-        #"if [[ "${_cmux_resume_shell:t}" == "zsh" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
-        #"  if [[ -n "${ZDOTDIR+X}" ]]; then"#,
-        #"    export CMUX_ZSH_ZDOTDIR="$ZDOTDIR""#,
+        #"if [[ "${_cmux_resume_shell:t}" == "zsh" ]]; then"#,
+        #"  _cmux_resume_zdotdir_is_integration() { [[ -n "${1:-}" && ( "$1" == "${CMUX_SHELL_INTEGRATION_DIR:-}" || "$1" == */Contents/Resources/shell-integration ) ]]; }"#,
+        #"  if [[ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" && -r "${CMUX_SHELL_INTEGRATION_DIR}/.zshenv" ]]; then"#,
+        #"    if [[ -n "${ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then export CMUX_ZSH_ZDOTDIR="$ZDOTDIR"; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then unset CMUX_ZSH_ZDOTDIR; fi; export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
         #"  else"#,
-        #"    unset CMUX_ZSH_ZDOTDIR"#,
-        #"  fi"#,
-        #"  export ZDOTDIR="$CMUX_SHELL_INTEGRATION_DIR""#,
+        #"    if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"; unset GHOSTTY_ZSH_ZDOTDIR; elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]] && ! _cmux_resume_zdotdir_is_integration "$CMUX_ZSH_ZDOTDIR"; then export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"; unset CMUX_ZSH_ZDOTDIR; elif [[ -n "${ZDOTDIR+X}" ]] && _cmux_resume_zdotdir_is_integration "$ZDOTDIR"; then unset ZDOTDIR; unset CMUX_ZSH_ZDOTDIR; fi"#,
+        #"  fi; unfunction _cmux_resume_zdotdir_is_integration 2>/dev/null || true"#,
         #"fi"#,
     ]
 
     static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
-        var lines = [
-            shellLine,
+        var lines = [shellLine] + zshIntegrationReentryLines + [
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
             #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
@@ -1303,7 +1312,7 @@ nonisolated enum TerminalStartupReturnShellScript {
     }
 }
 
-private enum SurfaceResumeBindingScriptStore {
+enum SurfaceResumeBindingScriptStore {
     private static let directoryName = "cmux-surface-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
 
@@ -1414,6 +1423,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.wasAgentRunning = wasAgentRunning
     }
 }
+
+extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}
 
 struct SessionAgentHibernationSnapshot: Codable, Sendable {
     var hibernatedAt: TimeInterval
@@ -1586,11 +1597,9 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode?
 
@@ -1608,7 +1617,7 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
         self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
     }
 }
-
+struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1701,7 +1710,11 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var type: PanelType
     var title: String?
     var customTitle: String?
+    /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
+    var directoryIsTrustedRemoteReport: Bool? = nil
+    var directoryRequiresRemoteTrust: Bool? = nil
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
@@ -1715,9 +1728,12 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
 }
+
+extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
 enum SessionSplitOrientation: String, Codable, Sendable {
     case horizontal
@@ -1790,6 +1806,22 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+/// One canvas pane's persisted geometry, ordered back-to-front so restore
+/// reproduces the z-order.
+struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
+    /// The pane identity (its founding panel's UUID). Pre-tab snapshots
+    /// stored the single hosted panel here.
+    var panelId: UUID
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+    /// Ordered tabs. Absent in pre-tab snapshots (treated as `[panelId]`).
+    var panelIds: [UUID]? = nil
+    /// Selected tab. Absent in pre-tab snapshots (treated as `panelId`).
+    var selectedPanelId: UUID? = nil
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
@@ -1803,6 +1835,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var stableId: UUID? = nil
     var processTitle: String
     var customTitle: String?
+    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
+    /// persisted before provenance existed decode unchanged; restore treats
+    /// absent provenance as user-set (the conservative choice for auto-naming).
+    var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
@@ -1814,13 +1850,24 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
+    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
+    /// (treated as splits).
+    var layoutMode: String? = nil
+    /// Canvas pane frames in z-order; persisted whenever any exist so
+    /// positions survive toggling back to splits across restarts.
+    var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    /// User-defined per-workspace environment variables (issue #5995). Optional
+    /// with a `nil` default so manifests written before this field decode cleanly.
+    var environment: [String: String]? = nil
 }
+
+extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
@@ -1874,115 +1921,12 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
-enum SessionPersistenceStore {
-    static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
-        guard !snapshot.windows.isEmpty else { return nil }
-        return snapshot
-    }
-
-    @discardableResult
-    static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
-        let directory = fileURL.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let data = try encodedSnapshotData(snapshot)
-            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                return true
-            }
-            try data.write(to: fileURL, options: .atomic)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private static func encodedSnapshotData(_ snapshot: AppSessionSnapshot) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(snapshot)
-    }
-
-    static func removeSnapshot(fileURL: URL? = nil) {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return }
-        try? FileManager.default.removeItem(at: fileURL)
-    }
-
-    static func loadReopenSessionSnapshot(
-        fileURL: URL? = nil,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? manualRestoreSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else {
-            return nil
-        }
-        return load(fileURL: fileURL)
-    }
-
-    static func syncManualRestoreSnapshotCache() {
-        guard let fileURL = manualRestoreSnapshotFileURL() else { return }
-        guard let snapshot = load() else {
-            removeSnapshot(fileURL: fileURL)
-            return
-        }
-        _ = save(snapshot, fileURL: fileURL)
-    }
-
-    static func defaultSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func manualRestoreSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "-previous",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    private static func snapshotFileURL(
-        suffix: String,
-        bundleIdentifier: String?,
-        appSupportDirectory: URL?
-    ) -> URL? {
-        let resolvedAppSupport: URL
-        if let appSupportDirectory {
-            resolvedAppSupport = appSupportDirectory
-        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            resolvedAppSupport = discovered
-        } else {
-            return nil
-        }
-        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-            ? bundleIdentifier!
-            : "com.cmuxterm.app"
-        let safeBundleId = bundleId.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]",
-            with: "_",
-            options: .regularExpression
-        )
-        return resolvedAppSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
-    }
+extension AppSessionSnapshot: SessionSnapshotRepresenting {
+    /// Whether the snapshot carries at least one window. The `CmuxSession`
+    /// repository treats an empty-window snapshot as unusable (empty states
+    /// remove the file instead of writing it), matching the legacy
+    /// `!snapshot.windows.isEmpty` usability check.
+    var hasWindows: Bool { !windows.isEmpty }
 }
 
 enum SessionScrollbackReplayStore {

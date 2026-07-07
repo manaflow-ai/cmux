@@ -35,6 +35,15 @@ def _expect_error_contains(label: str, fn, needle: str) -> None:
     raise cmuxError(f"{label}: expected error containing {needle!r}, but call succeeded")
 
 
+def _wait_for(pred, timeout_s: float = 6.0, step_s: float = 0.05) -> None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if pred():
+            return
+        time.sleep(step_s)
+    raise cmuxError("Timed out waiting for condition")
+
+
 def _wait_selector(c: cmux, surface_id: str, selector: str, timeout_s: float = 6.0) -> None:
     timeout_ms = max(1, int(timeout_s * 1000.0))
     try:
@@ -250,6 +259,10 @@ def main() -> int:
             t.start()
             dl = c._call("browser.download.wait", {"surface_id": sid, "path": download_path, "timeout_ms": 5000}) or {}
             _must(bool(dl.get("downloaded")) is True, f"Expected download wait success: {dl}")
+            try:
+                os.unlink(download_path)
+            except Exception:
+                pass
 
             c._call(
                 "browser.cookies.set",
@@ -306,7 +319,17 @@ def main() -> int:
             _wait_selector(c, sid, "#action-btn", timeout_s=7.0)
             c._call("browser.console.list", {"surface_id": sid})
             c._call("browser.addscript", {"surface_id": sid, "script": "window.emitConsoleAndError();"})
-            time.sleep(0.35)
+
+            def _console_ready() -> bool:
+                entries = c._call("browser.console.list", {"surface_id": sid}) or {}
+                return int(entries.get("count") or 0) >= 1
+
+            def _errors_ready() -> bool:
+                entries = c._call("browser.errors.list", {"surface_id": sid}) or {}
+                return int(entries.get("count") or 0) >= 1
+
+            _wait_for(_console_ready, timeout_s=7.0)
+            _wait_for(_errors_ready, timeout_s=7.0)
             console_entries = c._call("browser.console.list", {"surface_id": sid}) or {}
             errors_entries = c._call("browser.errors.list", {"surface_id": sid}) or {}
             _must(int(console_entries.get("count") or 0) >= 1, f"Expected console entries: {console_entries}")
@@ -324,6 +347,10 @@ def main() -> int:
             c._call("browser.state.load", {"surface_id": sid, "path": state_path})
             persisted = c._call("browser.storage.get", {"surface_id": sid, "type": "local", "key": "persist"}) or {}
             _must(str(persisted.get("value") or "") == "yes", f"Expected state.load to restore storage key: {persisted}")
+            try:
+                os.unlink(state_path)
+            except Exception:
+                pass
 
     print("PASS: extended browser parity families are green")
     return 0

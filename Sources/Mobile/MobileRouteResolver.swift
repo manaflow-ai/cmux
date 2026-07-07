@@ -18,6 +18,11 @@ final class MobileRouteResolver: @unchecked Sendable {
     private var cachedResolvedTailscaleHostsUpdatedAt: Date?
     private var tailscaleRefreshTask: Task<[String], Never>?
     private var tailscaleRefreshCallbacks: [@Sendable ([String]) -> Void] = []
+    /// Bumped by ``invalidateResolvedTailscaleHostCache()``. A resolution
+    /// started before an invalidation must not write its (old-network) hosts
+    /// into the cache after it, so every store is guarded by the generation
+    /// captured when its refresh task was created.
+    private var cacheGeneration = 0
 
     func routes(
         port: Int,
@@ -39,6 +44,24 @@ final class MobileRouteResolver: @unchecked Sendable {
     ) async -> MobileHostRouteSnapshot {
         let hosts = await resolvedTailscaleRouteHosts(resolveHosts: resolveHosts, now: now)
         return routes(port: port, tailscaleHosts: hosts)
+    }
+
+    /// Drop the resolved-host cache and orphan any in-flight resolution.
+    ///
+    /// Called when the Mac's network path changes: the cached hosts (and any
+    /// resolution that started on the old path) describe the previous network,
+    /// so serving them for the rest of their TTL would advertise routes the
+    /// Mac is no longer reachable on. The next ``routes(port:now:immediateHosts:)``
+    /// or ``refreshTailscaleRoutes(resolveHosts:onResolvedHosts:)`` call starts
+    /// a fresh resolution; an orphaned in-flight task's result is discarded by
+    /// the generation guard in ``storeResolvedTailscaleHosts(_:now:generation:)``.
+    func invalidateResolvedTailscaleHostCache() {
+        cacheLock.lock()
+        cachedResolvedTailscaleHosts = []
+        cachedResolvedTailscaleHostsUpdatedAt = nil
+        tailscaleRefreshTask = nil
+        cacheGeneration &+= 1
+        cacheLock.unlock()
     }
 
     func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
@@ -111,9 +134,9 @@ final class MobileRouteResolver: @unchecked Sendable {
         if let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: now) {
             return cachedHosts
         }
-        let task = tailscaleRefreshTask(resolveHosts: resolveHosts)
+        let (task, generation) = tailscaleRefreshTask(resolveHosts: resolveHosts)
         let hosts = await task.value
-        storeResolvedTailscaleHosts(hosts)
+        storeResolvedTailscaleHosts(hosts, generation: generation)
         return hosts
     }
 
@@ -136,7 +159,7 @@ final class MobileRouteResolver: @unchecked Sendable {
 
     private func tailscaleRefreshTask(
         resolveHosts: @escaping @Sendable () -> [String]
-    ) -> Task<[String], Never> {
+    ) -> (task: Task<[String], Never>, generation: Int) {
         cacheLock.lock()
         let task = tailscaleRefreshTaskLocked(resolveHosts: resolveHosts)
         cacheLock.unlock()
@@ -145,9 +168,10 @@ final class MobileRouteResolver: @unchecked Sendable {
 
     private func tailscaleRefreshTaskLocked(
         resolveHosts: @escaping @Sendable () -> [String]
-    ) -> Task<[String], Never> {
+    ) -> (task: Task<[String], Never>, generation: Int) {
+        let generation = cacheGeneration
         if let tailscaleRefreshTask {
-            return tailscaleRefreshTask
+            return (tailscaleRefreshTask, generation)
         }
         let task = Task.detached(priority: .utility) {
             resolveHosts()
@@ -155,13 +179,13 @@ final class MobileRouteResolver: @unchecked Sendable {
         tailscaleRefreshTask = task
         Task.detached { [weak self, task] in
             let hosts = await task.value
-            self?.storeResolvedTailscaleHosts(hosts)
+            self?.storeResolvedTailscaleHosts(hosts, generation: generation)
         }
-        return task
+        return (task, generation)
     }
 
-    private func storeResolvedTailscaleHosts(_ hosts: [String], now: Date = Date()) {
-        let callbacks = storeResolvedTailscaleHostsAndTakeCallbacks(hosts, now: now)
+    private func storeResolvedTailscaleHosts(_ hosts: [String], now: Date = Date(), generation: Int) {
+        let callbacks = storeResolvedTailscaleHostsAndTakeCallbacks(hosts, now: now, generation: generation)
         for callback in callbacks {
             callback(hosts)
         }
@@ -169,10 +193,19 @@ final class MobileRouteResolver: @unchecked Sendable {
 
     private func storeResolvedTailscaleHostsAndTakeCallbacks(
         _ hosts: [String],
-        now: Date
+        now: Date,
+        generation: Int
     ) -> [@Sendable ([String]) -> Void] {
         let hasResolvedMagicDNS = hosts.contains { Self.isTailscaleDNSName($0) }
         cacheLock.lock()
+        guard generation == cacheGeneration else {
+            // This resolution raced an invalidation (the network changed while
+            // it was in flight): its hosts describe the old path. Discard them
+            // and leave the queued callbacks for the fresh refresh the
+            // invalidating caller starts.
+            cacheLock.unlock()
+            return []
+        }
         cachedResolvedTailscaleHosts = hosts
         cachedResolvedTailscaleHostsUpdatedAt = hasResolvedMagicDNS ? now : nil
         tailscaleRefreshTask = nil

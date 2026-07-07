@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 extension TabManager {
     struct WorkspaceCreationTabSnapshot {
@@ -25,7 +26,7 @@ extension TabManager {
         fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
         title: String? = nil,
         select: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
         focusIntent: PanelFocusIntent? = nil
     ) -> Workspace? {
@@ -109,7 +110,7 @@ extension TabManager {
     private func detachedWorkspaceInsertIndex(
         insertionIndexOverride: Int?,
         snapshot: WorkspaceCreationSnapshot,
-        placementOverride: NewWorkspacePlacement?
+        placementOverride: WorkspacePlacement?
     ) -> Int {
         guard let insertionIndexOverride else {
             return newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)

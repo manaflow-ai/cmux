@@ -27,6 +27,7 @@ const allowedImageTypes = new Set([
 const feedbackSchema = z.object({
   email: z.string().trim().email().max(320),
   message: z.string().trim().min(1).max(4000),
+  buildType: z.string().trim().max(20).optional().default(""),
   appVersion: z.string().trim().max(120).optional().default(""),
   appBuild: z.string().trim().max(120).optional().default(""),
   appCommit: z.string().trim().max(120).optional().default(""),
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
       const parsed = feedbackSchema.safeParse({
         email: getString(formData, "email"),
         message: getString(formData, "message"),
+        buildType: getString(formData, "buildType"),
         appVersion: getString(formData, "appVersion"),
         appBuild: getString(formData, "appBuild"),
         appCommit: getString(formData, "appCommit"),
@@ -122,10 +124,10 @@ export async function POST(request: Request) {
       }
 
       const {
-        appBuild, appCommit, appVersion, architecture, bundleIdentifier, chip,
-        displayInfo, email, hardwareModel, locale, memoryGB, message, osVersion,
+        appBuild, appCommit, appVersion, architecture, buildType, bundleIdentifier,
+        chip, displayInfo, email, hardwareModel, locale, memoryGB, message, osVersion,
       } = parsed.data;
-      const subject = buildSubject(email, message, appVersion);
+      const subject = buildSubject(email, message, appVersion, buildType);
       const attachments = attachmentsResult.attachments;
       setSpanAttributes(span, {
         "cmux.feedback.attachment_count": attachments.length,
@@ -141,6 +143,7 @@ export async function POST(request: Request) {
         text: buildTextBody({
           email,
           message,
+          buildType,
           appVersion,
           appBuild,
           appCommit,
@@ -157,6 +160,7 @@ export async function POST(request: Request) {
         html: buildHtmlBody({
           email,
           message,
+          buildType,
           appVersion,
           appBuild,
           appCommit,
@@ -261,7 +265,12 @@ async function prepareAttachments(values: FormDataEntryValue[]): Promise<Prepare
   return { attachments };
 }
 
-function buildSubject(email: string, message: string, appVersion: string) {
+function buildSubject(
+  email: string,
+  message: string,
+  appVersion: string,
+  buildType: string,
+) {
   const firstNonEmptyLine =
     message
       .split(/\r?\n/)
@@ -271,14 +280,21 @@ function buildSubject(email: string, message: string, appVersion: string) {
     firstNonEmptyLine.length > 72
       ? `${firstNonEmptyLine.slice(0, 69)}...`
       : firstNonEmptyLine;
-  const versionSuffix = appVersion ? ` (v${appVersion})` : "";
+  // Stamp the build channel and version into the subject so every report is
+  // self-identifying at a glance, e.g. "[beta v0.64.13]".
+  const stampParts = [
+    buildType ? buildType.toLowerCase() : "",
+    appVersion ? `v${appVersion}` : "",
+  ].filter(Boolean);
+  const stamp = stampParts.length > 0 ? ` [${stampParts.join(" ")}]` : "";
 
-  return `cmux feedback from ${email}${versionSuffix}: ${summary}`;
+  return `cmux feedback from ${email}${stamp}: ${summary}`;
 }
 
 function buildTextBody(input: {
   email: string;
   message: string;
+  buildType: string;
   appVersion: string;
   appBuild: string;
   appCommit: string;
@@ -305,6 +321,7 @@ function buildTextBody(input: {
 
   return [
     `From: ${input.email}`,
+    `Build type: ${input.buildType || "unknown"}`,
     `App version: ${input.appVersion || "unknown"}`,
     `App build: ${input.appBuild || "unknown"}`,
     `App commit: ${input.appCommit || "unknown"}`,
@@ -326,6 +343,7 @@ function buildTextBody(input: {
 function buildHtmlBody(input: {
   email: string;
   message: string;
+  buildType: string;
   appVersion: string;
   appBuild: string;
   appCommit: string;
@@ -355,6 +373,7 @@ function buildHtmlBody(input: {
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;line-height:1.5">
       <h1 style="font-size:18px;margin:0 0 16px">cmux feedback</h1>
       <p><strong>From:</strong> ${escapeHtml(input.email)}</p>
+      <p><strong>Build type:</strong> ${escapeHtml(input.buildType || "unknown")}</p>
       <p><strong>App version:</strong> ${escapeHtml(input.appVersion || "unknown")}</p>
       <p><strong>App build:</strong> ${escapeHtml(input.appBuild || "unknown")}</p>
       <p><strong>App commit:</strong> ${escapeHtml(input.appCommit || "unknown")}</p>

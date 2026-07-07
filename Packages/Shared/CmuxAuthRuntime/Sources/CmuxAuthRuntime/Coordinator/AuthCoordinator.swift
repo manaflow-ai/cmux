@@ -1,0 +1,717 @@
+public import CMUXAuthCore
+import Foundation
+public import Observation
+import OSLog
+
+private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
+
+/// The shared, injected auth orchestrator for cmux.
+///
+/// Owns the observable session state (``isAuthenticated`` / ``currentUser`` /
+/// ``isLoading`` / ``isRestoringSession``) and sequences every sign-in flow plus
+/// session restore/validation. Replaces the iOS `AuthManager.shared` singleton
+/// (and is intended to replace the macOS `ObservableObject` AuthManager too).
+///
+/// Construct it once at the app composition root with an injected
+/// ``AuthClient``, persistence stores, presentation anchor, config, and launch
+/// options, then inject it into the UI as `@Environment`:
+///
+/// ```swift
+/// let coordinator = AuthCoordinator(
+///     client: StackAuthClient(config: config, tokenStore: .keychain),
+///     sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "auth_has_tokens"),
+///     userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "auth_cached_user"),
+///     teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "auth_selected_team"),
+///     anchor: AuthPresentationContextProvider(),
+///     config: config,
+///     launch: launchOptions
+/// )
+/// coordinator.start()
+/// ```
+@MainActor
+@Observable
+public final class AuthCoordinator {
+    /// Whether a user session is currently active.
+    public internal(set) var isAuthenticated = false
+    /// The signed-in user, if any.
+    public internal(set) var currentUser: CMUXAuthUser?
+    /// Whether an interactive sign-in flow is in flight (drives spinners).
+    public private(set) var isLoading = false
+    /// Whether a cached session is being restored/validated at launch.
+    public private(set) var isRestoringSession = false
+    /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
+    public private(set) var availableTeams: [CMUXAuthTeam] = []
+    /// The user's selected team id. Writes persist through the injected
+    /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
+    public var selectedTeamID: String? {
+        didSet {
+            guard selectedTeamID != oldValue else { return }
+            teamSelection.selectedTeamID = selectedTeamID
+        }
+    }
+
+    /// The team id API calls should target: the persisted selection while it is
+    /// still one of ``availableTeams``, else the first available team.
+    public var resolvedTeamID: String? {
+        Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
+    }
+
+    let client: any AuthClient
+    let sessionCache: CMUXAuthSessionCache
+    private let userCache: CMUXAuthIdentityStore
+    private let teamSelection: CMUXAuthTeamSelectionStore
+    private let anchor: any AuthPresentationAnchoring
+    private let config: AuthConfig
+    let launch: AuthLaunchOptions
+    let timeouts: AuthTimeouts
+    let clock: any Clock<Duration>
+    private let isOnline: @Sendable () async -> Bool
+    private let onSignedIn: @Sendable () async -> Void
+    let log = AuthDebugLog()
+    let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
+
+    private var pendingNonce: String?
+    var debugCredentials: CMUXAuthAutoLoginCredentials?
+    private var bootstrapTask: Task<Void, Never>?
+    var isRevalidatingSession = false
+    /// Monotonic session epoch, advanced by every session transition: each
+    /// ``clearAuthState()`` AND each published sign-in
+    /// (``applySignedInUser(_:)``). Flows that touch session state after
+    /// suspension points (launch restore, foreground revalidation, sign-in
+    /// completion) capture it at entry and drop their writes when it has
+    /// moved on: local-first sign-out clears state up front with no trailing
+    /// clear, so a sign-out that lands while such a flow is parked in a
+    /// network call must win instead of being overwritten by the stale
+    /// result; conversely a stale validation failure must not wipe a newer
+    /// session, including one published with no clear in between. Same
+    /// pattern as `HostBrowserSignInFlow.signOutGeneration`.
+    @ObservationIgnored var sessionGeneration: UInt64 = 0
+    /// Monotonic sign-out epoch, advanced synchronously at the top of every
+    /// ``signOut(onSignedOut:teardownTimeout:)`` before its first await.
+    /// Distinguishes "a sign-out began after this flow started" from
+    /// publish-driven generation bumps inside the stale-completion rollback:
+    /// local-first sign-out flips `isAuthenticated` only at the END of its
+    /// local clear, so a flow completing inside sign-out's await window
+    /// would read the stale published flag and skip the rollback that keeps
+    /// its raced store write from surviving the sign-out.
+    @ObservationIgnored var signOutEpoch: UInt64 = 0
+    /// Monotonic sign-in attempt count, allocating each flow's attempt id.
+    @ObservationIgnored var signInAttemptCounter: UInt64 = 0
+    /// The highest attempt id whose credential exchange has written the token
+    /// store (recorded when the flow reaches its completion step, immediately
+    /// after the exchange's write). The last writer owns the store: a stale
+    /// attempt's rollback (clearing the tokens its resuming exchange
+    /// re-stored after a sign-out) may only run while no NEWER attempt has
+    /// written, so a newer in-flight attempt's tokens survive even before it
+    /// publishes, while a newer attempt that failed before writing does not
+    /// block the cleanup.
+    @ObservationIgnored var tokenStoreWriteHighWater: UInt64 = 0
+    @ObservationIgnored var latestSignInRefreshToken: String?
+    @ObservationIgnored var activeSignInExchanges: [UInt64: AuthTrackedSignInExchange] = [:]
+    @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
+    @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
+    @ObservationIgnored var isCapturingSignOutCredentials = false
+    @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Begin a sign-in flow: register it as the newest attempt and capture
+    /// the staleness context. Call before the flow's first await.
+    private func beginSignInFlow() async throws -> SignInFlowContext {
+        signInAttemptCounter &+= 1
+        let flow = SignInFlowContext(generation: sessionGeneration, attempt: signInAttemptCounter, signOutEpoch: signOutEpoch)
+        try await waitForSessionTokenWorkToQuiesceBeforeSignIn()
+        guard flow.generation == sessionGeneration, flow.signOutEpoch == signOutEpoch else {
+            throw CancellationError()
+        }
+        return flow
+    }
+
+    /// Creates an auth coordinator.
+    ///
+    /// - Parameters:
+    ///   - client: The auth backend seam (production: ``StackAuthClient``).
+    ///   - sessionCache: Persists the "has tokens" flag (injected key-value store).
+    ///   - userCache: Persists the cached user (injected key-value store).
+    ///   - teamSelection: Persists the selected team id (injected key-value store).
+    ///   - anchor: Presentation anchor provider for OAuth flows.
+    ///   - config: Resolved auth configuration (callback URL, project, API base).
+    ///   - launch: Launch-time priming inputs (UI-test fixtures, dev-auth flag).
+    ///   - timeouts: Per-phase deadlines for the sign-in/session flows. Every
+    ///     phase that holds a loading state is bounded so the UI can never spin
+    ///     forever; a phase that hits its deadline fails with the localized,
+    ///     retryable ``AuthError/timedOut``. Defaults to ``AuthTimeouts/default``.
+    ///   - clock: The clock the phase deadlines sleep on. Injected so tests
+    ///     drive timeouts with virtual time. Defaults to `ContinuousClock`.
+    ///   - isOnline: Connectivity probe; sign-in flows fail fast when offline.
+    ///     Defaults to always-online so tests need not supply it.
+    ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
+    ///     side effects above this package (e.g. push token re-upload). Defaults
+    ///     to a no-op.
+    public init(
+        client: any AuthClient,
+        sessionCache: CMUXAuthSessionCache,
+        userCache: CMUXAuthIdentityStore,
+        teamSelection: CMUXAuthTeamSelectionStore,
+        anchor: any AuthPresentationAnchoring,
+        config: AuthConfig,
+        launch: AuthLaunchOptions,
+        timeouts: AuthTimeouts = .default,
+        clock: any Clock<Duration> = ContinuousClock(),
+        isOnline: @escaping @Sendable () async -> Bool = { true },
+        onSignedIn: @escaping @Sendable () async -> Void = {}
+    ) {
+        self.client = client
+        self.sessionCache = sessionCache
+        self.userCache = userCache
+        self.teamSelection = teamSelection
+        self.anchor = anchor
+        self.config = config
+        self.launch = launch
+        self.timeouts = timeouts
+        self.clock = clock
+        self.isOnline = isOnline
+        self.onSignedIn = onSignedIn
+        self.selectedTeamID = teamSelection.selectedTeamID
+        primeSessionState()
+    }
+
+    /// Begin asynchronous session restore. Call once after construction at the
+    /// composition root. Idempotent priming already ran in `init`, and repeat
+    /// calls are no-ops.
+    public func start() {
+        guard bootstrapTask == nil else { return }
+        bootstrapTask = Task { await bootstrapSession() }
+    }
+
+    /// Await the launch session restore started by ``start()``. Returns
+    /// immediately once restore has finished (or when ``start()`` was never
+    /// called).
+    ///
+    /// Any probe that needs a definitive ``isAuthenticated`` value (socket
+    /// `auth.status`, CLI-facing checks, token reads racing app launch) must
+    /// await this first, otherwise it can observe the transient signed-out
+    /// state while stored tokens are still being validated.
+    public func awaitBootstrapped() async {
+        await bootstrapTask?.value
+    }
+
+    /// Re-validate the persisted session against the live token store.
+    ///
+    /// Call this on foreground so a session that died while backgrounded (the
+    /// SDK rejected the refresh token, or the keychain was cleared) routes to
+    /// sign-in on resume instead of surfacing a stale shell. Reuses the same
+    /// live-store probe as launch restore. A fully signed-out foreground return
+    /// is a no-op so it can't discard an in-progress email-code nonce before the
+    /// user enters it; re-entrant foreground calls coalesce.
+    public func revalidateSession() async {
+        guard isAuthenticated || isRestoringSession || sessionCache.hasTokens else { return }
+        await checkExistingSession()
+    }
+
+    // MARK: - Sign-in flows
+
+    /// Send a sign-in code to `email`, or run the debug `42` shortcut.
+    public func sendCode(to email: String) async throws {
+        try await requireOnline()
+        isLoading = true
+        defer { isLoading = false }
+
+        if launch.includesDevAuth,
+           email.trimmingCharacters(in: .whitespacesAndNewlines) == "42" {
+            let creds = CMUXAuthAutoLoginCredentials(email: "l@l.com", password: "abc123")
+            try await signInWithPassword(email: creds.email, password: creds.password, setLoading: false)
+            debugCredentials = creds
+            return
+        }
+
+        do {
+            let client = self.client
+            let callbackURL = config.magicLinkCallbackURL
+            let nonce = try await runPhase(.sendCode, timeout: timeouts.network) {
+                try await client.sendMagicLinkEmail(email: email, callbackURL: callbackURL)
+            }
+            pendingNonce = nonce
+        } catch {
+            throw AuthError(displaySafe: error) ?? error
+        }
+    }
+
+    /// Verify a magic-link code against the pending nonce.
+    public func verifyCode(_ code: String) async throws {
+        guard let nonce = pendingNonce else {
+            throw AuthError.invalidCode
+        }
+        // Captured before the first await so a sign-out landing anywhere in
+        // this flow (connectivity probe, exchange, user fetch) wins.
+        let flow = try await beginSignInFlow()
+        try await requireOnline()
+        isLoading = true
+        defer { isLoading = false }
+
+        let fullCode = CMUXAuthMagicLinkCode(code: code, nonce: nonce).composed
+        do {
+            let client = self.client
+            try await runExchange(.verifyCode, flow: flow, timeout: timeouts.network) {
+                try await client.signInWithMagicLink(code: fullCode)
+            }
+            try await completeSignIn(flow: flow)
+        } catch {
+            throw AuthError(displaySafe: error) ?? error
+        }
+        pendingNonce = nil
+    }
+
+    /// Sign in with an email/password credential.
+    public func signInWithPassword(email: String, password: String, setLoading: Bool = true) async throws {
+        // Captured before the first await so a sign-out landing anywhere in
+        // this flow (connectivity probe, exchange, user fetch) wins.
+        let flow = try await beginSignInFlow()
+        try await requireOnline()
+        if setLoading { isLoading = true }
+        defer { if setLoading { isLoading = false } }
+
+        do {
+            let client = self.client
+            try await runExchange(.passwordSignIn, flow: flow, timeout: timeouts.network) {
+                try await client.signInWithCredential(email: email, password: password)
+            }
+            try await completeSignIn(flow: flow)
+        } catch {
+            throw AuthError(displaySafe: error) ?? error
+        }
+    }
+
+    /// Sign in with Apple.
+    public func signInWithApple() async throws { try await signInWithOAuth(provider: "apple") }
+
+    /// Sign in with Google.
+    public func signInWithGoogle() async throws { try await signInWithOAuth(provider: "google") }
+
+    /// Sign in with GitHub.
+    public func signInWithGitHub() async throws { try await signInWithOAuth(provider: "github") }
+
+    private func signInWithOAuth(provider: String) async throws {
+        // Captured before the first await so a sign-out landing anywhere in
+        // this flow (connectivity probe, OAuth exchange, user fetch) wins.
+        let flow = try await beginSignInFlow()
+        try await requireOnline()
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            // Interactive deadline: ASAuthorizationController (Sign in with
+            // Apple) and ASWebAuthenticationSession callbacks are not
+            // guaranteed to fire; without a bound a stuck system sheet left
+            // the sign-in screen loading forever with no error and no way out.
+            let client = self.client
+            let anchor = self.anchor
+            try await runExchange(.oauth, flow: flow, timeout: timeouts.interactiveFlow) {
+                try await client.signInWithOAuth(provider: provider, anchor: anchor)
+            }
+            try await completeSignIn(flow: flow)
+        } catch {
+            log.log("auth.oauth provider=\(provider) failed: \(error)")
+            throw AuthError(displaySafe: error) ?? error
+        }
+    }
+
+    /// - Parameter flow: The context captured at the public sign-in
+    ///   entrypoint, before the credential exchange's first await, so a
+    ///   sign-out landing anywhere in the flow wins (not only during the
+    ///   final user fetch).
+    private func completeSignIn(flow: SignInFlowContext) async throws {
+        // This flow's credential exchange (or external seeding) just wrote
+        // the token store; record it as the store's latest known writer.
+        if tokenStoreWriteHighWater < flow.attempt {
+            latestSignInRefreshToken = await client.refreshToken()
+        }
+        tokenStoreWriteHighWater = max(tokenStoreWriteHighWater, flow.attempt)
+        // A sign-out landed during the credential exchange that ran before
+        // this completion. The resuming exchange re-stored fresh tokens that
+        // the sign-out's clear never saw, so drop those too: otherwise the
+        // next launch restore resurrects the session the user just signed out
+        // of. The rollback only runs while no NEWER attempt has written the
+        // token store and nothing newer has published: a newer attempt owns
+        // the store from the moment its exchange writes (even before it
+        // publishes), and clearing here would wipe its tokens; a newer
+        // attempt that failed before writing does not block the cleanup.
+        // The race surfaces as a cancellation (the sign-in UI treats
+        // `.cancelled` as a deliberate back-out, not a failure).
+        //
+        // This rollback is the second line of defense: sign-out also CANCELS
+        // every registered in-flight exchange (see `runExchange`), and the
+        // SDK's write chokepoint drops a cancelled flow's store write, so a
+        // stale exchange normally never re-stores tokens at all. The
+        // rollback covers a write that already raced past the chokepoint
+        // when the cancellation landed.
+        //
+        // `runExchange` advances the high-water mark as soon as the SDK
+        // exchange returns, before this completion fetches the user. Keeping
+        // the assignment here is harmless for external seed paths and makes
+        // this method's ownership requirement explicit.
+        guard flow.generation == sessionGeneration else {
+            // `!isAuthenticated` covers publish-driven bumps (a newer session
+            // published over this flow's store write must not have its store
+            // wiped). It is NOT a reliable read during sign-out: local-first
+            // sign-out flips the flag only at the end of its local clear, so
+            // a completion interleaving with sign-out's awaits would see the
+            // OLD session's stale `true`. The epoch comparison restores the
+            // rollback there: a sign-out begun after this flow started always
+            // rolls back this flow's write (the high-water check still keeps
+            // a newer attempt's tokens safe).
+            let signOutBeganSinceFlowStart = flow.signOutEpoch != signOutEpoch
+            if (signOutBeganSinceFlowStart || !isAuthenticated)
+                && tokenStoreWriteHighWater == flow.attempt {
+                await client.clearLocalSession()
+            }
+            throw CancellationError()
+        }
+        let client = self.client
+        let user = try await runPhase(.fetchUser, timeout: timeouts.network) {
+            try await client.currentUser(throwOnMissing: true)
+        }
+        guard let user else {
+            throw AuthError.unauthorized
+        }
+        // A sign-out landed during the user fetch instead: the exchange's
+        // tokens were already in the store when sign-out cleared it, so
+        // nothing lingers; only the publish must be dropped.
+        guard flow.generation == sessionGeneration else {
+            throw CancellationError()
+        }
+        await applySignedInUser(user)
+    }
+
+    /// Complete a sign-in whose credentials were established outside the
+    /// ``AuthClient`` seam, e.g. the macOS hosted-browser flow that seeds the
+    /// auth-callback tokens directly into the injected token store.
+    ///
+    /// Validates the now-stored session and publishes the signed-in state
+    /// (user, caches, teams, the `onSignedIn` hook).
+    /// - Throws: ``AuthError/unauthorized`` when no signed-in user could be
+    ///   fetched with the seeded tokens; other display-safe errors otherwise.
+    public func completeExternalSignIn() async throws {
+        // The credentials were seeded before this call, so the capture here
+        // covers the validation round trip; the seeding flow keeps its own
+        // sign-out race guard for the seeded tokens.
+        let flow = try await beginSignInFlow()
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            try await completeSignIn(flow: flow)
+        } catch {
+            throw AuthError(displaySafe: error) ?? error
+        }
+    }
+
+    /// Sign out, local-first: the device ends signed out immediately, with the
+    /// server-side teardown a bounded best-effort tail.
+    ///
+    /// Local session state (tokens, cached user, team selection, the published
+    /// signed-in flags) is cleared before any network I/O, so sign-out behaves
+    /// identically with no connectivity. Offline, the Stack revocation DELETE
+    /// neither completes nor fails promptly; sign-out used to await it before
+    /// clearing anything, leaving the user stuck signed in. The credentials the
+    /// server-side teardown needs are captured with raw stored reads (no
+    /// network) before the clear.
+    ///
+    /// Security tradeoff, chosen deliberately: when the teardown deadline fires
+    /// (offline, dead server), the server-side session is NOT revoked, so the
+    /// refresh token stays valid server-side until it expires or is revoked
+    /// elsewhere. The device's copy is destroyed by the local clear, so using
+    /// it requires having exfiltrated it beforehand. The alternative (blocking
+    /// sign-out on revocation) leaves a user who wants out stuck signed in,
+    /// which is the worse failure for a device about to change hands.
+    ///
+    /// - Parameter onSignedOut: An async hook the composition root uses to run
+    ///   token-authenticated teardown (e.g. deleting the APNs device token from
+    ///   the server) that lives above this package. It receives the
+    ///   access/refresh tokens captured before the local clear (the access
+    ///   token freshly minted from the captured refresh token when the store
+    ///   was refresh-only), because by the time it runs the live token store
+    ///   is already empty; it runs before the Stack session revocation so the
+    ///   server still honors those credentials. Defaults to a no-op.
+    /// - Parameter teardownTimeout: How long the best-effort server teardown
+    ///   (hook + revocation) may run before it is cancelled so a hanging call
+    ///   can't hold `signOut()` open. Sleeps on the injected clock so tests
+    ///   drive the deadline with virtual time. Defaults to 5 seconds.
+    public func signOut(
+        onSignedOut: @escaping @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void = { _, _ in },
+        teardownTimeout: Duration = .seconds(5)
+    ) async {
+        isCapturingSignOutCredentials = true
+        defer { finishSignOutCredentialCapture() }
+        // Cancel in-flight sign-in exchanges FIRST: the SDK's token-write
+        // chokepoint refuses to store after cancellation, so a parked
+        // exchange can never re-store credentials behind this sign-out's
+        // local clear, no matter when its network call resumes. Keep the
+        // exchange registered until its completion cleanup runs so a later
+        // sign-in preflight still sees and waits on cancellation-ignoring SDK
+        // work instead of racing a stale token write.
+        for exchange in activeSignInExchanges.values { exchange.task.cancel() }
+        for validation in activeSessionValidations.values { validation.cancel() }
+        cancelPostSignInHooksForSignOut()
+        for phase in activeTokenTouchingPhases.values { phase.cancel() }
+        // Mark the sign-out epoch synchronously, before the first await
+        // below, so a sign-in completion whose exchange write already raced
+        // past the cancellation chokepoint and which interleaves with the
+        // awaited reads/clear sees a stale epoch and takes its rollback path
+        // instead of publishing over this sign-out. clearAuthState() bumps
+        // again afterwards; epochs only need to be monotonic. The dedicated
+        // signOutEpoch lets that rollback distinguish this sign-out from a
+        // publish-driven generation bump even while `isAuthenticated` still
+        // reads the old session's stale `true` (it flips only at the end of
+        // the local clear below).
+        sessionGeneration &+= 1
+        signOutEpoch &+= 1
+        await phaseTimeoutRegistry.clear([.sendCode, .verifyCode, .passwordSignIn, .oauth, .validateSession])
+
+        // Capture the teardown credentials with raw stored reads (no refresh,
+        // no network) before they are destroyed.
+        let accessToken = await client.storedAccessToken()
+        let refreshToken = await client.refreshToken()
+        // LOCAL-FIRST: clear everything local before any network I/O. From
+        // here the device is signed out no matter what the network does.
+        latestSignInRefreshToken = nil
+        await client.clearLocalSession()
+        finishSignOutCredentialCapture()
+        if launch.includesDevAuth { debugCredentials = nil }
+        clearAuthState()
+        await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
+
+        // Best-effort bounded server-side teardown with the captured tokens:
+        // the hook first (the push-token DELETE needs the session to still be
+        // valid server-side), then the Stack session revocation. STRUCTURED:
+        // on deadline the group cancels and joins the work child, so it can
+        // never outlive sign-out and interleave with a later sign-in. Both
+        // legs run on URLSession (cancellation-aware), so the join is prompt.
+        let client = self.client
+        let clock = self.clock
+        let log = self.log
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                // The raw capture can hold an expired access token (the SDK
+                // leaves stale ones stored while a valid refresh survives) or
+                // none at all on a refresh-only store. Run the captured pair
+                // through the refresh-aware ephemeral credential path so the
+                // teardown presents a usable Bearer: the captured token when
+                // still fresh, else one minted from the captured refresh,
+                // never touching the cleared live store. Best-effort and
+                // cancellation-aware (URLSession) like the rest of the tail.
+                var teardownAccessToken = accessToken
+                if let refreshToken {
+                    teardownAccessToken = await client.freshAccessToken(
+                        accessToken: accessToken,
+                        refreshToken: refreshToken
+                    ) ?? accessToken
+                }
+                // The mint swallows cancellation into `nil` (it treats it as
+                // a transient failure), so a deadline that fired while the
+                // mint was parked leaves this task cancelled but running.
+                // Re-check before EACH leg: the deadline bounds the whole
+                // teardown, and a post-deadline hook could interleave with a
+                // later sign-in's setup.
+                guard !Task.isCancelled else {
+                    log.log("auth.signOut teardown deadline hit before the sign-out hook; server teardown skipped")
+                    return
+                }
+                await onSignedOut(teardownAccessToken, refreshToken)
+                guard !Task.isCancelled else {
+                    log.log("auth.signOut teardown deadline hit before revocation; server session left unrevoked")
+                    return
+                }
+                do {
+                    try await client.revokeSession(accessToken: teardownAccessToken, refreshToken: refreshToken)
+                } catch {
+                    // Best-effort by design; see the security tradeoff above.
+                    // The full error goes to the unified log privately; the
+                    // public redacted sink gets only the error TYPE, because
+                    // a Stack error body can carry opaque identifiers the
+                    // redaction regexes don't recognize.
+                    authLog.error("Sign-out session revocation failed: \(error.localizedDescription, privacy: .private)")
+                    log.log("auth.signOut revocation failed: \(String(describing: type(of: error)))")
+                }
+            }
+            group.addTask {
+                // Bounded, cancellable teardown deadline (carve-out); the loser
+                // is cancelled by `cancelAll()` once the first side finishes.
+                try? await clock.sleep(for: teardownTimeout, tolerance: nil)
+            }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
+    // MARK: - State helpers
+
+    func applySignedInUser(_ user: CMUXAuthUser) async {
+        // Publishing a session advances the epoch exactly like clearing one:
+        // any other flow that captured the pre-publish generation (a stale
+        // revalidation of the previous session still parked in its fetch)
+        // must not clear or overwrite this newer session when it resumes.
+        sessionGeneration &+= 1
+        let generation = sessionGeneration
+        currentUser = user
+        isAuthenticated = true
+        isRestoringSession = false
+        saveCachedUser(user)
+        sessionCache.setHasTokens(true)
+        await refreshTeams(generation: generation)
+        // A sign-out landed during the team refresh: the flags above were
+        // already cleared by it, so skip the signed-in side effects (push
+        // token re-upload would re-register the account the user just left).
+        guard generation == sessionGeneration else { return }
+        // Bound the post-sign-in hook (e.g. push token re-upload) too: it runs
+        // while `isLoading` is still true, so an unbounded hook would hold the
+        // sign-in spinner after the session is already published. Failure and
+        // timeout are tolerated; the hook is a side effect, not a gate.
+        let onSignedIn = self.onSignedIn
+        await runPostSignInHook(timeout: timeouts.network) {
+            await onSignedIn()
+        }
+    }
+
+    /// Refresh ``availableTeams`` from the client, tolerating failure so a
+    /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
+    /// the writes when a sign-out raced the fetch, so a signed-out shell does
+    /// not get the old account's teams persisted back.
+    private func refreshTeams(generation: UInt64) async {
+        do {
+            let client = self.client
+            let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
+                try await client.listTeams()
+            }
+            guard generation == sessionGeneration else { return }
+            availableTeams = teams
+            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+        } catch {
+            authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    private static func resolveTeamID(
+        selectedTeamID: String?,
+        teams: [CMUXAuthTeam]
+    ) -> String? {
+        if let selectedTeamID,
+           teams.contains(where: { $0.id == selectedTeamID }) {
+            return selectedTeamID
+        }
+        return teams.first?.id
+    }
+
+    func clearAuthState(preservePendingCode: Bool = false) {
+        sessionGeneration &+= 1
+        latestSignInRefreshToken = nil
+        if !preservePendingCode { pendingNonce = nil }
+        userCache.clear()
+        sessionCache.clear()
+        availableTeams = []
+        selectedTeamID = nil
+        apply(.cleared())
+    }
+
+    func preserveCachedSessionAfterValidationFailure() {
+        sessionCache.setHasTokens(true)
+        let cachedUser = currentUser ?? loadCachedUser()
+        currentUser = cachedUser
+        isAuthenticated = cachedUser != nil
+        isRestoringSession = false
+    }
+
+    func clearPersistedAuthForUITest() async {
+        if launch.includesDevAuth { debugCredentials = nil }
+        await clearPersistedStackSession()
+    }
+
+    /// Clear the locally persisted Stack session, with no server round trip.
+    ///
+    /// Used on restore/validation paths where the session is already dead or
+    /// unusable (definitive refresh-token rejection, vanished user, failed
+    /// auto-login, UI-test resets). These paths previously ran the SDK's
+    /// network sign-out, whose revocation DELETE can block for minutes offline
+    /// and wedge launch restore; revoking an already-dead session buys
+    /// nothing, so they clear locally only. Interactive sign-out
+    /// (``signOut(onSignedOut:teardownTimeout:)``) still attempts a bounded
+    /// best-effort revocation.
+    func clearPersistedStackSession() async {
+        await client.clearLocalSession()
+    }
+
+    func requireOnline() async throws {
+        guard await isOnline() else {
+            throw AuthError.offline
+        }
+    }
+
+    /// Race `operation` against the phase deadline on the injected clock,
+    /// dispatching token-touching and side-effect phases to coordinator-owned
+    /// helpers so sign-out can still cancel late work after a timeout.
+    func runPhase<T: Sendable>(
+        _ phase: AuthPhase,
+        timeout: Duration,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        if phase == .validateSession {
+            return try await runValidationPhase(timeout: timeout, operation)
+        }
+        if phase == .fetchUser || phase == .listTeams {
+            return try await runTokenTouchingPhase(phase, timeout: timeout, operation)
+        }
+        return try await withAuthPhaseTimeout(
+            phase,
+            duration: timeout,
+            clock: clock,
+            log: log,
+            registry: phaseTimeoutRegistry,
+            blocksRetriesWhileTimedOutOperationActive: phase == .sendCode,
+            operation: operation
+        )
+    }
+
+    func apply(_ state: CMUXAuthState) {
+        currentUser = state.currentUser
+        isAuthenticated = state.isAuthenticated
+        isRestoringSession = state.isRestoringSession
+    }
+
+    func loadCachedUser() -> CMUXAuthUser? {
+        do {
+            return try userCache.load()
+        } catch {
+            authLog.error("Failed to load cached user: \(error.localizedDescription, privacy: .private)")
+            return nil
+        }
+    }
+
+    func saveCachedUser(_ user: CMUXAuthUser) {
+        do {
+            try userCache.save(user)
+        } catch {
+            authLog.error("Failed to cache user: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    var autoLoginCredentials: CMUXAuthAutoLoginCredentials? {
+        CMUXAuthAutoLoginCredentials(
+            environment: launch.environment,
+            clearAuth: launch.clearAuthRequested,
+            mockDataEnabled: launch.mockDataEnabled
+        )
+    }
+
+    var fixtureUser: CMUXAuthUser? {
+        CMUXAuthUser(
+            uiTestFixtureEnvironment: launch.environment,
+            clearAuth: launch.clearAuthRequested,
+            mockDataEnabled: launch.mockDataEnabled
+        )
+    }
+
+    static let uiTestMockUser = CMUXAuthUser(
+        id: "uitest_user",
+        primaryEmail: "uitest@cmux.local",
+        displayName: "UI Test"
+    )
+}

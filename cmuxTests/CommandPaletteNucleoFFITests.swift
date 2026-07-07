@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import XCTest
 
 #if canImport(cmux_DEV)

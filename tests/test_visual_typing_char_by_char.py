@@ -49,36 +49,82 @@ def main() -> int:
         # Type into the shell prompt without pressing Enter.
         text = "cmux"
 
+        # Capture the static prompt line (empty input) once. The typed-text check
+        # below strips this prefix so a "cmux" already present in the prompt/path
+        # cannot satisfy the check before anything is typed. Trailing
+        # zsh-autosuggestion glyphs render AFTER the cursor, so the typed prefix
+        # still appears at the start of the post-prompt remainder.
+        def _last_line() -> str:
+            return (
+                c.read_terminal_text(panel_id)
+                .replace("\r", "")
+                .rstrip("\n")
+                .split("\n")[-1]
+                .rstrip()
+            )
+
+        baseline_line = _last_line()
+
         # A single glyph can be surprisingly small at some font sizes; keep this low but
         # non-zero to still catch the "no visual updates until Enter/unfocus" regression.
         min_pixels = 20
 
         for i, ch in enumerate(text):
             c.panel_snapshot_reset(panel_id)
+            # Establish the diff baseline; subsequent panel_snapshot calls diff the current
+            # frame against this captured "before" image.
             c.panel_snapshot(panel_id, f"typing_{i}_before")
 
             # Use a real keyDown path (not NSTextInputClient.insertText) to better match
             # physical typing behavior and catch "input doesn't render until Enter/unfocus".
             c.simulate_shortcut(ch)
-            time.sleep(0.12)
 
-            snap = c.panel_snapshot(panel_id, f"typing_{i}_after_{ord(ch)}")
-            changed = int(snap.get("changed_pixels", -1))
-            if changed < min_pixels:
-                raise cmuxError(
-                    "Expected visible pixel changes after typing a character.\n"
-                    f"char={ch!r} index={i} changed_pixels={changed} min_pixels={min_pixels}\n"
-                    f"snapshot_path={snap.get('path')}"
+            # The chain keystroke -> PTY echo -> Ghostty render -> committed frame -> snapshot
+            # diff is asynchronous; under CI/VM load a single committed frame can take well
+            # over 120ms. Instead of a fixed sleep + one hard assert, poll the real signals:
+            # the rendered pixel diff crossing min_pixels AND the terminal text buffer holding
+            # the typed prefix. Each panel_snapshot diffs against the prior call, so a frame can
+            # commit between two polls; latch on the first snapshot that crosses the threshold so
+            # a split diff across polls still counts. Fail only at the deadline.
+            expected_prefix = text[: i + 1]
+            state = {"changed": -1, "snap": None, "buf": ""}
+
+            def _typed_visible() -> bool:
+                snap = c.panel_snapshot(panel_id, f"typing_{i}_after_{ord(ch)}")
+                changed = int(snap.get("changed_pixels", -1))
+                state["snap"] = snap
+                if changed > state["changed"]:
+                    state["changed"] = changed
+                buf = c.read_terminal_text(panel_id)
+                state["buf"] = buf
+                last_line = buf.replace("\r", "").rstrip("\n").split("\n")[-1].rstrip()
+                # Strip the prompt captured before typing so the prompt's own text
+                # cannot satisfy the check; only the region we typed into remains.
+                typed_region = (
+                    last_line[len(baseline_line):]
+                    if last_line.startswith(baseline_line)
+                    else last_line
                 )
+                return state["changed"] >= min_pixels and expected_prefix in typed_region
 
-            # Also ensure the terminal text buffer updated before Enter. (This is weaker than the
-            # visual assertion, but helps triage whether the issue is rendering vs tick/IO.)
-            buf = c.read_terminal_text(panel_id)
-            if text[: i + 1] not in buf:
-                tail = buf[-600:].replace("\r", "\\r")
+            try:
+                _wait_for(_typed_visible, timeout_s=6.0)
+            except cmuxError:
+                snap = state["snap"] or {}
+                if state["changed"] < min_pixels:
+                    raise cmuxError(
+                        "Expected visible pixel changes after typing a character.\n"
+                        f"char={ch!r} index={i} changed_pixels={state['changed']} "
+                        f"min_pixels={min_pixels}\n"
+                        f"snapshot_path={snap.get('path')}"
+                    )
+                # Pixels changed but the terminal text buffer never showed the prefix. (This is
+                # weaker than the visual assertion, but helps triage whether the issue is
+                # rendering vs tick/IO.)
+                tail = state["buf"][-600:].replace("\r", "\\r")
                 raise cmuxError(
                     "Terminal text did not update after typing.\n"
-                    f"expected_prefix={text[:i+1]!r}\n"
+                    f"expected_prefix={expected_prefix!r}\n"
                     f"last_tail:\n{tail}"
                 )
 

@@ -15,7 +15,7 @@ final class AgentSessionPanel: Panel {
     private(set) var workspaceId: UUID
     let rendererKind: AgentSessionRendererKind
     let initialProviderID: AgentSessionProviderID
-    let workingDirectory: String?
+    private(set) var workingDirectory: String?
     let rendererSession = AgentSessionWebRendererSession()
 
     private(set) var currentProviderID: AgentSessionProviderID
@@ -71,6 +71,10 @@ final class AgentSessionPanel: Panel {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+    }
+
+    func clearWorkingDirectory() {
+        workingDirectory = nil
     }
 
     private func setHasActiveProvider(_ hasActiveProvider: Bool) {

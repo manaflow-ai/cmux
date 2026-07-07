@@ -104,6 +104,22 @@ export async function sendApnsNotification(
   if (targets.length === 0) return [];
   const jwt = providerToken(config);
   const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
+  // The collapse-id coalesces repeated updates for the same notification into
+  // one delivered banner (the dismiss lever itself is the `cmux.notificationId`
+  // payload key, which iOS maps to delivered banners; the request identifier
+  // equaling the collapse-id is observed OS behavior, not a contract). APNs
+  // caps it at 64 bytes; a UUID is 36, but guard anyway so an over-long id
+  // degrades to "no collapse" instead of a 400.
+  // Never set on a dismiss push: a collapse would try to REPLACE the delivered
+  // banner with the invisible dismiss payload instead of leaving removal to the
+  // app's background handler.
+  const collapseId = input.kind === "dismiss" ? undefined : collapseIdFor(input.notificationId);
+  // A dismiss push carries badge + content-available but nothing visible:
+  // priority 5 (power-friendly, may coalesce) instead of the default 10, which
+  // Apple reserves for pushes that present UI immediately. Still push-type
+  // `alert` because a badge update is user-facing in Apple's taxonomy and a
+  // `background`-type push may not carry `badge`.
+  const priority = input.kind === "dismiss" ? "5" : undefined;
 
   const byHost = new Map<string, ApnsTarget[]>();
   for (const t of targets) {
@@ -113,12 +129,19 @@ export async function sendApnsNotification(
 
   const results = await Promise.all(
     [...byHost.entries()].map(([host, hostTargets]) =>
-      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs).catch(() =>
+      sendHostGroup(transport, host, hostTargets, jwt, body, timeoutMs, collapseId, priority).catch(() =>
         connectionErrorResults(hostTargets),
       ),
     ),
   );
   return results.flat();
+}
+
+/** A valid (≤64-byte) apns-collapse-id for the notification id, or undefined. */
+function collapseIdFor(notificationId: string | null | undefined): string | undefined {
+  const id = notificationId?.trim();
+  if (!id) return undefined;
+  return Buffer.byteLength(id, "utf8") <= 64 ? id : undefined;
 }
 
 function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
@@ -137,6 +160,8 @@ async function sendHostGroup(
   jwt: string,
   body: Buffer,
   timeoutMs: number,
+  collapseId: string | undefined,
+  priority: string | undefined,
 ): Promise<ApnsSendResult[]> {
   let client: ApnsHttp2Session | null = null;
   try {
@@ -146,7 +171,9 @@ async function sendHostGroup(
     const connError: Promise<null> = new Promise((resolve) => {
       connectedClient.once("error", () => resolve(null));
     });
-    return await Promise.all(hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError)));
+    return await Promise.all(
+      hostTargets.map((t) => sendOne(connectedClient, jwt, t, body, timeoutMs, connError, collapseId, priority)),
+    );
   } catch {
     return connectionErrorResults(hostTargets);
   } finally {
@@ -161,6 +188,8 @@ function sendOne(
   body: Buffer,
   timeoutMs: number,
   connError: Promise<null>,
+  collapseId: string | undefined,
+  priority: string | undefined,
 ): Promise<ApnsSendResult> {
   return new Promise<ApnsSendResult>((resolve) => {
     let settled = false;
@@ -173,7 +202,7 @@ function sendOne(
 
     let req: http2.ClientHttp2Stream;
     try {
-      req = client.request({
+      const headers: http2.OutgoingHttpHeaders = {
         ":method": "POST",
         ":path": `/3/device/${target.deviceToken}`,
         "apns-topic": target.bundleId,
@@ -181,7 +210,12 @@ function sendOne(
         authorization: `bearer ${jwt}`,
         "content-type": "application/json",
         "content-length": String(body.length),
-      });
+      };
+      // Collapses repeated updates for the same notification into one
+      // delivered banner.
+      if (collapseId) headers["apns-collapse-id"] = collapseId;
+      if (priority) headers["apns-priority"] = priority;
+      req = client.request(headers);
     } catch (err) {
       finish(0, err instanceof Error ? err.message : "request_error");
       return;

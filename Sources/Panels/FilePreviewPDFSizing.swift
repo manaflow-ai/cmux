@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import PDFKit
 
 enum FilePreviewPDFSizing {
@@ -34,7 +35,7 @@ enum FilePreviewPDFSizing {
             return minimumSidebarWidth
         }
 
-        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         var sampledRows = 0
         var widestRow = CGFloat(0)
         measureOutlineChildren(

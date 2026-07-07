@@ -92,6 +92,8 @@ Kenar çubuğu git dalını, bağlantılı PR durumunu/numarasını, çalışma 
 - **Yerel macOS uygulaması** — Swift ve AppKit ile yapılmıştır, Electron değil. Hızlı başlangıç, düşük bellek kullanımı.
 - **Ghostty uyumlu** — Temalar, yazı tipleri ve renkler için mevcut `~/.config/ghostty/config` dosyanızı okur
 - **GPU hızlandırmalı** — Akıcı görüntüleme için libghostty tarafından desteklenir
+- **Klavye kısayolları** — Çalışma alanları, bölmeler, tarayıcı ve daha fazlası için [kapsamlı kısayollar](https://cmux.com/docs/keyboard-shortcuts)
+- **Açık kaynak** — Ücretsiz ve GPL lisanslı
 
 ## Kurulum
 
@@ -157,7 +159,10 @@ cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [doküma
 | ⌃ ⌘ [ | Önceki çalışma alanı |
 | ⌘ ⇧ W | Çalışma alanını kapat |
 | ⌘ ⇧ R | Çalışma alanını yeniden adlandır |
+| ⌥ ⌘ E | Çalışma alanı açıklamasını düzenle |
 | ⌘ B | Kenar çubuğunu aç/kapat |
+| ⌥ ⌘ B | Sağ kenar çubuğunu aç/kapat |
+| ⌘ ⇧ E | Sağ kenar çubuğu odağını aç/kapat |
 
 ### Surfaces
 
@@ -184,6 +189,7 @@ cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [doküma
 ### Tarayıcı
 
 Tarayıcı geliştirici araçları kısayolları Safari varsayılanlarını takip eder ve `Settings → Keyboard Shortcuts` bölümünden özelleştirilebilir.
+⌃ P dahil komut paleti gezinme kısayolları da özelleştirilebilir ve tuş vuruşu aktif terminale ulaşacak şekilde temizlenebilir.
 
 | Kısayol | Eylem |
 |----------|--------|
@@ -201,14 +207,17 @@ Tarayıcı geliştirici araçları kısayolları Safari varsayılanlarını taki
 |----------|--------|
 | ⌘ I | Bildirim panelini göster |
 | ⌘ ⇧ U | En son okunmamışa atla |
+| ⌥ ⌘ U | Mevcut öğenin okunmamış durumunu aç/kapat |
+| ⌃ ⌘ U | Mevcut öğeyi en eski okunmamış olarak işaretle ve bir sonraki okunmamışa atla |
 
 ### Bul
 
 | Kısayol | Eylem |
 |----------|--------|
 | ⌘ F | Bul |
-| ⌘ G / ⌘ ⇧ G | Sonrakini bul / Öncekini bul |
-| ⌘ ⇧ F | Arama çubuğunu gizle |
+| ⌘ ⇧ F | Dizinde bul |
+| ⌘ G / ⌥ ⌘ G | Sonrakini bul / Öncekini bul |
+| ⌥ ⌘ ⇧ F | Arama çubuğunu gizle |
 | ⌘ E | Seçimi arama için kullan |
 
 ### Terminal
@@ -226,6 +235,7 @@ Tarayıcı geliştirici araçları kısayolları Safari varsayılanlarını taki
 | Kısayol | Eylem |
 |----------|--------|
 | ⌘ ⇧ N | Yeni pencere |
+| ⌘ ⇧ O | Önceki oturumu yeniden aç |
 | ⌘ , | Ayarlar |
 | ⌘ ⇧ , | Yapılandırmayı yeniden yükle |
 | ⌘ Q | Çıkış |
@@ -235,6 +245,8 @@ Tarayıcı geliştirici araçları kısayolları Safari varsayılanlarını taki
 [cmux NIGHTLY'i indir](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
 cmux NIGHTLY, kendi bundle ID'sine sahip ayrı bir uygulamadır, bu yüzden kararlı sürümle yan yana çalışır. En son `main` commit'inden otomatik olarak derlenir ve kendi Sparkle akışı aracılığıyla otomatik güncellenir.
+
+Nightly hatalarını [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) üzerinde veya [Discord'daki #nightly-bugs](https://discord.gg/xsgFEVrWCZ) kanalında bildirin.
 
 ## Oturum geri yükleme
 
@@ -246,13 +258,15 @@ cmux'tan çıktığınızda mevcut oturum kaydedilir. Yeniden başlatıldığın
 
 cmux rastgele canlı işlem durumunu checkpoint etmez. tmux, vim, shell'ler ve desteklenmeyen terminal uygulamaları normal terminaller olarak yeniden açılır.
 
-Desteklenen agent oturumları, hooks yerel bir oturum ID'si kaydettiğinde sürdürülebilir:
+Desteklenen agent oturumları, hooks yerel bir oturum ID'si kaydettiğinde sürdürülebilir. Binary dosyasının `PATH` üzerinde olması için hooks'u agent CLI'sini kurduktan sonra kurun:
 
 ```bash
 cmux hooks setup
 cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
+
+`cmux hooks setup` bulabildiği desteklenen agentleri kurar ve atlanan agentler için bir özet yazdırır. Desteklenen resume entegrasyonları arasında Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory ve Qoder bulunur. Claude entegrasyonu Ayarlar'da etkinleştirildiğinde Claude Code, cmux Claude wrapper tarafından işlenir.
 
 Gelişmiş kullanıcılar ve entegrasyonlar mevcut terminal surface'ine özel bir resume komutu bağlayabilir. Bu, tmux oturumları veya özel agent CLI'ları gibi kendi kalıcı durumuna sahip araçlar için kullanışlıdır:
 
@@ -262,7 +276,98 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Bu binding cmux surface'ine bağlı kalır. Genel CLI veya socket ile oluşturulan bindingler inceleme ve manuel resume için saklanır. cmux yalnızca güvenilir olarak işaretlediği resume bindinglerini otomatik çalıştırır, örneğin canlı processlerden algılanan tmux bindingleri. Token, parola, gizli değer ve API anahtarı gibi hassas ortam anahtarları resume binding kaydedilmeden önce atılır.
+Bu binding cmux surface'ine bağlı kalır. Genel CLI veya socket ile oluşturulan bindingler, otomatik resume için imzalı bir komut öneki onaylamadığınız sürece inceleme ve manuel resume için saklanır. Onaylanan önekler ayrıca, mevcut olduğunda, çalışma dizinine ve tam ortam değerlerine de bağlanır. Onayları **Settings > Terminal > Resume Commands** bölümünde gözden geçirin veya düzenleyin. cmux yalnızca güvenilir olarak işaretlediği resume bindinglerini otomatik çalıştırır, örneğin canlı processlerden algılanan tmux bindingleri veya kullanıcı tarafından onaylanan önekler. Token, parola, gizli değer ve API anahtarı gibi hassas ortam anahtarları resume binding kaydedilmeden önce atılır.
+
+Geri yüklenen agent terminallerinin resume komutlarını otomatik çalıştırmak yerine boşta kalmasını sağlamak için **Settings > Terminal > Resume Agent Sessions on Reopen** seçeneğini kapatın veya bunu `~/.config/cmux/cmux.json` dosyasında ayarlayın:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+Bu yalnızca otomatik agent resume komutlarını devre dışı bırakır. cmux yine de kaydedilmiş düzeni, çalışma dizinlerini, kaydırma geçmişini ve tarayıcı geçmişini geri yükler.
+
+Son kaydedilen anlık görüntüyü manuel olarak yeniden uygulamanız gerekirse, şunu kullanın:
+- `File > Reopen Previous Session`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+Arka planda cmux, `~/Library/Application Support/cmux/` altında sürümlenmiş bir anlık görüntü yazar ve agent hooks oturum eşlemelerini `~/.cmuxterm/` altında yazar. Geri yükleme sırasında cmux önce düzeni yeniden oluşturur, ardından otomatik agent resume etkinleştirildiğinde desteklenen agentin yerel resume komutunu çalıştırır.
+
+Tam kılavuzu <https://cmux.com/docs/session-restore> adresinde okuyun.
+
+## SSS
+
+### cmux, Ghostty ile nasıl ilişkilidir?
+
+cmux, Ghostty'nin bir fork'u değildir. Uygulamaların web görünümleri için WebKit kullanması gibi, terminal görüntüleme için [libghostty](https://github.com/ghostty-org/ghostty)'yi bir kütüphane olarak kullanır. Ghostty bağımsız bir terminaldir; cmux, onun görüntüleme motoru üzerine inşa edilmiş farklı bir uygulamadır.
+
+### Hangi platformları destekler?
+
+Şimdilik yalnızca macOS. cmux, yerel bir Swift + AppKit uygulamasıdır.
+
+### Bir iOS uygulaması var mı?
+
+Evet, betada. iPhone'unuzu Mobile Connect penceresinden Mac'inizle eşleştirin ve telefonunuzdan terminallerinize bağlanın, isteğe bağlı terminal bildirimi iletmeyle birlikte. TestFlight'ta cmux BETA olarak sunulur. [iOS dokümantasyonuna](https://cmux.com/docs/ios) bakın.
+
+### cmux hangi kodlama ajanlarıyla çalışır?
+
+Hepsiyle. cmux bir terminaldir, bu yüzden bir terminalde çalışan herhangi bir ajan kutudan çıktığı gibi çalışır: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent ve komut satırından başlatabileceğiniz başka her şey.
+
+### cmux birden fazla ajanı ve alt ajanı orkestre edebilir mi?
+
+Evet. Bir ajan alt ajanlar veya takım arkadaşları oluşturduğunda, cmux bunları gizli arka plan işlemleri yerine yerel panellere ve bölmelere dönüştürür. [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams) ve [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode) çoklu model orkestrasyonunu destekler, böylece bir çalıştırmadaki her ajan görünür ve kontrol edilebilir.
+
+### cmux'u uzak makinelerle kullanabilir miyim?
+
+Evet. SSH üzerinden çalışma alanları açın ve uzak tmux oturumlarına bağlanın, böylece ajanlar uzak bir hostta çalışırken siz onları cmux'tan yönetebilirsiniz. [SSH ve uzaktan](https://cmux.com/docs/ssh) bölümüne bakın.
+
+### Bildirimler nasıl çalışır?
+
+Bir işlem dikkat istediğinde, cmux panellerin etrafında bildirim halkaları, kenar çubuğunda okunmamış rozetleri, bir bildirim popover'ı ve bir macOS masaüstü bildirimi gösterir. Bunlar standart terminal escape dizileri (OSC 9/99/777) aracılığıyla otomatik olarak tetiklenir veya [cmux CLI](https://cmux.com/docs/notifications#cli-usage) ve [agent hooks](https://cmux.com/docs/notifications#integration-examples) ile tetikleyebilirsiniz. Hooks veya OSC destekleyen herhangi bir ajan çalışır, buna Claude Code, Codex, OpenCode ve pi dahildir.
+
+### cmux programlanabilir mi?
+
+Evet. Her eylem cmux CLI ve bir Unix socket aracılığıyla kullanılabilir: çalışma alanları oluşturun, bölünmüş paneller açın, girdi gönderin, ekran içeriğini okuyun, ekran görüntüleri alın ve uygulama içi tarayıcıyı yönetin. [CLI referansı](https://cmux.com/docs/api) ve [tarayıcı otomasyonu](https://cmux.com/docs/browser-automation) dokümanlarına bakın.
+
+### Yerleşik tarayıcı neler yapabilir?
+
+cmux, terminalinizin yanında gerçek bir tarayıcı paneli bölebilir ve tamamen programlanabilir: gezinin, DOM'un anlık görüntüsünü alın, tıklayın, yazın, JavaScript çalıştırın ve aynı socket API üzerinden konsol ile ağ aktivitesini okuyun. Ajanlar bunu, cmux'tan ayrılmadan kendi web değişikliklerini doğrulamak için kullanır. [Tarayıcı otomasyonuna](https://cmux.com/docs/browser-automation) bakın.
+
+### cmux'un yetenekleri (skills) var mı?
+
+Evet. Yetenekler, cmux'ta çalışan herhangi bir ajana verebileceğiniz, CLI kontrolü, çalışma alanı otomasyonu, ayarlar ve tarayıcı yüzeyleri gibi şeyler için yeniden kullanılabilir iş akışlarıdır. Açık koleksiyona [cmux-skills](https://github.com/manaflow-ai/cmux-skills) adresinden göz atın veya [yetenekler dokümanlarını](https://cmux.com/docs/skills) okuyun.
+
+### Klavye kısayollarını özelleştirebilir miyim?
+
+Terminal tuş atamaları Ghostty yapılandırma dosyanızdan (`~/.config/ghostty/config`) okunur. cmux'a özgü kısayollar (çalışma alanları, bölmeler, tarayıcı, bildirimler) Ayarlar'da özelleştirilebilir. Tam liste için [varsayılan kısayollara](https://cmux.com/docs/keyboard-shortcuts) bakın.
+
+### cmux'u özelleştirebilir miyim?
+
+Evet. Terminal görüntüleme Ghostty yapılandırmanızı kullanır, böylece temalar, yazı tipleri, renkler ve imleç doğrudan taşınır. cmux'un kendi `~/.config/cmux/cmux.json` dosyasındaki ayarları kenar çubuğunu, sekme çubuğunu, bölünmüş panelleri ve davranışı kontrol eder ve her [klavye kısayolu](https://cmux.com/docs/keyboard-shortcuts) düzenlenebilir. [Yapılandırmaya](https://cmux.com/docs/configuration) bakın.
+
+### Oturumlarım kaydediliyor mu?
+
+Evet. cmux, yeniden başlattığınızda pencerelerinizi, çalışma alanlarınızı, panellerinizi, çalışma dizinlerinizi ve kaydırma geçmişinizi geri yükler ve bu durum yalnızca uygulamadan çıkmaktan değil, tam bir bilgisayar yeniden başlatmasından da kurtulur. Claude Code, Codex ve OpenCode gibi agent oturumları da geri gelir. [Oturum geri yüklemeye](https://cmux.com/docs/session-restore) bakın.
+
+### tmux ile nasıl karşılaştırılır?
+
+tmux, herhangi bir terminalin içinde çalışan bir terminal çoklayıcısıdır. cmux, bir GUI'ye sahip yerel bir macOS uygulamasıdır: dikey sekmeler, bölünmüş paneller, gömülü bir tarayıcı ve bir socket API, hepsi yerleşik, yapılandırma dosyası veya önek tuşu gerekmez. Bununla birlikte, birçok kişi cmux'u SSH ve tmux ile birlikte mutlu bir şekilde çalıştırır ve cmux, uzak tmux oturumlarınıza yerel olarak bağlanabilir ([beta](https://cmux.com/docs/remote-tmux)).
+
+### cmux ücretsiz mi?
+
+Evet, cmux ücretsiz kullanılır. Kaynak kodu [GitHub](https://github.com/manaflow-ai/cmux)'ta mevcuttur.
+
+### cmux'u nasıl destekleyebilirim?
+
+cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sırada ne olduğuna erken erişim almak isterseniz, [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)'a göz atın.
+
+### Bir özellik isteğim var veya bir hata buldum?
+
+Bunu duymak istiyoruz. GitHub'da bir [issue](https://github.com/manaflow-ai/cmux/issues) veya [pull request](https://github.com/manaflow-ai/cmux/pulls) açın ya da bize [e-posta gönderin](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
 ## Yıldız Geçmişi
 
@@ -291,6 +396,11 @@ Katılım yolları:
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> Topluluğa katılmak için QR kodunu tarayın.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux topluluğuna katılmak için WeChat QR kodu" width="240" />
+</p>
 
 ## Founder's Edition
 

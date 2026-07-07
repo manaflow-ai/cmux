@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
 import re
+import urllib.error
+import urllib.request
 
 
 IMMUTABLE_ASSET_PATTERNS = [
@@ -49,6 +55,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class GitHubAPIError(RuntimeError):
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
 def gh_json(*args: str) -> dict:
     proc = subprocess.run(
         ["gh", *args],
@@ -58,12 +71,60 @@ def gh_json(*args: str) -> dict:
     if proc.returncode != 0:
         stderr = (proc.stderr or proc.stdout).strip()
         raise subprocess.CalledProcessError(proc.returncode, proc.args, output=proc.stdout, stderr=stderr)
+    if not proc.stdout:
+        return {}
     return json.loads(proc.stdout)
+
+
+def github_token() -> str | None:
+    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+
+
+def github_api_url(path: str) -> str:
+    api_base = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+    return f"{api_base}/{path.lstrip('/')}"
+
+
+def github_api_json(method: str, path: str) -> dict:
+    token = github_token()
+    if token:
+        request = urllib.request.Request(
+            github_api_url(path),
+            method=method,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "cmux-nightly-prune",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request) as response:
+                body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace")
+            raise GitHubAPIError(exc.code, message) from exc
+        if not body:
+            return {}
+        return json.loads(body)
+
+    if shutil.which("gh"):
+        args = ["api"]
+        if method != "GET":
+            args.extend(["-X", method])
+        args.append(path)
+        return gh_json(*args)
+
+    raise RuntimeError("Set GH_TOKEN or install gh to access the GitHub API")
 
 
 def load_release(repo: str, release_tag: str) -> dict | None:
     try:
-        return gh_json("api", f"repos/{repo}/releases/tags/{release_tag}")
+        return github_api_json("GET", f"repos/{repo}/releases/tags/{release_tag}")
+    except GitHubAPIError as exc:
+        if exc.status == 404 or "not found" in exc.message.lower():
+            return None
+        raise
     except subprocess.CalledProcessError as exc:
         message = (exc.stderr or exc.output or "").lower()
         if "404" in message or "not found" in message:
@@ -116,16 +177,7 @@ def delete_assets(repo: str, assets: list[ReleaseAsset]) -> None:
     total = len(assets)
     for index, asset in enumerate(assets, start=1):
         log(f"[{index}/{total}] deleting {asset.name}")
-        subprocess.run(
-            [
-                "gh",
-                "api",
-                "-X",
-                "DELETE",
-                f"repos/{repo}/releases/assets/{asset.asset_id}",
-            ],
-            check=True,
-        )
+        github_api_json("DELETE", f"repos/{repo}/releases/assets/{asset.asset_id}")
 
 
 def main() -> int:

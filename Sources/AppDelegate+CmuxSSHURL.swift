@@ -1,5 +1,6 @@
 import AppKit
-import CmuxSocketControl
+import CmuxFoundation
+import CmuxSettings
 import Bonsplit
 import Foundation
 import UniformTypeIdentifiers
@@ -191,6 +192,8 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         guard fileURL.isFileURL else { return nil }
         let standardizedURL = fileURL.standardizedFileURL
         let directoryCheckURL = standardizedURL.resolvingSymlinksInPath()
+        guard !SessionPersistencePolicy.isCmuxCrashStorageURL(standardizedURL) else { return nil }
+        guard !SessionPersistencePolicy.isCmuxCrashStorageURL(directoryCheckURL) else { return nil }
         let resourceValues = try? directoryCheckURL.resourceValues(forKeys: [.isDirectoryKey])
         guard resourceValues?.isDirectory != true else { return nil }
         let resolvedContentType = contentType ?? Self.contentType(for: standardizedURL)
@@ -849,7 +852,7 @@ extension AppDelegate {
             localized: "dialog.sshURL.commandLabel",
             defaultValue: "Command preview:"
         ))
-        commandLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        commandLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
 
         let socketPath = CmuxSSHURLProcessLauncher.shared.resolvedSocketPath()
         let commandScrollView = cmuxSSHURLTextPreview(request.cliPreview(socketPath: socketPath), height: 80)
@@ -915,7 +918,7 @@ extension AppDelegate {
             localized: "dialog.textURL.previewLabel",
             defaultValue: "Text preview:"
         ))
-        previewLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        previewLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
 
         let preview = cmuxSSHURLTextPreview(request.pasteText, height: 180)
 
@@ -951,7 +954,7 @@ extension AppDelegate {
         textView.drawsBackground = true
         textView.backgroundColor = NSColor.textBackgroundColor
         textView.textColor = NSColor.labelColor
-        textView.font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        textView.font = GlobalFontMagnification.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true

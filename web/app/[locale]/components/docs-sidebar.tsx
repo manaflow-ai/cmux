@@ -1,8 +1,8 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
-import { navItems, isSection, type NavLink } from "./docs-nav-items";
+import { navItemsForLocale, isSection, type NavLink } from "./docs-nav-items";
 import { DocsSearch } from "./docs-search";
 
 function SidebarLink({
@@ -38,7 +38,9 @@ function SidebarLink({
 
 export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const locale = useLocale();
   const t = useTranslations("docs.navItems");
+  const navItems = navItemsForLocale(locale);
 
   return (
     <>

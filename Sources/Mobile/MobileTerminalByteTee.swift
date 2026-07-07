@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import CmuxTerminal
 
 private let mobileTerminalByteTeeLog = Logger(
     subsystem: "dev.cmux",
