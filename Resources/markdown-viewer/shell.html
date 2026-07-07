@@ -293,6 +293,35 @@ html { scroll-behavior: smooth; }
       .replace(/>/g, '&gt;');
   }
 
+  function sanitizeLinkLabelHTML(html) {
+    var template = document.createElement('template');
+    template.innerHTML = String(html == null ? '' : html);
+    var allowedInlineTags = {
+      br: true,
+      code: true,
+      del: true,
+      em: true,
+      s: true,
+      strong: true
+    };
+    var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
+    var elements = [];
+    while (walker.nextNode()) {
+      elements.push(walker.currentNode);
+    }
+    elements.forEach(function(el) {
+      var tag = el.tagName.toLowerCase();
+      if (!allowedInlineTags[tag]) {
+        el.parentNode.replaceChild(document.createTextNode(el.textContent || ''), el);
+        return;
+      }
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        el.removeAttribute(attr.name);
+      });
+    });
+    return template.innerHTML;
+  }
+
   function escapeDataAttribute(s) {
     // Store raw local paths in data attributes as percent-encoded
     // strings. This avoids attribute-escaping footguns entirely.
@@ -1009,9 +1038,9 @@ html { scroll-behavior: smooth; }
       link(href, title, text) {
         var html = '<a href="' + escapeAttribute(href) + '"';
         if (title != null) {
-          html += ' title="' + escapeAttribute(title) + '"';
+          html += ' title="' + String(title) + '"';
         }
-        return html + '>' + String(text == null ? '' : text) + '</a>';
+        return html + '>' + sanitizeLinkLabelHTML(text) + '</a>';
       }
     }
   });

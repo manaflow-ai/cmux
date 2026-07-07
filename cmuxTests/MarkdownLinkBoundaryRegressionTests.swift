@@ -13,6 +13,40 @@ import WebKit
 final class MarkdownLinkBoundaryRegressionTests {
     @Test
     func renderedInlineLinkExcludesTrailingSentencePeriod() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let expectedPath = "raw/plans/agent-ticket-v2/w5-runner-design.md"
+            let snapshot = try await renderLinkBoundarySnapshot(
+                """
+                The runner design doc is written: [\(expectedPath)](\(expectedPath)). It locks in the decisions we discussed...
+                """,
+                in: webView
+            )
+
+            #expect(snapshot.href == expectedPath)
+            #expect(snapshot.text == expectedPath)
+            #expect(snapshot.trailingText.hasPrefix(". It locks in"))
+            #expect(snapshot.periodHitHref == nil)
+        }
+    }
+
+    @Test
+    func renderedInlineLinkTitleAndLabelAreEscapedOnce() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let snapshot = try await renderLinkBoundarySnapshot(
+                #"See [<span onclick="x">label</span> **bold**](file.md "a & \" <q>")."#,
+                in: webView
+            )
+
+            #expect(snapshot.href == "file.md")
+            #expect(snapshot.title == #"a & " <q>"#)
+            #expect(snapshot.text == "label bold")
+            #expect(snapshot.innerHTML == "label <strong>bold</strong>")
+        }
+    }
+
+    private func withLoadedMarkdownShell<T>(
+        _ body: (WKWebView) async throws -> T
+    ) async throws -> T {
         let markdownURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-link-boundary-\(UUID().uuidString).md")
         let frame = NSRect(x: 0, y: 0, width: 1_000, height: 600)
@@ -32,19 +66,7 @@ final class MarkdownLinkBoundaryRegressionTests {
             in: webView,
             baseURL: markdownURL
         )
-
-        let expectedPath = "raw/plans/agent-ticket-v2/w5-runner-design.md"
-        let snapshot = try await renderLinkBoundarySnapshot(
-            """
-            The runner design doc is written: [\(expectedPath)](\(expectedPath)). It locks in the decisions we discussed...
-            """,
-            in: webView
-        )
-
-        #expect(snapshot.href == expectedPath)
-        #expect(snapshot.text == expectedPath)
-        #expect(snapshot.trailingText.hasPrefix(". It locks in"))
-        #expect(snapshot.periodHitHref == nil)
+        return try await body(webView)
     }
 
     private func renderLinkBoundarySnapshot(
@@ -69,7 +91,9 @@ final class MarkdownLinkBoundaryRegressionTests {
               }
               return {
                 href: anchor && anchor.getAttribute('href'),
+                title: anchor && anchor.getAttribute('title'),
                 text: anchor && anchor.textContent,
+                innerHTML: anchor && anchor.innerHTML,
                 trailingText: trailing && trailing.textContent,
                 periodHitHref: periodHit && periodHit.getAttribute && periodHit.getAttribute('href')
               };
@@ -79,7 +103,9 @@ final class MarkdownLinkBoundaryRegressionTests {
         let raw = try #require(result as? [String: Any])
         return LinkBoundarySnapshot(
             href: raw["href"] as? String,
+            title: raw["title"] as? String,
             text: raw["text"] as? String,
+            innerHTML: raw["innerHTML"] as? String,
             trailingText: raw["trailingText"] as? String ?? "",
             periodHitHref: raw["periodHitHref"] as? String
         )
@@ -88,7 +114,9 @@ final class MarkdownLinkBoundaryRegressionTests {
 
 private struct LinkBoundarySnapshot {
     let href: String?
+    let title: String?
     let text: String?
+    let innerHTML: String?
     let trailingText: String
     let periodHitHref: String?
 }
