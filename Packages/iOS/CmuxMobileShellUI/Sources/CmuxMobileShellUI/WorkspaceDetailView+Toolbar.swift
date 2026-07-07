@@ -56,6 +56,7 @@ extension WorkspaceDetailView {
         toolbarContentWidth > 0 ? toolbarContentWidth : nil
     }
 
+    @ViewBuilder
     private var workspaceBackToolbarIsland: some View {
         if let backButtonConfiguration, backButtonConfiguration.unreadCount > 0 {
             workspaceBackToolbarButton
