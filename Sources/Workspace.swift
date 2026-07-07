@@ -2175,16 +2175,23 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// One terminal panel per currently-visible pane: the selected surface in
-    /// each split pane of the main area. These are the fan-out targets for
-    /// broadcast input (see ``broadcastInputEnabled``). Background surface-tabs
-    /// and the right-Dock tree are intentionally excluded — broadcast is
-    /// "visible panes only". Mirrors the pane-walk in
-    /// ``backgroundPrimeTerminalPanels``.
+    /// each on-screen split pane of the main area. These are the fan-out targets
+    /// for broadcast input (see ``broadcastInputEnabled``). Background
+    /// surface-tabs and the right-Dock tree are intentionally excluded —
+    /// broadcast is strictly "visible panes only":
+    ///
+    /// - While split-zoom is active only the zoomed pane is rendered, so that is
+    ///   the sole target (matches the app's `renderedPaneIds` definition). This
+    ///   prevents keystrokes from leaking into off-screen panes.
+    /// - A pane with no selected tab (transient split/tab churn) is skipped
+    ///   rather than falling back to its first tab, so input never lands in a
+    ///   hidden/background terminal.
     var visibleTerminalPanels: [TerminalPanel] {
+        let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] }
+            ?? bonsplitController.allPaneIds
         var seenPanelIds = Set<UUID>()
-        return bonsplitController.allPaneIds.compactMap { paneId -> TerminalPanel? in
-            guard let surfaceId = bonsplitController.selectedTab(inPane: paneId)?.id
-                    ?? bonsplitController.tabs(inPane: paneId).first?.id,
+        return renderedPaneIds.compactMap { paneId -> TerminalPanel? in
+            guard let surfaceId = bonsplitController.selectedTab(inPane: paneId)?.id,
                   let panelId = panelIdFromSurfaceId(surfaceId),
                   seenPanelIds.insert(panelId).inserted else { return nil }
             return panels[panelId] as? TerminalPanel

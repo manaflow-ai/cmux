@@ -6179,6 +6179,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyUp(with: event)
             return
         }
+        // Broadcast key releases too, so sibling panes see matching up events
+        // and never get stuck modifier/held-key state under pane sync.
+        broadcastInputActive = resolveBroadcastInputActive()
+        defer { broadcastInputActive = false }
         if event.keyCode != 53 {
             endFindEscapeSuppression()
         }
@@ -6212,6 +6216,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.flagsChanged(with: event)
             return
         }
+        // Modifier changes broadcast to sibling panes as well, keeping their
+        // modifier state consistent with the focused pane under pane sync.
+        broadcastInputActive = resolveBroadcastInputActive()
+        defer { broadcastInputActive = false }
 
         if !hasMarkedText(),
            let action = ghostty_input_action_e.modifierActionForFlagsChanged(
