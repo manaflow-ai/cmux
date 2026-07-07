@@ -108,6 +108,35 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
     }
+
+    @Test func remoteSessionRestoreQueuedForProxyEndpointDoesNotMarkNavigationPending() throws {
+        let url = try #require(URL(string: "http://localhost:3000/cmux-issue-7504"))
+        let workspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: workspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: workspaceId
+        )
+        defer { panel.close() }
+
+        panel.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: url.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false
+        ))
+
+        #expect(panel.webViewLifecycleState == .discarded)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
+
+        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore.remote"))
+
+        #expect(panel.hiddenWebViewDiscardSnapshot.hasPendingRemoteNavigation)
+        #expect(panel.webViewLifecycleState == .liveHidden)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
+        #expect(panel.webView.url == nil)
+    }
 }
 
 // MARK: - GREEN(#7504) new-API coverage (added with the fix)

@@ -5760,7 +5760,6 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         guard let url = request.url else { return }
         cancelHiddenWebViewDiscard()
-        noteDiscardedWebViewRestoreNavigationStarted()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
@@ -5828,7 +5827,10 @@ final class BrowserPanel: Panel, ObservableObject {
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
         }
-        browserLoadRequest(effectiveRequest, in: webView)
+        noteDiscardedWebViewRestoreNavigationStarted()
+        if browserLoadRequest(effectiveRequest, in: webView) == nil {
+            noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
+        }
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
