@@ -46,7 +46,7 @@ public struct TerminalLinkRouter: Sendable {
             return .external(URL(fileURLWithPath: trimmed))
         }
 
-        if let webURL = schemelessHostPathURL(from: trimmed) {
+        if let webURL = schemelessWebURL(from: trimmed) {
             #if DEBUG
             logDebugEvent("link.resolve result=embeddedBrowser(schemeless) url=\(webURL)")
             #endif
@@ -79,20 +79,33 @@ public struct TerminalLinkRouter: Sendable {
         return nil
     }
 
-    private func schemelessHostPathURL(from trimmed: String) -> URL? {
-        guard trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              let slashIndex = trimmed.firstIndex(of: "/"),
-              slashIndex > trimmed.startIndex else {
+    private func schemelessWebURL(from trimmed: String) -> URL? {
+        guard trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return nil }
+
+        let hostCandidate: String
+        if let slashIndex = trimmed.firstIndex(of: "/") {
+            guard slashIndex > trimmed.startIndex else { return nil }
+            hostCandidate = String(trimmed[..<slashIndex])
+            guard !hostCandidate.hasSuffix(":") else { return nil }
+        } else if Self.hasNumericPort(trimmed) {
+            hostCandidate = trimmed
+        } else {
             return nil
         }
 
-        let hostCandidate = String(trimmed[..<slashIndex])
-        guard !hostCandidate.hasSuffix(":") else { return nil }
         guard let normalizedHost = hostNormalizer.normalizedHost(hostCandidate),
               let scheme = Self.schemelessWebScheme(for: normalizedHost) else {
             return nil
         }
         return URL(string: "\(scheme)://\(trimmed)")
+    }
+
+    private static func hasNumericPort(_ value: String) -> Bool {
+        guard let colon = value.lastIndex(of: ":"),
+              colon < value.index(before: value.endIndex) else {
+            return false
+        }
+        return value[value.index(after: colon)...].allSatisfy(\.isNumber)
     }
 
     private static func schemelessWebScheme(for normalizedHost: String) -> String? {

@@ -48,11 +48,23 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.path == "/docs")
     }
 
+    @Test func schemelessDottedHostPortResolvesAsEmbeddedBrowser() throws {
+        let target = try #require(router.resolveOpenURLTarget("example.com:8443"))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected host:port schemeless token to route to embedded browser")
+            return
+        }
+        #expect(url.scheme == "https")
+        #expect(url.host == "example.com")
+        #expect(url.port == 8443)
+    }
+
     @Test func schemelessLoopbackPathResolvesAsHTTPEmbeddedBrowser() throws {
-        for (rawValue, expectedHost, expectedPort) in [
-            ("localhost:3000/docs", "localhost", 3000),
-            ("127.0.0.1:5173/docs", "127.0.0.1", 5173),
-            ("deep.api.localhost/docs", "deep.api.localhost", nil),
+        for (rawValue, expectedHost, expectedPort, expectedPath) in [
+            ("localhost:3000", "localhost", 3000, ""),
+            ("localhost:3000/docs", "localhost", 3000, "/docs"),
+            ("127.0.0.1:5173/docs", "127.0.0.1", 5173, "/docs"),
+            ("deep.api.localhost/docs", "deep.api.localhost", nil, "/docs"),
         ] {
             let target = try #require(router.resolveOpenURLTarget(rawValue))
             guard case let .embeddedBrowser(url) = target else {
@@ -62,7 +74,7 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
             #expect(url.scheme == "http")
             #expect(url.host == expectedHost)
             #expect(url.port == expectedPort)
-            #expect(url.path == "/docs")
+            #expect(url.path == expectedPath)
         }
     }
 
