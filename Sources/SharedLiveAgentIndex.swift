@@ -21,7 +21,9 @@ final class SharedLiveAgentIndex {
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
-    private static let minEventReloadInterval: TimeInterval = 2.0
+    // Floor between event-driven reloads so chatty hook stores cannot keep the
+    // measured ~350ms-1.8s loader running at near-continuous duty cycle.
+    private static let minEventReloadInterval: TimeInterval = 5.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
