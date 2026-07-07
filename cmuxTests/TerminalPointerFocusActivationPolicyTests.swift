@@ -12,13 +12,13 @@ struct TerminalPointerFocusActivationPolicyTests {
     func unfocusedPaneFocusClickDoesNotForwardToTerminal() {
         let policy = TerminalPointerFocusActivationPolicy()
 
-        #expect(policy.decision(wasFocusedBeforePointerDown: false) == .focusOnly)
+        #expect(!policy.shouldForwardToTerminal(wasFocusedBeforePointerDown: false))
     }
 
     @Test
     func focusedPaneClickStillForwardsToTerminal() {
         let policy = TerminalPointerFocusActivationPolicy()
 
-        #expect(policy.decision(wasFocusedBeforePointerDown: true) == .forwardToTerminal)
+        #expect(policy.shouldForwardToTerminal(wasFocusedBeforePointerDown: true))
     }
 }
