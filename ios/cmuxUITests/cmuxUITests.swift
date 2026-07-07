@@ -1443,7 +1443,7 @@ final class cmuxUITests: XCTestCase {
             $0.distanceFromBottom < 40 && !$0.scrollTracking && !$0.scrollDragging && !$0.scrollDecelerating
         }
         XCTAssertTrue(
-            button.waitForNonExistence(withTimeout: 2),
+            button.waitForNonExistence(timeout: 2),
             "Pill must hide once the transcript is at the bottom"
         )
     }
@@ -1468,7 +1468,7 @@ final class cmuxUITests: XCTestCase {
             $0.distanceFromBottom < 40 && !$0.scrollTracking && !$0.scrollDragging && !$0.scrollDecelerating
         }
         XCTAssertTrue(
-            button.waitForNonExistence(withTimeout: 2),
+            button.waitForNonExistence(timeout: 2),
             "Pill must hide once the transcript is at the bottom"
         )
     }
