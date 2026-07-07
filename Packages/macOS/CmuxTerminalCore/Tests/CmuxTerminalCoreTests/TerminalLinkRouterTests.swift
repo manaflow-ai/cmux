@@ -28,9 +28,8 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
         let lower = trimmed.lowercased()
         let bareHost = Self.bareHostCandidate(lower)
-        if lower.hasPrefix("localhost") ||
-            lower.hasPrefix("127.0.0.1") ||
-            lower.hasPrefix("[::1]") ||
+        if lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") ||
+            lower.hasPrefix("0.0.0.0") || lower.hasPrefix("[::1]") ||
             (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
             return URL(string: "http://\(trimmed)")
         }
@@ -125,6 +124,7 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
             ("localhost:3000", "localhost", 3000, ""),
             ("localhost:3000/docs", "localhost", 3000, "/docs"),
             ("127.0.0.1:5173/docs", "127.0.0.1", 5173, "/docs"),
+            ("0.0.0.0:5173/docs", "0.0.0.0", 5173, "/docs"),
             ("deep.api.localhost/docs", "deep.api.localhost", nil, "/docs"),
         ] {
             let target = try #require(router.resolveOpenURLTarget(rawValue))

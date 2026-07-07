@@ -5298,7 +5298,6 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 }
 
-
 @Suite struct BrowserNavigableURLResolutionTests {
     @Test func resolvesFileSchemeAsNavigableURL() throws {
         let resolved = try #require(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
@@ -5307,15 +5306,17 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 
     @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
-        let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
-        #expect(resolved.scheme == "http")
-        #expect(resolved.host == "api.localhost")
-        #expect(resolved.port == 3000)
-
-        let nested = try #require(resolveBrowserNavigableURL("deep.api.localhost/path"))
-        #expect(nested.scheme == "http")
-        #expect(nested.host == "deep.api.localhost")
-        #expect(nested.path == "/path")
+        for (rawValue, expectedHost, expectedPort, expectedPath) in [
+            ("api.localhost:3000", "api.localhost", 3000, ""),
+            ("deep.api.localhost/path", "deep.api.localhost", nil, "/path"),
+            ("0.0.0.0:5173/status", "0.0.0.0", 5173, "/status"),
+        ] {
+            let resolved = try #require(resolveBrowserNavigableURL(rawValue))
+            #expect(resolved.scheme == "http")
+            #expect(resolved.host == expectedHost)
+            #expect(resolved.port == expectedPort)
+            #expect(resolved.path == expectedPath)
+        }
     }
 
     @Test func rejectsNonWebNonFileScheme() {
@@ -5348,7 +5349,6 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         #expect(resolveBrowserNavigableURL("file://example.html") == nil)
     }
 }
-
 
 final class BrowserReadAccessURLTests: XCTestCase {
     func testUsesParentDirectoryForFileURL() throws {
