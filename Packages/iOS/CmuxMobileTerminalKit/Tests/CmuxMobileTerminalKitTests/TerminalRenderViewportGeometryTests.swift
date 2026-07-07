@@ -48,6 +48,21 @@ struct TerminalRenderViewportGeometryTests {
         ).height == 420)
     }
 
+    @Test("stale live viewport clamp preserves below-threshold animation heights")
+    func clampPreservesBelowThresholdAnimationHeight() {
+        let layout = CGRect(x: 4, y: 8, width: 390, height: 840)
+        let live = CGRect(x: 100, y: 200, width: 111, height: 160)
+        let geometry = TerminalRenderViewportGeometry(
+            layoutViewportRect: layout,
+            liveViewportRect: live
+        )
+
+        #expect(geometry.viewportRect(
+            forRenderSize: layout.size,
+            clampsStaleLiveViewport: true
+        ).height == 160)
+    }
+
     @Test("render viewport height floors at one point")
     func viewportHeightFloorsAtOnePoint() {
         let layout = CGRect(x: 4, y: 8, width: 390, height: 0)

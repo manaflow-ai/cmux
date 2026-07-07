@@ -7,7 +7,8 @@ public import CoreGraphics
 /// stale live geometry is being clamped, the layout target wins so a transient
 /// one-row live measurement cannot collapse the rendered prompt row.
 public struct TerminalRenderViewportGeometry {
-    private static let collapsedLiveViewportThresholdRatio: CGFloat = 0.25
+    // Only the one-row presentation-frame glitch is stale; larger live heights are keyboard animation.
+    private static let collapsedLiveViewportMaximumHeight: CGFloat = 44
 
     /// The layout viewport for the current terminal grid.
     public let layoutViewportRect: CGRect
@@ -60,6 +61,6 @@ public struct TerminalRenderViewportGeometry {
         renderHeight: CGFloat
     ) -> Bool {
         let referenceHeight = min(targetHeight, max(1, renderHeight))
-        return liveHeight < referenceHeight * Self.collapsedLiveViewportThresholdRatio
+        return liveHeight <= min(referenceHeight, Self.collapsedLiveViewportMaximumHeight)
     }
 }
