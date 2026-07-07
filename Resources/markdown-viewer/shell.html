@@ -307,6 +307,7 @@ html { scroll-behavior: smooth; }
       code: true,
       del: true,
       em: true,
+      img: true,
       s: true,
       strong: true
     };
@@ -323,6 +324,10 @@ html { scroll-behavior: smooth; }
         return;
       }
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (tag === 'img' && (name === 'src' || name === 'alt' || name === 'title')) {
+          return;
+        }
         el.removeAttribute(attr.name);
       });
     });

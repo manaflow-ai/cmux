@@ -45,6 +45,21 @@ final class MarkdownLinkBoundaryRegressionTests {
         }
     }
 
+    @Test
+    func renderedLinkedMarkdownImagePreservesImageLabel() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let snapshot = try await renderLinkBoundarySnapshot(
+                #"[![diagram alt](raw/diagram.png "diagram title")](dest.md)."#,
+                in: webView
+            )
+
+            #expect(snapshot.href == "dest.md")
+            #expect(snapshot.imageAlt == "diagram alt")
+            #expect(snapshot.imageTitle == "diagram title")
+            #expect(snapshot.trailingText == ".")
+        }
+    }
+
     private func withLoadedMarkdownShell<T>(
         _ body: (WKWebView) async throws -> T
     ) async throws -> T {
@@ -81,6 +96,7 @@ final class MarkdownLinkBoundaryRegressionTests {
             (function(md) {
               window.__cmuxRenderMarkdown(md);
               var anchor = document.querySelector('a');
+              var image = anchor && anchor.querySelector('img');
               var trailing = anchor && anchor.nextSibling;
               var periodHit = null;
               if (trailing && trailing.nodeType === Node.TEXT_NODE && trailing.textContent.charAt(0) === '.') {
@@ -95,6 +111,8 @@ final class MarkdownLinkBoundaryRegressionTests {
                 title: anchor && anchor.getAttribute('title'),
                 text: anchor && anchor.textContent,
                 innerHTML: anchor && anchor.innerHTML,
+                imageAlt: image && image.getAttribute('alt'),
+                imageTitle: image && image.getAttribute('title'),
                 trailingText: trailing && trailing.textContent,
                 periodHitHref: periodHit && periodHit.getAttribute && periodHit.getAttribute('href')
               };
@@ -107,6 +125,8 @@ final class MarkdownLinkBoundaryRegressionTests {
             title: raw["title"] as? String,
             text: raw["text"] as? String,
             innerHTML: raw["innerHTML"] as? String,
+            imageAlt: raw["imageAlt"] as? String,
+            imageTitle: raw["imageTitle"] as? String,
             trailingText: raw["trailingText"] as? String ?? "",
             periodHitHref: raw["periodHitHref"] as? String
         )
@@ -118,6 +138,8 @@ private struct LinkBoundarySnapshot {
     let title: String?
     let text: String?
     let innerHTML: String?
+    let imageAlt: String?
+    let imageTitle: String?
     let trailingText: String
     let periodHitHref: String?
 }
