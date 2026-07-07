@@ -147,6 +147,9 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(router.resolveOpenURLTarget("README.md:12") == nil)
         #expect(router.resolveOpenURLTarget("App.swift:42") == nil)
         #expect(router.resolveOpenURLTarget("main.swift:42") == nil)
+        #expect(router.resolveOpenURLTarget("main.swift:443") == nil)
+        #expect(router.resolveOpenURLTarget("index.ts:3000") == nil)
+        #expect(router.resolveOpenURLTarget("server.go:8080") == nil)
         #expect(router.resolveOpenURLTarget("src/main.swift:3000") == nil)
         #expect(router.resolveOpenURLTarget("Sources/App.swift:8080") == nil)
     }
@@ -234,17 +237,6 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
             #expect(url.scheme == expectedScheme)
             #expect(url.host == expectedHost)
         }
-    }
-
-    @Test func schemelessFileLikeHostPortResolvesAsEmbeddedBrowser() throws {
-        let target = try #require(router.resolveOpenURLTarget("example.swift:443"))
-        guard case let .embeddedBrowser(url) = target else {
-            Issue.record("Expected file-like TLD host:port to route through browser normalization")
-            return
-        }
-        #expect(url.scheme == "https")
-        #expect(url.host == "example.swift")
-        #expect(url.port == 443)
     }
 
     @Test func emptyTextResolvesToNil() {

@@ -114,12 +114,7 @@ public struct TerminalLinkRouter: Sendable {
               hasKnownFileExtension(value[..<colon]) else {
             return false
         }
-        if value[..<colon].contains("/") { return true }
-        guard !value[..<colon].contains(where: \.isUppercase),
-              let port = Int(value[value.index(after: colon)...]) else {
-            return true
-        }
-        return !Self.commonWebPorts.contains(port)
+        return true
     }
 
     private static func looksLikeWrappedFilePathFragment(_ value: String) -> Bool {
@@ -157,8 +152,4 @@ public struct TerminalLinkRouter: Sendable {
             return false
         }
     }
-
-    private static let commonWebPorts: Set<Int> = [
-        80, 443, 3000, 3001, 4200, 5000, 5173, 5174, 8000, 8080, 8443, 9000,
-    ]
 }
