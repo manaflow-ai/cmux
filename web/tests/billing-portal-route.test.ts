@@ -103,6 +103,7 @@ mock.module("../services/billing/stripe", () => ({
 }));
 
 mock.module("../services/errors", () => ({
+  captureAscError: mock(() => undefined),
   captureBillingError,
 }));
 
