@@ -1050,7 +1050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
-    private var isApplyingSessionRestore = false
+    var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -1090,7 +1090,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
-    private var isTerminatingApp = false
+    var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
@@ -1109,22 +1109,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
-    private var mainWindowFrameReconcileTask: Task<Void, Never>?
+    var mainWindowFrameReconcileTask: Task<Void, Never>?
     /// Per-window LRU ring of remembered frames keyed by display configuration
     /// (issue #2135). The persisted session snapshot is the source of truth; this
     /// mirror lets capture/restore run without re-decoding the snapshot, and is
     /// seeded from the snapshot at startup and merged back into it on save.
-    private var windowConfigFrames: [UUID: [SessionConfigFrameEntry]] = [:]
+    var windowConfigFrames: [UUID: [SessionConfigFrameEntry]] = [:]
     /// The display-configuration signature last applied by a restore/reconcile
     /// pass. Seeded at `applicationDidFinishLaunching` so the first reconnect is
     /// not misclassified as "no change"; restore only fires when the live
     /// signature differs from this (so sleep/wake and Dock resize are no-ops).
-    private var lastAppliedConfigurationSignature: String?
-    /// True from the moment a display reconfiguration is observed until its
-    /// reconcile pass completes (plus a trailing grace window). While set, frame
-    /// captures are suppressed so a transient/OS-driven frame is never persisted
-    /// over the good one.
-    private var isSettlingScreenChange = false
+    var lastAppliedConfigurationSignature: String?
+    /// True from the moment a display reconfiguration is observed until a
+    /// reconcile pass consumes the quiesced display list and records the latest
+    /// configuration signature. macOS exposes only a stream of display-change
+    /// notifications, not a public whole-transaction completion callback, so
+    /// skipped passes leave captures suppressed until a real reconcile completes.
+    var isSettlingScreenChange = false
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
@@ -3314,7 +3315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
+    func currentDisplayGeometries() -> (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?) {
         let available = NSScreen.screens.map { screen in
             SessionDisplayGeometry(
                 displayID: screen.cmuxDisplayID,
@@ -3332,28 +3333,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         return (available, fallback)
-    }
-
-    /// The signature of the currently-connected display configuration, used as
-    /// the key for per-monitor window-geometry memory. `nil` when no display has
-    /// a stable identity (nothing can be persisted reliably) or when displays are
-    /// mid-reconfiguration with degenerate frames.
-    private func currentDisplayConfigurationSignature() -> String? {
-        currentDisplayGeometries().available
-            .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
-    }
-
-    /// Whether the connected displays form a mirrored set (any two share a
-    /// screen origin+size). Mirroring is surfaced so a mirrored configuration
-    /// never collides with a single-display signature.
-    private nonisolated static func displaysAreMirrored() -> Bool {
-        let frames = NSScreen.screens.map(\.frame)
-        for i in frames.indices {
-            for j in frames.indices where j > i {
-                if frames[i].equalTo(frames[j]) { return true }
-            }
-        }
-        return false
     }
 
     private func resolvedPersistedWindowGeometryFrame() -> NSRect? {
@@ -3436,6 +3415,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
+        if isSettlingScreenChange {
+            // A display change arrived mid-restore and its reconcile pass was
+            // skipped (or is still pending). Re-run it now that restore is done
+            // so remembered frames for the new configuration are applied and
+            // `lastAppliedConfigurationSignature` catches up.
+            scheduleMainWindowFrameReconcile()
+        }
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -3802,20 +3788,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && abs(lhsStd.size.height - rhsStd.size.height) <= tolerance
     }
 
-    private func displaySnapshot(for window: NSWindow?) -> SessionDisplaySnapshot? {
-        guard let window else { return nil }
-        let screen = window.screen
-            ?? NSScreen.screens.first(where: { $0.frame.intersects(window.frame) })
-        guard let screen else { return nil }
-
-        return SessionDisplaySnapshot(
-            displayID: screen.cmuxDisplayID,
-            stableID: screen.cmuxStableDisplayKey,
-            frame: SessionRectSnapshot(screen.frame),
-            visibleFrame: SessionRectSnapshot(screen.visibleFrame)
-        )
-    }
-
     private func startSessionAutosaveTimerIfNeeded() {
         guard sessionAutosaveTimer == nil else { return }
         let env = ProcessInfo.processInfo.environment
@@ -3922,225 +3894,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
-    }
-
-    /// Coalesces bursts of `didChangeScreenParametersNotification` into a single
-    /// reconcile pass. The display list often arrives in stages during a
-    /// reconfiguration (a monitor connecting, resolution ramping, the lid
-    /// animating), so a short bounded delay lets `NSScreen` settle before we read
-    /// it back; restarting the delay on each notification collapses the burst
-    /// into one pass keyed off the last event. The pending task is cancelled on
-    /// teardown so it can never fire against a half-torn-down app.
-    private func scheduleMainWindowFrameReconcile() {
-        mainWindowFrameReconcileTask?.cancel()
-        mainWindowFrameReconcileTask = Task { @MainActor [weak self] in
-            // Bounded settle delay; cancellation (teardown / a newer event)
-            // aborts it structurally.
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled, let self else { return }
-            self.mainWindowFrameReconcileTask = nil
-            self.reconcileMainWindowFramesAfterScreenChange()
-        }
-    }
-
-    /// Runs after a display reconfiguration settles: first restores each window's
-    /// remembered frame for the now-connected configuration (issue #2135), then
-    /// re-clamps any window whose titlebar is still unreachable (#6913 safety
-    /// net). Ends the settling window so captures may resume.
-    private func reconcileMainWindowFramesAfterScreenChange() {
-        // Clear settling from real completion state, not elapsed time: this pass
-        // only runs after the reconcile debounce has seen 200ms with no further
-        // `didChangeScreenParameters` — i.e. the display list has stopped
-        // changing. A straggler notification re-arms settling and reschedules
-        // this pass, so the flag is driven by the actual event stream, never a
-        // fixed grace timer.
-        defer { isSettlingScreenChange = false }
-
-        // Never fight a deliberate frame the restore path or teardown is
-        // applying, and never persist a frame clamped against transient
-        // mid-teardown geometry.
-        guard !isApplyingSessionRestore, !isTerminatingApp else { return }
-        let displays = currentDisplayGeometries()
-        guard !displays.available.isEmpty else { return }
-
-        // Restore remembered per-configuration frames only when the connected
-        // display set genuinely changed — so sleep/wake and Dock resize (same
-        // signature) never reposition a deliberately-placed window.
-        let signature = displays.available
-            .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
-        let signatureChanged = signature != lastAppliedConfigurationSignature
-#if DEBUG
-        cmuxDebugLog(
-            "monitorMemory.reconcile displays=\(displays.available.count) " +
-                "sigChanged=\(signatureChanged ? 1 : 0) " +
-                "was=\(Self.debugSignatureToken(lastAppliedConfigurationSignature)) " +
-                "now=\(Self.debugSignatureToken(signature))"
-        )
-#endif
-        if let signature, signatureChanged {
-            restoreRememberedFrames(for: signature, displays: displays)
-        }
-        lastAppliedConfigurationSignature = signature
-
-        // Reachability safety net: any window still stranded is clamped back.
-        for window in mainWindowsForVisibilityController() {
-            // Native-fullscreen windows are owned by AppKit's Space machinery;
-            // clamping them mid-transition fights the fullscreen teardown.
-            guard !window.styleMask.contains(.fullScreen) else { continue }
-            let currentFrame = window.frame
-            guard let corrected = Self.reconciledFrameAfterScreenChange(
-                frame: currentFrame,
-                availableDisplays: displays.available
-            ) else { continue }
-#if DEBUG
-            cmuxDebugLog(
-                "window.reconcile " +
-                    "from={\(debugNSRectDescription(currentFrame))} " +
-                    "to={\(debugNSRectDescription(corrected))}"
-            )
-#endif
-            window.setFrame(corrected, display: true)
-        }
-    }
-
-    /// Restores each window's remembered frame for `signature`, routed through
-    /// `resolvedWindowFrame` (so a remembered frame that no longer fits is
-    /// re-clamped rather than applied raw). Fullscreen windows are skipped.
-    private func restoreRememberedFrames(
-        for signature: String,
-        displays: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)
-    ) {
-        for window in mainWindowsForVisibilityController() {
-            guard !window.styleMask.contains(.fullScreen) else { continue }
-            guard let context = contextForMainTerminalWindow(window) else { continue }
-            let windowTag = context.windowId.uuidString.prefix(8)
-            guard let entry = SessionConfigFramePolicy.entry(
-                for: signature,
-                in: windowConfigFrames[context.windowId]
-            ) else {
-#if DEBUG
-                let known = (windowConfigFrames[context.windowId] ?? []).count
-                cmuxDebugLog(
-                    "monitorMemory.restore.miss window=\(windowTag) " +
-                        "sig=\(Self.debugSignatureToken(signature)) rememberedConfigs=\(known)"
-                )
-#endif
-                continue
-            }
-            guard let restored = Self.resolvedWindowFrame(
-                from: entry.frame,
-                display: entry.display,
-                availableDisplays: displays.available,
-                fallbackDisplay: displays.fallback
-            ) else { continue }
-#if DEBUG
-            cmuxDebugLog(
-                "monitorMemory.restore.hit window=\(windowTag) " +
-                    "sig=\(Self.debugSignatureToken(signature)) " +
-                    "remembered={\(debugSessionRectDescription(entry.frame))} " +
-                    "applied={\(debugNSRectDescription(restored))}"
-            )
-#endif
-            window.setFrame(restored, display: true)
-        }
-    }
-
-    // MARK: - Per-configuration frame capture (issue #2135)
-
-    /// Records `window`'s current frame under the current display signature —
-    /// unless a guard forbids it. The guards are the corruption firewall for
-    /// issue #2135: a window's good frame must never be overwritten by a
-    /// transient/OS-driven frame during a display flap.
-    private func captureWindowConfigFrame(_ window: NSWindow, reason: String) {
-        // 1. Never capture a deliberately-applied restore frame or a teardown
-        //    frame, and never during the settling window after a screen change
-        //    (except the leading-edge capture, which runs before settling arms).
-        guard !isApplyingSessionRestore, !isTerminatingApp, !isSettlingScreenChange else {
-            logCaptureSkipped(window, reason: reason, guardName: "settling/restore/teardown")
-            return
-        }
-        // 2. Fullscreen windows have no meaningful per-config frame to remember.
-        guard !window.styleMask.contains(.fullScreen) else {
-            logCaptureSkipped(window, reason: reason, guardName: "fullscreen")
-            return
-        }
-        guard let context = contextForMainTerminalWindow(window) else {
-            logCaptureSkipped(window, reason: reason, guardName: "noContext")
-            return
-        }
-
-        let displays = currentDisplayGeometries()
-        // 3. Key to the WRITE-TIME signature so a slipped write can only land in
-        //    the currently-connected slot, never overwrite a disconnected one.
-        guard let signature = displays.available
-            .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored())
-        else {
-            logCaptureSkipped(window, reason: reason, guardName: "noStableSignature")
-            return
-        }
-
-        let frame = window.frame
-        // 4. Never persist a stranded/transient frame: if the reconcile logic
-        //    would move this frame, it is not a good frame to remember.
-        guard Self.reconciledFrameAfterScreenChange(
-            frame: frame,
-            availableDisplays: displays.available
-        ) == nil else {
-            logCaptureSkipped(window, reason: reason, guardName: "strandedFrame")
-            return
-        }
-
-        let entry = SessionConfigFrameEntry(
-            signature: signature,
-            frame: SessionRectSnapshot(frame),
-            display: displaySnapshot(for: window),
-            lastUsedAt: Date().timeIntervalSince1970
-        )
-        windowConfigFrames[context.windowId] = SessionConfigFramePolicy.merged(
-            windowConfigFrames[context.windowId] ?? [],
-            upserting: entry
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "monitorMemory.capture window=\(context.windowId.uuidString.prefix(8)) " +
-                "reason=\(reason) sig=\(Self.debugSignatureToken(signature)) " +
-                "frame={\(debugNSRectDescription(frame))} " +
-                "rememberedConfigs=\(windowConfigFrames[context.windowId]?.count ?? 0)"
-        )
-#endif
-    }
-
-    private func logCaptureSkipped(_ window: NSWindow, reason: String, guardName: String) {
-#if DEBUG
-        let tag = contextForMainTerminalWindow(window)?.windowId.uuidString.prefix(8) ?? "??"
-        cmuxDebugLog(
-            "monitorMemory.capture.skip window=\(tag) reason=\(reason) guard=\(guardName) " +
-                "frame={\(debugNSRectDescription(window.frame))}"
-        )
-#endif
-    }
-
-#if DEBUG
-    /// Compact, human-readable rendering of a config signature for the debug log
-    /// (the full signature can be long with several displays).
-    private nonisolated static func debugSignatureToken(_ signature: String?) -> String {
-        guard let signature else { return "nil" }
-        // Show the display count and a short hash-ish suffix so transitions are
-        // visible without dumping the whole key.
-        let displayCount = signature.split(separator: "|").count
-        let tail = signature.suffix(20)
-        return "[\(displayCount)d …\(tail)]"
-    }
-#endif
-
-    // MARK: - Settling window
-
-    /// Arms the capture firewall for a display reconfiguration. Cleared by
-    /// ``reconcileMainWindowFramesAfterScreenChange`` when the reconcile pass
-    /// actually runs (after the debounce sees the display list stop changing),
-    /// not by a wall-clock timer.
-    private func beginSettlingScreenChange() {
-        isSettlingScreenChange = true
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -4810,13 +4563,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func debugSessionRectDescription(_ rect: SessionRectSnapshot?) -> String {
+    func debugSessionRectDescription(_ rect: SessionRectSnapshot?) -> String {
         guard let rect else { return "nil" }
         return "x=\(debugSessionNumber(rect.x)) y=\(debugSessionNumber(rect.y)) " +
             "w=\(debugSessionNumber(rect.width)) h=\(debugSessionNumber(rect.height))"
     }
 
-    private func debugNSRectDescription(_ rect: NSRect?) -> String {
+    func debugNSRectDescription(_ rect: NSRect?) -> String {
         guard let rect else { return "nil" }
         return "x=\(debugSessionNumber(Double(rect.origin.x))) " +
             "y=\(debugSessionNumber(Double(rect.origin.y))) " +
@@ -8652,6 +8405,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
             )
+            if let configFrames = sessionWindowSnapshot.configFrames {
+                windowConfigFrames[windowId] = configFrames
+            }
             if let originalWindowId = sessionWindowSnapshot.windowId,
                originalWindowId != windowId {
                 ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
@@ -9332,7 +9088,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return window
     }
 
-    private func mainWindowsForVisibilityController() -> [NSWindow] {
+    func mainWindowsForVisibilityController() -> [NSWindow] {
         var windows: [NSWindow] = []
         for context in sortedMainWindowContextsForSessionSnapshot() {
             guard let window = resolvedWindow(for: context) else { continue }

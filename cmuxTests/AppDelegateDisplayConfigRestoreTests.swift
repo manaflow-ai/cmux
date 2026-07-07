@@ -45,6 +45,33 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
         geometry("uuid:EXTERNAL", externalFrame, externalVisible, displayID: 2)
     }
 
+    private func emptyWindowSnapshot(
+        windowId: UUID? = nil,
+        configFrames: [SessionConfigFrameEntry]? = nil
+    ) -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            windowId: windowId,
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil),
+            configFrames: configFrames
+        )
+    }
+
+    @MainActor
+    private func closeCreatedWindow(_ appDelegate: AppDelegate, windowId: UUID) {
+        guard let window = appDelegate.mainWindow(for: windowId) else { return }
+#if DEBUG
+        let previousConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = previousConfirmationHandler }
+#endif
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
+    }
+
     // MARK: the headline round-trip
 
     func testWindowFrameIsRestoredToExternalMonitorAfterReconnect() throws {
@@ -111,6 +138,82 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
         let resolved = try XCTUnwrap(restored)
         XCTAssertEqual(resolved, externalWindowFrame, "remembered external frame should round-trip exactly")
         XCTAssertTrue(externalVisible.intersects(resolved), "restored frame lands on the external monitor")
+    }
+
+    @MainActor
+    func testSnapshotBackedWindowCreationSeedsConfigFramesByAssignedWindowId() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let persistedWindowId = UUID()
+        let assignedWindowId = UUID()
+        let ring = [
+            SessionConfigFrameEntry(
+                signature: "uuid:remembered",
+                frame: SessionRectSnapshot(CGRect(x: 10, y: 20, width: 900, height: 600)),
+                display: nil,
+                lastUsedAt: 123
+            )
+        ]
+        let snapshot = emptyWindowSnapshot(
+            windowId: persistedWindowId,
+            configFrames: ring
+        )
+
+        let createdWindowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: snapshot,
+            preferredWindowId: assignedWindowId,
+            shouldActivate: false
+        )
+        defer {
+            closeCreatedWindow(appDelegate, windowId: createdWindowId)
+            appDelegate.windowConfigFrames.removeValue(forKey: createdWindowId)
+            appDelegate.windowConfigFrames.removeValue(forKey: persistedWindowId)
+        }
+
+        XCTAssertEqual(createdWindowId, assignedWindowId)
+        XCTAssertEqual(appDelegate.windowConfigFrames[createdWindowId], ring)
+        XCTAssertNil(appDelegate.windowConfigFrames[persistedWindowId])
+    }
+
+    @MainActor
+    func testReconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        appDelegate.isSettlingScreenChange = true
+        appDelegate.isApplyingSessionRestore = true
+        defer {
+            appDelegate.isApplyingSessionRestore = false
+            appDelegate.isSettlingScreenChange = false
+        }
+
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+
+        XCTAssertTrue(appDelegate.isSettlingScreenChange)
+    }
+
+    @MainActor
+    func testSessionRestoreCompletionReschedulesArmedScreenChangeReconcile() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let restoredWindowId = UUID()
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 1_000,
+            windows: [emptyWindowSnapshot(windowId: restoredWindowId)]
+        )
+        appDelegate.mainWindowFrameReconcileTask?.cancel()
+        appDelegate.mainWindowFrameReconcileTask = nil
+        appDelegate.isSettlingScreenChange = true
+        defer {
+            appDelegate.mainWindowFrameReconcileTask?.cancel()
+            appDelegate.mainWindowFrameReconcileTask = nil
+            appDelegate.isSettlingScreenChange = false
+            appDelegate.isApplyingSessionRestore = false
+            closeCreatedWindow(appDelegate, windowId: restoredWindowId)
+        }
+
+        let restored = appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false)
+
+        XCTAssertTrue(restored)
+        XCTAssertFalse(appDelegate.isApplyingSessionRestore)
+        XCTAssertNotNil(appDelegate.mainWindowFrameReconcileTask)
     }
 
     // MARK: LRU ring behavior
