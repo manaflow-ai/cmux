@@ -102,11 +102,12 @@ describe("browser analytics route", () => {
       properties: {
         email: "ada@example.com",
         platforms: ["linux", "windows"],
+        location: "download-menu",
         $set: {
-          email: "ada@example.com",
-          "$feature_enrollment/cmux-linux-early-access": true,
+          email: "mallory@example.com",
+          "$feature_enrollment/anything-goes": true,
         },
-        $set_once: { waitlist_email: "ada@example.com" },
+        $set_once: { waitlist_email: "mallory@example.com" },
       },
     }));
 
@@ -117,14 +118,31 @@ describe("browser analytics route", () => {
     const body = JSON.parse((calls[0]?.[1]?.body as string) ?? "{}");
     expect(body.batch[0].properties).toEqual({
       email: "ada@example.com",
+      location: "download-menu",
       platforms: ["linux", "windows"],
       $set: {
         email: "ada@example.com",
-        "$feature_enrollment/cmux-linux-early-access": true,
+        "$feature_enrollment/cmux-for-linux": true,
+        "$feature_enrollment/cmux-for-windows": true,
       },
       $set_once: { waitlist_email: "ada@example.com" },
     });
     expect(body.batch[0].properties).not.toHaveProperty("$process_person_profile");
+  });
+
+  test("rejects invalid waitlist signup mutations before forwarding", async () => {
+    const response = await POST(request({
+      event: "cmuxterm_waitlist_signup",
+      distinctId: "ada@example.com",
+      properties: {
+        email: "ada@example.com",
+        platforms: ["linux", "anything-goes"],
+      },
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_waitlist_signup" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("rejects arbitrary event names before forwarding", async () => {

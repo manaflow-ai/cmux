@@ -3,6 +3,12 @@ import { checkRateLimit } from "@vercel/firewall";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
+  WAITLIST_EARLY_ACCESS_FLAGS,
+  WAITLIST_PLATFORMS,
+  type WaitlistPlatform,
+} from "../../../lib/download";
+import {
+  type BrowserAnalyticsEvent,
   MAX_BROWSER_ANALYTICS_REQUEST_BYTES,
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
@@ -13,6 +19,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BROWSER_ANALYTICS_FORWARD_TIMEOUT_MS = 3_000;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: Request): Promise<Response> {
   if (process.env.VERCEL === "1") {
@@ -45,7 +52,12 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: event.error }, 400);
   }
 
-  const forwarded = await forwardBrowserEvent(event.value);
+  const prepared = prepareBrowserEvent(event.value);
+  if (!prepared.ok) {
+    return jsonResponse({ error: prepared.error }, 400);
+  }
+
+  const forwarded = await forwardBrowserEvent(prepared.value);
   if (!forwarded.ok) {
     return jsonResponse({ error: "forward_failed" }, forwarded.status);
   }
@@ -68,7 +80,7 @@ async function forwardBrowserEvent(event: {
           {
             event: event.event,
             distinct_id: event.distinctId,
-            properties: postHogProperties(event),
+            properties: event.properties,
             timestamp: event.timestamp,
           },
         ],
@@ -84,16 +96,82 @@ async function forwardBrowserEvent(event: {
   }
 }
 
-function postHogProperties(event: {
-  readonly event: string;
-  readonly properties: Record<string, unknown>;
-}): Record<string, unknown> {
+function prepareBrowserEvent(
+  event: BrowserAnalyticsEvent,
+): { readonly ok: true; readonly value: BrowserAnalyticsEvent }
+  | { readonly ok: false; readonly error: string } {
   if (event.event === "cmuxterm_waitlist_signup") {
-    return event.properties;
+    return prepareWaitlistSignupEvent(event);
   }
 
   return {
-    ...event.properties,
-    $process_person_profile: false,
+    ok: true,
+    value: {
+      ...event,
+      properties: {
+        ...event.properties,
+        $process_person_profile: false,
+      },
+    },
   };
+}
+
+function prepareWaitlistSignupEvent(
+  event: BrowserAnalyticsEvent,
+): { readonly ok: true; readonly value: BrowserAnalyticsEvent }
+  | { readonly ok: false; readonly error: string } {
+  const email = waitlistEmail(event.properties.email);
+  if (!email || event.distinctId !== email) {
+    return { ok: false, error: "invalid_waitlist_signup" };
+  }
+
+  const platforms = waitlistPlatforms(event.properties.platforms);
+  if (!platforms) {
+    return { ok: false, error: "invalid_waitlist_signup" };
+  }
+
+  const location = waitlistLocation(event.properties.location);
+  const enrollment = Object.fromEntries(
+    platforms.map((platform) => [
+      `$feature_enrollment/${WAITLIST_EARLY_ACCESS_FLAGS[platform]}`,
+      true,
+    ]),
+  );
+
+  return {
+    ok: true,
+    value: {
+      ...event,
+      properties: {
+        email,
+        platforms,
+        ...(location ? { location } : {}),
+        $set: { email, ...enrollment },
+        $set_once: { waitlist_email: email },
+      },
+    },
+  };
+}
+
+function waitlistEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim();
+  return email.length <= 320 && EMAIL_PATTERN.test(email) ? email : null;
+}
+
+function waitlistLocation(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const location = value.trim();
+  return location ? location.slice(0, 64) : null;
+}
+
+function waitlistPlatforms(value: unknown): WaitlistPlatform[] | null {
+  if (!Array.isArray(value)) return null;
+  const platforms = Array.from(new Set(value));
+  if (platforms.length < 1 || platforms.length > WAITLIST_PLATFORMS.length) return null;
+  return platforms.every(isWaitlistPlatform) ? platforms : null;
+}
+
+function isWaitlistPlatform(value: unknown): value is WaitlistPlatform {
+  return typeof value === "string" && WAITLIST_PLATFORMS.includes(value as WaitlistPlatform);
 }
