@@ -47,12 +47,14 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
 
     private func emptyWindowSnapshot(
         windowId: UUID? = nil,
+        frame: SessionRectSnapshot? = nil,
+        display: SessionDisplaySnapshot? = nil,
         configFrames: [SessionConfigFrameEntry]? = nil
     ) -> SessionWindowSnapshot {
         SessionWindowSnapshot(
             windowId: windowId,
-            frame: nil,
-            display: nil,
+            frame: frame,
+            display: display,
             tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil),
             configFrames: configFrames
@@ -138,6 +140,90 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
         let resolved = try XCTUnwrap(restored)
         XCTAssertEqual(resolved, externalWindowFrame, "remembered external frame should round-trip exactly")
         XCTAssertTrue(externalVisible.intersects(resolved), "restored frame lands on the external monitor")
+    }
+
+    func testStableDisplayIdentityWinsWhenDisplayIDIsReassigned() throws {
+        let savedFrame = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            stableID: "uuid:EXTERNAL",
+            frame: SessionRectSnapshot(externalFrame),
+            visibleFrame: SessionRectSnapshot(externalVisible)
+        )
+        let builtInWithOldExternalID = geometry(
+            "uuid:BUILTIN",
+            builtInFrame,
+            builtInVisible,
+            displayID: 2
+        )
+        let externalWithNewID = geometry(
+            "uuid:EXTERNAL",
+            externalFrame,
+            externalVisible,
+            displayID: 9
+        )
+
+        let restored = try XCTUnwrap(
+            AppDelegate.resolvedWindowFrame(
+                from: SessionRectSnapshot(savedFrame),
+                display: savedDisplay,
+                availableDisplays: [builtInWithOldExternalID, externalWithNewID],
+                fallbackDisplay: builtInWithOldExternalID
+            )
+        )
+
+        XCTAssertEqual(restored, savedFrame)
+        XCTAssertTrue(externalVisible.intersects(restored))
+        XCTAssertFalse(builtInVisible.intersects(restored))
+    }
+
+    func testRestorePrefersCurrentConfigurationFrameEntry() throws {
+        let dockedSignature = try XCTUnwrap([builtIn, external].displayConfigurationSignature())
+        let laptopFrame = CGRect(x: 256, y: 122, width: 900, height: 600)
+        let externalFrameForDock = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
+        let snapshot = emptyWindowSnapshot(
+            frame: SessionRectSnapshot(laptopFrame),
+            display: SessionDisplaySnapshot(
+                displayID: 1,
+                stableID: "uuid:BUILTIN",
+                frame: SessionRectSnapshot(builtInFrame),
+                visibleFrame: SessionRectSnapshot(builtInVisible)
+            ),
+            configFrames: [
+                SessionConfigFrameEntry(
+                    signature: dockedSignature,
+                    frame: SessionRectSnapshot(externalFrameForDock),
+                    display: SessionDisplaySnapshot(
+                        displayID: 2,
+                        stableID: "uuid:EXTERNAL",
+                        frame: SessionRectSnapshot(externalFrame),
+                        visibleFrame: SessionRectSnapshot(externalVisible)
+                    ),
+                    lastUsedAt: 200
+                )
+            ]
+        )
+
+        let restored = try XCTUnwrap(
+            AppDelegate.resolvedWindowFrame(
+                from: snapshot,
+                currentSignature: dockedSignature,
+                availableDisplays: [builtIn, external],
+                fallbackDisplay: builtIn
+            )
+        )
+        let startup = try XCTUnwrap(
+            AppDelegate.resolvedStartupPrimaryWindowFrame(
+                primarySnapshot: snapshot,
+                fallbackFrame: nil,
+                fallbackDisplaySnapshot: nil,
+                availableDisplays: [builtIn, external],
+                fallbackDisplay: builtIn
+            )
+        )
+
+        XCTAssertEqual(restored, externalFrameForDock)
+        XCTAssertEqual(startup, externalFrameForDock)
     }
 
     @MainActor

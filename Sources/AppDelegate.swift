@@ -1095,32 +1095,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
-    // Set to true when the user has already confirmed quit via the warning dialog,
-    // so applicationShouldTerminate does not show a second alert.
+    // Avoid showing the quit warning twice after confirmation.
     private var isQuitWarningConfirmed = false
     // One-shot guard for deferred terminate replies.
     private var didReplyToTerminate = false
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
-    /// Hard deadline that force-exits if AppKit's terminate gauntlet wedges on an
-    /// observer we don't own (e.g. CFPasteboardResolveAllPromisedData, #6758).
+    /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     private let terminationWatchdog = TerminationWatchdog()
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
     var mainWindowFrameReconcileTask: Task<Void, Never>?
-    /// Per-window LRU ring of remembered frames keyed by display configuration.
-    /// Mirrored from the session snapshot to avoid re-decoding during capture/restore.
+    /// Per-window LRU ring mirrored from the session snapshot.
     var windowConfigFrames: [UUID: [SessionConfigFrameEntry]] = [:]
     /// Display signature last applied by a restore/reconcile pass.
     var lastAppliedConfigurationSignature: String?
     /// True while display-change notifications are settling before reconcile.
     var isSettlingScreenChange = false
     private var didDisableSuddenTermination = false
-    /// Owns the per-window command-palette state (visibility, pending-open,
-    /// escape suppression, selection, debug snapshot). This delegate resolves
-    /// `NSWindow` values to identifiers and forwards into the store.
+    /// Owns the per-window command-palette state.
     let commandPaletteWindowStore = CommandPaletteWindowStore()
     private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
 
@@ -3517,8 +3512,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func resolvedWindowFrame(from snapshot: SessionWindowSnapshot?) -> NSRect? {
         let displays = currentDisplayGeometries()
         return Self.resolvedWindowFrame(
-            from: snapshot?.frame,
-            display: snapshot?.display,
+            from: snapshot,
+            currentSignature: displays.available
+                .displayConfigurationSignature(isMirrored: Self.displaysAreMirrored()),
             availableDisplays: displays.available,
             fallbackDisplay: displays.fallback
         )
@@ -3529,11 +3525,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         fallbackFrame: SessionRectSnapshot?,
         fallbackDisplaySnapshot: SessionDisplaySnapshot?,
         availableDisplays: [SessionDisplayGeometry],
-        fallbackDisplay: SessionDisplayGeometry?
+        fallbackDisplay: SessionDisplayGeometry?,
+        isMirrored: Bool = false
     ) -> CGRect? {
         if let primary = resolvedWindowFrame(
-            from: primarySnapshot?.frame,
-            display: primarySnapshot?.display,
+            from: primarySnapshot,
+            currentSignature: availableDisplays.displayConfigurationSignature(isMirrored: isMirrored),
             availableDisplays: availableDisplays,
             fallbackDisplay: fallbackDisplay
         ) {
@@ -3625,9 +3622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         minHeight: CGFloat
     ) -> CGRect {
         if targetDisplay.visibleFrame.intersects(frame) {
-            // Preserve the user's exact frame when enough of the top of the window
-            // remains reachable on-screen; only clamp when the saved frame would
-            // reopen with an inaccessible titlebar/top strip.
+            // Preserve exact frames whose titlebar remains reachable.
             if shouldPreserveAccessibleFrame(
                 frame: frame,
                 targetDisplay: targetDisplay
@@ -3665,6 +3660,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         in displays: [SessionDisplayGeometry]
     ) -> SessionDisplayGeometry? {
         guard let snapshot else { return nil }
+        if let stableID = snapshot.stableID, !stableID.isEmpty {
+            return displays.first { $0.stableID == stableID }
+        }
         if let displayID = snapshot.displayID,
            let exact = displays.first(where: { $0.displayID == displayID }) {
             return exact
@@ -3744,10 +3742,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         targetDisplay: SessionDisplayGeometry
     ) -> Bool {
         guard let displaySnapshot else { return false }
-        guard let snapshotDisplayID = displaySnapshot.displayID,
-              let targetDisplayID = targetDisplay.displayID,
-              snapshotDisplayID == targetDisplayID else {
-            return false
+        if let stableID = displaySnapshot.stableID, !stableID.isEmpty {
+            guard targetDisplay.stableID == stableID else { return false }
+        } else {
+            guard let snapshotDisplayID = displaySnapshot.displayID,
+                  let targetDisplayID = targetDisplay.displayID,
+                  snapshotDisplayID == targetDisplayID else { return false }
         }
 
         let visibleMatches = displaySnapshot.visibleFrame.map {

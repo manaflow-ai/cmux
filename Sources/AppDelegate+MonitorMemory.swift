@@ -163,6 +163,35 @@ extension AppDelegate {
         }
     }
 
+    nonisolated static func resolvedWindowFrame(
+        from snapshot: SessionWindowSnapshot?,
+        currentSignature: String?,
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?
+    ) -> CGRect? {
+        let source = preferredWindowFrameSource(from: snapshot, currentSignature: currentSignature)
+        return resolvedWindowFrame(
+            from: source.frame,
+            display: source.display,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        )
+    }
+
+    private nonisolated static func preferredWindowFrameSource(
+        from snapshot: SessionWindowSnapshot?,
+        currentSignature: String?
+    ) -> (frame: SessionRectSnapshot?, display: SessionDisplaySnapshot?) {
+        if let currentSignature,
+           let entry = SessionConfigFramePolicy.entry(
+               for: currentSignature,
+               in: snapshot?.configFrames
+           ) {
+            return (entry.frame, entry.display)
+        }
+        return (snapshot?.frame, snapshot?.display)
+    }
+
     /// Records `window`'s current frame under the current display signature —
     /// unless a guard forbids it. The guards are the corruption firewall for
     /// issue #2135: a window's good frame must never be overwritten by a

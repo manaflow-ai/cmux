@@ -25,20 +25,21 @@ extension [SessionDisplayGeometry] {
     /// - **Mirror-distinct** — a mirrored set gets its own marker so it can never
     ///   collide with the laptop-only signature.
     ///
-    /// Returns `nil` when no display carries a stable identity (so nothing can be
-    /// persisted reliably). Pure so it is unit-testable without live `NSScreen`s.
+    /// Returns `nil` when any display lacks a stable identity or valid frame, so
+    /// partial configurations cannot collide with smaller display sets. Pure so
+    /// it is unit-testable without live `NSScreen`s.
     ///
     /// - Parameter isMirrored: whether the displays are in a mirrored
     ///   arrangement; folded in as a distinct marker so a mirror set never
     ///   collides with a single-display signature.
     public func displayConfigurationSignature(isMirrored: Bool = false) -> String? {
-        let components = compactMap(\.displayConfigurationComponent)
-        // A configuration is only reliably identifiable if at least one display
-        // has a stable key. Zero components → refuse to key (caller skips
-        // persistence rather than writing under an unstable key).
-        guard !components.isEmpty else { return nil }
+        let optionalComponents = map(\.displayConfigurationComponent)
+        guard !optionalComponents.isEmpty,
+              !optionalComponents.contains(where: { $0 == nil }) else {
+            return nil
+        }
 
-        let base = components.sorted().joined(separator: "|")
+        let base = optionalComponents.compactMap { $0 }.sorted().joined(separator: "|")
         return isMirrored ? "mirror:\(base)" : base
     }
 }

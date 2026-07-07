@@ -93,15 +93,11 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
         XCTAssertNil([].displayConfigurationSignature())
     }
 
-    func testDisplaysWithoutStableKeyAreExcludedButOthersStillKey() {
+    func testPartialStableIdentityYieldsNilSignature() {
         let keyed = display("uuid:A", frame: builtIn)
         let unkeyed = display(nil, frame: externalAbove)
-        // The unkeyed display drops out; the signature reflects only the keyed one
-        // and equals the single-display signature.
-        XCTAssertEqual(
-            [keyed, unkeyed].displayConfigurationSignature(),
-            [keyed].displayConfigurationSignature()
-        )
+        XCTAssertNil([keyed, unkeyed].displayConfigurationSignature())
+        XCTAssertNotNil([keyed].displayConfigurationSignature())
     }
 
     // MARK: degenerate frames excluded
