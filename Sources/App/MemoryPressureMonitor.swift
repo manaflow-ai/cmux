@@ -30,18 +30,25 @@ final class MemoryPressureMonitor {
     @ObservationIgnored
     private let sampleInterval: TimeInterval
     @ObservationIgnored
+    private let systemPressureHoldDuration: TimeInterval
+    @ObservationIgnored
     private let queue = DispatchQueue(label: "com.cmux.memory-pressure", qos: .utility)
     @ObservationIgnored
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     @ObservationIgnored
     private var sampleTimer: DispatchSourceTimer?
+    @ObservationIgnored
+    private var activeSystemSeverity: MemoryPressureSeverity = .normal
+    @ObservationIgnored
+    private var activeSystemSeverityExpiresAt: Date?
 
     init(
         registry: MemoryPressureResponderRegistry? = nil,
         footprintSampler: any MemoryPressureFootprintSampling = TaskVMInfoMemoryPressureFootprintSampler(),
         thresholds: MemoryPressureFootprintThresholds = .default,
         criticalPersistenceDuration: TimeInterval = 60,
-        sampleInterval: TimeInterval = 30
+        sampleInterval: TimeInterval = 30,
+        systemPressureHoldDuration: TimeInterval = 120
     ) {
         self.registry = registry ?? MemoryPressureResponderRegistry()
         self.footprintSampler = footprintSampler
@@ -50,6 +57,7 @@ final class MemoryPressureMonitor {
             criticalPersistenceDuration: criticalPersistenceDuration
         )
         self.sampleInterval = sampleInterval
+        self.systemPressureHoldDuration = Swift.max(0, systemPressureHoldDuration)
     }
 
     func start() {
@@ -60,13 +68,15 @@ final class MemoryPressureMonitor {
 
     func samplePhysicalFootprint(at sampledAt: Date = Date()) {
         apply(
-            systemSeverity: nil,
+            systemSeverity: heldSystemSeverity(at: sampledAt),
             physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
             sampledAt: sampledAt
         )
     }
 
     func recordSystemPressure(_ severity: MemoryPressureSeverity, at sampledAt: Date = Date()) {
+        activeSystemSeverity = severity
+        activeSystemSeverityExpiresAt = sampledAt.addingTimeInterval(systemPressureHoldDuration)
         apply(
             systemSeverity: severity,
             physicalFootprintBytes: footprintSampler.physicalFootprintBytes(),
@@ -111,6 +121,17 @@ final class MemoryPressureMonitor {
         }
         sampleTimer = timer
         timer.resume()
+    }
+
+    private func heldSystemSeverity(at sampledAt: Date) -> MemoryPressureSeverity? {
+        guard activeSystemSeverity >= .warning,
+              let activeSystemSeverityExpiresAt,
+              sampledAt <= activeSystemSeverityExpiresAt else {
+            activeSystemSeverity = .normal
+            activeSystemSeverityExpiresAt = nil
+            return nil
+        }
+        return activeSystemSeverity
     }
 
     private func apply(
