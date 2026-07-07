@@ -117,7 +117,7 @@ public struct TerminalLinkRouter: Sendable {
         if Self.commonSourceBasenames.contains(stem(fileReference)) { return true }
         if Self.fileExtensionTopLevelDomains.contains(fileExtension),
            let port = trailingNumericSuffix(value),
-           isWebLikePort(port) {
+           isValidPort(port) {
             return false
         }
         return true
@@ -189,9 +189,8 @@ public struct TerminalLinkRouter: Sendable {
         return value[value.index(after: colon)...]
     }
 
-    private static func isWebLikePort(_ value: some StringProtocol) -> Bool {
-        guard let port = Int(value), port > 0, port <= 65_535 else { return false }
-        return port == 80 || port == 443 || port >= 1024
+    private static func isValidPort(_ value: some StringProtocol) -> Bool {
+        UInt16(value) != nil
     }
 
     private static let commonSourceBasenames: Set<String> = [

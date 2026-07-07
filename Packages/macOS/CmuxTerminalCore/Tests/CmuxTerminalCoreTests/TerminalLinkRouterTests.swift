@@ -171,7 +171,9 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
     @Test func fileLikeTLDHostPortsResolveAsEmbeddedBrowser() throws {
         for (rawValue, expectedHost, expectedPort) in [
             ("docs.rs:443", "docs.rs", 443),
+            ("docs.rs:808", "docs.rs", 808),
             ("bun.sh:443", "bun.sh", 443),
+            ("example.md:500", "example.md", 500),
             ("example.md:443", "example.md", 443),
             ("docs.md:8123", "docs.md", 8123),
         ] {
