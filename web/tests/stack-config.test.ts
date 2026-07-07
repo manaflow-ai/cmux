@@ -23,6 +23,22 @@ describe("Stack configuration", () => {
     expect(result.stdout).toContain("handlerApp=true");
   });
 
+  test("does not treat preview placeholders as server Stack config", () => {
+    const result = probeStackConfig({
+      ...baseEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      NEXT_PUBLIC_STACK_PROJECT_ID: "",
+      NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("server=false");
+    expect(result.stdout).toContain("serverApp=false");
+    expect(result.stdout).toContain("handler=true");
+    expect(result.stdout).toContain("handlerApp=true");
+  });
+
   test("treats a real server secret as server Stack config", () => {
     const result = probeStackConfig({
       ...baseEnv,

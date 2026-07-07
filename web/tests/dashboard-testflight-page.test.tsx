@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import enMessages from "../messages/en.json";
+import { testflightUser } from "./fixtures/testflight-user";
 
 let stackConfigured = true;
 let currentUser: ReturnType<typeof testflightUser> | null = null;
@@ -144,34 +145,6 @@ async function renderTestflightPage(searchParams: Record<string, string> = {}) {
     searchParams: Promise.resolve(searchParams),
   });
   return renderToStaticMarkup(element);
-}
-
-function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
-  return {
-    id: "",
-    isAnonymous: false,
-    primaryEmail: "Pro@Example.com",
-    displayName: "Pro User",
-    clientReadOnlyMetadata: {},
-    listProducts: mock(async () =>
-      Object.assign(
-        eligible
-          ? [
-              {
-                id: "pro",
-                quantity: 1,
-                subscription: {
-                  cancelAtPeriodEnd: false,
-                  currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-                },
-              },
-            ]
-          : [],
-        { nextCursor: null },
-      ),
-    ),
-    update: mock(async () => undefined),
-  };
 }
 
 function translator(namespace?: string) {

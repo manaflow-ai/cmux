@@ -17,6 +17,12 @@ const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
   process.env.VERCEL_ENV === "preview";
 const allowPreviewStackPlaceholders = process.env.VERCEL_ENV === "preview";
+export const STACK_LOCAL_DEV_SECRET_SERVER_KEY_PLACEHOLDER = "cmux-local-dev-placeholder";
+export const STACK_PREVIEW_SECRET_SERVER_KEY_PLACEHOLDER = "preview-secret-server-key";
+export const STACK_SECRET_SERVER_KEY_PLACEHOLDERS = new Set<string>([
+  STACK_LOCAL_DEV_SECRET_SERVER_KEY_PLACEHOLDER,
+  STACK_PREVIEW_SECRET_SERVER_KEY_PLACEHOLDER,
+]);
 const isVercelNonPreviewDeployment =
   process.env.VERCEL === "1" &&
   typeof process.env.VERCEL_ENV === "string" &&
@@ -141,7 +147,7 @@ export const env = createEnv({
     ),
     STACK_SECRET_SERVER_KEY: stackEnv(
       process.env.STACK_SECRET_SERVER_KEY,
-      "preview-secret-server-key"
+      STACK_PREVIEW_SECRET_SERVER_KEY_PLACEHOLDER
     ),
   },
   skipValidation: skipEnvValidation,

@@ -150,7 +150,10 @@ describe("after sign-in native handoff", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("set-cookie")).toContain("Secure");
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain(`${HANDOFF_COOKIE}=;`);
+    expect(setCookie).toContain("Max-Age=0");
+    expect(setCookie).toContain("Secure");
   });
 
   test("keeps the manual return page when the handoff nonce is not verified", async () => {

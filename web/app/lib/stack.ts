@@ -1,5 +1,5 @@
 import { StackClientApp, StackServerApp } from "@stackframe/stack";
-import { env } from "../env";
+import { env, STACK_SECRET_SERVER_KEY_PLACEHOLDERS } from "../env";
 
 // env.ts trims every runtimeEnv source, so consumers receive sanitized values
 // regardless of whether zod validation is skipped.
@@ -45,7 +45,9 @@ export const stackServerApp = isStackConfigured() ? getStackServerApp() : null;
 export const stackHandlerApp = isStackHandlerConfigured() ? getStackHandlerApp() : null;
 
 function hasRealSecretServerKey(): boolean {
-  return Boolean(secretServerKey && secretServerKey !== "cmux-local-dev-placeholder");
+  return Boolean(
+    secretServerKey && !STACK_SECRET_SERVER_KEY_PLACEHOLDERS.has(secretServerKey)
+  );
 }
 
 function stackAppOptions() {
