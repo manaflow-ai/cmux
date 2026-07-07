@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import CmuxWorkspaces
+import CmuxFoundation
 
 struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
     var newWorkspace: CmuxConfigButtonPlacement?
@@ -16,6 +16,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
     var icon: CmuxButtonIcon?
     var tooltip: String?
     var contextMenu: [CmuxConfigContextMenuItem]?
+    var menuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
 
     private enum CodingKeys: String, CodingKey {
         case action
@@ -23,18 +24,22 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         case tooltip
         case contextMenu
         case rightClick
+        case menuSectionOrder
+        case sectionOrder
     }
 
     init(
         action: String? = nil,
         icon: CmuxButtonIcon? = nil,
         tooltip: String? = nil,
-        contextMenu: [CmuxConfigContextMenuItem]? = nil
+        contextMenu: [CmuxConfigContextMenuItem]? = nil,
+        menuSectionOrder: CmuxNewWorkspaceMenuSectionOrder? = nil
     ) {
         self.action = action
         self.icon = icon
         self.tooltip = tooltip
         self.contextMenu = contextMenu
+        self.menuSectionOrder = menuSectionOrder
     }
 
     init(from decoder: Decoder) throws {
@@ -44,6 +49,8 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
         contextMenu = try container.decodeIfPresent([CmuxConfigContextMenuItem].self, forKey: .contextMenu)
             ?? container.decodeIfPresent([CmuxConfigContextMenuItem].self, forKey: .rightClick)
+        menuSectionOrder = try container.decodeIfPresent(CmuxNewWorkspaceMenuSectionOrder.self, forKey: .menuSectionOrder)
+            ?? container.decodeIfPresent(CmuxNewWorkspaceMenuSectionOrder.self, forKey: .sectionOrder)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -52,6 +59,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         try container.encodeIfPresent(icon, forKey: .icon)
         try container.encodeIfPresent(tooltip, forKey: .tooltip)
         try container.encodeIfPresent(contextMenu, forKey: .contextMenu)
+        try container.encodeIfPresent(menuSectionOrder, forKey: .menuSectionOrder)
     }
 
     private static func trimmedString(
@@ -64,6 +72,167 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             if allowBlankAsNil { return nil }
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return trimmed
+    }
+}
+
+enum CmuxNewWorkspaceMenuSectionOrder: String, Codable, Sendable, Hashable {
+    case customFirst
+    case cloudFirst
+
+    static let `default`: Self = .cloudFirst
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch value {
+        case "customFirst", "workspaceFirst", "newWorkspaceFirst":
+            self = .customFirst
+        case "cloudFirst", "cloudVMFirst":
+            self = .cloudFirst
+        default:
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "menuSectionOrder must be 'customFirst' or 'cloudFirst'"
+                )
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+struct CmuxConfigContextMenuActionItem: Codable, Sendable, Hashable {
+    var action: String
+    var title: String?
+    var icon: CmuxButtonIcon?
+    var tooltip: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case action
+        case title
+        case icon
+        case tooltip
+    }
+
+    init(action: String, title: String? = nil, icon: CmuxButtonIcon? = nil, tooltip: String? = nil) {
+        self.action = action
+        self.title = title
+        self.icon = icon
+        self.tooltip = tooltip
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        action = try Self.requiredTrimmedString(forKey: .action, in: container)
+        title = try Self.trimmedString(forKey: .title, in: container, allowBlankAsNil: true)
+        icon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
+        tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
+    }
+
+    private static func requiredTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        guard let value = try trimmedString(forKey: key, in: container) else {
+            throw DecodingError.keyNotFound(
+                key,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "\(key.stringValue) is required"
+                )
+            )
+        }
+        return value
+    }
+
+    private static func trimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>,
+        allowBlankAsNil: Bool = false
+    ) throws -> String? {
+        guard container.contains(key) else { return nil }
+        let raw = try container.decode(String.self, forKey: key)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            if allowBlankAsNil { return nil }
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return trimmed
+    }
+}
+
+enum CmuxConfigContextMenuItem: Codable, Sendable, Hashable {
+    case action(CmuxConfigContextMenuActionItem)
+    case separator
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case action
+    }
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let rawAction = try? container.decode(String.self) {
+            let trimmed = rawAction.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == "-" || trimmed == "separator" {
+                self = .separator
+                return
+            }
+            guard !trimmed.isEmpty else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "contextMenu action must not be blank"
+                    )
+                )
+            }
+            self = .action(CmuxConfigContextMenuActionItem(action: trimmed))
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawType = try Self.trimmedString(forKey: .type, in: container)
+        if rawType == "separator" {
+            self = .separator
+            return
+        }
+        self = .action(try CmuxConfigContextMenuActionItem(from: decoder))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .action(let item):
+            try item.encode(to: encoder)
+        case .separator:
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode("separator", forKey: .type)
+        }
+    }
+
+    private static func trimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String? {
+        guard container.contains(key) else { return nil }
+        let raw = try container.decode(String.self, forKey: key)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
             throw DecodingError.dataCorruptedError(
                 forKey: key,
                 in: container,
@@ -97,6 +266,13 @@ enum CmuxResolvedConfigContextMenuItem: Identifiable, Sendable, Hashable {
     }
 }
 
+enum CmuxRestartBehavior: String, Codable, Sendable {
+    case new
+    case recreate
+    case ignore
+    case confirm
+}
+
 extension CmuxButtonIcon {
     func contextMenuImage(configSourcePath: String?, globalConfigPath: String) -> NSImage? {
         switch bonsplitIcon(configSourcePath: configSourcePath, globalConfigPath: globalConfigPath) {
@@ -114,7 +290,7 @@ extension CmuxButtonIcon {
 
     private static func contextMenuEmojiImage(_ value: String, scale: Double) -> NSImage? {
         let clampedScale = min(max(scale, 0.25), 4)
-        let font = NSFont.systemFont(ofSize: CGFloat(16.0 * clampedScale))
+        let font = GlobalFontMagnification.systemFont(ofSize: CGFloat(16.0 * clampedScale))
         let attributedString = NSAttributedString(string: value, attributes: [.font: font])
         let measuredSize = attributedString.size()
         let imageSize = NSSize(

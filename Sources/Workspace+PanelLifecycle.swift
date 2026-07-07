@@ -405,6 +405,7 @@ extension Workspace {
 
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
+        discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         if let tabId {
             paneTree.removeSurfaceMapping(forSurfaceId: tabId)

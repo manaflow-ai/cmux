@@ -59,4 +59,39 @@ public struct NotificationCooldownTracker: Sendable {
             lastDateByKey.removeValue(forKey: reservation.key)
         }
     }
+
+    /// Removes stale cooldown entries and caps the retained cache size.
+    /// - Returns: Number of entries removed.
+    public mutating func trim(
+        now: Date,
+        staleAge: TimeInterval,
+        maxEntries: Int
+    ) -> Int {
+        let beforeCount = lastDateByKey.count
+        lastDateByKey = Self.trimDateCache(
+            lastDateByKey,
+            now: now,
+            staleAge: staleAge,
+            maxEntries: maxEntries
+        )
+        return Swift.max(0, beforeCount - lastDateByKey.count)
+    }
+
+    private static func trimDateCache<Key: Hashable>(
+        _ cache: [Key: Date],
+        now: Date,
+        staleAge: TimeInterval,
+        maxEntries: Int
+    ) -> [Key: Date] {
+        let freshEntries = cache.filter { _, date in
+            now.timeIntervalSince(date) <= staleAge
+        }
+        guard freshEntries.count > maxEntries else { return freshEntries }
+        return Dictionary(
+            uniqueKeysWithValues: freshEntries
+                .sorted { lhs, rhs in lhs.value > rhs.value }
+                .prefix(maxEntries)
+                .map { ($0.key, $0.value) }
+        )
+    }
 }

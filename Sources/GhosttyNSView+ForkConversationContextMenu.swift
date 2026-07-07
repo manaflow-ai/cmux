@@ -12,7 +12,19 @@ extension GhosttyNSView {
 
     @discardableResult
     func appendForkCurrentAgentConversationMenuItems(to menu: NSMenu) -> Bool {
-        guard canForkCurrentAgentConversation() else { return false }
+        let availability = currentAgentConversationForkAvailability()
+        guard availability.isAvailable || availability == .agentIndexRefreshing else { return false }
+
+        if availability == .agentIndexRefreshing {
+            let item = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.forkConversation", defaultValue: "Fork Conversation"),
+                action: nil,
+                keyEquivalent: ""
+            )
+            item.isEnabled = false
+            item.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
+            return true
+        }
 
         let defaultDestination = AgentConversationForkDestination.configuredDefault()
         let primaryItem = menu.addItem(
@@ -48,12 +60,38 @@ extension GhosttyNSView {
         return true
     }
 
-    private func canForkCurrentAgentConversation() -> Bool {
-        guard let panelId = terminalSurface?.id,
-              let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId) else {
-            return false
+    private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {
+        guard let panelId = terminalSurface?.id else {
+#if DEBUG
+            cmuxDebugLog("fork.contextMenu.hidden reason=missing_terminal_surface")
+#endif
+            return .noAgentSnapshot
         }
-        return located.workspace.canForkAgentConversationFromPanel(panelId)
+        guard let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId) else {
+#if DEBUG
+            cmuxDebugLog(
+                "fork.contextMenu.hidden panel=\(panelId.uuidString.prefix(5)) " +
+                "reason=missing_workspace"
+            )
+#endif
+            return .noAgentSnapshot
+        }
+        let availability = located.workspace.forkAgentConversationContextMenuOpenAvailability(
+            forPanelId: panelId
+        )
+        if availability == .agentIndexRefreshing,
+           !located.workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable {
+            return .noAgentSnapshot
+        }
+#if DEBUG
+        if !availability.isAvailable {
+            cmuxDebugLog(
+                "fork.contextMenu.hidden workspace=\(located.workspace.id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=\(availability.diagnosticReason)"
+            )
+        }
+#endif
+        return availability
     }
 
     @objc func forkCurrentAgentConversation(_ sender: Any?) {

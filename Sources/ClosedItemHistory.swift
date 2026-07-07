@@ -104,7 +104,7 @@ final class ClosedItemHistoryStore {
     )
 
     /// Transitional accessor for the de-singletonization (CONVENTIONS §5
-    /// `static let shared` → construct-and-inject). The type no longer
+    /// `static let shared` -> construct-and-inject). The type no longer
     /// self-vivifies an eager `static let shared`; ownership lives at the
     /// composition root (``AppDelegate/closedItemHistory``), which constructs and
     /// holds the instance and uses it directly at the AppDelegate call sites. The
@@ -518,6 +518,7 @@ final class ClosedItemHistoryStore {
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("closed-item-history-\(safeBundleId).json", isDirectory: false)
     }
+
 }
 
 private struct ClosedItemHistoryPersistenceSnapshot: Codable {

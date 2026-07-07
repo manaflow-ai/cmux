@@ -54,6 +54,9 @@ public struct ControlConfigureWorkspaceRemoteParams: Sendable {
     /// `local_socket_path`, read raw (NOT trimmed — matches the original).
     public var localSocketPath: String?
 
+    /// `managed_cloud_vm_id`, trimmed.
+    public var managedCloudVMID: String?
+
     /// Whether `ssh_auth_sock` was present and non-null.
     public var hasExplicitAgentSocketPath: Bool
 
@@ -109,6 +112,7 @@ public struct ControlConfigureWorkspaceRemoteParams: Sendable {
         relayToken: String?,
         foregroundAuthToken: String?,
         localSocketPath: String?,
+        managedCloudVMID: String?,
         hasExplicitAgentSocketPath: Bool,
         agentSocketPath: String?,
         terminalStartupCommand: String?,
@@ -138,6 +142,7 @@ public struct ControlConfigureWorkspaceRemoteParams: Sendable {
         self.relayToken = relayToken
         self.foregroundAuthToken = foregroundAuthToken
         self.localSocketPath = localSocketPath
+        self.managedCloudVMID = managedCloudVMID
         self.hasExplicitAgentSocketPath = hasExplicitAgentSocketPath
         self.agentSocketPath = agentSocketPath
         self.terminalStartupCommand = terminalStartupCommand

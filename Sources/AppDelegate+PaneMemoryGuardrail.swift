@@ -10,14 +10,55 @@ extension AppDelegate {
         }
     }
 
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure() {
-        let now = Date()
-        let discardedCount = paneMemoryGuardrailTabManagers().reduce(0) { count, manager in
-            count + manager.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
+    func startMemoryPressureMonitorIfNeeded() {
+        let monitor = MemoryPressureMonitor.shared
+        monitor.registry.register(
+            RendererRealizationMemoryPressureResponder(
+                controller: RendererRealizationController.shared
+            )
+        )
+        monitor.registry.register(
+            BrowserHiddenWebViewMemoryPressureResponder { [weak self] in
+                self?.paneMemoryGuardrailTabManagers() ?? []
+            }
+        )
+        if let notificationStore {
+            monitor.registry.register(
+                NotificationCacheMemoryPressureResponder(store: notificationStore)
+            )
         }
-#if DEBUG
-        cmuxDebugLog("browser.memoryPressure.discardHidden count=\(discardedCount)")
-#endif
+        monitor.onPersistentCriticalPressure = { [weak self] snapshot in
+            self?.postPersistentCriticalMemoryPressureWarning(snapshot: snapshot)
+        }
+        monitor.start()
+    }
+
+    private func postPersistentCriticalMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {
+        guard let notificationStore else { return }
+        let managers = paneMemoryGuardrailTabManagers()
+        guard let tabId = tabManager?.selectedTabId
+            ?? managers.compactMap(\.selectedTabId).first
+            ?? managers.flatMap(\.tabs).first?.id
+        else { return }
+
+        notificationStore.addNotification(
+            tabId: tabId,
+            surfaceId: nil,
+            title: String(
+                localized: "memoryPressure.critical.title",
+                defaultValue: "cmux is under critical memory pressure"
+            ),
+            subtitle: String(
+                localized: "memoryPressure.critical.subtitle",
+                defaultValue: "Hidden renderers and browsers were released"
+            ),
+            body: String(
+                localized: "memoryPressure.critical.body",
+                defaultValue: "macOS is reporting sustained critical memory pressure. cmux has shed hidden resources; close idle workspaces or restart cmux if pressure continues."
+            ),
+            cooldownKey: "memory-pressure-critical",
+            cooldownInterval: 300
+        )
     }
 
     private func paneMemoryGuardrailTabManagers() -> [TabManager] {

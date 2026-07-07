@@ -6,7 +6,7 @@ public import Bonsplit
 /// exactly two child ``CmuxLayoutNode`` values. Decoding rejects any child count
 /// other than two. ``clampedSplitPosition`` and ``splitOrientation`` expose the
 /// already-resolved fields the layout walk reads.
-public struct CmuxSplitDefinition: Codable, Sendable {
+public struct CmuxSplitDefinition: Codable, Sendable, Hashable {
     /// The split axis.
     public var direction: CmuxSplitDirection
     /// The normalized divider position in `0...1`, or `nil` for the 0.5 default.

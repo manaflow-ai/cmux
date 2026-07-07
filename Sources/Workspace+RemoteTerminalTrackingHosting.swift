@@ -130,7 +130,7 @@ extension Workspace: RemoteTerminalTrackingHosting {
     // MARK: - Sibling-coordinator forwards
 
     func hostApplyPendingRemoteSurfaceTTYIfNeeded(to panelId: UUID) {
-        remoteSurfaceTTYCoordinator.applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
+        applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
     }
 
     @discardableResult

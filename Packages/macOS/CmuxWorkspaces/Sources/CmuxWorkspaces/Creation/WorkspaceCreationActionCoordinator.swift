@@ -101,16 +101,18 @@ public final class WorkspaceCreationActionCoordinator<Host: WorkspaceCreationAct
                     replacingInitialWorkspaceId: initialWorkspaceId,
                     target: nil
                 )
-            case .browser:
+            case .browser, .cloudVMLoading:
                 // The fresh window boots with a terminal workspace; add the
-                // browser workspace and close that initial one so the action's
+                // requested workspace and close that initial one so the action's
                 // result matches the no-window case for terminals.
-                if let workspaceId = host.addWorkspace(in: windowToken, initialSurface: .browser) {
+                if let workspaceId = host.addWorkspace(in: windowToken, initialSurface: initialSurface) {
                     closeInitialWorkspaceIfNeeded(
                         initialWorkspaceId: initialWorkspaceId,
                         in: windowToken
                     )
-                    host.focusInitialBrowserAddressBar(workspaceId: workspaceId)
+                    if initialSurface == .browser {
+                        host.focusInitialBrowserAddressBar(workspaceId: workspaceId)
+                    }
                 }
             }
             return true

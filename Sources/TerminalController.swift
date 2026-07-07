@@ -1832,6 +1832,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // workspace.remote.pty_* methods (sessions/close/detach/bridge/resize) run in
         // CmuxControlSocket's ControlRemotePTYWorker via runRemotePTYWorker, reaching the
         // live graph + controller through the ControlRemotePTYReading/Controlling seams.
+        case "workspace.cloud_vm_open":
+            return v2Result(id: id, v2WorkspaceCloudVMOpen(params: params))
+        case "workspace.cloud_vm_terminal_ready":
+            return v2Result(id: id, v2WorkspaceCloudVMTerminalReady(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.

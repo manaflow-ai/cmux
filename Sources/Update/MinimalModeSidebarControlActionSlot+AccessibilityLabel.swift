@@ -14,6 +14,8 @@ extension MinimalModeSidebarControlActionSlot {
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
             return String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace")
+        case .cloudVM:
+            return String(localized: "titlebar.cloudVM.accessibilityLabel", defaultValue: "Cloud VM")
         case .focusHistoryBack:
             return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
         case .focusHistoryForward:

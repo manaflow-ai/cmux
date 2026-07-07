@@ -11,6 +11,7 @@ public enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
+    case cloudVM
     case focusHistoryBack
     case focusHistoryForward
 
@@ -24,6 +25,8 @@ public enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "titlebarControl.showNotifications"
         case .newTab:
             return "titlebarControl.newTab"
+        case .cloudVM:
+            return "titlebarControl.cloudVM"
         case .focusHistoryBack:
             return "titlebarControl.focusHistoryBack"
         case .focusHistoryForward:
@@ -40,6 +43,8 @@ public enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "showNotifications"
         case .newTab:
             return "newTab"
+        case .cloudVM:
+            return "cloudVM"
         case .focusHistoryBack:
             return "focusHistoryBack"
         case .focusHistoryForward:
@@ -51,7 +56,7 @@ public enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     /// menu rather than being consumed as a primary action.
     public var acceptsContextMenu: Bool {
         switch self {
-        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .newTab, .cloudVM, .focusHistoryBack, .focusHistoryForward:
             return true
         case .showNotifications:
             return false

@@ -2882,6 +2882,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .customSidebar:
             return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
+        case .cloudVMLoading:
+            return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         }
     }
 
@@ -2905,6 +2907,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return .extensionBrowser
         case .customSidebar:
             return .rightSidebarTool
+        case .cloudVMLoading:
+            return .cloudVMLoading
         }
     }
 
@@ -3764,6 +3768,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             rightSidebarToolPane: Self.commandPaletteRightSidebarToolPaneCommandContributions(),
             view: Self.commandPaletteViewCommandContributions(),
             canvas: Self.commandPaletteCanvasCommandContributions(),
+            cloud: Self.commandPaletteCloudCommandContributions(),
             mobileConnectKeywords: Self.commandPaletteMobileConnectKeywords,
             makeDefaultTerminalKeywords: makeDefaultTerminalKeywords,
             auth: Self.commandPaletteAuthCommandContributions(),
@@ -4019,6 +4024,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             MobilePairingWindowController.shared.show()
         }
         registerAuthCommandHandlers(&registry)
+        registerCloudCommandHandlers(&registry)
         registerProCommandHandlers(&registry)
         registry.register(commandId: "palette.makeDefaultTerminal") {
             AppDelegate.makeDefaultTerminal(debugSource: "palette.makeDefaultTerminal")
@@ -6039,7 +6045,9 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
-        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
+        let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter {
+            $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace
+        }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
         let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy {
@@ -6656,6 +6664,8 @@ struct VerticalTabsSidebar: View {
             return .unknown
         case .customSidebar:
             return .unknown
+        case .cloudVMLoading:
+            return .unknown
         }
     }
 
@@ -7254,16 +7264,17 @@ struct VerticalTabsSidebar: View {
             : [tab.id]
         let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
             ? renderContext.selectedRemoteContextMenuWorkspaceIds
-            : (tab.isRemoteWorkspace ? [tab.id] : [])
+            : (tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace ? [tab.id] : [])
         let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsConnecting
             : (
                 tab.isRemoteWorkspace &&
+                    !tab.isManagedCloudVMWorkspace &&
                     (tab.remoteConnectionState == .connecting || tab.remoteConnectionState == .reconnecting)
             )
         let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
-            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+            : (tab.isRemoteWorkspace && !tab.isManagedCloudVMWorkspace && tab.remoteConnectionState == .disconnected)
         let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
             workspaceIds: contextMenuWorkspaceIds,
             anchorWorkspaceId: tab.id
@@ -8651,8 +8662,8 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
-                || tab.remoteConnectionState == .disconnected,
+            showsRemoteReconnectAffordance: !tab.isManagedCloudVMWorkspace
+                && (tab.remoteConnectionState == .suspended || tab.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],

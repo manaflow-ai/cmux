@@ -51,7 +51,10 @@
       "vaultSessions": "セッション",
       "vaultCliSetup": "CLI設定",
       "subrouterGroup": "subrouter",
-      "subrouterOverview": "概要"
+      "subrouterOverview": "概要",
+      "accountGroup": "アカウント",
+      "billing": "請求",
+      "testflight": "iOS TestFlight"
     },
     "home": {
       "title": "ダッシュボード",
@@ -66,6 +69,101 @@
     "subrouter": {
       "title": "subrouter",
       "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+    },
+    "billing": {
+      "eyebrow": "アカウント",
+      "title": "請求",
+      "description": "cmuxプランを確認し、サブスクリプション請求を管理します。",
+      "banners": {
+        "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
+        "resumed": "プランは再開され、通常どおり更新されます。",
+        "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
+        "error": "請求を更新できませんでした。しばらくしてから再試行してください。"
+      },
+      "free": {
+        "name": "Free",
+        "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。"
+      },
+      "pro": {
+        "name": "cmux Pro",
+        "activeBody": "プランは{date}に更新されます。",
+        "pendingBody": "プランは{date}に終了する予定です。"
+      },
+      "team": {
+        "name": "cmux Team",
+        "fallbackName": "チーム",
+        "activeBody": "{team}は{date}に更新されます。",
+        "pendingBody": "{team}は{date}に終了する予定です。",
+        "price": "$35/シート/月"
+      },
+      "legacy": {
+        "body": "サブスクリプションは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。"
+      },
+      "details": {
+        "renewsOn": "更新日",
+        "endsOn": "終了日",
+        "price": "料金",
+        "seats": "シート数"
+      },
+      "dates": {
+        "unknown": "不明"
+      },
+      "cancel": {
+        "body": "Proアクセスは{date}まで有効です。請求期間の終了時にキャンセルすることを確認するには、チェックボックスを選択してください。",
+        "teamBody": "Teamアクセスは{date}まで有効です。請求期間の終了時にキャンセルすることを確認するには、チェックボックスを選択してください。",
+        "checkbox": "現在の請求期間の終了時にプランが終了することを理解しました。"
+      },
+      "actions": {
+        "viewPricing": "料金を見る",
+        "manageBilling": "請求を管理",
+        "cancelSummary": "プランをキャンセル",
+        "confirmCancel": "キャンセルを確定",
+        "resume": "プランを再開"
+      }
+    },
+    "testflight": {
+      "eyebrow": "アカウント",
+      "title": "iOS TestFlight",
+      "description": "有効なサブスクリプションでcmux iOSベータに参加します。",
+      "banners": {
+        "joined": "AppleからTestFlightの招待メールがまもなく届きます。",
+        "left": "iOS TestFlightグループから退出しました。",
+        "error": "TestFlightを更新できませんでした。しばらくしてから再試行してください。",
+        "ineligible": "iOS TestFlightには有効なProまたはTeamサブスクリプションが必要です。",
+        "needs_email": "iOS TestFlightに参加する前に、確認済みのメインメールを追加してください。",
+        "unavailable": "現在、TestFlight登録は利用できません。"
+      },
+      "notEligible": {
+        "title": "サブスクリプションが必要です",
+        "body": "iOS TestFlightアクセスは、有効なProユーザーとTeamサブスクリプションのメンバーが利用できます。"
+      },
+      "needsEmail": {
+        "title": "確認済みメールが必要です",
+        "body": "AppleがTestFlight招待を送信できるよう、アカウントに確認済みのメインメールを追加してください。"
+      },
+      "unavailable": {
+        "title": "登録を利用できません",
+        "body": "この環境ではTestFlight登録が設定されていません。しばらくしてから再試行してください。"
+      },
+      "join": {
+        "title": "iOSベータに参加",
+        "body": "Appleが{email}にTestFlight招待を送信します。iPhoneにTestFlightをインストールして、招待を承認してください。"
+      },
+      "enrolled": {
+        "title": "登録済みです",
+        "body": "{email}はcmux iOS TestFlightグループに登録されています。",
+        "lapseNote": "サブスクリプションが失効すると、アクセスは自動的に終了します。"
+      },
+      "details": {
+        "email": "メール",
+        "status": "ステータス",
+        "enrolled": "登録済み"
+      },
+      "actions": {
+        "viewPricing": "料金を見る",
+        "join": "iOS TestFlightに参加",
+        "leave": "TestFlightから退出"
+      }
     },
     "aiAccounts": {
       "metaTitle": "AIアカウント — cmux",
@@ -514,6 +612,7 @@
     "welcomePendingAction": "再確認",
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
+    "billingExternal": "サブスクリプションは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
@@ -1601,8 +1700,9 @@
       "actionTypes": "アクションの種類",
       "actionTypeBuiltin": "cmux.newTerminal、cmux.newBrowser、cmux.splitRight、cmux.splitDown などの組み込み cmux アクションに別名を付けます。",
       "actionTypeCommand": "ターミナルでシェルテキストを実行します。target で現在のターミナルまたは現在のペイン内の新しいタブを選びます。",
-      "actionTypeAgent": "対応しているコーディングエージェントを起動します。現在は codex と claude を、任意の引数付きでサポートしています。",
+      "actionTypeAgent": "コーディングエージェントを新しいターミナルタブで起動します。任意の CLI 名(claude、codex、opencode、独自バイナリなど)を指定でき、args も併用できます。",
       "actionTypeWorkspaceCommand": "commands から名前付きのワークスペース定義を実行します。複数ペインのレイアウト、カスタム作業ディレクトリ、起動コマンドに使います。",
+      "actionTypeWorkspace": "アクション内に埋め込んだワークスペース定義から新しいワークスペースを作成します。restart の指定も可能で、新規ワークスペースのプラスボタンメニューに自動的に表示されます。",
       "actionFields": "アクションのフィールド",
       "actionFieldTitle": "Command Palette の行タイトル、サーフェスボタンのラベル、メニュー項目タイトル、信頼確認のタイトルです。項目側で上書きできます。",
       "actionFieldSubtitle": "Command Palette の補助テキストです。description は subtitle の別名として使えます。",
@@ -1611,6 +1711,7 @@
       "actionFieldShortcut": "任意のアクションショートカットです。設定ショートカットと同じ単一キーまたは 2 ステップのコード構文を使います。",
       "actionFieldTarget": "command と agent アクション専用です。currentTerminal または newTabInCurrentPane を使います。",
       "actionFieldConfirm": "アクションを実行する前に確認します。",
+      "actionFieldNewWorkspaceMenu": "true にすると任意のアクションを新規ワークスペースのプラスボタンメニューに表示し、false にするとワークスペースアクションを非表示にします。",
       "commandPaletteBehavior": "Command Palette の動作",
       "commandPaletteBehaviorDesc": "Command Palette は解決済みのアクションレジストリを読みます。<palette>palette</palette> が false でない場合、カスタムアクション ID は行として追加されます。従来の <commands>commands</commands> は、同じ生成 ID のアクションが既にない限り、自動的にカスタム行として追加されます。組み込みコマンドは通常のパレット表示名を保ちますが、<newTerminal>cmux.newTerminal</newTerminal> のような組み込み ID を上書きすると、その共有エントリポイントの動作が変わります。",
       "commandPaletteScreenshotAlt": "cmux.json のカスタム Worktree Agents アクションを表示している cmux Command Palette",
@@ -1620,6 +1721,10 @@
       "newWorkspaceButton": "プラスボタンのカスタムアクション",
       "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。",
       "newWorkspaceWorktreeNote": "この例では、通常のプラスクリックで <action>worktree-agents</action> アクションを実行します。<commands>commands</commands> のワークスペースコマンドは、見えるセットアップ用ターミナルを使って最初に Git <worktree>worktree</worktree> を作成します。Codex と Claude は同時に起動し、ワークスペース固有の状態ファイルを待ってから、作成されたディレクトリへ cd して exec します。",
+      "workspaceActions": "ワークスペースレイアウト",
+      "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",
+      "workspaceActionsMenuDesc": "ワークスペースレイアウトはプラスボタンの右クリックメニューに自動的に表示されます。<newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> を <falseValue>false</falseValue> にすると非表示にでき、他のアクションで <trueValue>true</trueValue> にするとメニューに追加できます。",
+      "workspaceActionsSaveDesc": "JSON を書かずに作成することもできます。プラスボタンを右クリックして <saveLayout>ワークスペースをレイアウトとして保存</saveLayout> を選ぶと、現在のワークスペースの分割、ディレクトリ、実行中のエージェント、ブラウザタブが <configPath>~/.config/cmux/cmux.json</configPath> に保存されます。これは <actions>actions</actions> ブロックのエントリとして保存されます。<customize>ワークスペースレイアウトをカスタマイズ</customize> はそのファイルをエディタで開きます。",
       "simpleCommands": "シンプルコマンド",
       "simpleCommandsDesc": "シンプルコマンドは現在フォーカスされているターミナルでシェルコマンドを実行します：",
       "simpleCommandFields": "フィールド",
@@ -1637,6 +1742,8 @@
       "wsFieldName": "ワークスペースのタブ名（デフォルトはコマンド名）",
       "wsFieldCwd": "ワークスペースの作業ディレクトリ",
       "wsFieldColor": "ワークスペースのタブカラー",
+      "wsFieldEnv": "ワークスペース内のすべてのシェルに引き継がれる環境変数",
+      "wsFieldSetup": "ワークスペースの最初のターミナルに、そのターミナル自身のコマンドより先に送信されるブートストラップコマンド",
       "wsFieldLayout": "分割とペインを定義するレイアウトツリー",
       "restartBehavior": "再起動の動作",
       "restartBehaviorDesc": "同名のワークスペースが既に存在する場合の動作を制御します：",
@@ -1668,7 +1775,9 @@
       "absolutePath": "絶対パス",
       "cwdAbsolute": "そのまま使用",
       "fullExample": "完全な例",
-      "restartNew": "新しいワークスペースを作成する (デフォルト)"
+      "restartNew": "新しいワークスペースを作成する (デフォルト)",
+      "workspaceActionsDefaultTitle": "新規ワークスペースのデフォルト",
+      "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",

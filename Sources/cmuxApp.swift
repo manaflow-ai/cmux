@@ -136,7 +136,7 @@ struct cmuxApp: App {
     // menu-bar extra, and command-palette call sites all reach this one object.
     @State private var taskManagerWindowController = TaskManagerWindowController.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyle = TitlebarControlsStyle.defaultRawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -500,7 +500,12 @@ struct cmuxApp: App {
                     Button("Sidebar Debug…") {
                         AppDelegate.shared?.debugWindowsCoordinator.showSidebarDebug()
                     }
-                    Button("Split Button Layout Debug…") {
+                    Button(
+                        String(
+                            localized: "debug.menu.splitButtonLayoutDebug",
+                            defaultValue: "Split Button Layout Debug…"
+                        )
+                    ) {
                         AppDelegate.shared?.debugWindowsCoordinator.showSplitButtonLayoutDebugWindow()
                     }
                     Button(
@@ -1183,6 +1188,7 @@ struct cmuxApp: App {
         AppDelegate.shared?.debugWindowsCoordinator.showFeedTextEditorDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showFeedButtonStyleDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showBonsplitTabBarDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showSplitButtonLayoutDebugWindow()
     }
 #endif
 }

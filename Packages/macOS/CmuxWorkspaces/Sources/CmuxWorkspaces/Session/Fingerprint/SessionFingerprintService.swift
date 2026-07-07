@@ -67,6 +67,9 @@ public struct SessionFingerprintService: Sendable {
             hasher.combine(workspace.panels.count)
             for panel in workspace.panels {
                 hasher.combine(panel.panelId)
+                hasher.combine(panel.directory)
+                hasher.combine(panel.hasRemoteDirectoryReport)
+                hasher.combine(panel.requiresRemoteDirectoryTrust)
                 hasher.combine(panel.isManualUnread)
                 hasher.combine(panel.isRestoredUnread)
                 hasher.combine(panel.restoredUnreadContributesToWorkspace)

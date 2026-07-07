@@ -3,7 +3,7 @@
 /// Carries the surface kind plus the optional fields a `cmux.json` `layout`
 /// entry may set: a display name, a launch command, a working directory,
 /// environment overrides, an initial URL, and whether it takes initial focus.
-public struct CmuxSurfaceDefinition: Codable, Sendable {
+public struct CmuxSurfaceDefinition: Codable, Sendable, Hashable {
     /// The kind of surface to create.
     public var type: CmuxSurfaceType
     /// An optional display name.

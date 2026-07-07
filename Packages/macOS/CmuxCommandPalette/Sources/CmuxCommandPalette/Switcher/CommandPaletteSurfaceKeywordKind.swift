@@ -26,6 +26,8 @@ public enum CommandPaletteSurfaceKeywordKind: Sendable {
     case project
     /// A sidebar-extension browser surface.
     case extensionBrowser
+    /// A Cloud VM loading surface.
+    case cloudVMLoading
 
     /// The static search keywords for this surface kind.
     public var keywords: [String] {
@@ -46,6 +48,8 @@ public enum CommandPaletteSurfaceKeywordKind: Sendable {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .cloudVMLoading:
+            return ["cloud", "vm", "remote", "loading"]
         }
     }
 }

@@ -34,6 +34,9 @@ public struct SelectedWorkspaceDirectorySnapshot: Equatable, Sendable {
     /// The selected workspace's remote daemon status, if any (legacy
     /// `Workspace.remoteDaemonStatus`).
     public let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+    /// Number of active remote terminal sessions in the selected workspace
+    /// (legacy `Workspace.activeRemoteTerminalSessionCount`).
+    public let activeRemoteTerminalSessionCount: Int
 
     /// Creates a snapshot. Pass all-`nil` for the "no selection" snapshot.
     public init(
@@ -42,7 +45,8 @@ public struct SelectedWorkspaceDirectorySnapshot: Equatable, Sendable {
         remoteConfiguration: WorkspaceRemoteConfiguration?,
         remoteConnectionState: WorkspaceRemoteConnectionState?,
         remoteConnectionDetail: String?,
-        remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+        remoteDaemonStatus: WorkspaceRemoteDaemonStatus?,
+        activeRemoteTerminalSessionCount: Int
     ) {
         self.workspaceId = workspaceId
         self.currentDirectory = currentDirectory
@@ -50,6 +54,7 @@ public struct SelectedWorkspaceDirectorySnapshot: Equatable, Sendable {
         self.remoteConnectionState = remoteConnectionState
         self.remoteConnectionDetail = remoteConnectionDetail
         self.remoteDaemonStatus = remoteDaemonStatus
+        self.activeRemoteTerminalSessionCount = activeRemoteTerminalSessionCount
     }
 
     /// The "no selection" snapshot: every field `nil`. Matches the legacy
@@ -60,6 +65,7 @@ public struct SelectedWorkspaceDirectorySnapshot: Equatable, Sendable {
         remoteConfiguration: nil,
         remoteConnectionState: nil,
         remoteConnectionDetail: nil,
-        remoteDaemonStatus: nil
+        remoteDaemonStatus: nil,
+        activeRemoteTerminalSessionCount: 0
     )
 }

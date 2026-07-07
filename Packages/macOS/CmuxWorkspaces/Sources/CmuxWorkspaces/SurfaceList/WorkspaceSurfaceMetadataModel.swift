@@ -175,13 +175,13 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
     /// when nothing is known. Faithful lift of
     /// `Workspace.configTrackingDirectory(for:)`.
     public func configTrackingDirectory(for panelId: UUID?) -> String? {
-        // A remote tmux mirror's directories are paths on the REMOTE host.
+        // A remote workspace's directories are paths on the REMOTE host.
         // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
         // the ancestor chain with FileManager.fileExists on the main thread,
         // and stat'ing e.g. /home/… locally blocks on the autofs automounter
         // for hundreds of ms (measured via sample during tab-reveal stalls).
         // No local per-directory config can apply to a remote path — track none.
-        if host?.surfaceMetadataIsRemoteTmuxMirror == true { return nil }
+        if host?.surfaceMetadataUsesRemoteDirectoryProvenance == true { return nil }
         if let panelId {
             for candidate in [
                 registry.panelDirectories[panelId],
@@ -217,7 +217,7 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
     ) -> Bool {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        if source == .liveReport,
+        if source.isLiveReport,
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
@@ -226,10 +226,12 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
         }
         // Update current directory if this is the focused panel
         if panelId == host?.surfaceMetadataFocusedPanelId {
-            if host?.surfaceMetadataSurfaceTabBarDirectory != trimmed {
-                host?.surfaceMetadataSurfaceTabBarDirectory = trimmed
+            let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
+            if host?.surfaceMetadataSurfaceTabBarDirectory != nextSurfaceTabBarDirectory {
+                host?.surfaceMetadataSurfaceTabBarDirectory = nextSurfaceTabBarDirectory
             }
-            if host?.surfaceMetadataCurrentDirectory != trimmed {
+            if host?.surfaceMetadataAllowsLocalDirectoryFallback(panelId: panelId) == true,
+               host?.surfaceMetadataCurrentDirectory != trimmed {
                 host?.surfaceMetadataCurrentDirectory = trimmed
             }
         }
@@ -252,19 +254,32 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
             return false
         }
 
-        let missingVolumeRoot = Self.unmountedVolumeRoot(for: restoredDirectory)
-        guard missingVolumeRoot != nil else {
-            host?.surfaceMetadataClearRestoredGuardedWorkingDirectory(panelId: panelId)
-            return false
+        if let missingVolumeRoot = Self.unmountedVolumeRoot(for: restoredDirectory) {
+            host?.surfaceMetadataLogIgnoredRestoredCwdReport(
+                panelId: panelId,
+                missingVolumeRoot: missingVolumeRoot,
+                savedDirectory: restoredDirectory,
+                reportedDirectory: reportedDirectory
+            )
+            return true
         }
 
-        host?.surfaceMetadataLogIgnoredRestoredCwdReport(
+        host?.surfaceMetadataClearRestoredGuardedWorkingDirectory(panelId: panelId)
+        var restoredDirectoryIsDirectory = ObjCBool(false)
+        let restoredDirectoryStillExists = FileManager.default.fileExists(
+            atPath: restoredDirectory,
+            isDirectory: &restoredDirectoryIsDirectory
+        ) && restoredDirectoryIsDirectory.boolValue
+        if !restoredDirectoryStillExists {
+            host?.surfaceMetadataClearRestoredResumeSessionWorkingDirectory(panelId: panelId)
+        }
+        host?.surfaceMetadataLogRestoredCwdDecision(
             panelId: panelId,
-            missingVolumeRoot: missingVolumeRoot ?? "",
+            event: restoredDirectoryStillExists ? "ignoredOnce" : "accepted",
             savedDirectory: restoredDirectory,
             reportedDirectory: reportedDirectory
         )
-        return true
+        return restoredDirectoryStillExists
     }
 
     /// Records `state` as the shell-activity classification for `panelId`,

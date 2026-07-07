@@ -970,6 +970,9 @@ class TabManager {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
@@ -987,6 +990,9 @@ class TabManager {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
@@ -1604,14 +1610,22 @@ class TabManager {
     }
 
     func createWorkspaceForGroup(
+        title: String?,
         workingDirectory: String?,
         initialSurface: NewWorkspaceInitialSurface,
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> Workspace {
         addWorkspace(
+            title: title,
             workingDirectory: workingDirectory,
             initialSurface: initialSurface,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
             autoWelcomeIfNeeded: false
@@ -2100,6 +2114,10 @@ class TabManager {
         String(localized: "browser.newTab", defaultValue: "New tab")
     }
 
+    func cloudVMDefaultWorkspaceTitle() -> String {
+        String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+    }
+
     func makeWorkspaceForCreation(
         title: String,
         explicitTitle: String?,
@@ -2110,6 +2128,9 @@ class TabManager {
         initialTerminalCommand: String?,
         initialTerminalInput: String?,
         initialTerminalEnvironment: [String: String],
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
         workspaceEnvironment: [String: String],
         allowTextBoxFocusDefault: Bool,
         chromeInheritanceSource: Workspace?
@@ -2117,7 +2138,7 @@ class TabManager {
         let inheritedConfig = workspaceCreationConfigTemplate(
             inheritedTerminalFontPoints: inheritedTerminalFontPoints
         )
-        let newWorkspace = makeWorkspaceForCreation(
+        let newWorkspace = Workspace(
             title: title,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
@@ -2126,6 +2147,9 @@ class TabManager {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault
         )
@@ -4329,16 +4353,68 @@ extension TabManager {
         workspace.owningTabManager = nil
     }
 
+    private static func normalizedCloudVMSessionRestoreWorkspaces<S: Sequence>(
+        _ snapshots: S,
+        selectedWorkspaceIndex: Int?
+    ) -> ([SessionWorkspaceSnapshot], Int?) where S.Element == SessionWorkspaceSnapshot {
+        let snapshots = Array(snapshots)
+        let cloudIndexes = snapshots.indices.filter { isCloudVMSessionRestoreWorkspace(snapshots[$0]) }
+        guard !cloudIndexes.isEmpty else {
+            return (snapshots, selectedWorkspaceIndex)
+        }
+
+        let managedCloudIndexes = cloudIndexes.filter { isManagedCloudVMSessionRestoreWorkspace(snapshots[$0]) }
+        let selectedManagedCloudIndex = selectedWorkspaceIndex.flatMap { selected in
+            managedCloudIndexes.contains(selected) ? selected : nil
+        }
+        let keptCloudIndex = selectedManagedCloudIndex ?? managedCloudIndexes.first
+        var indexMap: [Int: Int] = [:]
+        var filtered: [SessionWorkspaceSnapshot] = []
+
+        if let keptCloudIndex {
+            indexMap[keptCloudIndex] = filtered.count
+            filtered.append(snapshots[keptCloudIndex])
+        }
+
+        for (index, snapshot) in snapshots.enumerated() {
+            if cloudIndexes.contains(index) {
+                continue
+            }
+            indexMap[index] = filtered.count
+            filtered.append(snapshot)
+        }
+
+        let remappedSelection = selectedWorkspaceIndex.flatMap { indexMap[$0] }
+            ?? keptCloudIndex.flatMap { indexMap[$0] }
+        return (filtered, remappedSelection)
+    }
+
+    private static func isCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
+        isManagedCloudVMSessionRestoreWorkspace(snapshot)
+    }
+
+    private static func isManagedCloudVMSessionRestoreWorkspace(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
+        guard let managedCloudVMID = snapshot.remote?.managedCloudVMID else { return false }
+        return !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
         remapClosedPanelHistory: Bool = true
     ) -> [[UUID: UUID]] {
-        pendingSessionRestoreSnapshot = snapshot
+        let (normalizedWorkspaces, selectedWorkspaceIndex) = Self.normalizedCloudVMSessionRestoreWorkspaces(
+            snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow),
+            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex
+        )
+        var normalizedSnapshot = snapshot
+        normalizedSnapshot.workspaces = normalizedWorkspaces
+        normalizedSnapshot.selectedWorkspaceIndex = selectedWorkspaceIndex
+        pendingSessionRestoreSnapshot = normalizedSnapshot
         defer { pendingSessionRestoreSnapshot = nil }
         return sessionSnapshotRestore.restore(
-            persistedGroupSnapshots: snapshot.workspaceGroups,
-            selectedWorkspaceIndex: snapshot.selectedWorkspaceIndex,
+            persistedGroupSnapshots: normalizedSnapshot.workspaceGroups,
+            selectedWorkspaceIndex: selectedWorkspaceIndex,
             remapClosedPanelHistory: remapClosedPanelHistory
         )
     }

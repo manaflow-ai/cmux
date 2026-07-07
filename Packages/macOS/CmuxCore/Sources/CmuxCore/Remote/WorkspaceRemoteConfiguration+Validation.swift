@@ -34,6 +34,7 @@ extension WorkspaceRemoteConfiguration {
         relayToken: String?,
         foregroundAuthToken: String?,
         localSocketPath: String?,
+        managedCloudVMID: String?,
         hasExplicitAgentSocketPath: Bool,
         agentSocketPath: String?,
         terminalStartupCommand: String?,
@@ -152,6 +153,7 @@ extension WorkspaceRemoteConfiguration {
             relayID: relayID?.isEmpty == true ? nil : relayID,
             relayToken: relayToken?.isEmpty == true ? nil : relayToken,
             localSocketPath: localSocketPath,
+            managedCloudVMID: managedCloudVMID?.isEmpty == true ? nil : managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
             foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken,
             agentSocketPath: WorkspaceRemoteConfiguration.resolvedAgentSocketPath(

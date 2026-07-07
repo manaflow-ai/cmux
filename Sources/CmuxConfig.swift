@@ -7,6 +7,10 @@ import CryptoKit
 import Foundation
 import CmuxSettings
 
+extension CodingUserInfoKey {
+    static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
+}
+
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
@@ -150,6 +154,31 @@ struct CmuxConfigFile: Codable, Sendable {
     }
 }
 
+/// Per-cwd customization for sidebar workspace groups. Keyed by the anchor
+/// workspace's cwd. Keys containing `*` or `?` are matched as fnmatch globs;
+/// otherwise they are path prefixes. Longest match wins. `~` is expanded.
+struct CmuxConfigWorkspaceGroupsDefinition: Codable, Sendable, Equatable {
+    var byCwd: [String: CmuxConfigWorkspaceGroupEntry]?
+
+    enum CodingKeys: String, CodingKey {
+        case byCwd
+    }
+}
+
+struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
+    var color: String?
+    var icon: String?
+    var contextMenu: [CmuxConfigContextMenuItem]?
+    /// Where a newly-created workspace lands inside the group when the user
+    /// clicks the header's `+` button or invokes Cmd-N from a group member.
+    /// Valid values: `"afterCurrent"` (after the current in-group workspace,
+    /// falling back to top), `"top"` (immediately after the anchor), or
+    /// `"end"` (after the last member). When omitted,
+    /// falls back to the global default
+    /// (the stored `workspaceGroups.newWorkspacePlacement` setting).
+    var newWorkspacePlacement: String?
+}
+
 /// Resolved snapshot of a per-cwd workspace group entry, with the JSON key
 /// normalized for matching and any `contextMenu` actions resolved against the
 /// loaded action/command tables.
@@ -163,6 +192,96 @@ struct CmuxResolvedWorkspaceGroupConfig: Sendable, Equatable {
     /// Parsed override for where the `+` button places its new workspace.
     /// nil means "fall through to the global default."
     let newWorkspacePlacement: WorkspaceGroupNewPlacement?
+}
+
+enum CmuxNotificationHooksMode: String, Codable, Sendable, Hashable {
+    case append
+    case replace
+}
+
+struct CmuxNotificationConfigDefinition: Codable, Sendable, Hashable {
+    var hooks: [CmuxNotificationHookDefinition]?
+    var hooksMode: CmuxNotificationHooksMode?
+
+    private enum CodingKeys: String, CodingKey {
+        case hooks
+        case hooksMode
+    }
+}
+
+struct CmuxNotificationHookDefinition: Codable, Sendable, Hashable {
+    static let defaultTimeoutSeconds: TimeInterval = 20
+
+    var id: String
+    var command: String
+    var timeoutSeconds: TimeInterval?
+    var enabled: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case command
+        case timeoutSeconds
+        case enabled
+    }
+
+    init(
+        id: String,
+        command: String,
+        timeoutSeconds: TimeInterval? = nil,
+        enabled: Bool = true
+    ) {
+        self.id = id
+        self.command = command
+        self.timeoutSeconds = timeoutSeconds
+        self.enabled = enabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedID = try Self.requiredTrimmedString(forKey: .id, in: container)
+        let decodedCommand = try Self.requiredTrimmedString(forKey: .command, in: container)
+        let decodedTimeout = try container.decodeIfPresent(TimeInterval.self, forKey: .timeoutSeconds)
+        if let decodedTimeout, !decodedTimeout.isFinite || decodedTimeout <= 0 {
+            throw DecodingError.dataCorruptedError(
+                forKey: .timeoutSeconds,
+                in: container,
+                debugDescription: "timeoutSeconds must be greater than 0"
+            )
+        }
+
+        id = decodedID
+        command = decodedCommand
+        timeoutSeconds = decodedTimeout
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(command, forKey: .command)
+        try container.encodeIfPresent(timeoutSeconds, forKey: .timeoutSeconds)
+        try container.encode(enabled, forKey: .enabled)
+    }
+
+    var resolvedTimeoutSeconds: TimeInterval {
+        timeoutSeconds ?? Self.defaultTimeoutSeconds
+    }
+
+    private static func requiredTrimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        let value = try container.decode(String.self, forKey: key)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return value
+    }
 }
 
 struct CmuxResolvedNotificationHook: Sendable, Hashable {
@@ -208,179 +327,942 @@ struct CmuxResolvedNotificationHook: Sendable, Hashable {
     }
 }
 
-struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
-    var action: CmuxSurfaceTabBarButtonAction?
-    var title: String?
-    var subtitle: String?
-    var keywords: [String]?
-    var palette: Bool?
-    var shortcut: StoredShortcut?
-    var icon: CmuxButtonIcon?
-    var tooltip: String?
-    var confirm: Bool?
-    var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
+enum CmuxConfigTerminalCommandTarget: String, Codable, Sendable, Hashable {
+    case currentTerminal
+    case newTabInCurrentPane
+
+    static let defaultForActions: CmuxConfigTerminalCommandTarget = .newTabInCurrentPane
+}
+
+extension CmuxSurfaceTabBarBuiltInAction {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let action = Self(configID: value) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Unknown built-in action '\(value)'"
+                )
+            )
+        }
+        self = action
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(configID)
+    }
+}
+
+/// Agent launched by an `agent` action. Known kinds carry presentation
+/// defaults (icon, display title); any other CLI name decodes as `.custom`
+/// so new agents never require an app change.
+enum CmuxConfigAgentKind: Sendable, Hashable {
+    case codex
+    case claudeCode
+    case opencode
+    case custom(String)
+
+    var commandName: String {
+        switch self {
+        case .codex:
+            return "codex"
+        case .claudeCode:
+            return "claude"
+        case .opencode:
+            return "opencode"
+        case .custom(let name):
+            return name
+        }
+    }
+
+    var defaultIcon: CmuxButtonIcon {
+        switch self {
+        case .codex:
+            return .symbol("sparkles")
+        case .claudeCode:
+            return .symbol("brain.head.profile")
+        case .opencode:
+            return .symbol("chevron.left.forwardslash.chevron.right")
+        case .custom:
+            return .symbol("terminal")
+        }
+    }
+}
+
+extension CmuxConfigAgentKind: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch value {
+        case "codex":
+            self = .codex
+        case "claude", "claudeCode", "claude-code":
+            self = .claudeCode
+        case "opencode", "openCode", "open-code":
+            self = .opencode
+        default:
+            guard !value.isEmpty,
+                  value.unicodeScalars.allSatisfy({ !CharacterSet.whitespacesAndNewlines.contains($0) }) else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "agent must be a single command name with no whitespace; put flags in 'args'"
+                    )
+                )
+            }
+            self = .custom(value)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(commandName)
+    }
+}
+
+enum CmuxButtonIcon: Codable, Sendable, Hashable {
+    case symbol(String)
+    case emoji(String, scale: Double = 1)
+    case imagePath(String)
+
+    var symbolName: String {
+        if case .symbol(let name) = self {
+            return name
+        }
+        return "questionmark.circle"
+    }
 
     private enum CodingKeys: String, CodingKey {
         case type
-        case builtin
-        case command
-        case commandName
         case name
-        case agent
-        case args
-        case title
-        case subtitle
-        case description
-        case keywords
-        case palette
-        case shortcut
-        case icon
-        case tooltip
-        case confirm
-        case target
-    }
-
-    init(
-        action: CmuxSurfaceTabBarButtonAction? = nil,
-        title: String? = nil,
-        subtitle: String? = nil,
-        keywords: [String]? = nil,
-        palette: Bool? = nil,
-        shortcut: StoredShortcut? = nil,
-        icon: CmuxButtonIcon? = nil,
-        tooltip: String? = nil,
-        confirm: Bool? = nil,
-        terminalCommandTarget: CmuxConfigTerminalCommandTarget? = nil
-    ) {
-        self.action = action
-        self.title = title
-        self.subtitle = subtitle
-        self.keywords = keywords
-        self.palette = palette
-        self.shortcut = shortcut
-        self.icon = icon
-        self.tooltip = tooltip
-        self.confirm = confirm
-        self.terminalCommandTarget = terminalCommandTarget
+        case value
+        case path
+        case scale
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try Self.trimmedString(forKey: .type, in: container)
-        title = try Self.trimmedString(forKey: .title, in: container, allowBlankAsNil: true)
-        subtitle = try Self.trimmedString(forKey: .subtitle, in: container, allowBlankAsNil: true)
-            ?? Self.trimmedString(forKey: .description, in: container, allowBlankAsNil: true)
-        keywords = try container.decodeIfPresent([String].self, forKey: .keywords)?
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        palette = try container.decodeIfPresent(Bool.self, forKey: .palette)
-        shortcut = try Self.decodeShortcut(forKey: .shortcut, in: container)
-        icon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
-        tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
-        confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
-        terminalCommandTarget = try container.decodeIfPresent(CmuxConfigTerminalCommandTarget.self, forKey: .target)
-
-        let inferredType: String?
-        if let type {
-            inferredType = type
-        } else if container.contains(.agent) {
-            inferredType = "agent"
-        } else if container.contains(.builtin) {
-            inferredType = "builtin"
-        } else if container.contains(.command) {
-            inferredType = "command"
-        } else {
-            inferredType = nil
-        }
-
-        switch inferredType {
-        case "builtin":
-            let raw = try Self.trimmedString(forKey: .builtin, in: container) ?? ""
-            guard let builtIn = CmuxSurfaceTabBarBuiltInAction(configID: raw) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: .builtin,
-                    in: container,
-                    debugDescription: "Unknown built-in action '\(raw)'"
-                )
-            }
-            action = .builtIn(builtIn)
-        case "command":
-            let command = try Self.requiredTrimmedString(forKey: .command, in: container)
-            action = .command(command)
-        case "agent":
-            let agent = try container.decode(CmuxConfigAgentKind.self, forKey: .agent)
-            let args = try Self.trimmedString(forKey: .args, in: container, allowBlankAsNil: true)
-            action = .agent(agent, args: args)
-        case "workspaceCommand":
-            let commandName = try Self.trimmedString(forKey: .commandName, in: container)
-                ?? Self.trimmedString(forKey: .name, in: container)
-                ?? Self.trimmedString(forKey: .command, in: container)
-            guard let commandName else {
-                throw DecodingError.dataCorrupted(
-                    DecodingError.Context(
-                        codingPath: decoder.codingPath,
-                        debugDescription: "workspaceCommand actions require commandName"
-                    )
-                )
-            }
-            action = .workspaceCommand(commandName)
-        case nil:
-            action = nil
+        switch type {
+        case "symbol", "sfSymbol", "systemImage":
+            self = .symbol(try Self.trimmedString(forKey: .name, in: container))
+        case "emoji":
+            self = .emoji(
+                try Self.trimmedString(forKey: .value, in: container),
+                scale: try Self.emojiScale(in: container)
+            )
+        case "image", "file":
+            self = .imagePath(try Self.trimmedString(forKey: .path, in: container))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
                 in: container,
-                debugDescription: "Unknown action type '\(inferredType ?? "")'"
+                debugDescription: "Unknown icon type '\(type)'"
             )
         }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .symbol(let name):
+            try container.encode("symbol", forKey: .type)
+            try container.encode(name, forKey: .name)
+        case .emoji(let value, let scale):
+            try container.encode("emoji", forKey: .type)
+            try container.encode(value, forKey: .value)
+            if scale != 1 {
+                try container.encode(scale, forKey: .scale)
+            }
+        case .imagePath(let path):
+            try container.encode("image", forKey: .type)
+            try container.encode(path, forKey: .path)
+        }
+    }
+
+    func bonsplitIcon(
+        configSourcePath: String?,
+        globalConfigPath: String,
+        allowProjectLocalImage: Bool = true
+    ) -> BonsplitConfiguration.SplitActionButton.Icon {
+        switch self {
+        case .symbol(let name):
+            return .systemImage(name)
+        case .emoji(let value, let scale):
+            return .emoji(value, scale: scale)
+        case .imagePath(let path):
+            guard let preparedImage = Self.preparedImageAsset(
+                path,
+                relativeToConfig: configSourcePath,
+                globalConfigPath: globalConfigPath
+            ) else {
+                NSLog("[CmuxConfig] icon image path is not allowed: %@", path)
+                return .systemImage("questionmark.circle")
+            }
+            if preparedImage.isProjectLocal && !allowProjectLocalImage {
+                return .systemImage("lock.fill")
+            }
+            return .imageData(preparedImage.data)
+        }
+    }
+
+    func projectLocalImageFingerprint(configSourcePath: String?, globalConfigPath: String) -> String? {
+        guard case .imagePath(let path) = self,
+              let preparedImage = Self.preparedImageAsset(
+                  path,
+                  relativeToConfig: configSourcePath,
+                  globalConfigPath: globalConfigPath
+              ),
+              preparedImage.isProjectLocal else {
+            return nil
+        }
+        return preparedImage.fingerprint
+    }
+
+    func resolvingRelativeImagePath(relativeToConfig configSourcePath: String?) -> CmuxButtonIcon {
+        guard case .imagePath(let path) = self else { return self }
+        return .imagePath(Self.resolvePath(path, relativeToConfig: configSourcePath))
+    }
+
+    private static let maxImageBytes = 1_000_000
+
+    private static func emojiScale(in container: KeyedDecodingContainer<CodingKeys>) throws -> Double {
+        let scale = try container.decodeIfPresent(Double.self, forKey: .scale) ?? 1
+        guard scale.isFinite, scale > 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .scale,
+                in: container,
+                debugDescription: "Emoji icon scale must be a positive number"
+            )
+        }
+        return scale
+    }
+
+    private struct PreparedImageAsset {
+        let data: Data
+        let fingerprint: String
+        let isProjectLocal: Bool
+    }
+
+    private static func looksLikeSVGPath(_ value: String) -> Bool {
+        (value as NSString).pathExtension.lowercased() == "svg"
+    }
+
+    private static func isSafeSVG(data: Data) -> Bool {
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+        let lowered = text.lowercased()
+        guard !lowered.contains("<!doctype"),
+              !lowered.contains("<!entity") else {
+            return false
+        }
+
+        let inspector = SVGSecurityInspector()
+        return inspector.parse(data: data)
+    }
+
+    private static func resolvePath(_ path: String, relativeToConfig configSourcePath: String?) -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        if (expanded as NSString).isAbsolutePath {
+            return expanded
+        }
+        guard let configSourcePath else { return expanded }
+        let base = (configSourcePath as NSString).deletingLastPathComponent
+        return (base as NSString).appendingPathComponent(expanded)
+    }
+
+    private static func safeResolvedImagePath(
+        _ path: String,
+        relativeToConfig configSourcePath: String?,
+        globalConfigPath: String
+    ) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.lowercased().hasPrefix("http://"),
+              !trimmed.lowercased().hasPrefix("https://") else {
+            return nil
+        }
+
+        let isGlobal = configSourcePath == nil || configSourcePath == globalConfigPath
+        if !isGlobal {
+            let expanded = (trimmed as NSString).expandingTildeInPath
+            guard !(expanded as NSString).isAbsolutePath,
+                  expanded == trimmed else {
+                return nil
+            }
+        }
+
+        let resolvedPath = resolvePath(trimmed, relativeToConfig: configSourcePath)
+        guard !resolvedPath.isEmpty else { return nil }
+        let standardizedPath = (resolvedPath as NSString).standardizingPath
+
+        guard !isGlobal, let configSourcePath else {
+            return standardizedPath
+        }
+
+        let allowedRoot = projectRoot(forConfigPath: configSourcePath)
+        let resolvedURL = URL(fileURLWithPath: standardizedPath).resolvingSymlinksInPath()
+        let allowedURL = URL(fileURLWithPath: allowedRoot).resolvingSymlinksInPath()
+        let resolved = resolvedURL.path
+        let allowed = allowedURL.path
+        guard resolved == allowed || resolved.hasPrefix(allowed + "/") else {
+            return nil
+        }
+        return resolved
+    }
+
+    private static func preparedImageAsset(
+        _ path: String,
+        relativeToConfig configSourcePath: String?,
+        globalConfigPath: String
+    ) -> PreparedImageAsset? {
+        guard let resolvedPath = safeResolvedImagePath(
+            path,
+            relativeToConfig: configSourcePath,
+            globalConfigPath: globalConfigPath
+        ) else {
+            return nil
+        }
+        guard let data = FileManager.default.contents(atPath: resolvedPath) else {
+            NSLog("[CmuxConfig] icon image does not exist: %@", resolvedPath)
+            return nil
+        }
+        guard data.count <= maxImageBytes else {
+            NSLog("[CmuxConfig] icon image is too large: %@", resolvedPath)
+            return nil
+        }
+        if looksLikeSVGPath(resolvedPath), !isSafeSVG(data: data) {
+            NSLog("[CmuxConfig] icon SVG contains unsupported content: %@", resolvedPath)
+            return nil
+        }
+
+        let isProjectLocal = configSourcePath != nil && configSourcePath != globalConfigPath
+        let fingerprint = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return PreparedImageAsset(data: data, fingerprint: fingerprint, isProjectLocal: isProjectLocal)
+    }
+
+    static func projectRoot(forConfigPath configPath: String) -> String {
+        let configDir = (configPath as NSString).deletingLastPathComponent
+        if (configDir as NSString).lastPathComponent == ".cmux" {
+            return (configDir as NSString).deletingLastPathComponent
+        }
+        return configDir
+    }
+
+    private final class SVGSecurityInspector: NSObject, XMLParserDelegate {
+        private var isSafe = true
+        private var elementStack: [String] = []
+
+        func parse(data: Data) -> Bool {
+            let parser = XMLParser(data: data)
+            parser.delegate = self
+            parser.shouldProcessNamespaces = false
+            parser.shouldResolveExternalEntities = false
+            let parsed = parser.parse()
+            return parsed && isSafe
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?,
+            attributes attributeDict: [String: String] = [:]
+        ) {
+            let loweredName = elementName.lowercased()
+            elementStack.append(loweredName)
+
+            if loweredName == "script" || loweredName == "foreignobject" {
+                markUnsafe(parser)
+                return
+            }
+
+            for (name, value) in attributeDict {
+                guard Self.isSafeSVGAttribute(name: name, value: value) else {
+                    markUnsafe(parser)
+                    return
+                }
+            }
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didEndElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?
+        ) {
+            guard !elementStack.isEmpty else { return }
+            elementStack.removeLast()
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            guard elementStack.last == "style" else { return }
+            guard Self.isSafeSVGStyle(string) else {
+                markUnsafe(parser)
+                return
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+            guard elementStack.last == "style",
+                  let text = String(data: CDATABlock, encoding: .utf8) else {
+                return
+            }
+            guard Self.isSafeSVGStyle(text) else {
+                markUnsafe(parser)
+                return
+            }
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            foundProcessingInstructionWithTarget target: String,
+            data: String?
+        ) {
+            if target.lowercased() == "xml-stylesheet" {
+                markUnsafe(parser)
+            }
+        }
+
+        private func markUnsafe(_ parser: XMLParser) {
+            isSafe = false
+            parser.abortParsing()
+        }
+
+        private static func isSafeSVGAttribute(name: String, value: String) -> Bool {
+            let loweredName = name.lowercased()
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let loweredValue = trimmedValue.lowercased()
+
+            if loweredName.hasPrefix("on") {
+                return false
+            }
+
+            if loweredName == "xmlns" || loweredName.hasPrefix("xmlns:") {
+                return true
+            }
+
+            if loweredName == "href" || loweredName == "xlink:href" {
+                return isSafeSVGReference(trimmedValue)
+            }
+
+            if containsBlockedSVGValue(loweredValue) {
+                return false
+            }
+
+            if loweredValue.contains("url(") {
+                return containsOnlyInternalSVGURLs(trimmedValue)
+            }
+
+            return true
+        }
+
+        private static func isSafeSVGStyle(_ value: String) -> Bool {
+            let loweredValue = value.lowercased()
+            guard !loweredValue.contains("@import"),
+                  !containsBlockedSVGValue(loweredValue) else {
+                return false
+            }
+            if loweredValue.contains("url(") {
+                return containsOnlyInternalSVGURLs(value)
+            }
+            return true
+        }
+
+        private static func isSafeSVGReference(_ value: String) -> Bool {
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedValue.isEmpty else { return true }
+            if trimmedValue.hasPrefix("#") {
+                return true
+            }
+            if trimmedValue.lowercased().hasPrefix("url(") {
+                return containsOnlyInternalSVGURLs(trimmedValue)
+            }
+            return false
+        }
+
+        private static func containsBlockedSVGValue(_ value: String) -> Bool {
+            let blockedFragments = [
+                "javascript:",
+                "data:",
+                "http://",
+                "https://",
+                "file://",
+                "blob:"
+            ]
+            return blockedFragments.contains { value.contains($0) }
+        }
+
+        private static func containsOnlyInternalSVGURLs(_ value: String) -> Bool {
+            let loweredValue = value.lowercased()
+            var searchStart = loweredValue.startIndex
+
+            while let range = loweredValue.range(
+                of: "url(",
+                options: [],
+                range: searchStart..<loweredValue.endIndex
+            ) {
+                let contentStart = range.upperBound
+                guard let closing = loweredValue[contentStart...].firstIndex(of: ")") else {
+                    return false
+                }
+
+                var reference = String(loweredValue[contentStart..<closing])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if (reference.hasPrefix("\"") && reference.hasSuffix("\"")) ||
+                    (reference.hasPrefix("'") && reference.hasSuffix("'")) {
+                    reference.removeFirst()
+                    reference.removeLast()
+                }
+
+                guard reference.hasPrefix("#") else {
+                    return false
+                }
+
+                searchStart = loweredValue.index(after: closing)
+            }
+
+            return true
+        }
+    }
+
+    private static func trimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String {
+        let raw = try container.decode(String.self, forKey: key)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return trimmed
+    }
+}
+
+enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
+    case builtIn(CmuxSurfaceTabBarBuiltInAction)
+    case command(String)
+    case agent(CmuxConfigAgentKind, args: String?)
+    case workspaceCommand(String)
+    case workspace(CmuxWorkspaceDefinition, restart: CmuxRestartBehavior?)
+    case actionReference(String)
+
+    var defaultId: String {
+        switch self {
+        case .builtIn(let action):
+            return action.configID
+        case .command(let command):
+            return "command." + Self.generatedCommandId(for: command)
+        case .agent(let agent, _):
+            return agent.commandName
+        case .workspaceCommand(let commandName):
+            return "workspaceCommand." + Self.generatedCommandId(for: commandName)
+        case .workspace(let definition, _):
+            return "workspace." + Self.generatedCommandId(for: definition.name ?? "workspace")
+        case .actionReference(let identifier):
+            return identifier
+        }
+    }
+
+    var defaultIcon: String {
+        defaultButtonIcon.symbolName
+    }
+
+    var defaultButtonIcon: CmuxButtonIcon {
+        switch self {
+        case .builtIn(let action):
+            return .symbol(action.defaultIcon)
+        case .command:
+            return .symbol("terminal")
+        case .agent(let agent, _):
+            return agent.defaultIcon
+        case .workspaceCommand, .workspace:
+            return .symbol("rectangle.stack.badge.plus")
+        case .actionReference:
+            return .symbol("questionmark.circle")
+        }
+    }
+
+    var terminalCommand: String? {
+        switch self {
+        case .command(let command):
+            return command
+        case .agent(let agent, let args):
+            let trimmedArgs = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmedArgs.isEmpty ? agent.commandName : "\(agent.commandName) \(trimmedArgs)"
+        case .builtIn, .workspaceCommand, .workspace, .actionReference:
+            return nil
+        }
+    }
+
+    var workspaceCommandName: String? {
+        if case .workspaceCommand(let name) = self {
+            return name
+        }
+        return nil
+    }
+
+    /// Inline workspace payload for `type: "workspace"` actions.
+    var inlineWorkspace: (definition: CmuxWorkspaceDefinition, restart: CmuxRestartBehavior?)? {
+        if case .workspace(let definition, let restart) = self {
+            return (definition, restart)
+        }
+        return nil
+    }
+
+    private static func generatedCommandId(for command: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let encoded = command.addingPercentEncoding(withAllowedCharacters: allowed) ?? command
+        return encoded.isEmpty ? "command" : encoded
+    }
+}
+
+struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
+    var id: String
+    var title: String?
+    var icon: CmuxButtonIcon?
+    var tooltip: String?
+    var action: CmuxSurfaceTabBarButtonAction
+    var confirm: Bool?
+    var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
+    var actionSourcePath: String?
+    var iconSourcePath: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case icon
+        case tooltip
+        case action
+        case builtin
+        case command
+        case agent
+        case args
+        case type
+        case commandName
+        case name
+        case workspace
+        case restart
+        case confirm
+        case target
+    }
+
+    static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
+    static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
+    static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
+
+    static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
+
+    static let defaults: [CmuxSurfaceTabBarButton] = [
+        .newTerminal,
+        .newBrowser,
+        .splitRight,
+        .splitDown
+    ]
+
+    static func builtIn(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        id: String? = nil,
+        title: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        tooltip: String? = nil
+    ) -> CmuxSurfaceTabBarButton {
+        CmuxSurfaceTabBarButton(
+            id: id ?? action.configID,
+            title: title,
+            icon: icon,
+            tooltip: tooltip,
+            action: .builtIn(action),
+            confirm: nil,
+            terminalCommandTarget: nil
+        )
+    }
+
+    static func actionReference(
+        _ actionID: String,
+        title: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        tooltip: String? = nil
+    ) -> CmuxSurfaceTabBarButton {
+        CmuxSurfaceTabBarButton(
+            id: actionID,
+            title: title,
+            icon: icon,
+            tooltip: tooltip,
+            action: .actionReference(actionID)
+        )
+    }
+
+    var command: String? {
+        action.terminalCommand
+    }
+
+    var terminalCommand: String? {
+        action.terminalCommand
+    }
+
+    var resolvedTerminalCommandTarget: CmuxConfigTerminalCommandTarget {
+        terminalCommandTarget ?? CmuxConfigTerminalCommandTarget.defaultForActions
+    }
+
+    var workspaceCommandName: String? {
+        action.workspaceCommandName
+    }
+
+    /// Synthetic named command for inline `type: "workspace"` buttons/actions so
+    /// execution and trust fingerprinting share one definition. Carries the
+    /// button's `confirm` so explicit confirmation requests survive the wrap.
+    var inlineWorkspaceSyntheticCommand: CmuxCommandDefinition? {
+        guard let inline = action.inlineWorkspace else { return nil }
+        return CmuxCommandDefinition(
+            name: title ?? tooltip ?? inline.definition.name ?? id,
+            restart: inline.restart,
+            workspace: inline.definition,
+            confirm: confirm
+        )
+    }
+
+    func bonsplitActionButton(
+        configSourcePath: String?,
+        globalConfigPath: String,
+        allowProjectLocalIcon: Bool = true
+    ) -> BonsplitConfiguration.SplitActionButton {
+        let bonsplitAction: BonsplitConfiguration.SplitActionButton.Action = {
+            switch action {
+            case .builtIn(let builtIn):
+                return builtIn.bonsplitAction ?? .custom(id)
+            case .command, .agent, .workspaceCommand, .workspace, .actionReference:
+                return .custom(id)
+            }
+        }()
+
+        return BonsplitConfiguration.SplitActionButton(
+            id: id,
+            icon: (icon ?? action.defaultButtonIcon).bonsplitIcon(
+                configSourcePath: iconSourcePath ?? configSourcePath,
+                globalConfigPath: globalConfigPath,
+                allowProjectLocalImage: allowProjectLocalIcon
+            ),
+            tooltip: tooltip ?? title ?? terminalCommand,
+            action: bonsplitAction
+        )
+    }
+
+    init(
+        id: String,
+        title: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        tooltip: String? = nil,
+        action: CmuxSurfaceTabBarButtonAction,
+        confirm: Bool? = nil,
+        terminalCommandTarget: CmuxConfigTerminalCommandTarget? = nil,
+        actionSourcePath: String? = nil,
+        iconSourcePath: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.icon = icon
+        self.tooltip = tooltip
+        self.action = action
+        self.confirm = confirm
+        self.terminalCommandTarget = terminalCommandTarget
+        self.actionSourcePath = actionSourcePath
+        self.iconSourcePath = iconSourcePath
+    }
+
+    init(from decoder: Decoder) throws {
+        if let legacy = try? decoder.singleValueContainer().decode(String.self) {
+            let trimmed = legacy.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "surface tab bar button action must not be blank"
+                    )
+                )
+            }
+            self = CmuxSurfaceTabBarButton(
+                id: CmuxSurfaceTabBarBuiltInAction(configID: trimmed)?.configID ?? trimmed,
+                action: .actionReference(CmuxSurfaceTabBarBuiltInAction(configID: trimmed)?.configID ?? trimmed)
+            )
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let explicitId = try Self.trimmedString(forKey: .id, in: container)
+        let explicitTitle = try Self.trimmedString(forKey: .title, in: container, allowBlankAsNil: true)
+        let explicitIcon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
+        let explicitTooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
+        let rawAction = try Self.trimmedString(forKey: .action, in: container)
+        let rawBuiltin = try Self.trimmedString(forKey: .builtin, in: container)
+        let rawCommand = try Self.trimmedString(forKey: .command, in: container)
+        let rawAgent = try container.decodeIfPresent(CmuxConfigAgentKind.self, forKey: .agent)
+        let rawArgs = try Self.trimmedString(forKey: .args, in: container, allowBlankAsNil: true)
+        let rawType = try Self.trimmedString(forKey: .type, in: container)
+        let rawCommandName = try Self.trimmedString(forKey: .commandName, in: container)
+            ?? Self.trimmedString(forKey: .name, in: container)
+        confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
+        terminalCommandTarget = try container.decodeIfPresent(CmuxConfigTerminalCommandTarget.self, forKey: .target)
+        actionSourcePath = nil
+        iconSourcePath = nil
+
+        let definedActionForms = [
+            rawAction != nil,
+            rawBuiltin != nil,
+            rawCommand != nil,
+            rawAgent != nil,
+            rawType != nil
+        ].filter(\.self).count
+        if definedActionForms > 1 {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "surfaceTabBarButtons entries must define only one of 'action', 'builtin', 'command', 'agent', or 'type'"
+                )
+            )
+        }
+
+        if let rawType {
+            switch rawType {
+            case "workspaceCommand":
+                guard let rawCommandName else {
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: decoder.codingPath,
+                            debugDescription: "workspaceCommand surface tab bar buttons require commandName"
+                        )
+                    )
+                }
+                action = .workspaceCommand(rawCommandName)
+            case "workspace":
+                guard container.contains(.workspace) else {
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: decoder.codingPath,
+                            debugDescription: "workspace surface tab bar buttons require a 'workspace' object"
+                        )
+                    )
+                }
+                let definition = try container.decode(CmuxWorkspaceDefinition.self, forKey: .workspace)
+                let restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
+                action = .workspace(definition, restart: restart)
+            default:
+                throw DecodingError.dataCorruptedError(
+                    forKey: .type,
+                    in: container,
+                    debugDescription: "Unknown surface tab bar button type '\(rawType)'"
+                )
+            }
+        } else if let rawCommand {
+            action = .command(rawCommand)
+        } else if let rawAgent {
+            action = .agent(rawAgent, args: rawArgs)
+        } else if let rawBuiltin {
+            guard let builtIn = CmuxSurfaceTabBarBuiltInAction(configID: rawBuiltin) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .builtin,
+                    in: container,
+                    debugDescription: "Unknown built-in surface tab bar action '\(rawBuiltin)'"
+                )
+            }
+            action = .builtIn(builtIn)
+        } else if let rawAction {
+            action = .actionReference(rawAction)
+        } else if let explicitId,
+                  let builtIn = CmuxSurfaceTabBarBuiltInAction(configID: explicitId) {
+            action = .builtIn(builtIn)
+        } else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "surfaceTabBarButtons entries must define 'action', 'builtin', 'command', 'agent', or 'type'"
+                )
+            )
+        }
+
+        id = explicitId ?? action.defaultId
+        title = explicitTitle
+        icon = explicitIcon
+        tooltip = explicitTooltip
+    }
+
+    func resolved(
+        actions: [String: CmuxResolvedConfigAction],
+        codingPath: [CodingKey]
+    ) throws -> CmuxSurfaceTabBarButton {
+        guard case .actionReference(let identifier) = action else {
+            return self
+        }
+
+        let resolvedIdentifier = CmuxSurfaceTabBarBuiltInAction(configID: identifier)?.configID ?? identifier
+        if let definition = actions[resolvedIdentifier] {
+            return CmuxSurfaceTabBarButton(
+                id: id,
+                title: title ?? definition.title,
+                icon: icon ?? definition.icon,
+                tooltip: tooltip ?? definition.tooltip,
+                action: definition.action,
+                confirm: confirm ?? definition.confirm,
+                terminalCommandTarget: terminalCommandTarget ?? definition.terminalCommandTarget,
+                actionSourcePath: definition.actionSourcePath,
+                iconSourcePath: icon == nil ? definition.iconSourcePath : iconSourcePath
+            )
+        }
+
+        if let builtIn = CmuxSurfaceTabBarBuiltInAction(configID: identifier) {
+            return CmuxSurfaceTabBarButton(
+                id: id,
+                title: title,
+                icon: icon,
+                tooltip: tooltip,
+                action: .builtIn(builtIn),
+                confirm: confirm,
+                terminalCommandTarget: terminalCommandTarget
+            )
+        }
+
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: codingPath,
+                debugDescription: "Unknown action reference '\(identifier)'"
+            )
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
         try container.encodeIfPresent(title, forKey: .title)
-        try container.encodeIfPresent(subtitle, forKey: .subtitle)
-        try container.encodeIfPresent(keywords, forKey: .keywords)
-        try container.encodeIfPresent(palette, forKey: .palette)
-        try Self.encodeShortcut(shortcut, forKey: .shortcut, in: &container)
         try container.encodeIfPresent(icon, forKey: .icon)
         try container.encodeIfPresent(tooltip, forKey: .tooltip)
         try container.encodeIfPresent(confirm, forKey: .confirm)
         try container.encodeIfPresent(terminalCommandTarget, forKey: .target)
-        guard let action else { return }
+
         switch action {
         case .builtIn(let builtIn):
-            try container.encode("builtin", forKey: .type)
             try container.encode(builtIn.configID, forKey: .builtin)
         case .command(let command):
-            try container.encode("command", forKey: .type)
             try container.encode(command, forKey: .command)
         case .agent(let agent, let args):
-            try container.encode("agent", forKey: .type)
             try container.encode(agent, forKey: .agent)
             try container.encodeIfPresent(args, forKey: .args)
         case .workspaceCommand(let commandName):
             try container.encode("workspaceCommand", forKey: .type)
             try container.encode(commandName, forKey: .commandName)
+        case .workspace(let definition, let restart):
+            try container.encode("workspace", forKey: .type)
+            try container.encode(definition, forKey: .workspace)
+            try container.encodeIfPresent(restart, forKey: .restart)
         case .actionReference(let identifier):
-            try container.encode("builtin", forKey: .type)
-            try container.encode(identifier, forKey: .builtin)
+            try container.encode(identifier, forKey: .action)
         }
-    }
-
-    private static func requiredTrimmedString(
-        forKey key: CodingKeys,
-        in container: KeyedDecodingContainer<CodingKeys>
-    ) throws -> String {
-        guard let value = try trimmedString(forKey: key, in: container) else {
-            throw DecodingError.keyNotFound(
-                key,
-                DecodingError.Context(
-                    codingPath: container.codingPath,
-                    debugDescription: "\(key.stringValue) is required"
-                )
-            )
-        }
-        return value
     }
 
     private static func trimmedString(
@@ -401,65 +1283,53 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         }
         return trimmed
     }
+}
 
-    private static func decodeShortcut(
-        forKey key: CodingKeys,
-        in container: KeyedDecodingContainer<CodingKeys>
-    ) throws -> StoredShortcut? {
-        guard container.contains(key) else { return nil }
-        if let rawShortcut = try? container.decode(String.self, forKey: key) {
-            guard let shortcut = StoredShortcut.parseConfig(rawShortcut) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: key,
-                    in: container,
-                    debugDescription: "shortcut must use modifier+key syntax like 'cmd+shift+t' or be empty to unbind"
-                )
-            }
-            return shortcut
-        }
-        if let rawShortcut = try? container.decode([String].self, forKey: key) {
-            guard let shortcut = StoredShortcut.parseConfig(strokes: rawShortcut) else {
-                throw DecodingError.dataCorruptedError(
-                    forKey: key,
-                    in: container,
-                    debugDescription: "shortcut chords must be one or two non-empty strokes"
-                )
-            }
-            return shortcut
-        }
-        throw DecodingError.dataCorruptedError(
-            forKey: key,
-            in: container,
-            debugDescription: "shortcut must be a string or array of one or two strings"
+struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
+    var id: String
+    var title: String
+    var subtitle: String?
+    var keywords: [String]
+    var palette: Bool
+    var shortcut: StoredShortcut?
+    var icon: CmuxButtonIcon?
+    var tooltip: String?
+    var action: CmuxSurfaceTabBarButtonAction
+    var confirm: Bool?
+    var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
+    var actionSourcePath: String?
+    var iconSourcePath: String?
+    var newWorkspaceMenu: Bool?
+
+    var terminalCommand: String? {
+        action.terminalCommand
+    }
+
+    var workspaceCommandName: String? {
+        action.workspaceCommandName
+    }
+
+    /// Whether this action should be auto-offered in the new-workspace
+    /// plus-button menu: explicit `newWorkspaceMenu` wins; inline workspace
+    /// actions default to true.
+    var wantsNewWorkspaceMenu: Bool {
+        newWorkspaceMenu ?? (action.inlineWorkspace != nil)
+    }
+
+    /// Synthetic named command for inline `type: "workspace"` actions so
+    /// execution and trust fingerprinting reuse the named-command path.
+    /// Carries the action's `confirm` so explicit confirmation requests
+    /// survive the wrap.
+    var inlineWorkspaceSyntheticCommand: CmuxCommandDefinition? {
+        guard let inline = action.inlineWorkspace else { return nil }
+        return CmuxCommandDefinition(
+            name: title,
+            restart: inline.restart,
+            workspace: inline.definition,
+            confirm: confirm
         )
     }
 
-    private static func encodeShortcut(
-        _ shortcut: StoredShortcut?,
-        forKey key: CodingKeys,
-        in container: inout KeyedEncodingContainer<CodingKeys>
-    ) throws {
-        guard let shortcut else { return }
-        if shortcut.isUnbound {
-            try container.encode("", forKey: key)
-            return
-        }
-        if let secondStroke = shortcut.secondStroke {
-            try container.encode(
-                [shortcut.firstStroke.configString(), secondStroke.configString()],
-                forKey: key
-            )
-        } else {
-            try container.encode(shortcut.firstStroke.configString(), forKey: key)
-        }
-    }
-}
-
-// CmuxResolvedConfigAction is now declared in CmuxWorkspaces (Config/). The
-// factories below stay app-side: they resolve user-facing titles with
-// String(localized:) (localization resolves against the app bundle) and consume
-// CmuxConfigActionDefinition, the app-target raw config DTO.
-extension CmuxResolvedConfigAction {
     func applying(
         _ definition: CmuxConfigActionDefinition,
         sourcePath: String?
@@ -479,6 +1349,7 @@ extension CmuxResolvedConfigAction {
         next.tooltip = definition.tooltip ?? next.tooltip
         next.confirm = definition.confirm ?? next.confirm
         next.terminalCommandTarget = definition.terminalCommandTarget ?? next.terminalCommandTarget
+        next.newWorkspaceMenu = definition.newWorkspaceMenu ?? next.newWorkspaceMenu
         next.actionSourcePath = sourcePath ?? next.actionSourcePath
         if let action = definition.action {
             next.action = action
@@ -508,7 +1379,8 @@ extension CmuxResolvedConfigAction {
             confirm: definition.confirm,
             terminalCommandTarget: definition.terminalCommandTarget,
             actionSourcePath: sourcePath,
-            iconSourcePath: definition.icon == nil ? nil : sourcePath
+            iconSourcePath: definition.icon == nil ? nil : sourcePath,
+            newWorkspaceMenu: definition.newWorkspaceMenu
         )
     }
 
@@ -520,8 +1392,8 @@ extension CmuxResolvedConfigAction {
             title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
             keywords = ["create", "new", "workspace"]
         case .cloudVM:
-            title = String(localized: "command.cloudVM.title", defaultValue: "Start Cloud VM")
-            keywords = ["cloud", "vm", "virtual", "machine", "remote"]
+            title = String(localized: "command.cloudVM.title", defaultValue: "Open Base")
+            keywords = ["base", "cloud", "vm", "virtual", "machine", "remote"]
         case .mobileConnect:
             title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
             keywords = ["iphone", "ipad", "mobile", "phone", "pair", "connect"]
@@ -564,11 +1436,17 @@ extension CmuxResolvedConfigAction {
                 return String(localized: "command.cmuxConfig.defaultCodexTitle", defaultValue: "Codex")
             case .claudeCode:
                 return String(localized: "command.cmuxConfig.defaultClaudeCodeTitle", defaultValue: "Claude Code")
+            case .opencode:
+                return String(localized: "command.cmuxConfig.defaultOpenCodeTitle", defaultValue: "OpenCode")
+            case .custom(let name):
+                return name
             }
         case .command:
             return id
         case .workspaceCommand(let commandName):
             return commandName
+        case .workspace(let definition, _):
+            return definition.name ?? id
         case .builtIn(let builtIn):
             return builtIn.configID
         case .actionReference(let identifier):
@@ -577,11 +1455,477 @@ extension CmuxResolvedConfigAction {
     }
 }
 
+struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
+    var name: String
+    var description: String?
+    var keywords: [String]?
+    var restart: CmuxRestartBehavior?
+    var workspace: CmuxWorkspaceDefinition?
+    var command: String?
+    var confirm: Bool?
+
+    var id: String {
+        "cmux.config.command." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
+    }
+
+    init(
+        name: String,
+        description: String? = nil,
+        keywords: [String]? = nil,
+        restart: CmuxRestartBehavior? = nil,
+        workspace: CmuxWorkspaceDefinition? = nil,
+        command: String? = nil,
+        confirm: Bool? = nil
+    ) {
+        self.name = name
+        self.description = description
+        self.keywords = keywords
+        self.restart = restart
+        self.workspace = workspace
+        self.command = command
+        self.confirm = confirm
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
+        restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
+        workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
+        command = try container.decodeIfPresent(String.self, forKey: .command)
+        confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
+
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Command name must not be blank"
+                )
+            )
+        }
+        if let cmd = command,
+           cmd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Command '\(name)' must not define a blank 'command'"
+                )
+            )
+        }
+
+        if workspace != nil && command != nil {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Command '\(name)' must not define both 'workspace' and 'command'"
+                )
+            )
+        }
+        if workspace == nil && command == nil {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Command '\(name)' must define either 'workspace' or 'command'"
+                )
+            )
+        }
+    }
+}
+
+indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
+    case pane(CmuxPaneDefinition)
+    case split(CmuxSplitDefinition)
+
+    private enum CodingKeys: String, CodingKey {
+        case pane
+        case direction
+        case split
+        case children
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let hasPane = container.contains(.pane)
+        let hasDirection = container.contains(.direction)
+
+        if hasPane && hasDirection {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "CmuxLayoutNode must not contain both 'pane' and 'direction' keys"
+                )
+            )
+        }
+
+        if hasPane {
+            let pane = try container.decode(CmuxPaneDefinition.self, forKey: .pane)
+            self = .pane(pane)
+        } else if hasDirection {
+            let splitDef = try CmuxSplitDefinition(from: decoder)
+            self = .split(splitDef)
+        } else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "CmuxLayoutNode must contain either a 'pane' key or a 'direction' key"
+                )
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .pane(let pane):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(pane, forKey: .pane)
+        case .split(let split):
+            try split.encode(to: encoder)
+        }
+    }
+}
+
+struct CmuxSplitDefinition: Codable, Sendable, Hashable {
+    var direction: CmuxSplitDirection
+    var split: Double?
+    var children: [CmuxLayoutNode]
+
+    init(direction: CmuxSplitDirection, split: Double? = nil, children: [CmuxLayoutNode]) {
+        self.direction = direction
+        self.split = split
+        self.children = children
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        direction = try container.decode(CmuxSplitDirection.self, forKey: .direction)
+        split = try container.decodeIfPresent(Double.self, forKey: .split)
+        children = try container.decode([CmuxLayoutNode].self, forKey: .children)
+        if children.count != 2 {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Split node requires exactly 2 children, got \(children.count)"
+                )
+            )
+        }
+    }
+
+    var clampedSplitPosition: Double {
+        let value = split ?? 0.5
+        return min(0.9, max(0.1, value))
+    }
+
+    var splitOrientation: SplitOrientation {
+        switch direction {
+        case .horizontal: return .horizontal
+        case .vertical: return .vertical
+        }
+    }
+}
+
+enum CmuxSplitDirection: String, Codable, Sendable {
+    case horizontal
+    case vertical
+}
+
+struct CmuxPaneDefinition: Codable, Sendable, Hashable {
+    var surfaces: [CmuxSurfaceDefinition]
+
+    init(surfaces: [CmuxSurfaceDefinition]) {
+        self.surfaces = surfaces
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        surfaces = try container.decode([CmuxSurfaceDefinition].self, forKey: .surfaces)
+        if surfaces.isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Pane node must contain at least one surface"
+                )
+            )
+        }
+    }
+}
+
+struct CmuxSurfaceDefinition: Codable, Sendable, Hashable {
+    var type: CmuxSurfaceType
+    var name: String?
+    var command: String?
+    var cwd: String?
+    var env: [String: String]?
+    var url: String?
+    var focus: Bool?
+}
+
+enum CmuxSurfaceType: String, Codable, Sendable {
+    case terminal
+    case browser
+    case project
+}
+
+struct CmuxResolvedCommand: Sendable {
+    let command: CmuxCommandDefinition
+    let sourcePath: String?
+}
+
+extension CmuxWorkspaces.CmuxCommandDefinition {
+    init(appCommand command: CmuxCommandDefinition) {
+        self.init(
+            name: command.name,
+            description: command.description,
+            keywords: command.keywords,
+            restart: command.restart.map(CmuxWorkspaces.CmuxRestartBehavior.init(appRestartBehavior:)),
+            workspace: command.workspace,
+            command: command.command,
+            confirm: command.confirm
+        )
+    }
+}
+
+extension CmuxCommandDefinition {
+    init(cmuxWorkspacesCommand command: CmuxWorkspaces.CmuxCommandDefinition) {
+        self.init(
+            name: command.name,
+            description: command.description,
+            keywords: command.keywords,
+            restart: command.restart.map(CmuxRestartBehavior.init(cmuxWorkspacesRestartBehavior:)),
+            workspace: command.workspace,
+            command: command.command,
+            confirm: command.confirm
+        )
+    }
+}
+
+extension CmuxWorkspaces.CmuxRestartBehavior {
+    init(appRestartBehavior restart: CmuxRestartBehavior) {
+        self = Self(rawValue: restart.rawValue)!
+    }
+}
+
+extension CmuxRestartBehavior {
+    init(cmuxWorkspacesRestartBehavior restart: CmuxWorkspaces.CmuxRestartBehavior) {
+        self = Self(rawValue: restart.rawValue)!
+    }
+}
+
+extension CmuxWorkspaces.CmuxResolvedCommand {
+    init(appCommand command: CmuxResolvedCommand) {
+        self.init(
+            command: CmuxWorkspaces.CmuxCommandDefinition(appCommand: command.command),
+            sourcePath: command.sourcePath
+        )
+    }
+}
+
+extension CmuxResolvedCommand {
+    init(cmuxWorkspacesCommand command: CmuxWorkspaces.CmuxResolvedCommand) {
+        self.init(
+            command: CmuxCommandDefinition(cmuxWorkspacesCommand: command.command),
+            sourcePath: command.sourcePath
+        )
+    }
+}
+
+extension CmuxWorkspaces.CmuxConfigTerminalCommandTarget {
+    init(appTarget target: CmuxConfigTerminalCommandTarget) {
+        self = Self(rawValue: target.rawValue) ?? .defaultForActions
+    }
+}
+
+extension CmuxConfigTerminalCommandTarget {
+    init(cmuxWorkspacesTarget target: CmuxWorkspaces.CmuxConfigTerminalCommandTarget) {
+        self = Self(rawValue: target.rawValue) ?? .defaultForActions
+    }
+}
+
+extension CmuxWorkspaces.CmuxButtonIcon {
+    init(appIcon icon: CmuxButtonIcon) {
+        switch icon {
+        case .symbol(let name):
+            self = .symbol(name)
+        case .emoji(let value, let scale):
+            self = .emoji(value, scale: scale)
+        case .imagePath(let path):
+            self = .imagePath(path)
+        }
+    }
+}
+
+extension CmuxButtonIcon {
+    init(cmuxWorkspacesIcon icon: CmuxWorkspaces.CmuxButtonIcon) {
+        switch icon {
+        case .symbol(let name):
+            self = .symbol(name)
+        case .emoji(let value, let scale):
+            self = .emoji(value, scale: scale)
+        case .imagePath(let path):
+            self = .imagePath(path)
+        }
+    }
+}
+
+extension CmuxWorkspaces.CmuxConfigAgentKind {
+    init?(appAgent agent: CmuxConfigAgentKind) {
+        switch agent {
+        case .codex:
+            self = .codex
+        case .claudeCode:
+            self = .claudeCode
+        case .opencode, .custom:
+            return nil
+        }
+    }
+}
+
+extension CmuxConfigAgentKind {
+    init(cmuxWorkspacesAgent agent: CmuxWorkspaces.CmuxConfigAgentKind) {
+        switch agent {
+        case .codex:
+            self = .codex
+        case .claudeCode:
+            self = .claudeCode
+        }
+    }
+}
+
+extension CmuxWorkspaces.CmuxSurfaceTabBarButtonAction {
+    init(appAction action: CmuxSurfaceTabBarButtonAction, fallbackWorkspaceCommandName: String) {
+        switch action {
+        case .builtIn(let builtIn):
+            self = .builtIn(builtIn)
+        case .command(let command):
+            self = .command(command)
+        case .agent(let agent, let args):
+            if let packageAgent = CmuxWorkspaces.CmuxConfigAgentKind(appAgent: agent) {
+                self = .agent(packageAgent, args: args)
+            } else {
+                self = .command(action.terminalCommand ?? agent.commandName)
+            }
+        case .workspaceCommand(let commandName):
+            self = .workspaceCommand(commandName)
+        case .workspace:
+            self = .workspaceCommand(fallbackWorkspaceCommandName)
+        case .actionReference(let identifier):
+            self = .actionReference(identifier)
+        }
+    }
+}
+
+extension CmuxSurfaceTabBarButtonAction {
+    init(cmuxWorkspacesAction action: CmuxWorkspaces.CmuxSurfaceTabBarButtonAction) {
+        switch action {
+        case .builtIn(let builtIn):
+            self = .builtIn(builtIn)
+        case .command(let command):
+            self = .command(command)
+        case .agent(let agent, let args):
+            self = .agent(CmuxConfigAgentKind(cmuxWorkspacesAgent: agent), args: args)
+        case .workspaceCommand(let commandName):
+            self = .workspaceCommand(commandName)
+        case .actionReference(let identifier):
+            self = .actionReference(identifier)
+        }
+    }
+}
+
+extension CmuxWorkspaces.CmuxSurfaceTabBarButton {
+    init(appButton button: CmuxSurfaceTabBarButton) {
+        self.init(
+            id: button.id,
+            title: button.title,
+            icon: button.icon.map(CmuxWorkspaces.CmuxButtonIcon.init(appIcon:)),
+            tooltip: button.tooltip,
+            action: CmuxWorkspaces.CmuxSurfaceTabBarButtonAction(
+                appAction: button.action,
+                fallbackWorkspaceCommandName: button.id
+            ),
+            confirm: button.confirm,
+            terminalCommandTarget: button.terminalCommandTarget.map(
+                CmuxWorkspaces.CmuxConfigTerminalCommandTarget.init(appTarget:)
+            ),
+            actionSourcePath: button.actionSourcePath,
+            iconSourcePath: button.iconSourcePath
+        )
+    }
+}
+
+extension CmuxSurfaceTabBarButton {
+    init(cmuxWorkspacesButton button: CmuxWorkspaces.CmuxSurfaceTabBarButton) {
+        self.init(
+            id: button.id,
+            title: button.title,
+            icon: button.icon.map(CmuxButtonIcon.init(cmuxWorkspacesIcon:)),
+            tooltip: button.tooltip,
+            action: CmuxSurfaceTabBarButtonAction(cmuxWorkspacesAction: button.action),
+            confirm: button.confirm,
+            terminalCommandTarget: button.terminalCommandTarget.map(
+                CmuxConfigTerminalCommandTarget.init(cmuxWorkspacesTarget:)
+            ),
+            actionSourcePath: button.actionSourcePath,
+            iconSourcePath: button.iconSourcePath
+        )
+    }
+}
+
+struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
+    enum Kind: String, Sendable {
+        case newWorkspaceActionNotFound
+        case newWorkspaceCommandNotFound
+        case newWorkspaceCommandRequiresWorkspace
+        case schemaError
+    }
+
+    let kind: Kind
+    let settingName: String
+    let commandName: String?
+    let sourcePath: String?
+    let message: String?
+
+    init(
+        kind: Kind,
+        settingName: String,
+        commandName: String? = nil,
+        sourcePath: String? = nil,
+        message: String? = nil
+    ) {
+        self.kind = kind
+        self.settingName = settingName
+        self.commandName = commandName
+        self.sourcePath = sourcePath
+        self.message = message
+    }
+
+    var id: String {
+        [
+            kind.rawValue,
+            settingName,
+            commandName ?? "",
+            sourcePath ?? "",
+            message ?? ""
+        ].joined(separator: "|")
+    }
+
+    var logMessage: String {
+        switch kind {
+        case .newWorkspaceActionNotFound:
+            return "\(settingName) '\(commandName ?? "")' does not match any loaded action"
+        case .newWorkspaceCommandNotFound:
+            return "\(settingName) '\(commandName ?? "")' does not match any loaded command"
+        case .newWorkspaceCommandRequiresWorkspace:
+            return "\(settingName) '\(commandName ?? "")' must reference a workspace command"
+        case .schemaError:
+            return "\(settingName) has a schema error: \(message ?? "unknown error")"
+        }
+    }
+}
+
 @MainActor
 final class CmuxConfigStore: ObservableObject {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
-        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
     ]
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
@@ -589,6 +1933,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
     /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
@@ -666,17 +2011,9 @@ final class CmuxConfigStore: ObservableObject {
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
-    /// `@Observable` watches on the `WorkspacesModel` (selection + tabs),
-    /// replacing the retired `selectedTabIdPublisher` / `tabsPublisher` Combine
-    /// bridges. The directory subscription on the *selected* workspace's
-    /// `$surfaceTabBarDirectory` (a `Workspace` `@Published`, out of this slice's
-    /// scope) stays Combine and is re-pointed whenever the selected workspace id
-    /// changes, hand-rolling the former `switchToLatest`.
-    private var selectionObservation: WorkspacesObservation?
-    private var tabsObservation: WorkspacesObservation?
-    private var trackedSelectedWorkspaceId: UUID?
-    private var trackedDirectoryCancellable: AnyCancellable?
-    private var lastTrackedDirectory: String??
+    private var trackingWorkspacesObservations: [WorkspacesObservation] = []
+    private var trackedSurfaceTabBarWorkspaceId: UUID??
+    private var surfaceTabBarDirectoryCancellable: AnyCancellable?
     // The local config still uses a bespoke DispatchSource watcher because it
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
@@ -733,6 +2070,11 @@ final class CmuxConfigStore: ObservableObject {
     deinit {
         localFileWatchSource?.cancel()
         localFallbackDirectoryWatchSource?.cancel()
+        let observations = trackingWorkspacesObservations
+        Task { @MainActor in
+            observations.forEach { $0.cancel() }
+        }
+        surfaceTabBarDirectoryCancellable?.cancel()
         hookWatchTasks.values.forEach { $0.cancel() }
         globalWatchTask?.cancel()
     }
@@ -741,64 +2083,46 @@ final class CmuxConfigStore: ObservableObject {
 
     func wireDirectoryTracking(tabManager: TabManager) {
         trackingCancellables.removeAll()
-        selectionObservation?.cancel()
-        tabsObservation?.cancel()
-        trackedDirectoryCancellable?.cancel()
-        trackedDirectoryCancellable = nil
-        trackedSelectedWorkspaceId = nil
-        lastTrackedDirectory = nil
+        trackingWorkspacesObservations.forEach { $0.cancel() }
+        trackingWorkspacesObservations.removeAll()
+        surfaceTabBarDirectoryCancellable?.cancel()
+        surfaceTabBarDirectoryCancellable = nil
+        trackedSurfaceTabBarWorkspaceId = nil
         self.tabManager = tabManager
 
-        // Selection watch: when the selected workspace id changes (the former
-        // `compactMap`+`removeDuplicates(by:id)`), re-point the directory
-        // subscription onto the new workspace's `$surfaceTabBarDirectory`
-        // (the former `map`+`switchToLatest`). Observation does not replay, so
-        // the explicit `updateLocalConfigPath(...)` below seeds the initial path
-        // just as the bridge's replay did.
-        selectionObservation = tabManager.workspaces.observeSelectedTabId { [weak self] in
-            self?.repointDirectoryTracking()
-        }
-        repointDirectoryTracking()
+        trackingWorkspacesObservations = [
+            tabManager.workspaces.observeSelectedTabId { [weak self, weak tabManager] in
+                self?.rewireSurfaceTabBarDirectoryTracking(tabManager: tabManager)
+            },
+            tabManager.workspaces.observeTabs { [weak self, weak tabManager] in
+                self?.applySurfaceTabBarButtonsToCurrentManager()
+                self?.rewireSurfaceTabBarDirectoryTracking(tabManager: tabManager)
+            },
+        ]
 
-        tabsObservation = tabManager.workspaces.observeTabs { [weak self] in
-            self?.applySurfaceTabBarButtonsToCurrentManager()
-        }
-        // `tabsPublisher` replayed its current value to the former `.sink` on
-        // subscribe; observation does not, so run the apply once now.
-        applySurfaceTabBarButtonsToCurrentManager()
-
-        updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
+        rewireSurfaceTabBarDirectoryTracking(tabManager: tabManager)
     }
 
-    /// Hand-rolls the former `selectedTabIdPublisher`→workspace→`$surfaceTabBarDirectory`
-    /// `switchToLatest` chain: resolves the currently selected workspace, and if
-    /// its id differs from the tracked one, tears down the old directory
-    /// subscription and subscribes to the new workspace's `$surfaceTabBarDirectory`.
-    /// The inner `.removeDuplicates()` on directory values is reproduced via
-    /// `lastTrackedDirectory`.
-    private func repointDirectoryTracking() {
+    private func rewireSurfaceTabBarDirectoryTracking(tabManager: TabManager?) {
         guard let tabManager else { return }
-        let selectedId = tabManager.selectedTabId
-        let workspace = selectedId.flatMap { id in tabManager.tabs.first(where: { $0.id == id }) }
-        // `compactMap` dropped a nil selection: keep the existing subscription
-        // when there is no selected workspace, matching the former chain which
-        // emitted nothing (never tore down) on a nil/absent selection.
-        guard let workspace else { return }
-        guard workspace.id != trackedSelectedWorkspaceId else { return }
-        trackedSelectedWorkspaceId = workspace.id
-        trackedDirectoryCancellable?.cancel()
-        // Do NOT reset `lastTrackedDirectory` across the switch: the former
-        // `.switchToLatest().removeDuplicates()` deduped consecutive values over
-        // the merged stream, so a switch to a workspace whose current directory
-        // equals the previous workspace's last directory was suppressed. Carrying
-        // `lastTrackedDirectory` reproduces that cross-switch dedup.
-        trackedDirectoryCancellable = workspace.surfaceTabBarDirectoryPublisher
+        let workspace = tabManager.selectedTabId.flatMap { selectedTabId in
+            tabManager.tabs.first(where: { $0.id == selectedTabId })
+        }
+        let workspaceId = workspace?.id
+        if let trackedSurfaceTabBarWorkspaceId, trackedSurfaceTabBarWorkspaceId == workspaceId {
+            return
+        }
+        trackedSurfaceTabBarWorkspaceId = .some(workspaceId)
+        surfaceTabBarDirectoryCancellable?.cancel()
+        guard let workspace else {
+            updateLocalConfigPath(nil)
+            return
+        }
+        updateLocalConfigPath(workspace.surfaceTabBarDirectory)
+        surfaceTabBarDirectoryCancellable = workspace.surfaceTabBarDirectoryPublisher
+            .removeDuplicates()
             .sink { [weak self] directory in
-                guard let self else { return }
-                // Reproduce the inner `.removeDuplicates()`.
-                if let last = self.lastTrackedDirectory, last == directory { return }
-                self.lastTrackedDirectory = .some(directory)
-                self.updateLocalConfigPath(directory)
+                self?.updateLocalConfigPath(directory)
             }
     }
 
@@ -896,6 +2220,7 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
+        var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -932,6 +2257,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = localPath
             }
+            if let menuSectionOrder = localConfig.ui?.newWorkspace?.menuSectionOrder {
+                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
+            }
             if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
@@ -964,6 +2292,10 @@ final class CmuxConfigStore: ObservableObject {
                let contextMenu = globalConfig.ui?.newWorkspace?.contextMenu {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = globalConfigPath
+            }
+            if configuredNewWorkspaceMenuSectionOrder == nil,
+               let menuSectionOrder = globalConfig.ui?.newWorkspace?.menuSectionOrder {
+                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
@@ -1023,13 +2355,18 @@ final class CmuxConfigStore: ObservableObject {
             commands: commands,
             sourcePaths: sourcePaths
         )
-        let resolvedNewWorkspaceContextMenuItems = resolvedConfigContextMenuItems(
-            configuredNewWorkspaceContextMenu ?? Self.defaultNewWorkspaceContextMenu,
+        let resolvedNewWorkspaceContextMenuItems = appendingAutoNewWorkspaceMenuActions(
+            to: resolvedConfigContextMenuItems(
+                configuredNewWorkspaceContextMenu ?? Self.defaultNewWorkspaceContextMenu,
+                actions: resolvedActionLookup,
+                commands: commands,
+                sourcePaths: sourcePaths,
+                settingName: "ui.newWorkspace.contextMenu",
+                settingSourcePath: configuredNewWorkspaceContextMenuSourcePath
+            ),
             actions: resolvedActionLookup,
             commands: commands,
-            sourcePaths: sourcePaths,
-            settingName: "ui.newWorkspace.contextMenu",
-            settingSourcePath: configuredNewWorkspaceContextMenuSourcePath
+            sourcePaths: sourcePaths
         )
         let resolvedNotificationHooks = resolveNotificationHooks(
             globalConfig: globalConfig,
@@ -1046,6 +2383,7 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
+        newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
         let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(
             localConfig: localConfig,
             globalConfig: globalConfig,
@@ -1728,6 +3066,74 @@ final class CmuxConfigStore: ObservableObject {
         CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
     }
 
+    /// Auto-offers qualifying actions (inline workspace actions by default, plus
+    /// anything with `newWorkspaceMenu: true`) in the plus-button menu without
+    /// requiring the user to hand-edit `ui.newWorkspace.contextMenu`. Explicitly
+    /// listed actions are not duplicated; `newWorkspaceMenu: false` opts out.
+    /// `workspaceCommand` actions get the same named-command validation the
+    /// explicit menu path applies, so a dead reference surfaces as a config
+    /// issue instead of a no-op menu item.
+    private func appendingAutoNewWorkspaceMenuActions(
+        to resolved: ResolvedContextMenuItems,
+        actions: [String: CmuxResolvedConfigAction],
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String]
+    ) -> ResolvedContextMenuItems {
+        let existingActionIDs = Set(resolved.items.compactMap { item -> String? in
+            if case .action(let menuAction) = item {
+                return menuAction.action.id
+            }
+            return nil
+        })
+        let candidates = actions.values
+            .filter { $0.wantsNewWorkspaceMenu && !existingActionIDs.contains($0.id) }
+            .sorted {
+                ($0.title, $0.id) < ($1.title, $1.id)
+            }
+        guard !candidates.isEmpty else { return resolved }
+
+        var issues = resolved.issues
+        var autoActions: [CmuxResolvedConfigAction] = []
+        for action in candidates {
+            if let commandName = action.workspaceCommandName {
+                let resolution = resolvedConfiguredNewWorkspaceCommand(
+                    named: commandName,
+                    settingName: "ui.newWorkspace.contextMenu.auto.\(action.id)",
+                    settingSourcePath: action.actionSourcePath,
+                    commands: commands,
+                    sourcePaths: sourcePaths
+                )
+                if let issue = resolution.issue {
+                    issues.append(issue)
+                    continue
+                }
+                guard resolution.command != nil else { continue }
+            }
+            autoActions.append(action)
+        }
+        guard !autoActions.isEmpty else {
+            return ResolvedContextMenuItems(items: resolved.items, issues: issues)
+        }
+
+        var items = resolved.items
+        if let last = items.last, case .action = last {
+            items.append(.separator(id: "ui.newWorkspace.contextMenu.auto.separator"))
+        }
+        items.append(contentsOf: autoActions.map { action in
+            .action(
+                CmuxResolvedConfigMenuAction(
+                    id: "ui.newWorkspace.contextMenu.auto.\(action.id)",
+                    title: sanitizeConfigText(action.title, fallback: action.id),
+                    icon: action.icon,
+                    iconSourcePath: action.iconSourcePath,
+                    tooltip: action.tooltip.map(sanitizeConfigText),
+                    action: action
+                )
+            )
+        })
+        return ResolvedContextMenuItems(items: items, issues: issues)
+    }
+
     private func resolvedConfiguredNewWorkspaceCommand(
         named commandName: String,
         settingName: String,
@@ -1837,7 +3243,7 @@ final class CmuxConfigStore: ObservableObject {
         }
         let sanitized: Data
         do {
-            sanitized = try data.jsoncPreprocessed()
+            sanitized = try JSONCParser.preprocess(data: data)
         } catch {
             let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))")
             parsedConfigCache[path] = ParsedConfigCacheEntry(

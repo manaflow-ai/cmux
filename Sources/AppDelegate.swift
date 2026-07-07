@@ -2481,6 +2481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
         }
         guardrail.start()
+        startMemoryPressureMonitorIfNeeded()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
@@ -5155,6 +5156,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    func performProUpgradeWorkspaceAction(
+        title: String,
+        url: URL,
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "proUpgradeWorkspace"
+    ) -> Workspace? {
+        guard BrowserAvailabilitySettings.isEnabled() else {
+#if DEBUG
+            cmuxDebugLog("proUpgradeWorkspace.blocked_browser_disabled source=\(debugSource)")
+#endif
+            return nil
+        }
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
+        guard let context else {
+            return nil
+        }
+        guard let window = resolvedWindow(for: context) else {
+            discardOrphanedMainWindowContext(context)
+            return nil
+        }
+        setActiveMainWindow(window)
+        let workspace = context.tabManager.addWorkspace(
+            title: title,
+            initialSurface: .browser,
+            initialBrowserURL: url,
+            initialBrowserOmnibarVisible: false,
+            initialBrowserTransparentBackground: true,
+            select: true
+        )
+        focusInitialBrowserWebView(in: workspace)
+        return workspace
+    }
+
+    func proUpgradeWorkspaceExists(workspaceId: UUID) -> Bool {
+        registeredMainWindows.contains { context in
+            context.tabManager.tabs.contains { $0.id == workspaceId }
+        } || (tabManager?.tabs.contains { $0.id == workspaceId } == true)
+    }
+
+    @discardableResult
+    func focusProUpgradeWorkspace(workspaceId: UUID, url: URL) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled() else { return false }
+        guard let (context, workspace) = proUpgradeWorkspaceContext(workspaceId: workspaceId) else {
+            return false
+        }
+        guard let window = resolvedWindow(for: context) else {
+            return false
+        }
+        guard focusWindowForAppActivation(window, reason: .workspaceCreation) else {
+            return false
+        }
+        context.tabManager.selectedTabId = workspace.id
+        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
+            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            return false
+        }
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.navigate(to: url)
+        browserPanel.requestExplicitWebViewFocus()
+        context.tabManager.rememberFocusedSurface(tabId: workspace.id, surfaceId: browserPanel.id)
+        return true
+    }
+
+    private func proUpgradeWorkspaceContext(workspaceId: UUID) -> (RegisteredMainWindow, Workspace)? {
+        for context in registeredMainWindows {
+            if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                return (context, workspace)
+            }
+        }
+        if let tabManager,
+           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+           let context = mainWindowContext(for: tabManager) {
+            return (context, workspace)
+        }
+        return nil
+    }
+
+    private func focusInitialBrowserWebView(in workspace: Workspace) {
+        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
+            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            return
+        }
+        workspace.focusPanel(browserPanel.id)
+        browserPanel.requestExplicitWebViewFocus()
+        workspace.owningTabManager?.rememberFocusedSurface(tabId: workspace.id, surfaceId: browserPanel.id)
+    }
+
+    @discardableResult
     func performCloudVMAction(
         tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
@@ -5170,6 +5261,164 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             debugSource: debugSource,
             onCompletion: onCompletion
         )
+    }
+
+    @discardableResult
+    func performCurrentCloudVMCommand(
+        _ command: CurrentCloudVMCommand,
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "cloudVM.current"
+    ) -> Bool {
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        guard let context else {
+            NSSound.beep()
+            return false
+        }
+        guard let vmId = currentCloudVMId(tabManager: context.tabManager) else {
+            presentCloudVMNotice(
+                title: String(localized: "command.cloudVM.current.missing.title", defaultValue: "No Cloud VM Selected"),
+                message: String(localized: "command.cloudVM.current.missing.message", defaultValue: "Select a Cloud VM workspace first, then retry this command."),
+                preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+            )
+            return false
+        }
+        let socketPath = terminalControl.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        return CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+            arguments: command.arguments(vmId: vmId),
+            successTitle: command.successTitle,
+            presentOutputOnSuccess: command.presentOutputOnSuccess
+        )
+    }
+
+    @discardableResult
+    func performCloudVMRestoreCommand(
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "cloudVM.restore"
+    ) -> Bool {
+        let context = preferredWindow.flatMap { contextForMainWindow($0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        guard let context else {
+            NSSound.beep()
+            return false
+        }
+        let window = resolvedWindow(for: context) ?? preferredWindow
+        guard let snapshotId = promptForCloudVMSnapshotId(preferredWindow: window) else {
+            return false
+        }
+        let socketPath = terminalControl.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        return CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: window,
+            arguments: ["vm", "restore", snapshotId],
+            successTitle: String(localized: "command.cloudVM.restore.result.title", defaultValue: "Cloud VM Restored"),
+            presentOutputOnSuccess: true
+        )
+    }
+
+    enum CurrentCloudVMCommand {
+        case status
+        case fork
+        case snapshot
+        case ports
+        case tools
+        case handoff
+        case promoteTemplate
+
+        var successTitle: String {
+            switch self {
+            case .status:
+                return String(localized: "command.cloudVM.status.result.title", defaultValue: "Cloud VM Status")
+            case .fork:
+                return String(localized: "command.cloudVM.fork.result.title", defaultValue: "Cloud VM Forked")
+            case .snapshot:
+                return String(localized: "command.cloudVM.snapshot.result.title", defaultValue: "Cloud VM Checkpoint")
+            case .ports:
+                return String(localized: "command.cloudVM.ports.result.title", defaultValue: "Cloud VM Ports")
+            case .tools:
+                return String(localized: "command.cloudVM.tools.result.title", defaultValue: "Cloud VM Tools")
+            case .handoff:
+                return String(localized: "command.cloudVM.handoff.result.title", defaultValue: "Cloud VM Handoff")
+            case .promoteTemplate:
+                return String(localized: "command.cloudVM.template.result.title", defaultValue: "Cloud VM Template")
+            }
+        }
+
+        var presentOutputOnSuccess: Bool {
+            switch self {
+            case .fork:
+                return false
+            case .status, .snapshot, .ports, .tools, .handoff, .promoteTemplate:
+                return true
+            }
+        }
+
+        func arguments(vmId: String) -> [String] {
+            switch self {
+            case .status:
+                return ["vm", "status", vmId]
+            case .fork:
+                return ["vm", "fork", vmId]
+            case .snapshot:
+                return ["vm", "snapshot", vmId]
+            case .ports:
+                return ["vm", "ports", vmId]
+            case .tools:
+                return ["vm", "tools", vmId]
+            case .handoff:
+                return ["vm", "handoff", vmId]
+            case .promoteTemplate:
+                return ["vm", "promote-template", vmId]
+            }
+        }
+    }
+
+    private func currentCloudVMId(tabManager: TabManager) -> String? {
+        guard let workspaceId = tabManager.selectedTabId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let vmID = workspace.remoteConfiguration?.managedCloudVMID?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !vmID.isEmpty else {
+            return nil
+        }
+        return vmID
+    }
+
+    private func promptForCloudVMSnapshotId(preferredWindow: NSWindow?) -> String? {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(localized: "command.cloudVM.restore.prompt.title", defaultValue: "Restore Cloud VM")
+        alert.informativeText = String(localized: "command.cloudVM.restore.prompt.message", defaultValue: "Paste a checkpoint or snapshot id to restore.")
+        alert.addButton(withTitle: String(localized: "common.restore", defaultValue: "Restore"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = String(localized: "command.cloudVM.restore.prompt.placeholder", defaultValue: "snapshot-id")
+        alert.accessoryView = field
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return nil }
+        let snapshotId = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return snapshotId.isEmpty ? nil : snapshotId
+    }
+
+    private func presentCloudVMNotice(title: String, message: String, preferredWindow: NSWindow?) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        if let preferredWindow {
+            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
+        } else {
+            _ = alert.runModal()
+        }
     }
 
     // Relaxed from `private` to `internal` so the `WorkspaceCreationActionHosting`
@@ -10162,8 +10411,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            @unknown default:
+                return false
             }
-        case .command, .agent, .workspaceCommand:
+        case .command, .agent, .workspaceCommand, .workspace:
             guard let cmuxConfigStore = windowRegistry.context(for: WindowID(context.windowId))?.configStore else {
                 return false
             }

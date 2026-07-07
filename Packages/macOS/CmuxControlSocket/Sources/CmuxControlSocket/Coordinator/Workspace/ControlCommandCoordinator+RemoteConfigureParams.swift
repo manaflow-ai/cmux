@@ -128,6 +128,8 @@ extension ControlCommandCoordinator {
             foregroundAuthToken: rawString(params, "foreground_auth_token")?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
             localSocketPath: rawString(params, "local_socket_path"),
+            managedCloudVMID: rawString(params, "managed_cloud_vm_id")?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
             hasExplicitAgentSocketPath: hasNonNull(params, "ssh_auth_sock"),
             agentSocketPath: rawString(params, "ssh_auth_sock")?
                 .trimmingCharacters(in: .whitespacesAndNewlines),

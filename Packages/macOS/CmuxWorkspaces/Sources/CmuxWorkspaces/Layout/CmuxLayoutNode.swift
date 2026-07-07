@@ -5,7 +5,7 @@
 /// implementation enforces that a node carries exactly one of a `pane` key or a
 /// `direction` key, mirroring the two cases. This value type owns the wire
 /// format; the resolved walk image is ``WorkspaceCustomLayoutNode``.
-public indirect enum CmuxLayoutNode: Codable, Sendable {
+public indirect enum CmuxLayoutNode: Codable, Sendable, Hashable {
     /// A leaf pane holding one or more surfaces.
     case pane(CmuxPaneDefinition)
     /// A binary split of exactly two child nodes.

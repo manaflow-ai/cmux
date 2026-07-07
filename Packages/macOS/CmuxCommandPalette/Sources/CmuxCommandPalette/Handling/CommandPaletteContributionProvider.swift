@@ -86,6 +86,7 @@ public struct CommandPaletteContributionProvider {
         let split = strings.split
 
         var contributions: [CommandPaletteCommandContribution] = []
+        contributions.append(contentsOf: hostBlocks.cloud)
 
         contributions.append(
             CommandPaletteCommandContribution(

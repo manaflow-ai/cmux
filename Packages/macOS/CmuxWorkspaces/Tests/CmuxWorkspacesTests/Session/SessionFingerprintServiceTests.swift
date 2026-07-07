@@ -41,11 +41,17 @@ struct SessionFingerprintServiceTests {
 
     private func panel(
         panelId: UUID = UUID(),
+        directory: String = "",
+        hasRemoteDirectoryReport: Bool = false,
+        requiresRemoteDirectoryTrust: Bool = false,
         textBoxDraft: SessionFingerprintTextBoxDraftSnapshot? = nil,
         hasTerminalPanel: Bool = true
     ) -> SessionFingerprintPanelSnapshot {
         SessionFingerprintPanelSnapshot(
             panelId: panelId,
+            directory: directory,
+            hasRemoteDirectoryReport: hasRemoteDirectoryReport,
+            requiresRemoteDirectoryTrust: requiresRemoteDirectoryTrust,
             isManualUnread: false,
             isRestoredUnread: false,
             restoredUnreadContributesToWorkspace: false,

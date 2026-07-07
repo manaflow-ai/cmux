@@ -225,14 +225,15 @@ final class MobileWorkspaceListRPCHandler {
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil
             }
+            let terminalDirectory = workspace.effectivePanelDirectory(
+                panelId: terminal.id,
+                localFallback: host.mobileWorkspaceListNonEmpty(terminal.directory)
+                    ?? host.mobileWorkspaceListNonEmpty(terminal.requestedWorkingDirectory)
+            )
             return [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                "current_directory": host.mobileWorkspaceListOrNull(
-                    host.mobileWorkspaceListNonEmpty(workspace.panelDirectories[terminal.id])
-                        ?? host.mobileWorkspaceListNonEmpty(terminal.directory)
-                        ?? host.mobileWorkspaceListNonEmpty(terminal.requestedWorkingDirectory)
-                ),
+                "current_directory": host.mobileWorkspaceListOrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
                 "is_focused": terminal.id == workspace.focusedPanelId
             ]
@@ -245,7 +246,7 @@ final class MobileWorkspaceListRPCHandler {
             "id": workspace.id.uuidString,
             "window_id": host.mobileWorkspaceListOrNull(windowID?.uuidString),
             "title": workspace.title,
-            "current_directory": host.mobileWorkspaceListOrNull(host.mobileWorkspaceListNonEmpty(workspace.currentDirectory)),
+            "current_directory": host.mobileWorkspaceListOrNull(workspace.presentedCurrentDirectory),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
             // Group membership so the phone can fold contiguous same-group

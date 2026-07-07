@@ -95,6 +95,7 @@ public struct ControlSocketCommandPolicy: Sendable {
         "workspace.previous",
         "workspace.last",
         "workspace.group.focus",
+        "workspace.cloud_vm_open",
         "surface.focus",
         "pane.focus",
         "pane.last",

@@ -94,6 +94,18 @@ import Testing
         #expect(mods.rawValue & GHOSTTY_MODS_SHIFT_RIGHT.rawValue == 0)
     }
 
+    @Test func mouseOverLinkActionDecodesURLAndClearsEmptyHover() {
+        var bytes = Array("https://example.com/path?q=cmux".utf8CString)
+        let decoded = bytes.withUnsafeBufferPointer { buffer in
+            GhosttySurfaceScrollView.linkHoverURL(from: ghostty_action_mouse_over_link_s(
+                url: buffer.baseAddress,
+                len: bytes.count - 1
+            ))
+        }
+        #expect(decoded == "https://example.com/path?q=cmux")
+        #expect(GhosttySurfaceScrollView.linkHoverURL(from: ghostty_action_mouse_over_link_s(url: nil, len: 0)) == nil)
+    }
+
     // MARK: libghostty translation mods -> AppKit translation flags
 
     @Test func translationFlagsDropOptionWhenGhosttyStripsAlt() {

@@ -131,7 +131,8 @@ final class WindowDecorationsController {
                 self.performMinimalModeSidebarControlAction(
                     slot,
                     window: window,
-                    locationInWindow: locationInWindow
+                    locationInWindow: locationInWindow,
+                    event: event
                 )
                 return nil
             }
@@ -195,7 +196,8 @@ final class WindowDecorationsController {
         performMinimalModeSidebarControlAction(
             actionSlot,
             window: window,
-            locationInWindow: locationInWindow
+            locationInWindow: locationInWindow,
+            event: event
         )
         return true
     }
@@ -327,6 +329,7 @@ final class WindowDecorationsController {
         _ slot: MinimalModeSidebarControlActionSlot,
         window: NSWindow,
         locationInWindow: NSPoint,
+        event: NSEvent?,
         anchorView: NSView? = nil
     ) {
         #if DEBUG
@@ -351,6 +354,13 @@ final class WindowDecorationsController {
                 _ = AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: targetTabManager,
                     debugSource: "titlebar.minimalSidebarControl"
+                )
+            case .cloudVM:
+                guard let anchorView, let event else { return }
+                _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                    anchorView: anchorView,
+                    event: event,
+                    debugSource: "titlebar.minimalSidebar.cloudMenu"
                 )
             case .focusHistoryBack:
                 guard FocusHistoryNavigationAvailability.current(preferredWindow: window).canNavigateBack else { return }
@@ -399,17 +409,18 @@ final class WindowDecorationsController {
             minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
             return view
         }()
-        target.config = (TitlebarControlsStyle(rawValue: UserDefaults.standard.integer(forKey: "titlebarControlsStyle")) ?? .classic).config
+        target.config = TitlebarControlsStyle.stored().config
         target.isEnabled = true
         target.requiresRevealedState = true
         target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"
-        target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow in
+        target.onAction = { [weak self, weak window, weak target] slot, _, locationInWindow, event in
             let anchorView = target
             guard let self, let window else { return }
             self.performMinimalModeSidebarControlAction(
                 slot,
                 window: window,
                 locationInWindow: locationInWindow,
+                event: event,
                 anchorView: anchorView
             )
         }

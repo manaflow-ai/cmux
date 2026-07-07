@@ -158,6 +158,74 @@ extension TerminalController {
         }
     }
 
+    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: TerminalMutationReplaceKey(
+                tabId: scope.workspaceID,
+                surfaceId: scope.panelID,
+                kind: .directory
+            )
+        ) {
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
+                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            guard validSurfaceIds.contains(scope.panelID) else { return }
+            self.controlSidebarApplyDirectoryReport(
+                tabManager: tabManager,
+                tab: tab,
+                surfaceId: scope.panelID,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    func controlSidebarUpdateDirectory(
+        tabArg: String?,
+        panelArg: String?,
+        directory: String,
+        displayLabel: String?
+    ) -> ControlSidebarPanelWriteResolution {
+        controlSidebarResolvePanelWrite(
+            tabArg: tabArg,
+            panelArg: panelArg,
+            prune: true,
+            requireLiveSurface: true
+        ) { tab, surfaceId in
+            controlSidebarApplyDirectoryReport(
+                tabManager: AppDelegate.shared?.tabManagerFor(tabId: tab.id) ?? tabManager,
+                tab: tab,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    private func controlSidebarApplyDirectoryReport(
+        tabManager: TabManager?,
+        tab: Workspace,
+        surfaceId: UUID,
+        directory: String,
+        displayLabel: String?
+    ) {
+        if let tabManager {
+            tabManager.updateReportedSurfaceDirectory(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        } else if tab.isRemoteTerminalSurface(surfaceId) {
+            _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
+        } else {
+            _ = tab.updatePanelDirectory(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
+        }
+    }
+
     /// The shared head of the synchronous panel-targeted sidebar writes
     /// (`report_ports` / `clear_ports` / `report_pwd` / `report_shell_state` /
     /// `report_tty` / `ports_kick` fallback paths): resolves the tab, then the

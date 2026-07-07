@@ -228,17 +228,74 @@ extension AppDelegate: WorkspaceCreationActionHosting {
         let socketPath = terminalControl.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        return CloudVMActionLauncher.shared.start(
+        let workspaceTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
+        let existingWorkspace = existingCloudVMWorkspace(in: context.tabManager)
+        let workspace: Workspace
+        if let existingWorkspace {
+            workspace = existingWorkspace
+            context.tabManager.selectedTabId = workspace.id
+            context.tabManager.setPinned(workspace, pinned: true)
+            if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+                if !loadingPanel.hasFailed {
+                    onCompletion?(.init(succeeded: true, workspaceId: workspace.id))
+                    return true
+                }
+            } else {
+                onCompletion?(.init(succeeded: true, workspaceId: workspace.id))
+                return true
+            }
+        } else {
+            workspace = context.tabManager.addWorkspace(
+                title: workspaceTitle,
+                initialSurface: .cloudVMLoading,
+                inheritWorkingDirectory: false,
+                select: true,
+                autoWelcomeIfNeeded: false
+            )
+            context.tabManager.setPinned(workspace, pinned: true)
+        }
+        if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+            loadingPanel.resetLoading()
+        }
+        let didStart = CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: resolvedWindow(for: context) ?? selector.preferredWindow,
-            onCompletion: onCompletion.map { callback in
-                { (completion: CloudVMActionLauncher.Completion) in
-                    callback(CloudVMActionCompletion(
-                        succeeded: completion.succeeded,
-                        workspaceId: completion.workspaceId
-                    ))
+            arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+            showsProgress: false,
+            presentsFailureAlert: false,
+            environmentOverrides: [
+                "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
+                "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
+            ],
+            onCompletion: { completion in
+                if !completion.succeeded,
+                   let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+                    loadingPanel.showFailure(completion.output)
                 }
+                onCompletion?(.init(
+                    succeeded: completion.succeeded,
+                    workspaceId: completion.workspaceId
+                ))
             }
         )
+        if !didStart,
+           let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+            loadingPanel.showFailure(String(
+                localized: "panel.cloudVM.loading.failed.launch",
+                defaultValue: "Cloud VM command could not be launched."
+            ))
+        }
+        return didStart
+    }
+
+    private func existingCloudVMWorkspace(in tabManager: TabManager) -> Workspace? {
+        tabManager.tabs.first { workspace in
+            if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+                return true
+            }
+            guard let remote = workspace.remoteConfiguration else { return false }
+            return remote.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
+                remote.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
     }
 }

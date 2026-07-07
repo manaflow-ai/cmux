@@ -77,6 +77,8 @@ public struct ControlCapabilitiesManifest: Sendable, Equatable {
             "window.display",
             "workspace.list",
             "workspace.create",
+            "workspace.cloud_vm_open",
+            "workspace.cloud_vm_terminal_ready",
             "workspace.env",
             "workspace.select",
             "workspace.current",

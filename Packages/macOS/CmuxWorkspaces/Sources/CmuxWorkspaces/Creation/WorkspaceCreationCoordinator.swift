@@ -317,6 +317,9 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
+        initialBrowserURL: URL? = nil,
+        initialBrowserOmnibarVisible: Bool = true,
+        initialBrowserTransparentBackground: Bool = false,
         workspaceEnvironment: [String: String] = [:],
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
@@ -375,6 +378,8 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
                 // single-panel title sync keeps the workspace title following
                 // the page title once the user navigates.
                 defaultTitle = host.browserDefaultWorkspaceTitle()
+            case .cloudVMLoading:
+                defaultTitle = host.cloudVMDefaultWorkspaceTitle()
             }
             let newWorkspace = host.makeWorkspaceForCreation(
                 title: title ?? defaultTitle,
@@ -386,6 +391,9 @@ public final class WorkspaceCreationCoordinator<Tab: WorkspaceTabRepresenting> {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
+                initialBrowserURL: initialBrowserURL,
+                initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+                initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault,
                 chromeInheritanceSource: sourceWorkspace ?? capturedTabs.first

@@ -105,6 +105,10 @@ public protocol WorkspaceCreationHosting<Tab>: AnyObject {
     /// bundle; the coordinator selects this only on the `.browser` branch.
     func browserDefaultWorkspaceTitle() -> String
 
+    /// The default title for a transient **Cloud VM loading** workspace when
+    /// the caller passes no explicit title (legacy localized Cloud VM string).
+    func cloudVMDefaultWorkspaceTitle() -> String
+
     // MARK: Workspace construction + chrome (over the new `Tab`)
 
     /// Constructs the new `Workspace`, applies creation chrome inheritance from
@@ -123,6 +127,9 @@ public protocol WorkspaceCreationHosting<Tab>: AnyObject {
         initialTerminalCommand: String?,
         initialTerminalInput: String?,
         initialTerminalEnvironment: [String: String],
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
         workspaceEnvironment: [String: String],
         allowTextBoxFocusDefault: Bool,
         chromeInheritanceSource: Tab?

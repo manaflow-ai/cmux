@@ -127,6 +127,7 @@ struct CommandPaletteContributionProviderTests {
             rightSidebarToolPane: [sentinel("host.rightSidebarToolPane")],
             view: [sentinel("host.view")],
             canvas: [sentinel("host.canvas")],
+            cloud: [sentinel("host.cloud")],
             mobileConnectKeywords: ["mobile"],
             makeDefaultTerminalKeywords: ["default"],
             auth: [sentinel("host.auth")],
@@ -155,6 +156,7 @@ struct CommandPaletteContributionProviderTests {
         assertAfter("host.terminalDirectoryOpenTargets", follows: "palette.browserDuplicateRight")
         assertAfter("host.cmuxConfigIssues", follows: "palette.equalizeSplits")
         assertAfter("host.cmuxConfigCustomActions", follows: "host.cmuxConfigIssues")
+        #expect(ids.first == "host.cloud")
         #expect(ids.contains("palette.openDirectoryDiffViewer"))
         // cmuxConfigCustomActions is the final block.
         #expect(ids.last == "host.cmuxConfigCustomActions")

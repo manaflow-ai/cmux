@@ -30,6 +30,7 @@ struct VaultOpenCodeProcessScanner {
         var openCodeProcesses: [
             (
                 panelKey: RestorableAgentSessionIndex.PanelKey,
+                processID: Int,
                 observed: VaultObservedAgentProcess,
                 environment: [String: String],
                 workingDirectory: String?,
@@ -57,6 +58,7 @@ struct VaultOpenCodeProcessScanner {
             let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
             openCodeProcesses.append((
                 panelKey: panelKey,
+                processID: process.pid,
                 observed: observed,
                 environment: processArguments.environment,
                 workingDirectory: cwd,
@@ -120,6 +122,7 @@ struct VaultOpenCodeProcessScanner {
                 snapshot: snapshot,
                 updatedAt: capturedAt,
                 processIDs: scopedProcessIDsByPanelKey[process.panelKey] ?? [],
+                agentProcessIDs: [process.processID],
                 sessionIDSource: .explicit
             )
         }

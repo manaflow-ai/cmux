@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { billingEmailClaims, stripeCustomers } from "../db/schema";
+import { billingEmailClaims, stripeCustomers, stripeSubscriptions } from "../db/schema";
 import {
   applySubscriptionUpdate,
   recordCheckoutCompletion,
@@ -77,6 +77,40 @@ function checkoutInput(customerId = "cus_123") {
       id: customerId,
       deleted: false,
       email: "Buyer@Example.com",
+    },
+  };
+}
+
+function teamCheckoutInput(customerId = "cus_team") {
+  return {
+    session: {
+      id: "cs_team",
+      client_reference_id: "team_123",
+      customer: customerId,
+      customer_details: { email: "buyer@example.com" },
+      subscription: "sub_team",
+      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+    },
+    subscription: {
+      id: "sub_team",
+      customer: customerId,
+      status: "active",
+      metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            quantity: 4,
+            current_period_end: 1_800_000_000,
+            price: { id: "price_team" },
+          },
+        ],
+      },
+    },
+    customer: {
+      id: customerId,
+      deleted: false,
+      email: "buyer@example.com",
     },
   };
 }
@@ -206,6 +240,236 @@ describe("recordCheckoutCompletion", () => {
     ).toBe(true);
   });
 
+  test("records Team checkout rows and syncs the Stack team entitlement", async () => {
+    const updateTeam = mock(async () => undefined);
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: {},
+      update: updateTeam,
+    };
+    selectResults = [[{ stackUserId: "owner_123" }], []];
+
+    const result = await recordCheckoutCompletion(teamCheckoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: {
+        getUser: async () => {
+          throw new Error("should not load Stack user for Team checkout");
+        },
+        getTeam: async () => team,
+      } as never,
+    });
+
+    expect(result).toEqual({
+      scope: "team",
+      stackTeamId: "team_123",
+      subscriptionId: "sub_team",
+    });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeCustomers &&
+          insert.values.id === "cus_team" &&
+          insert.values.stackUserId === "owner_123" &&
+          insert.values.stackTeamId === "team_123",
+      ),
+    ).toBe(true);
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeSubscriptions &&
+          insert.values.scope === "team" &&
+          insert.values.plan === "team" &&
+          insert.values.stackTeamId === "team_123" &&
+          insert.values.seats === 4,
+      ),
+    ).toBe(true);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "team" },
+    });
+  });
+
+  test("clears Team metadata when a Team subscription lapses", async () => {
+    const updateTeam = mock(async () => undefined);
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxVmPlan: "pro" },
+      update: updateTeam,
+    };
+    selectResults = [[{ stackUserId: "owner_123" }], []];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "canceled",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => {
+            throw new Error("should not load Stack user for Team subscription");
+          },
+          getTeam: async () => team,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "team", stackTeamId: "team_123", isActive: false });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeSubscriptions &&
+          insert.values.scope === "team" &&
+          insert.values.seats === 7,
+      ),
+    ).toBe(true);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
+    });
+  });
+
+  test("removes a user from TestFlight when a user Pro subscription lapses", async () => {
+    const update = mock(async () => undefined);
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update,
+    };
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
+    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+  });
+
+  test("does not fail the webhook when TestFlight removal fails", async () => {
+    const captureAscError = mock(() => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester: async () => {
+            throw new Error("ASC down");
+          },
+          captureAscError,
+        },
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    expect(captureAscError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "ASC down" }),
+      expect.objectContaining({
+        route: "/api/stripe/webhook",
+        stackUserId: "user_123",
+        email: "buyer@example.com",
+      }),
+    );
+  });
+
+  test("does not remove TestFlight access when ASC is unconfigured", async () => {
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+
+    await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => false,
+          removeTester,
+        },
+      },
+    );
+
+    expect(removeTester).not.toHaveBeenCalled();
+  });
+
+  test("does not remove TestFlight access when a Team subscription lapses", async () => {
+    const removeTester = mock(async () => undefined);
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: { cmuxPlan: "team" },
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "owner_123" }], []];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "canceled",
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 7,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => {
+            throw new Error("should not load Stack user for Team subscription");
+          },
+          getTeam: async () => team,
+        } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    expect(result).toEqual({ scope: "team", stackTeamId: "team_123", isActive: false });
+    expect(removeTester).not.toHaveBeenCalled();
+  });
+
   test("skips foreign subscription updates even when they carry a stackUserId", async () => {
     const result = await applySubscriptionUpdate(
       {
@@ -229,3 +493,21 @@ describe("recordCheckoutCompletion", () => {
     expect(updates).toHaveLength(0);
   });
 });
+
+function userSubscriptionUpdate({ status }: { status: string }) {
+  return {
+    id: "sub_user",
+    customer: "cus_user",
+    status,
+    metadata: { stackUserId: "user_123", plan: "pro", app: "cmux" },
+    cancel_at_period_end: false,
+    items: {
+      data: [
+        {
+          current_period_end: 1_800_000_000,
+          price: { id: "price_123" },
+        },
+      ],
+    },
+  };
+}

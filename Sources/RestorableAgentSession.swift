@@ -226,6 +226,8 @@ struct RestorableAgentSessionIndex: Sendable {
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         let processIDs: Set<Int>
+        let agentProcessIDs: Set<Int>
+        let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     }
 
     enum ProcessDetectedSessionIDSource: Sendable {
@@ -237,6 +239,7 @@ struct RestorableAgentSessionIndex: Sendable {
         snapshot: SessionRestorableAgentSnapshot,
         updatedAt: TimeInterval,
         processIDs: Set<Int>,
+        agentProcessIDs: Set<Int>,
         sessionIDSource: ProcessDetectedSessionIDSource
     )
 
@@ -273,8 +276,32 @@ struct RestorableAgentSessionIndex: Sendable {
         entry(workspaceId: workspaceId, panelId: panelId)?.processIDs ?? []
     }
 
+    func agentProcessIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIDs ?? []
+    }
+
+    func agentProcessIdentities(workspaceId: UUID, panelId: UUID) -> [Int: AgentPIDProcessIdentity] {
+        entry(workspaceId: workspaceId, panelId: panelId)?.agentProcessIdentities ?? [:]
+    }
+
+    func forkValidationEntries() -> [(PanelKey, Entry)] { Array(entriesByPanel) }
+
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
+    }
+
+    func liveAgentProcessFingerprint() -> Set<String> {
+        Set(entriesByPanel.compactMap { key, entry in
+            let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
+            guard !processIDs.isEmpty else { return nil }
+            return [
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                entry.snapshot.kind.rawValue,
+                entry.snapshot.sessionId,
+                processIDs.sorted().map(String.init).joined(separator: ",")
+            ].joined(separator: "|")
+        })
     }
 
     // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
@@ -333,6 +360,10 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
@@ -415,23 +446,31 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
-                    processIDs: liveProcessID.map { [$0] } ?? []
+                    processIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIDs: liveProcessID.map { [$0] } ?? [],
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: liveProcessID.map { [$0] } ?? [],
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
-                let previousPanelKindUpdatedAt =
-                    hookCandidatesByPanelAndKind[panelKindKey]?.updatedAt ?? -Double.infinity
-                if previousPanelKindUpdatedAt <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesByPanelAndKind[panelKindKey],
+                    incoming: entry
+                ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
-                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesBySession[sessionKey],
+                    incoming: entry
+                ) {
                     hookCandidatesBySession[sessionKey] = entry
                 }
-                guard effectiveRecord.pid == nil || liveProcessID != nil else {
-                    continue
+                // A saved PID is liveness evidence only. It can go stale while the
+                // transcript and hook record are still restorable, so keep the
+                // snapshot and leave processIDs empty when the process is gone.
+                if shouldReplaceHookEntry(existing: resolved[key], incoming: entry) {
+                    resolved[key] = entry
                 }
-                if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {
-                    continue
-                }
-                resolved[key] = entry
             }
         }
 
@@ -451,7 +490,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindPanelCandidate {
@@ -461,14 +505,44 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: panelCandidate.snapshot,
                     lifecycle: panelCandidate.lifecycle,
                     updatedAt: panelCandidate.updatedAt,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
                 )
             } else {
                 resolved[key] = Entry(
                     snapshot: detected.snapshot,
                     lifecycle: nil,
                     updatedAt: 0,
-                    processIDs: detected.processIDs
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
+                )
+            }
+        }
+
+        let liveDetectedSessionKeys = Set(detectedSnapshots.values.compactMap { detected -> SessionKey? in
+            guard !detected.processIDs.isEmpty,
+                  case .explicit = detected.sessionIDSource else {
+                return nil
+            }
+            return SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
+        })
+        if !liveDetectedSessionKeys.isEmpty {
+            // A live explicit detection owns the session's current panel; stale
+            // hook-store records for that same session should not remain forkable.
+            resolved = resolved.filter { key, entry in
+                if detectedSnapshots[key] != nil {
+                    return true
+                }
+                return !liveDetectedSessionKeys.contains(
+                    SessionKey(kind: entry.snapshot.kind, sessionId: entry.snapshot.sessionId)
                 )
             }
         }
@@ -488,6 +562,28 @@ struct RestorableAgentSessionIndex: Sendable {
                     $0.snapshot.sessionId == snapshot.sessionId
             }
             .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    private static func agentProcessIdentities(
+        for processIDs: Set<Int>,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
+    ) -> [Int: AgentPIDProcessIdentity] {
+        Dictionary(uniqueKeysWithValues: processIDs.compactMap { pid in
+            processIdentityProvider(pid).map { (pid, $0) }
+        })
+    }
+
+    private static func shouldReplaceHookEntry(existing: Entry?, incoming: Entry) -> Bool {
+        guard let existing else {
+            return true
+        }
+        if existing.processIDs.isEmpty && !incoming.processIDs.isEmpty {
+            return true
+        }
+        if !existing.processIDs.isEmpty && incoming.processIDs.isEmpty {
+            return false
+        }
+        return existing.updatedAt <= incoming.updatedAt
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {

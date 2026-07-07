@@ -8,14 +8,14 @@ import Foundation
 // no-argument conveniences keep every existing `BrowserDownloadFilenameResolver()`
 // / `BrowserDownloadDelegate()` call site byte-identical.
 
-extension BrowserDownloadFilenameResolver {
+extension CmuxBrowser.BrowserDownloadFilenameResolver {
     /// Create a resolver whose fallback filename is the app-localized "download".
     init() {
         self.init(defaultFilename: String(localized: "browser.download.defaultFilename", defaultValue: "download"))
     }
 }
 
-extension BrowserDownloadDelegate {
+extension CmuxBrowser.BrowserDownloadDelegate {
     /// Create a download delegate whose fallback filename is the app-localized "download".
     override convenience init() {
         self.init(defaultFilename: String(localized: "browser.download.defaultFilename", defaultValue: "download"))

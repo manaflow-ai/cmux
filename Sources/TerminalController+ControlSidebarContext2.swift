@@ -218,52 +218,6 @@ extension TerminalController {
         return .done
     }
 
-    nonisolated func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
-        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
-                tabId: scope.workspaceID,
-                surfaceId: scope.panelID,
-                kind: .directory
-            )
-        ) { [weak self] in
-            guard let tabManager = self?.appEnvironment?.windowRegistry.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
-                return
-            }
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-            guard validSurfaceIds.contains(scope.panelID) else { return }
-            tabManager.updateSurfaceDirectory(
-                tabId: scope.workspaceID,
-                surfaceId: scope.panelID,
-                directory: directory,
-                displayLabel: displayLabel
-            )
-        }
-    }
-
-    func controlSidebarUpdateDirectory(
-        tabArg: String?,
-        panelArg: String?,
-        directory: String,
-        displayLabel: String?
-    ) -> ControlSidebarPanelWriteResolution {
-        guard let tabManager else { return .tabNotFound }
-        return controlSidebarResolvePanelWrite(
-            tabArg: tabArg,
-            panelArg: panelArg,
-            prune: true,
-            requireLiveSurface: true
-        ) { tab, surfaceId in
-            tabManager.updateSurfaceDirectory(
-                tabId: tab.id,
-                surfaceId: surfaceId,
-                directory: directory,
-                displayLabel: displayLabel
-            )
-        }
-    }
-
     /// The dedupe compare-and-set runs at DRAIN time, inside the enqueued
     /// main-actor closure, not at enqueue time on the worker: this witness is
     /// called from per-connection socket-worker threads, and a gate taken
@@ -420,13 +374,13 @@ extension TerminalController {
 
         let focusedPanel: ControlSidebarFocusedPanelInfo?
         if let focused = tab.focusedPanelId,
-           let focusedDir = tab.panelDirectories[focused] {
+           let focusedDir = tab.reportedPanelDirectory(panelId: focused) {
             focusedPanel = ControlSidebarFocusedPanelInfo(panelID: focused, directory: focusedDir)
         } else {
             focusedPanel = nil
         }
 
-        let gitBranch = tab.gitBranch.map {
+        let gitBranch = tab.presentedGitBranch.map {
             ControlSidebarGitBranchInfo(branch: $0.branch, isDirty: $0.isDirty)
         }
 
@@ -446,7 +400,7 @@ extension TerminalController {
         return ControlSidebarStateSnapshot(
             tabID: tab.id,
             customColor: tab.customColor,
-            currentDirectory: tab.currentDirectory,
+            currentDirectory: tab.presentedCurrentDirectory ?? "",
             focusedPanel: focusedPanel,
             gitBranch: gitBranch,
             firstPullRequest: firstPullRequest,

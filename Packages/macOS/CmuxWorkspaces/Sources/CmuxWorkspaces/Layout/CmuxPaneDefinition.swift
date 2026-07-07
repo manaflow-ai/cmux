@@ -2,7 +2,7 @@
 ///
 /// Holds one or more ``CmuxSurfaceDefinition`` values in declaration order.
 /// Decoding rejects an empty surface list.
-public struct CmuxPaneDefinition: Codable, Sendable {
+public struct CmuxPaneDefinition: Codable, Sendable, Hashable {
     /// The surfaces stacked in this pane, in declaration order.
     public var surfaces: [CmuxSurfaceDefinition]
 

@@ -657,6 +657,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
+    private let webAuthnCoordinator = BrowserWebAuthnCoordinator()
     private var webViewObservers: [NSKeyValueObservation] = []
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -999,6 +1000,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         webViewCancellables.removeAll()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        webAuthnCoordinator.uninstall(from: oldWebView)
         oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
@@ -1322,6 +1324,14 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
                 forMainFrameOnly: false
             )
         )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: BrowserWebAuthnBridgeContract.standard.scriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true,
+                in: .page
+            )
+        )
         // Track the last editable focused element continuously so omnibar exit can
         // restore page input focus even if capture runs after first-responder handoff.
         // Main frame only — same CAPTCHA interference concern as telemetry hooks.
@@ -1388,6 +1398,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
+        webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
     }
 
@@ -2056,6 +2067,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
+        webAuthnCoordinator.uninstall(from: previousWebView)
         previousWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         previousWebView.navigationDelegate = nil
@@ -2604,6 +2616,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         cancelPendingInteractiveBrowserPrompts(reason: reason)
         closeBackgroundPreloadHost(reason: reason)
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        webAuthnCoordinator.uninstall(from: oldWebView)
         oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
@@ -2768,6 +2781,9 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
+        if BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window) {
+            return
+        }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
@@ -2783,6 +2799,10 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+        BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
+        BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: nil)
+        BrowserWindowPortalRegistry.detach(webView: webView)
+        navigationDelegate?.cancelPendingAuthenticationPrompts()
         cancelPendingInteractiveBrowserPrompts(reason: "close")
         closeBackgroundPreloadHost(reason: "close")
 
@@ -2796,10 +2816,12 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
             popup.closePopup()
         }
 
+        webAuthnCoordinator.uninstall(from: webView)
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
+        if let cmuxWebView = webView as? CmuxWebView { cmuxWebView.clearBrowserDownloadCallbacks() }
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
@@ -3333,6 +3355,7 @@ extension BrowserPanel {
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        webAuthnCoordinator.uninstall(from: oldWebView)
         oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
@@ -5512,9 +5535,246 @@ private extension NSObject {
     }
 }
 
+// MARK: - Download Delegate
+
+/// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
+/// during WebKit callbacks), then moving the finished file to the user's
+/// Downloads folder unless the browser save-panel setting is enabled.
+class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+    private nonisolated static let maxDownloadDestinationCollisionRetries = 100
+
+    private struct DownloadState: Sendable {
+        let downloadID: String
+        let tempURL: URL
+        let suggestedFilename: String
+        let sourceURL: URL
+    }
+
+    /// Tracks active downloads keyed by WKDownload identity.
+    private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
+    private var suggestedFilenameOverrides: [ObjectIdentifier: String] = [:]
+    private let activeDownloadsLock = NSLock()
+    var onDownloadStarted: ((String, String) -> Void)?
+    var onDownloadReadyToSave: ((String, String) -> Void)?
+    var onDownloadSaved: ((String, URL, Bool, String) -> Void)?
+    var onDownloadCancelled: ((String, Bool, String) -> Void)?
+    var onDownloadFailed: ((Error, Bool, String?) -> Void)?
+    var savePanelParentWindow: (() -> NSWindow?)?
+
+    static let tempDir: URL = {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private func storeState(_ state: DownloadState, for download: WKDownload) {
+        activeDownloadsLock.lock()
+        activeDownloads[ObjectIdentifier(download)] = state
+        activeDownloadsLock.unlock()
+    }
+
+    func setSuggestedFilenameOverride(_ suggestedFilename: String?, for download: WKDownload) {
+        let trimmed = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
+        activeDownloadsLock.lock()
+        suggestedFilenameOverrides[ObjectIdentifier(download)] = trimmed
+        activeDownloadsLock.unlock()
+    }
+
+    private func takeSuggestedFilenameOverride(for download: WKDownload) -> String? {
+        activeDownloadsLock.lock()
+        let filename = suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
+        activeDownloadsLock.unlock()
+        return filename
+    }
+
+    private func removeState(for download: WKDownload) -> DownloadState? {
+        activeDownloadsLock.lock()
+        let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
+        suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
+        activeDownloadsLock.unlock()
+        return state
+    }
+
+    private func notifyOnMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread {
+            action()
+        } else {
+            DispatchQueue.main.async(execute: action)
+        }
+    }
+
+    nonisolated static func moveTemporaryDownloadToDownloads(
+        tempURL: URL,
+        suggestedFilename: String,
+        sourceURL: URL,
+        filenameResolver: BrowserDownloadFilenameResolver,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        let directory = filenameResolver.downloadsDirectory(fileManager: fileManager)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
+        var lastCollisionError: Error?
+        for _ in 0..<Self.maxDownloadDestinationCollisionRetries {
+            let destinationURL = filenameResolver.uniqueDownloadDestination(
+                suggestedFilename: suggestedFilename,
+                in: directory,
+                fileManager: fileManager
+            )
+            do {
+                try fileManager.moveItem(at: tempURL, to: destinationURL)
+                return destinationURL
+            } catch {
+                guard fileManager.fileExists(atPath: destinationURL.path) else {
+                    throw error
+                }
+                lastCollisionError = error
+            }
+        }
+        throw lastCollisionError ?? CocoaError(.fileWriteUnknown)
+    }
+
+    @MainActor
+    func presentSavePanel(
+        downloadID: String,
+        tempURL: URL,
+        suggestedFilename: String,
+        sourceURL: URL,
+        filenameResolver: BrowserDownloadFilenameResolver
+    ) {
+        onDownloadReadyToSave?(suggestedFilename, downloadID)
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = suggestedFilename
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = filenameResolver.downloadsDirectory()
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] result in
+            guard result == .OK, let destURL = savePanel.url else {
+                try? FileManager.default.removeItem(at: tempURL)
+                self?.onDownloadCancelled?(suggestedFilename, false, downloadID)
+                return
+            }
+            do {
+                try tempURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
+                if FileManager.default.fileExists(atPath: destURL.path) {
+                    _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
+                } else {
+                    try FileManager.default.moveItem(at: tempURL, to: destURL)
+                }
+                try? destURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL); self?.onDownloadSaved?(suggestedFilename, destURL, false, downloadID)
+            } catch {
+                try? FileManager.default.removeItem(at: tempURL)
+                self?.onDownloadFailed?(error, false, downloadID)
+            }
+        }
+        if let parentWindow = savePanelParentWindow?() {
+            savePanel.beginSheetModal(for: parentWindow, completionHandler: completion)
+        } else {
+            savePanel.begin(completionHandler: completion)
+        }
+    }
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        // Save to a temp file — return synchronously so WebKit is never blocked.
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        if case .reject = filenameResolver.httpStatusDecision(for: response) {
+            _ = removeState(for: download)
+            completionHandler(nil)
+            return
+        }
+        let preferredSuggestedFilename = takeSuggestedFilenameOverride(for: download) ?? suggestedFilename
+        let sourceURL = response.url ?? URL(fileURLWithPath: suggestedFilename)
+        let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: preferredSuggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
+        let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
+        let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
+        let downloadID = UUID().uuidString
+        try? FileManager.default.removeItem(at: destURL)
+        storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
+        notifyOnMain { [weak self] in
+            self?.onDownloadStarted?(safeFilename, downloadID)
+        }
+        #if DEBUG
+        cmuxDebugLog("download.decideDestination file=<redacted>")
+        #endif
+        completionHandler(destURL)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let info = removeState(for: download) else {
+            #if DEBUG
+            cmuxDebugLog("download.finished missing-state")
+            #endif
+            return
+        }
+        #if DEBUG
+        cmuxDebugLog("download.finished file=<redacted>")
+        #endif
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        Task { @MainActor in
+            let imageType = await Task.detached(priority: .utility) {
+                filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
+            }.value
+            let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
+
+            if filenameResolver.shouldAskWhereToSaveDownloads() {
+                self.presentSavePanel(
+                    downloadID: info.downloadID,
+                    tempURL: info.tempURL,
+                    suggestedFilename: suggestedFilename,
+                    sourceURL: info.sourceURL,
+                    filenameResolver: filenameResolver
+                )
+                return
+            }
+
+            let saveResult = await Task.detached(priority: .utility) {
+                Result {
+                    try Self.moveTemporaryDownloadToDownloads(
+                        tempURL: info.tempURL,
+                        suggestedFilename: suggestedFilename,
+                        sourceURL: info.sourceURL,
+                        filenameResolver: filenameResolver
+                    )
+                }
+            }.value
+            switch saveResult {
+            case .success(let destinationURL):
+                self.onDownloadSaved?(suggestedFilename, destinationURL, true, info.downloadID)
+                #if DEBUG
+                cmuxDebugLog("download.saved path=<redacted>")
+                #endif
+            case .failure(let error):
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadFailed?(error, true, info.downloadID)
+            }
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        let downloadID: String?
+        if let info = removeState(for: download) {
+            try? FileManager.default.removeItem(at: info.tempURL)
+            downloadID = info.downloadID
+        } else {
+            downloadID = nil
+        }
+        notifyOnMain { [weak self] in
+            self?.onDownloadFailed?(error, true, downloadID)
+        }
+        #if DEBUG
+        cmuxDebugLog("download.failed error=\(error.localizedDescription)")
+        #endif
+        NSLog("BrowserPanel download failed: %@", error.localizedDescription)
+    }
+}
+
 // MARK: - UI Delegate
 
-private class BrowserUIDelegate: NSObject, WKUIDelegate {
+private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert

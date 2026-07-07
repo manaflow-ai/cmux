@@ -20,7 +20,31 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case pillGroup
     case softButtons
 
+    static let storageKey = "titlebarControlsStyle"
+    static let defaultStyle = TitlebarControlsStyle.compact
+    static var defaultRawValue: Int { defaultStyle.rawValue }
+
     var id: Int { rawValue }
+
+    static func stored(in defaults: UserDefaults = .standard) -> TitlebarControlsStyle {
+        guard let rawObject = defaults.object(forKey: storageKey) else {
+            return defaultStyle
+        }
+        let rawValue: Int?
+        if let integer = rawObject as? Int {
+            rawValue = integer
+        } else if let number = rawObject as? NSNumber {
+            rawValue = number.intValue
+        } else {
+            rawValue = nil
+        }
+        guard let rawValue else { return defaultStyle }
+        return TitlebarControlsStyle(rawValue: rawValue) ?? defaultStyle
+    }
+
+    static func stored(rawValue: Int) -> TitlebarControlsStyle {
+        TitlebarControlsStyle(rawValue: rawValue) ?? defaultStyle
+    }
 
     var menuTitle: String {
         switch self {
@@ -660,23 +684,16 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(
+            TitlebarNewWorkspaceCloudSplitButton(
                 config: config,
                 foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.newTab",
-                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
-                action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.newTab")
-                #endif
-                onNewTab()
-            },
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
-                }) {
-                iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
-            }
-            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+                onNewTab: {
+                    #if DEBUG
+                    cmuxDebugLog("titlebar.newTab")
+                    #endif
+                    onNewTab()
+                }
+            )
 
             TitlebarControlButton(
                 config: config,
@@ -1074,7 +1091,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             MinimalModeSidebarControlActionProxyView(
                 config: style.config,
                 requiresRevealedState: true
-            ) { slot, anchorView, _ in
+            ) { slot, anchorView, _, event in
                 switch slot {
                 case .toggleSidebar:
                     onToggleSidebar()
@@ -1082,6 +1099,13 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(anchorView)
                 case .newTab:
                     onNewTab()
+                case .cloudVM:
+                    guard let event else { return }
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        event: event,
+                        debugSource: "titlebar.minimalSidebar.cloudMenu"
+                    )
                 case .focusHistoryBack:
                     let availability = FocusHistoryNavigationAvailability.current(
                         preferredWindow: hostWindowForFocusHistoryNavigation

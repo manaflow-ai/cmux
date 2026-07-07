@@ -43,6 +43,7 @@ private struct SidebarObservationState: Equatable {
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
     let panelDirectoryDisplayLabels: [UUID: String]
+    let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
@@ -149,6 +150,7 @@ extension Workspace {
             remoteConnectionDetailPublisher,
             activeRemoteTerminalSessionCountPublisher
         )
+        let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
         let groupedPublisher = Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
@@ -160,12 +162,13 @@ extension Workspace {
         // `combineLatest(other:transform:)` overload. Behavior is identical: the
         // downstream closure still receives (groupedFields, listeningPorts,
         // panelDirectoryDisplayLabels).
-        return Publishers.CombineLatest3(
+        return Publishers.CombineLatest4(
             groupedPublisher,
             listeningPortsPublisher,
-            sidebarMetadata.panelDirectoryDisplayLabelsPublisher
+            sidebarMetadata.panelDirectoryDisplayLabelsPublisher,
+            directoryChangeRevision
         )
-            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
+            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
@@ -177,6 +180,7 @@ extension Workspace {
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
+                    directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,

@@ -25,7 +25,8 @@ extension TabManager: SidebarGitHosting {
     }
 
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? {
-        tabs.first(where: { $0.id == workspaceId })?.isRemoteWorkspace
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
+        return workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
     }
 
     func panelIds(in workspaceId: UUID) -> [UUID] {
@@ -41,14 +42,28 @@ extension TabManager: SidebarGitHosting {
         tabs.first(where: { $0.id == workspaceId })?.terminalPanel(for: panelId) != nil
     }
 
+    func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
+        tabs.first(where: { $0.id == workspaceId })?.isRemoteTerminalSurface(panelId) == true
+    }
+
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
         // Match the sidebar directory fallback chain so hidden/background panels can
         // still probe git metadata before OSC 7 has reported a live cwd.
-        let rawDirectory = workspace.panelDirectories[panelId]
-            ?? workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
-            ?? (workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
+        if let directory = workspace.reportedPanelDirectory(panelId: panelId) {
+            return normalizedWorkingDirectory(directory)
+        }
+        guard workspace.allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
+        let rawDirectory = workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
+            ?? (!workspace.usesRemoteDirectoryProvenance && workspace.focusedPanelId == panelId
+                ? workspace.currentDirectory
+                : nil)
         return rawDirectory.flatMap(normalizedWorkingDirectory)
+    }
+
+    func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.remoteDirectoryReportPanelIds.contains(panelId)
     }
 
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
@@ -94,6 +109,30 @@ extension TabManager: SidebarGitHosting {
     func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
         return workspace.updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
+    }
+
+    func updateRemoteSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
+        sidebarGitMetadataService.updateRemoteSurfaceDirectory(
+            workspaceId: tabId,
+            panelId: surfaceId,
+            directory: directory,
+            displayLabel: displayLabel
+        )
+    }
+
+    func updateReportedSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
+        if let workspace = tabs.first(where: { $0.id == tabId }),
+           !workspace.allowsLocalDirectoryFallback(panelId: surfaceId) {
+            updateRemoteSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)
+        } else {
+            updateSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)
+        }
+    }
+
+    @discardableResult
+    func updateRemotePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.updateRemotePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
     }
 
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool) {

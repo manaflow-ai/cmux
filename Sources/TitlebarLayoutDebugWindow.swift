@@ -30,7 +30,7 @@ enum TitlebarLayoutDebugSettingsSnapshot {
     static func copyPayload(defaults: UserDefaults = .standard) -> String {
         let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot(defaults: defaults)
         return """
-        titlebarControlsStyle=\(defaults.integer(forKey: "titlebarControlsStyle"))
+        titlebarControlsStyle=\(TitlebarControlsStyle.stored(in: defaults).rawValue)
         leftControlsLeadingInset=\(String(format: "%.1f", snapshot.leftControlsLeadingInset))
         leftControlsTopInset=\(String(format: "%.1f", snapshot.leftControlsTopInset))
         trafficLightTabBarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTabBarLeadingInset))
@@ -93,7 +93,7 @@ final class TitlebarLayoutDebugWindowController: ReleasingWindowController {
 }
 
 private struct TitlebarLayoutDebugView: View {
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset
     @AppStorage(MinimalModeTitlebarDebugSnapshot.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset

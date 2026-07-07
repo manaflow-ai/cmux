@@ -11,6 +11,12 @@ public import Foundation
 public struct SessionFingerprintPanelSnapshot: Sendable, Equatable {
     /// The panel id (legacy sorted `workspace.panels.keys`).
     public let panelId: UUID
+    /// Legacy `workspace.panelDirectories[panelId] ?? ""`.
+    public let directory: String
+    /// Legacy `workspace.remoteDirectoryReportPanelIds.contains(panelId)`.
+    public let hasRemoteDirectoryReport: Bool
+    /// Legacy `workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId)`.
+    public let requiresRemoteDirectoryTrust: Bool
     /// Legacy `workspace.manualUnreadPanelIds.contains(panelId)`.
     public let isManualUnread: Bool
     /// Legacy `workspace.restoredUnreadPanelIds.contains(panelId)`.
@@ -40,6 +46,9 @@ public struct SessionFingerprintPanelSnapshot: Sendable, Equatable {
     /// Creates a flattened per-panel fingerprint input.
     public init(
         panelId: UUID,
+        directory: String,
+        hasRemoteDirectoryReport: Bool,
+        requiresRemoteDirectoryTrust: Bool,
         isManualUnread: Bool,
         isRestoredUnread: Bool,
         restoredUnreadContributesToWorkspace: Bool?,
@@ -52,6 +61,9 @@ public struct SessionFingerprintPanelSnapshot: Sendable, Equatable {
         textBoxDraft: SessionFingerprintTextBoxDraftSnapshot?
     ) {
         self.panelId = panelId
+        self.directory = directory
+        self.hasRemoteDirectoryReport = hasRemoteDirectoryReport
+        self.requiresRemoteDirectoryTrust = requiresRemoteDirectoryTrust
         self.isManualUnread = isManualUnread
         self.isRestoredUnread = isRestoredUnread
         self.restoredUnreadContributesToWorkspace = restoredUnreadContributesToWorkspace

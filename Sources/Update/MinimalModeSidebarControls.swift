@@ -10,7 +10,7 @@ struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
     let config: TitlebarControlsStyleConfig
     var isEnabled = true
     var requiresRevealedState = false
-    let onAction: (MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void
+    let onAction: (MinimalModeSidebarControlActionSlot, NSView, NSPoint, NSEvent?) -> Void
 
     func makeNSView(context: Context) -> MinimalModeSidebarControlActionView {
         let view = MinimalModeSidebarControlActionView()
@@ -35,17 +35,48 @@ enum TitlebarControlsHitRegions {
     static let buttonCount = MinimalModeSidebarControlActionSlot.allCases.count
 
     static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {
-        var ranges: [ClosedRange<CGFloat>] = []
-        ranges.reserveCapacity(buttonCount)
-
-        var minX = outerLeadingPadding + config.groupPadding.leading
-        for _ in 0..<buttonCount {
-            let maxX = minX + config.buttonSize
-            ranges.append(minX...maxX)
-            minX = maxX + config.spacing
+        MinimalModeSidebarControlActionSlot.allCases.compactMap {
+            buttonXRange(for: $0, config: config)
         }
+    }
 
-        return ranges
+    static func buttonXRange(
+        for slot: MinimalModeSidebarControlActionSlot,
+        config: TitlebarControlsStyleConfig
+    ) -> ClosedRange<CGFloat>? {
+        let startX = outerLeadingPadding + config.groupPadding.leading
+        let sidebarX = startX
+        let notificationsX = sidebarX + config.buttonSize + config.spacing
+        let newTabX = notificationsX + config.buttonSize + config.spacing
+        let newTabWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+        let cloudMenuX = newTabX + newTabWidth
+        let cloudMenuWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+        let focusBackX = cloudMenuX + cloudMenuWidth + config.spacing
+        let focusForwardX = focusBackX + config.buttonSize + config.spacing
+
+        let minX: CGFloat = switch slot {
+        case .toggleSidebar:
+            sidebarX
+        case .showNotifications:
+            notificationsX
+        case .newTab:
+            newTabX
+        case .cloudVM:
+            cloudMenuX
+        case .focusHistoryBack:
+            focusBackX
+        case .focusHistoryForward:
+            focusForwardX
+        }
+        let width: CGFloat = switch slot {
+        case .newTab:
+            newTabWidth
+        case .cloudVM:
+            cloudMenuWidth
+        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
+            config.buttonSize
+        }
+        return minX...(minX + width)
     }
 
     static func sidebarActionSlot(
@@ -77,7 +108,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         didSet { syncButtons() }
     }
     var telemetryPrefix = "minimalSidebarClickProxy"
-    var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
+    var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint, NSEvent?) -> Void)?
     private var cancellables: Set<AnyCancellable> = []
     private let buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton]
 
@@ -187,7 +218,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             super.mouseDown(with: event)
             return
         }
-        performAction(slot: slot, anchorView: self, locationInWindow: event.locationInWindow)
+        performAction(slot: slot, anchorView: self, locationInWindow: event.locationInWindow, event: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -202,6 +233,12 @@ final class MinimalModeSidebarControlActionView: NSView {
             CmuxExtensionSidebarSelection().showMenu(anchorView: self, event: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        case .cloudVM:
+            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                anchorView: self,
+                event: event,
+                debugSource: "titlebar.minimalSidebar.cloudMenu.rightClick"
+            )
         case .focusHistoryBack:
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
         case .focusHistoryForward:
@@ -220,7 +257,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             button.frame = NSRect(
                 x: range.lowerBound,
                 y: max(0, (bounds.height - config.buttonSize) / 2),
-                width: config.buttonSize,
+                width: range.upperBound - range.lowerBound,
                 height: config.buttonSize
             )
         }
@@ -234,13 +271,19 @@ final class MinimalModeSidebarControlActionView: NSView {
 
     fileprivate func performButtonAction(_ sender: MinimalModeSidebarControlButton) {
         let localPoint = sender.frame.center
-        performAction(slot: sender.slot, anchorView: sender, locationInWindow: convert(localPoint, to: nil))
+        performAction(
+            slot: sender.slot,
+            anchorView: sender,
+            locationInWindow: convert(localPoint, to: nil),
+            event: NSApp.currentEvent
+        )
     }
 
     private func performAction(
         slot: MinimalModeSidebarControlActionSlot,
         anchorView: NSView,
-        locationInWindow: NSPoint
+        locationInWindow: NSPoint,
+        event: NSEvent?
     ) {
         guard isEnabled else { return }
 
@@ -258,7 +301,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if let window {
             MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
         }
-        onAction?(slot, anchorView, locationInWindow)
+        onAction?(slot, anchorView, locationInWindow, event)
     }
 
     private func observeRevealState() {

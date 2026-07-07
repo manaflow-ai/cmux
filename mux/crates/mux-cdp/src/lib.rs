@@ -2,7 +2,7 @@
 //!
 //! This crate intentionally stays on `std::thread`, `std::sync::mpsc`,
 //! and blocking sockets. The mux runtime is synchronous, and browser
-//! panes are local-only in v1.
+//! panes can be rendered locally or mirrored to attach clients by mux-core.
 
 mod chrome;
 mod client;
@@ -10,5 +10,5 @@ mod client;
 pub use chrome::{Chrome, ChromeLaunchOptions};
 pub use client::{
     discover_browser_ws_url, resolve_browser_ws_url, CdpClient, CdpEvent, CdpKeyEvent,
-    ScreencastFrame, TargetInfo,
+    NavigationEntry, NavigationHistory, ScreencastFrame, TargetCreated, TargetInfo,
 };

@@ -90,13 +90,7 @@ extension Workspace: AgentForkHosting {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
         }
-        if let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: id, panelId: panelId) {
-            return snapshot
-        }
-        // Last resort: a live agent cmux never recorded a hook for (e.g. an
-        // `sr claude` / direct `codex` launch that bypassed the cmux wrapper).
-        // Lazily process-detected and debounced, off the hot hook-store path.
-        return SharedLiveAgentIndex.shared.processDetectedSnapshot(workspaceId: id, panelId: panelId)
+        return SharedLiveAgentIndex.shared.snapshotForForkConversationCandidate(workspaceId: id, panelId: panelId)
     }
 
     func agentForkSnapshotIsSupportedWithoutProbe(

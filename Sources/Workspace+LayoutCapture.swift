@@ -2,6 +2,12 @@ import Bonsplit
 import CmuxWorkspaces
 import Foundation
 
+private typealias SavedLayoutNode = CmuxWorkspaces.CmuxLayoutNode
+private typealias SavedLayoutPaneDefinition = CmuxWorkspaces.CmuxPaneDefinition
+private typealias SavedLayoutSplitDefinition = CmuxWorkspaces.CmuxSplitDefinition
+private typealias SavedLayoutSplitDirection = CmuxWorkspaces.CmuxSplitDirection
+private typealias SavedLayoutSurfaceDefinition = CmuxWorkspaces.CmuxSurfaceDefinition
+
 enum SavedLayoutCaptureError: Error, Equatable, LocalizedError {
     case unsupportedSplitOrientation(String)
 
@@ -44,10 +50,10 @@ extension Workspace {
         from node: ExternalTreeNode,
         baseCwd: String,
         unsupportedSurfaceCount: inout Int
-    ) throws -> CmuxLayoutNode {
+    ) throws -> SavedLayoutNode {
         switch node {
         case .split(let split):
-            let direction: CmuxSplitDirection
+            let direction: SavedLayoutSplitDirection
             switch split.orientation.lowercased() {
             case "horizontal":
                 direction = .horizontal
@@ -57,7 +63,7 @@ extension Workspace {
                 throw SavedLayoutCaptureError.unsupportedSplitOrientation(split.orientation)
             }
             return .split(
-                CmuxSplitDefinition(
+                SavedLayoutSplitDefinition(
                     direction: direction,
                     split: Self.clampedSavedLayoutSplit(split.dividerPosition),
                     children: [
@@ -72,7 +78,7 @@ extension Workspace {
                 baseCwd: baseCwd,
                 unsupportedSurfaceCount: &unsupportedSurfaceCount
             )
-            return .pane(CmuxPaneDefinition(surfaces: surfaces.isEmpty ? [CmuxSurfaceDefinition(type: .terminal)] : surfaces))
+            return .pane(SavedLayoutPaneDefinition(surfaces: surfaces.isEmpty ? [SavedLayoutSurfaceDefinition(type: .terminal)] : surfaces))
         }
     }
 
@@ -80,18 +86,18 @@ extension Workspace {
         from pane: ExternalPaneNode,
         baseCwd: String,
         unsupportedSurfaceCount: inout Int
-    ) -> [CmuxSurfaceDefinition] {
+    ) -> [SavedLayoutSurfaceDefinition] {
         guard let paneUUID = UUID(uuidString: pane.id) else {
             unsupportedSurfaceCount += pane.tabs.count
             return []
         }
-        var surfaces: [CmuxSurfaceDefinition] = []
+        var surfaces: [SavedLayoutSurfaceDefinition] = []
         surfaces.reserveCapacity(max(pane.tabs.count, 1))
         for tab in bonsplitController.tabs(inPane: PaneID(id: paneUUID)) {
             guard let panelId = panelIdFromSurfaceId(tab.id),
                   let panel = panels[panelId] else {
                 unsupportedSurfaceCount += 1
-                surfaces.append(CmuxSurfaceDefinition(type: .terminal))
+                surfaces.append(SavedLayoutSurfaceDefinition(type: .terminal))
                 continue
             }
             surfaces.append(
@@ -111,11 +117,11 @@ extension Workspace {
         panel: any Panel,
         baseCwd: String,
         unsupportedSurfaceCount: inout Int
-    ) -> CmuxSurfaceDefinition {
-        var definition: CmuxSurfaceDefinition
+    ) -> SavedLayoutSurfaceDefinition {
+        var definition: SavedLayoutSurfaceDefinition
         switch panel.panelType {
         case .terminal:
-            definition = CmuxSurfaceDefinition(
+            definition = SavedLayoutSurfaceDefinition(
                 type: .terminal,
                 name: savedLayoutPanelName(panelId),
                 command: nil,
@@ -125,7 +131,7 @@ extension Workspace {
                 focus: nil
             )
         case .browser:
-            definition = CmuxSurfaceDefinition(
+            definition = SavedLayoutSurfaceDefinition(
                 type: .browser,
                 name: savedLayoutPanelName(panelId),
                 command: nil,
@@ -141,9 +147,9 @@ extension Workspace {
             let projectPath = (panel as? ProjectPanel)?.projectURL.path ?? ""
             if projectPath.isEmpty {
                 unsupportedSurfaceCount += 1
-                definition = CmuxSurfaceDefinition(type: .terminal)
+                definition = SavedLayoutSurfaceDefinition(type: .terminal)
             } else {
-                definition = CmuxSurfaceDefinition(
+                definition = SavedLayoutSurfaceDefinition(
                     type: .project,
                     name: savedLayoutPanelName(panelId),
                     command: nil,
@@ -153,9 +159,9 @@ extension Workspace {
                     focus: nil
                 )
             }
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .extensionBrowser:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .extensionBrowser, .cloudVMLoading:
             unsupportedSurfaceCount += 1
-            definition = CmuxSurfaceDefinition(type: .terminal)
+            definition = SavedLayoutSurfaceDefinition(type: .terminal)
         }
         // The declarative schema models only the single focused surface
         // (`focus`); per-pane tab selection is not representable without a

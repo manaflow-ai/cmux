@@ -320,8 +320,8 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
-    private var cooldownTracker = NotificationCooldownTracker()
-    private var notificationHookFailureThrottle = NotificationHookFailureThrottle()
+    var cooldownTracker = NotificationCooldownTracker()
+    var notificationHookFailureThrottle = NotificationHookFailureThrottle()
     private var indexes = NotificationIndexes()
 
     private init() {

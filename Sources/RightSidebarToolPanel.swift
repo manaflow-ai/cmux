@@ -172,6 +172,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.currentDirectoryChangeRevisionPublisher()
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            workspace.activeRemoteTerminalSessionCountPublisher.map { _ in () }.eraseToAnyPublisher(),
             workspace.remoteConfigurationPublisher.map { _ in () }.eraseToAnyPublisher(),
             workspace.remoteConnectionStatePublisher.map { _ in () }.eraseToAnyPublisher(),
             workspace.remoteConnectionDetailPublisher.map { _ in () }.eraseToAnyPublisher(),
@@ -188,7 +193,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
 
-        if workspace.isRemoteWorkspace {
+        if workspace.usesRemoteDirectoryProvenance {
             guard let configuration = workspace.remoteConfiguration,
                   configuration.transport == .ssh else {
                 store.applyWorkspaceRoot(.none)
@@ -205,7 +210,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         sshOptions: configuration.sshOptions
                     ),
                     displayTarget: configuration.displayTarget,
-                    rootPath: workspace.currentDirectory,
+                    rootPath: workspace.trustedRemoteCurrentDirectory,
                     isAvailable: workspace.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
@@ -223,7 +228,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
-        guard !workspace.isRemoteWorkspace else {
+        guard !workspace.usesRemoteDirectoryProvenance else {
             store.setCurrentDirectoryIfChanged(nil)
             return
         }

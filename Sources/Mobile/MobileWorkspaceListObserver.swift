@@ -214,6 +214,10 @@ final class MobileWorkspaceListObserver {
                 workspace.groupIdPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.currentDirectoryChangeRevisionPublisher()
+                    .map { _ in () }
+                    .eraseToAnyPublisher(),
+                workspace.activeRemoteTerminalSessionCountPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
@@ -303,9 +307,9 @@ final class MobileWorkspaceListObserver {
             hasher.combine(panelIDs)
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
-                hasher.combine(workspace.panelDirectories[id])
+                hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
-            hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.presentedCurrentDirectory)
             // Hash every panelDirectories entry (including ids not yet in
             // `panels`) so a directory update is detected even before its panel
             // registers. The ordered loop above already covers in-panel

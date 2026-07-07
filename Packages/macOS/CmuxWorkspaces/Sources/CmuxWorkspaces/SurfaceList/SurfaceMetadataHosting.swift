@@ -56,6 +56,14 @@ public protocol SurfaceMetadataHosting: AnyObject {
     /// returns `nil` for one.
     var surfaceMetadataIsRemoteTmuxMirror: Bool { get }
 
+    /// Whether the workspace is using remote-directory provenance, so local
+    /// cmux.json tracking must not follow remote paths.
+    var surfaceMetadataUsesRemoteDirectoryProvenance: Bool { get }
+
+    /// Whether `panelId` may fall back to local directory state when a trusted
+    /// remote report has not been established.
+    func surfaceMetadataAllowsLocalDirectoryFallback(panelId: UUID) -> Bool
+
     /// The requested working directory of the terminal panel with `panelId`,
     /// or `nil` when the panel is absent or not a terminal (legacy
     /// `terminalPanel(for: panelId)?.requestedWorkingDirectory`).
@@ -70,6 +78,10 @@ public protocol SurfaceMetadataHosting: AnyObject {
     /// longer applies (legacy
     /// `restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey:)`).
     func surfaceMetadataClearRestoredGuardedWorkingDirectory(panelId: UUID)
+
+    /// Clears a panel's restored resume-session directory when the restored
+    /// directory no longer exists.
+    func surfaceMetadataClearRestoredResumeSessionWorkingDirectory(panelId: UUID)
 
     /// The agent-discovered listening ports (legacy
     /// `Workspace.agentListeningPorts`).
@@ -90,6 +102,15 @@ public protocol SurfaceMetadataHosting: AnyObject {
     func surfaceMetadataLogIgnoredRestoredCwdReport(
         panelId: UUID,
         missingVolumeRoot: String,
+        savedDirectory: String,
+        reportedDirectory: String
+    )
+
+    /// Emits the DEBUG `session.restore.cwdReport.ignoredOnce/accepted` log
+    /// line for restored cwd fallback handling.
+    func surfaceMetadataLogRestoredCwdDecision(
+        panelId: UUID,
+        event: String,
         savedDirectory: String,
         reportedDirectory: String
     )

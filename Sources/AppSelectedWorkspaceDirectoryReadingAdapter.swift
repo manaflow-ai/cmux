@@ -78,7 +78,9 @@ final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceReading {
                 workspace.remoteConnectionDetailPublisher
             )
             .combineLatest(workspace.remoteDaemonStatusPublisher)
-            .map { values, remoteDaemonStatus in
+            .combineLatest(workspace.activeRemoteTerminalSessionCountPublisher)
+            .map { values, activeRemoteTerminalSessionCount in
+                let (values, remoteDaemonStatus) = values
                 let (
                     currentDirectory,
                     remoteConfiguration,
@@ -91,7 +93,8 @@ final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceReading {
                     remoteConfiguration: remoteConfiguration,
                     remoteConnectionState: remoteConnectionState,
                     remoteConnectionDetail: remoteConnectionDetail,
-                    remoteDaemonStatus: remoteDaemonStatus
+                    remoteDaemonStatus: remoteDaemonStatus,
+                    activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                 )
             }
             .sink { [weak self] snapshot in

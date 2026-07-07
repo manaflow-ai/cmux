@@ -37,7 +37,7 @@ extension AppDelegate {
         }
 
         let parent = NSMenuItem(
-            title: String(localized: "menu.savedLayout.newWorkspaceFromLayout", defaultValue: "New Workspace from Layout"),
+            title: String(localized: "menu.savedLayout.newWorkspaceFromLayout", defaultValue: "New Workspace from Template"),
             action: nil,
             keyEquivalent: ""
         )

@@ -291,6 +291,9 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             .joined(separator: " ")
     }
 
+    /// Stable stderr marker the resolver emits with exit 127 when no tmux binary is usable.
+    static let tmuxNotFoundSentinel = "cmux-remote-tmux: tmux not found"
+
     // Keep this one physical line: the remote login shell parses it before /bin/sh -c runs.
     private static let tmuxResolverShellScript =
         "cmux_tmux=\"\"; " +
@@ -299,7 +302,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "if [ -x \"$cmux_dir/tmux\" ]; then cmux_tmux=\"$cmux_dir/tmux\"; break; fi; done; " +
         "if [ -z \"$cmux_tmux\" ] && [ -x /usr/libexec/path_helper ]; then eval \"$(/usr/libexec/path_helper -s 2>/dev/null)\"; " +
         "if command -v tmux >/dev/null 2>&1; then cmux_tmux=\"$(command -v tmux)\"; fi; fi; fi; " +
-        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; exec tmux \"$@\""
+        "if [ -n \"$cmux_tmux\" ]; then exec \"$cmux_tmux\" \"$@\"; fi; " +
+        "printf '%s\\n' '\(tmuxNotFoundSentinel)' >&2; exit 127"
 
     /// Returns a non-empty tmux control-mode command argument, or `nil` when the
     /// value could break the line-oriented control stream. Shell quoting is not

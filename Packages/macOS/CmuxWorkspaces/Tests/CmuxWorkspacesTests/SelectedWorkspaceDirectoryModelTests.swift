@@ -35,7 +35,8 @@ private func makeSnapshot(
         remoteConfiguration: nil,
         remoteConnectionState: nil,
         remoteConnectionDetail: nil,
-        remoteDaemonStatus: nil
+        remoteDaemonStatus: nil,
+        activeRemoteTerminalSessionCount: 0
     )
 }
 

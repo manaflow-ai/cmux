@@ -202,7 +202,7 @@ extension TerminalController: ControlLayoutContext {
         }
     }
 
-    private static func controlLayoutCounts(_ node: CmuxLayoutNode?) -> (panes: Int, surfaces: Int) {
+    private static func controlLayoutCounts(_ node: CmuxWorkspaces.CmuxLayoutNode?) -> (panes: Int, surfaces: Int) {
         guard let node else { return (0, 0) }
         switch node {
         case .pane(let pane):

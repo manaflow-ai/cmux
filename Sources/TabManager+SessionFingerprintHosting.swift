@@ -40,6 +40,9 @@ extension TabManager: SessionFingerprintHosting {
                 let terminalPanel = workspace.terminalPanel(for: panelId)
                 return SessionFingerprintPanelSnapshot(
                     panelId: panelId,
+                    directory: workspace.panelDirectories[panelId] ?? "",
+                    hasRemoteDirectoryReport: workspace.remoteDirectoryReportPanelIds.contains(panelId),
+                    requiresRemoteDirectoryTrust: workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId),
                     isManualUnread: workspace.manualUnreadPanelIds.contains(panelId),
                     isRestoredUnread: workspace.restoredUnreadPanelIds.contains(panelId),
                     restoredUnreadContributesToWorkspace:

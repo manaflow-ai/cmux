@@ -3,14 +3,14 @@ import Foundation
 /// Host-supplied pieces that ``CommandPaletteContributionProvider`` cannot build
 /// itself because they depend on live app state or app-domain types the package
 /// must not import (cmux.json config issues, custom actions, extension sidebar
-/// descriptors, settings toggles, color palette, terminal open-targets, and the
-/// auth/view/canvas/right-sidebar palette providers).
+/// descriptors, Cloud VM commands, settings toggles, color palette, terminal
+/// open-targets, and the auth/view/canvas/right-sidebar palette providers).
 ///
 /// Each member is a pre-resolved contribution slice (or a small runtime
-/// predicate) produced app-side, where `String(localized:)` literals and the
-/// host stores live. The provider interleaves these at the exact ordinal
-/// positions the legacy ``ContentView`` builder used, so the assembled list is
-/// byte-faithful.
+    /// predicate) produced app-side, where `String(localized:)` literals and the
+    /// host stores live. The provider interleaves these at the exact ordinal
+    /// positions the legacy ``ContentView`` builder used, so the assembled list is
+    /// byte-faithful.
 public struct CommandPaletteContributionHostBlocks {
     /// Whether the inline VS Code open-target is available right now. Gates the
     /// `palette.openFolderInVSCodeInline` command's visibility.
@@ -25,6 +25,8 @@ public struct CommandPaletteContributionHostBlocks {
     public let view: [CommandPaletteCommandContribution]
     /// Canvas-domain palette commands.
     public let canvas: [CommandPaletteCommandContribution]
+    /// Cloud VM palette commands.
+    public let cloud: [CommandPaletteCommandContribution]
     /// Search keywords for the `palette.mobileConnect` command.
     public let mobileConnectKeywords: [String]
     /// Search keywords for the `palette.makeDefaultTerminal` command. These are
@@ -57,6 +59,7 @@ public struct CommandPaletteContributionHostBlocks {
         rightSidebarToolPane: [CommandPaletteCommandContribution] = [],
         view: [CommandPaletteCommandContribution] = [],
         canvas: [CommandPaletteCommandContribution] = [],
+        cloud: [CommandPaletteCommandContribution] = [],
         mobileConnectKeywords: [String] = [],
         makeDefaultTerminalKeywords: [String] = [],
         auth: [CommandPaletteCommandContribution] = [],
@@ -74,6 +77,7 @@ public struct CommandPaletteContributionHostBlocks {
         self.rightSidebarToolPane = rightSidebarToolPane
         self.view = view
         self.canvas = canvas
+        self.cloud = cloud
         self.mobileConnectKeywords = mobileConnectKeywords
         self.makeDefaultTerminalKeywords = makeDefaultTerminalKeywords
         self.auth = auth

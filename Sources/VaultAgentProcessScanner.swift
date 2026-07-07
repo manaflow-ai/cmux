@@ -121,6 +121,7 @@ extension RestorableAgentSessionIndex {
                 snapshot: snapshot,
                 updatedAt: capturedAt,
                 processIDs: scopedProcessIDsByPanelKey[key] ?? [],
+                agentProcessIDs: [process.pid],
                 sessionIDSource: sessionIDResolution.source
             )
         }
@@ -145,6 +146,7 @@ extension RestorableAgentSessionIndex {
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         struct Candidate {
             let panelKey: PanelKey
+            let processID: Int
             let kind: RestorableAgentKind
             let observed: VaultObservedAgentProcess
             let cwd: String?
@@ -193,6 +195,7 @@ extension RestorableAgentSessionIndex {
             let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
             candidates.append(Candidate(
                 panelKey: panelKey,
+                processID: process.pid,
                 kind: kind,
                 observed: observed,
                 cwd: cwd,
@@ -263,6 +266,7 @@ extension RestorableAgentSessionIndex {
                 snapshot: snapshot,
                 updatedAt: capturedAt,
                 processIDs: scopedProcessIDsByPanelKey[candidate.panelKey] ?? [],
+                agentProcessIDs: [candidate.processID],
                 sessionIDSource: source
             )
         }
