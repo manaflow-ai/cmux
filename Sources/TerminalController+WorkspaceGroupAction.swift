@@ -45,7 +45,39 @@ extension TerminalController {
             case .ungroup:
                 tabManager.ungroupWorkspaceGroup(groupId: groupID)
             case .delete:
-                _ = tabManager.deleteWorkspaceGroup(groupId: groupID)
+                let memberCount = tabManager.tabs.filter { $0.groupId == groupID }.count
+                guard memberCount > 0 else {
+                    mutationError = .err(
+                        code: "invalid_request",
+                        message: "Group has no workspaces to close",
+                        data: ["group_id": groupID.uuidString]
+                    )
+                    return
+                }
+                guard memberCount < tabManager.tabs.count else {
+                    mutationError = .err(
+                        code: "invalid_request",
+                        message: "Cannot delete every workspace in a window",
+                        data: [
+                            "group_id": groupID.uuidString,
+                            "workspace_count": memberCount,
+                        ]
+                    )
+                    return
+                }
+                let closed = tabManager.deleteWorkspaceGroup(groupId: groupID)
+                guard closed == memberCount else {
+                    mutationError = .err(
+                        code: "invalid_request",
+                        message: "Could not close every workspace in the group",
+                        data: [
+                            "group_id": groupID.uuidString,
+                            "requested_close_count": memberCount,
+                            "closed_count": closed,
+                        ]
+                    )
+                    return
+                }
             }
         }
         if let mutationError {

@@ -88,4 +88,28 @@ struct WorkspaceGroupMoveToMenuStateTests {
         ])
         #expect(manager.tabs.suffix(2).map(\.id) == [group.anchorWorkspaceId, memberID])
     }
+
+    @Test func mobileWorkspaceGroupDeleteRejectsGroupContainingEveryWorkspace() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: originalIds))
+
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let result = TerminalController.shared.v2MobileWorkspaceGroupAction(params: [
+            "group_id": groupId.uuidString,
+            "action": "delete",
+        ])
+
+        guard case .err(let code, _, _) = result else {
+            return #expect(Bool(false), "delete group should reject when it would leave a holdout workspace")
+        }
+        #expect(code == "invalid_request")
+        #expect(manager.workspaceGroups.contains { $0.id == groupId })
+        #expect(manager.tabs.filter { $0.groupId == groupId }.count == originalIds.count + 1)
+    }
 }

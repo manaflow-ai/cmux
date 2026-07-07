@@ -13,7 +13,12 @@ extension WorkspaceListView {
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
+            && reorderableWorkspaces.hasSingleKnownWindow
             && (rendersGroupedSections || !filteredWorkspaces.contains(where: \.isPinned))
+    }
+
+    var reorderableWorkspaces: [MobileWorkspacePreview] {
+        rendersGroupedSections ? groupedWorkspaces : filteredWorkspaces
     }
 
     var canCreateWorkspaceInGroups: Bool {
