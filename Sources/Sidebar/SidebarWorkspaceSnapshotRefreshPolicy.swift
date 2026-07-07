@@ -14,6 +14,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let runningAgentStatusKey: String?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -29,7 +30,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
-            activeCodingAgentCount: activeCodingAgentCount
+            activeCodingAgentCount: activeCodingAgentCount,
+            runningAgentStatusKey: runningAgentStatusKey
         )
     }
 
@@ -62,8 +64,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             pullRequestRows: pullRequestRows,
             listeningPorts: listeningPorts,
             finderDirectoryPath: snapshot.finderDirectoryPath,
-            // Media activity drives a leading row glyph, so stale values are
-            // visually worse than ordinary telemetry text while the menu is open.
+            // Media activity and the "agent is working" pet both drive leading
+            // row glyphs, so stale values are visually worse than ordinary
+            // telemetry text while the menu is open.
             mediaActivity: snapshot.mediaActivity,
             // Todo status/checklist are mutated FROM this context menu (Status
             // submenu, Mark as Done, checkbox clicks), so the done-row dim and
@@ -72,7 +75,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistItems: snapshot.checklistItems,
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,
-            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText
+            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
+            runningAgentStatusKey: snapshot.runningAgentStatusKey
         )
     }
 }

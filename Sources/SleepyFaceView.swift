@@ -269,12 +269,12 @@ struct SleepyFaceView: View {
         func add(_ count: Int, _ color: Color) {
             for _ in 0..<count where colors.count < maxPets { colors.append(color) }
         }
-        add(counts.claude, Color(red: 0.96, green: 0.55, blue: 0.26))
-        add(counts.codex, Color(red: 0.62, green: 0.86, blue: 0.97))
-        add(counts.opencode, Color(red: 0.45, green: 0.86, blue: 0.55))
-        add(counts.pi, Color(red: 0.70, green: 0.52, blue: 0.97))
-        add(counts.ollama, Color(red: 0.93, green: 0.89, blue: 0.80))
-        add(counts.other, Color(red: 1.0, green: 0.70, blue: 0.80))
+        add(counts.claude, PixelAgentPet.Species.claude.color)
+        add(counts.codex, PixelAgentPet.Species.codex.color)
+        add(counts.opencode, PixelAgentPet.Species.opencode.color)
+        add(counts.pi, PixelAgentPet.Species.pi.color)
+        add(counts.ollama, PixelAgentPet.Species.ollama.color)
+        add(counts.other, PixelAgentPet.Species.other.color)
 
         let petW = CGFloat(petWidthCells) * cell
         let left = 2 * cell
@@ -315,29 +315,9 @@ struct SleepyFaceView: View {
     }
 
     private func drawPet(in ctx: inout GraphicsContext, x: CGFloat, y: CGFloat, cell: CGFloat, color: Color, step: Int, facingRight: Bool) {
-        let ink = Color(red: 0.12, green: 0.13, blue: 0.20)
-        func put(_ col: Int, _ row: Int, _ c: Color) {
-            ctx.fill(Path(CGRect(x: x + CGFloat(col) * cell, y: y + CGFloat(row) * cell, width: cell, height: cell)), with: .color(c))
-        }
-        // Body (rows 1-3, cols 0-6) with softened top corners.
-        for col in 0...6 {
-            for row in 1...3 {
-                if row == 1 && (col == 0 || col == 6) { continue }
-                put(col, row, color)
-            }
-        }
-        // Ears + tail nub.
-        put(1, 0, color)
-        put(5, 0, color)
-        put(facingRight ? -1 : 7, 1, color)
-        // Eye on the leading side.
-        put(facingRight ? 5 : 1, 2, ink)
-        // Legs alternate as it walks.
-        if step == 0 {
-            put(1, 4, color); put(5, 4, color)
-        } else {
-            put(2, 4, color); put(4, 4, color)
-        }
+        // Shared with the sidebar "agent is working" indicator so both surfaces
+        // draw the identical creature. See `PixelAgentPet`.
+        PixelAgentPet.draw(in: &ctx, x: x, y: y, cell: cell, color: color, step: step, facingRight: facingRight)
     }
 
     // MARK: - Reaction effects (easter eggs)
