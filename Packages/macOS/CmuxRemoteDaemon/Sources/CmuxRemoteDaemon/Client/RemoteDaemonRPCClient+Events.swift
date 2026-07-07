@@ -128,6 +128,7 @@ extension RemoteDaemonRPCClient {
         guard let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
             return
         }
+        lastInboundFrameAt = .now()
         if let responseID = Self.responseID(in: payload) {
             _ = pendingCalls.resolve(id: responseID, payload: payload)
             return

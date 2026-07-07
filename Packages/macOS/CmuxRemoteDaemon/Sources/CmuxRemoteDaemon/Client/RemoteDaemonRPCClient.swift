@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 public import CmuxCore
 
 /// Synchronous JSON-RPC client for a cmuxd-remote daemon over one of three
@@ -78,7 +78,15 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let configuration: WorkspaceRemoteConfiguration
     let remotePath: String
     let strings: RemoteDaemonStrings
+    let keepaliveInterval: TimeInterval
+    let keepaliveTimeout: TimeInterval
+    /// Test seam: replaces the `/usr/bin/ssh` stdio-transport executable.
+    /// Kept off the public initializer so the package API carries no
+    /// test-injection surface; keepalive tests set it via `@testable import`
+    /// before calling ``start()``. Production always launches `/usr/bin/ssh`.
+    var transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
+    let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
     let pendingCalls = RemoteDaemonPendingCallRegistry()
@@ -96,6 +104,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var webSocketKeepaliveTimer: (any DispatchSourceTimer)?
     var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
     var webSocketKeepaliveInFlight = false
+    var transportKeepaliveTimer: (any DispatchSourceTimer)?
+    var transportKeepaliveTimeoutWorkItem: DispatchWorkItem?
+    var transportKeepaliveInFlight = false
+    var lastInboundFrameAt: DispatchTime = .now()
     var isClosed = true
     var shouldReportTermination = true
 
@@ -119,11 +131,15 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         strings: RemoteDaemonStrings,
+        keepaliveInterval: TimeInterval = 5.0,
+        keepaliveTimeout: TimeInterval = 10.0,
         onUnexpectedTermination: @escaping (String) -> Void
     ) {
         self.configuration = configuration
         self.remotePath = remotePath
         self.strings = strings
+        self.keepaliveInterval = keepaliveInterval
+        self.keepaliveTimeout = keepaliveTimeout
         self.onUnexpectedTermination = onUnexpectedTermination
     }
 
@@ -154,6 +170,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
                     NSLocalizedDescriptionKey: strings.missingRequiredCapabilitiesMessage(missingCapabilities),
                 ])
+            }
+            if configuration.transport != .websocket {
+                startTransportKeepalive()
             }
         } catch {
             stop(suppressTerminationCallback: true)
@@ -235,6 +254,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let capturedWebSocketSession = webSocketSession
 
             stopWebSocketKeepaliveLocked()
+            stopTransportKeepaliveLocked()
             process = nil
             stdinPipe = nil
             stdoutPipe = nil
