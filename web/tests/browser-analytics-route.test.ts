@@ -1,19 +1,34 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const originalFetch = globalThis.fetch;
+const originalVercel = process.env.VERCEL;
+const originalClientConfigRateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID;
+
 const fetchMock = mock(async () => new Response("ok", { status: 200 }));
+const checkRateLimit = mock(async () => ({ rateLimited: false, error: null }));
+
+mock.module("@vercel/firewall", () => ({
+  checkRateLimit,
+}));
 
 globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 const { POST } = await import("../app/api/analytics/browser-events/route");
+const { POSTHOG_PROJECT_KEY } = await import("../services/analytics/browserEventPolicy");
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
+  restoreEnv("VERCEL", originalVercel);
+  restoreEnv("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID", originalClientConfigRateLimitId);
 });
 
 beforeEach(() => {
+  process.env.VERCEL = "0";
+  process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
   fetchMock.mockClear();
   fetchMock.mockResolvedValue(new Response("ok", { status: 200 }));
+  checkRateLimit.mockClear();
+  checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
 });
 
 function request(body: unknown): Request {
@@ -22,6 +37,22 @@ function request(body: unknown): Request {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+function rawRequest(body: string): Request {
+  return new Request("https://cmux.test/api/analytics/browser-events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
 }
 
 describe("browser analytics route", () => {
@@ -46,7 +77,7 @@ describe("browser analytics route", () => {
     expect(calls[0]?.[0]).toBe("https://r.cmux.com/batch/");
     const body = JSON.parse((calls[0]?.[1]?.body as string) ?? "{}");
     expect(body).toMatchObject({
-      api_key: "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP",
+      api_key: POSTHOG_PROJECT_KEY,
       batch: [
         {
           event: "cmuxterm_download_clicked",
@@ -102,6 +133,24 @@ describe("browser analytics route", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "unknown_event" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("rate-limits Vercel requests before parsing or forwarding", async () => {
+    process.env.VERCEL = "1";
+    process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = " cmux-client-config-test\n";
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+
+    const response = await POST(rawRequest("{"));
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    const calls = (checkRateLimit as unknown as {
+      mock: { calls: Array<[string, { request: Request }]> };
+    }).mock.calls;
+    expect(calls[0]?.[0]).toBe("cmux-client-config-test");
+    expect(calls[0]?.[1]?.request.url).toBe("https://cmux.test/api/analytics/browser-events");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

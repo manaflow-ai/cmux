@@ -1,3 +1,5 @@
+import { checkRateLimit } from "@vercel/firewall";
+
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
@@ -10,7 +12,29 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const BROWSER_ANALYTICS_FORWARD_TIMEOUT_MS = 3_000;
+
 export async function POST(request: Request): Promise<Response> {
+  if (process.env.VERCEL === "1") {
+    const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
+    if (!rateLimitId) {
+      console.error("browser-events.route.rate_limit_not_configured");
+      return jsonResponse({ error: "analytics_unavailable" }, 503);
+    }
+
+    const { error, rateLimited } = await checkRateLimit(rateLimitId, { request });
+    if (rateLimited || error === "blocked") {
+      return jsonResponse({ error: "rate_limited" }, 429);
+    }
+    if (error === "not-found") {
+      console.error("browser-events.route.rate_limit_not_found", rateLimitId);
+      return jsonResponse({ error: "analytics_unavailable" }, 503);
+    } else if (error) {
+      console.error("browser-events.route.rate_limit_error", error);
+      return jsonResponse({ error: "analytics_unavailable" }, 503);
+    }
+  }
+
   const body = await readBoundedJsonObject(request, MAX_BROWSER_ANALYTICS_REQUEST_BYTES);
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
@@ -49,6 +73,7 @@ async function forwardBrowserEvent(event: {
           },
         ],
       }),
+      signal: AbortSignal.timeout(BROWSER_ANALYTICS_FORWARD_TIMEOUT_MS),
     });
     if (!response.ok) {
       return { ok: false, status: response.status >= 500 ? 502 : 400 };
