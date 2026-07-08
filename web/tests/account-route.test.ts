@@ -45,6 +45,13 @@ const transaction = mock(async (...args: unknown[]) => {
   routeEvents.push("transaction");
   await callback(mockTransaction);
 });
+const deleteRows = mock((table: unknown) => {
+  deletedTables.push(table);
+  deletedTableCount += 1;
+  return {
+    where: async () => {},
+  };
+});
 const listUserVms = mock((...args: unknown[]) => {
   const [userId] = args as [string];
   return { kind: "listUserVms" as const, userId };
@@ -107,7 +114,6 @@ let cancelledStripeSubscriptions: string[] = [];
 let deletedStripeCustomers: string[] = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
-let transactionVaultRows: TransactionVaultRows = emptyTransactionVaultRows();
 let destroyVmFailureProviderIds = new Set<string>();
 let useAccountRouteStubs = false;
 const originalConsoleError = console.error;
@@ -118,14 +124,7 @@ type WorkflowProgram =
   | { readonly kind: "destroyVm"; readonly input: { readonly userId: string; readonly providerVmId: string } };
 
 type MockTransaction = {
-  readonly delete: (table: unknown) => { readonly where: (condition: unknown) => ReturningDeleteResult };
-  readonly select: (shape: unknown) => {
-    readonly from: (table: unknown) => { readonly where: (condition: unknown) => Promise<unknown[]> };
-  };
-};
-
-type ReturningDeleteResult = Promise<void> & {
-  readonly returning: (shape: unknown) => Promise<unknown[]>;
+  readonly delete: (table: unknown) => { readonly where: (condition: unknown) => Promise<void> };
 };
 
 type SelectResult = Promise<unknown[]> & {
@@ -134,29 +133,8 @@ type SelectResult = Promise<unknown[]> & {
   readonly offset: (offset: number) => SelectResult;
 };
 
-type TransactionVaultRows = {
-  readonly sessions: unknown[];
-  readonly deletedSessions: unknown[];
-  readonly deletedSnapshots: unknown[];
-  readonly deletedGrants: unknown[];
-  readonly deletedTombstones: unknown[];
-};
-
-const selectTransactionRows = mock(() => ({
-  from: (table: unknown) => ({
-    where: async () => selectedRowsForTransactionTable(table),
-  }),
-}));
-
 const mockTransaction: MockTransaction = {
-  delete: (table: unknown) => {
-    deletedTables.push(table);
-    deletedTableCount += 1;
-    return {
-      where: () => returningDeleteResult(table),
-    };
-  },
-  select: selectTransactionRows,
+  delete: deleteRows,
 };
 
 function nextSelectResult(): unknown[] {
@@ -173,37 +151,6 @@ function chainableSelectResult(rows: unknown[]): SelectResult {
   return result;
 }
 
-function emptyTransactionVaultRows(): TransactionVaultRows {
-  return {
-    sessions: [],
-    deletedSessions: [],
-    deletedSnapshots: [],
-    deletedGrants: [],
-    deletedTombstones: [],
-  };
-}
-
-function returningDeleteResult(table: unknown): ReturningDeleteResult {
-  const result = Promise.resolve() as ReturningDeleteResult;
-  Object.defineProperty(result, "returning", {
-    value: async () => deletedRowsForTransactionTable(table),
-  });
-  return result;
-}
-
-function selectedRowsForTransactionTable(table: unknown): unknown[] {
-  if (table === vaultSessions) return transactionVaultRows.sessions;
-  return [];
-}
-
-function deletedRowsForTransactionTable(table: unknown): unknown[] {
-  if (table === vaultSessions) return transactionVaultRows.deletedSessions;
-  if (table === vaultSnapshots) return transactionVaultRows.deletedSnapshots;
-  if (table === vaultUploadGrants) return transactionVaultRows.deletedGrants;
-  if (table === vaultUploadTombstones) return transactionVaultRows.deletedTombstones;
-  return [];
-}
-
 const mockDb = {
   select: mock(() => ({
     from: () => ({
@@ -213,6 +160,7 @@ const mockDb = {
       }),
     }),
   })),
+  delete: deleteRows,
   transaction,
 };
 
@@ -286,6 +234,7 @@ beforeEach(() => {
   updateStackUser.mockClear();
   getUser.mockClear();
   transaction.mockClear();
+  deleteRows.mockClear();
   mockDb.select.mockClear();
   listUserVms.mockClear();
   destroyVm.mockClear();
@@ -293,7 +242,6 @@ beforeEach(() => {
   deleteObject.mockClear();
   cancelSubscription.mockClear();
   deleteCustomer.mockClear();
-  selectTransactionRows.mockClear();
   deletedTableCount = 0;
   deletedTables = [];
   routeEvents = [];
@@ -308,7 +256,6 @@ beforeEach(() => {
   deletedStripeCustomers = [];
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
-  transactionVaultRows = emptyTransactionVaultRows();
   destroyVmFailureProviderIds = new Set();
 });
 
@@ -329,10 +276,10 @@ describe("account deletion route", () => {
     selectResults = [
       [{ id: "sub_user_active" }],
       [{ id: "cus_user" }],
-      [{ latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
       [{ objectKey: "vault/u/account-user-1/snapshot.jsonl.zst" }],
       [{ objectKey: "vault/u/account-user-1/grant.jsonl.zst", uploadObjectKey: "vault/uploads/grant" }],
       [{ objectKey: "vault/u/account-user-1/tombstone.jsonl.zst", uploadObjectKey: "vault/uploads/tombstone" }],
+      [{ latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
     ];
 
     const response = await DELETE(accountDeletionRequest());
@@ -347,12 +294,12 @@ describe("account deletion route", () => {
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedVaultObjects).toEqual([
-      "vault/u/account-user-1/latest.jsonl.zst",
       "vault/u/account-user-1/snapshot.jsonl.zst",
       "vault/u/account-user-1/grant.jsonl.zst",
       "vault/uploads/grant",
       "vault/u/account-user-1/tombstone.jsonl.zst",
       "vault/uploads/tombstone",
+      "vault/u/account-user-1/latest.jsonl.zst",
     ]);
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
@@ -379,45 +326,46 @@ describe("account deletion route", () => {
     ]);
   });
 
-  test("deletes vault objects collected from rows removed during account cleanup", async () => {
-    transactionVaultRows = {
-      sessions: [{ id: "late-session" }],
-      deletedSessions: [{ latestObjectKey: "vault/u/account-user-1/late-latest.jsonl.zst" }],
-      deletedSnapshots: [{ objectKey: "vault/u/account-user-1/late-snapshot.jsonl.zst" }],
-      deletedGrants: [{
-        objectKey: "vault/u/account-user-1/late-grant.jsonl.zst",
-        uploadObjectKey: "vault/uploads/late-grant",
+  test("deletes vault rows in bounded batches after their objects are removed", async () => {
+    selectResults = [
+      [],
+      [],
+      [
+        { id: "snapshot-1", objectKey: "vault/u/account-user-1/snapshot-1.jsonl.zst" },
+        { id: "snapshot-2", objectKey: "vault/u/account-user-1/snapshot-2.jsonl.zst" },
+      ],
+      [{ id: "grant-1", objectKey: "vault/u/account-user-1/grant.jsonl.zst", uploadObjectKey: "vault/uploads/grant" }],
+      [{
+        id: "tombstone-1",
+        objectKey: "vault/u/account-user-1/tombstone.jsonl.zst",
+        uploadObjectKey: "vault/uploads/tombstone",
       }],
-      deletedTombstones: [{
-        objectKey: "vault/u/account-user-1/late-tombstone.jsonl.zst",
-        uploadObjectKey: "vault/uploads/late-tombstone",
-      }],
-    };
+      [{ id: "session-1", latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
+    ];
 
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
     expect(deletedVaultObjects).toEqual([
-      "vault/u/account-user-1/late-grant.jsonl.zst",
-      "vault/uploads/late-grant",
-      "vault/u/account-user-1/late-tombstone.jsonl.zst",
-      "vault/uploads/late-tombstone",
-      "vault/u/account-user-1/late-snapshot.jsonl.zst",
-      "vault/u/account-user-1/late-latest.jsonl.zst",
-      "vault/u/account-user-1/late-grant.jsonl.zst",
-      "vault/uploads/late-grant",
-      "vault/u/account-user-1/late-tombstone.jsonl.zst",
-      "vault/uploads/late-tombstone",
-      "vault/u/account-user-1/late-snapshot.jsonl.zst",
-      "vault/u/account-user-1/late-latest.jsonl.zst",
+      "vault/u/account-user-1/snapshot-1.jsonl.zst",
+      "vault/u/account-user-1/snapshot-2.jsonl.zst",
+      "vault/u/account-user-1/grant.jsonl.zst",
+      "vault/uploads/grant",
+      "vault/u/account-user-1/tombstone.jsonl.zst",
+      "vault/uploads/tombstone",
+      "vault/u/account-user-1/latest.jsonl.zst",
     ]);
+    expect(deletedTables).toContain(vaultSnapshots);
+    expect(deletedTables).toContain(vaultUploadGrants);
+    expect(deletedTables).toContain(vaultUploadTombstones);
+    expect(deletedTables).toContain(vaultSessions);
   });
 
   test("does not delete rows or Stack user when vault object cleanup fails", async () => {
     selectResults = [
       [],
       [],
-      [{ latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
+      [{ id: "snapshot-1", objectKey: "vault/u/account-user-1/snapshot.jsonl.zst" }],
       [],
       [],
       [],
@@ -509,13 +457,18 @@ describe("account deletion route", () => {
 
   test("returns success when post-Stack cleanup fails after the account is deleted", async () => {
     postStackVaultDeleteError = new Error("post-delete vault unavailable");
-    transactionVaultRows = {
-      sessions: [],
-      deletedSessions: [{ latestObjectKey: "vault/u/account-user-1/post-stack-latest.jsonl.zst" }],
-      deletedSnapshots: [],
-      deletedGrants: [],
-      deletedTombstones: [],
-    };
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [{ id: "post-stack-session", latestObjectKey: "vault/u/account-user-1/post-stack-latest.jsonl.zst" }],
+    ];
 
     const response = await DELETE(accountDeletionRequest());
 
