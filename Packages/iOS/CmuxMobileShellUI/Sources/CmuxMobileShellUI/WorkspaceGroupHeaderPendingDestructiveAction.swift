@@ -1,4 +1,4 @@
-enum WorkspaceGroupHeaderPendingDestructiveAction {
+enum WorkspaceGroupHeaderPendingDestructiveAction: Equatable {
     case ungroup
     case delete
 }
