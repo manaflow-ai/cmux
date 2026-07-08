@@ -14,6 +14,7 @@ const assertPostHogDeletionConfigured = mock(() => {
 const deletePostHogPersonData = mock(async () => {
   calls.push("posthog-delete");
 });
+type NativeTokenStore = { accessToken: string; refreshToken: string };
 const markStackUserDeletionInProgress = mock(async (user) => {
   calls.push("mark-deleting");
   await realMarkStackUserDeletionInProgress(
@@ -25,7 +26,9 @@ const deleteCmuxAccountData = mock(async () => {
   if (cleanupError) throw cleanupError;
 });
 const deleteUser = mock(async () => {});
-const getUser = mock(async () => stackUser());
+const getUser = mock(async (_options?: unknown) => stackUser());
+
+const route = await import("../app/api/account/deletion/route");
 
 function stackUser() {
   return {
@@ -43,24 +46,17 @@ function stackUser() {
   };
 }
 
-mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({ getUser }),
-  isStackConfigured: () => true,
-  stackServerApp: { getUser },
-}));
-
-mock.module("../services/account/deletion", () => ({
-  deleteCmuxAccountData,
-  isStackAccountDeletionInProgress: realIsStackAccountDeletionInProgress,
-  markStackUserDeletionInProgress,
-}));
-
-mock.module("../services/analytics/posthogDeletion", () => ({
-  assertPostHogDeletionConfigured,
-  deletePostHogPersonData,
-}));
-
-const route = await import("../app/api/account/deletion/route");
+function deleteAccount(request: Request): Promise<Response> {
+  return route.deleteAccountWithDependencies(request, {
+    isStackConfigured: () => true,
+    getUser: async (tokenStore) =>
+      (await getUser({ tokenStore })) as ReturnType<typeof stackUser> | null,
+    assertPostHogDeletionConfigured,
+    markStackUserDeletionInProgress,
+    deleteCmuxAccountData,
+    deletePostHogPersonData,
+  });
+}
 
 beforeEach(() => {
   calls.length = 0;
@@ -78,7 +74,7 @@ beforeEach(() => {
 
 describe("account deletion route", () => {
   test("rejects requests without native Stack tokens", async () => {
-    const response = await route.DELETE(
+    const response = await deleteAccount(
       new Request("https://cmux.test/api/account/deletion", { method: "DELETE" }),
     );
 
@@ -93,7 +89,7 @@ describe("account deletion route", () => {
   });
 
   test("marks deletion in progress before cmux and PostHog cleanup", async () => {
-    const response = await route.DELETE(
+    const response = await deleteAccount(
       new Request("https://cmux.test/api/account/deletion", {
         method: "DELETE",
         headers: {
@@ -121,7 +117,7 @@ describe("account deletion route", () => {
   test("does not delete the Stack user when PostHog deletion is not configured", async () => {
     postHogPreflightError = new Error("PostHog account deletion is not configured");
 
-    await expect(route.DELETE(
+    await expect(deleteAccount(
       new Request("https://cmux.test/api/account/deletion", {
         method: "DELETE",
         headers: {
@@ -141,7 +137,7 @@ describe("account deletion route", () => {
   test("does not delete the Stack user when cmux-owned cleanup fails", async () => {
     cleanupError = new Error("cleanup failed");
 
-    await expect(route.DELETE(
+    await expect(deleteAccount(
       new Request("https://cmux.test/api/account/deletion", {
         method: "DELETE",
         headers: {
@@ -159,7 +155,7 @@ describe("account deletion route", () => {
   test("rejects stale native tokens without deleting anything", async () => {
     getUser.mockResolvedValue(null);
 
-    const response = await route.DELETE(
+    const response = await deleteAccount(
       new Request("https://cmux.test/api/account/deletion", {
         method: "DELETE",
         headers: {
