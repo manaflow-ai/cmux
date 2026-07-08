@@ -36,7 +36,7 @@ extension Workspace {
         )
     }
 
-    private func agentStatusKey(forAgentPIDKey key: String) -> String {
+    func agentStatusKey(forAgentPIDKey key: String) -> String {
         if statusEntries[key] != nil {
             return key
         }
@@ -100,6 +100,7 @@ extension Workspace {
 
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        let previousPanelId = agentPIDPanelIdsByKey[key]
         var didClearOtherStructuredAgentRuntime = false
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
@@ -114,6 +115,7 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
+        syncTerminalTabAgentIconAssets(forPanelIds: previousPanelId, panelId)
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -129,6 +131,49 @@ extension Workspace {
             refreshTrackedAgentPorts()
         }
         return didChange
+    }
+
+    @discardableResult
+    func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
+        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for key in keys {
+            guard let pid = agentPIDs[key] else {
+                if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                    didChange = true
+                }
+                continue
+            }
+            if !isRecordedAgentPIDLive(key: key, pid: pid),
+               clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    func clearAllAgentPIDs(refreshPorts: Bool = true) {
+        let hadAgentPIDs = !agentPIDs.isEmpty
+        agentPIDs.removeAll()
+        agentPIDProcessIdentitiesByKey.removeAll()
+        agentPIDPanelIdsByKey.removeAll()
+        agentPIDKeysByPanelId.removeAll()
+        syncTerminalTabAgentIconAssetsForAllTerminalPanels()
+        if hadAgentPIDs, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+    }
+
+    private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
+        guard pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
+            return false
+        }
+        return currentIdentity == recordedIdentity
     }
 
     static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
@@ -236,41 +281,6 @@ extension Workspace {
         Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
     }
 
-    /// Clears any dead agent PIDs recorded for `panelId` (an agent process that
-    /// has exited), so a stale PID no longer influences the panel's agent
-    /// context. Backs the submit-action re-check after an agent prune.
-    ///
-    @discardableResult
-    func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
-        let keys = agentPIDKeysByPanelId[panelId] ?? []
-        var didChange = false
-        for key in keys {
-            guard let pid = agentPIDs[key] else {
-                if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
-                    didChange = true
-                }
-                continue
-            }
-            if !isRecordedAgentPIDLive(key: key, pid: pid),
-               clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
-                didChange = true
-            }
-        }
-        if didChange, refreshPorts {
-            refreshTrackedAgentPorts()
-        }
-        return didChange
-    }
-
-    private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
-        guard pid > 0,
-              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
-              let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
-            return false
-        }
-        return currentIdentity == recordedIdentity
-    }
-
     @discardableResult
     func clearAgentPID(
         key: String,
@@ -309,7 +319,15 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
+        syncTerminalTabAgentIconAssets(forPanelIds: ownedPanelId ?? panelId)
         return didChange
+    }
+
+    /// Clears a panel's restored agent snapshot and resume metadata, then refreshes the tab's agent brand mark.
+    func clearRestoredAgentSnapshot(panelId: UUID) {
+        agentHibernationCoordinator.clearRestoredAgentSnapshot(panelId: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -350,6 +368,7 @@ extension Workspace {
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
+        syncTerminalTabAgentIconAsset(forPanelId: runtimeState.panelId)
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
         }
@@ -434,8 +453,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        discardTerminalTabAgentIconState(forPanelId: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)

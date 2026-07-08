@@ -73,6 +73,7 @@ extension Workspace: AgentHibernationHosting {
     ) {
         guard let terminalPanel = panels[panelId] as? TerminalPanel else { return }
         terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func agentHibernationTerminalPanelIsHibernated(panelId: UUID) -> Bool {

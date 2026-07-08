@@ -26,6 +26,10 @@ import Darwin
 import Network
 import CoreText
 
+private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
+    var observer: NSObjectProtocol?
+}
+
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
@@ -322,6 +326,7 @@ extension Workspace {
                     )
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+                syncTerminalTabAgentIconAsset(forPanelId: panelId)
             }
         }
         let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
@@ -1391,15 +1396,12 @@ extension Workspace {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
             if let restorableAgent {
-                restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
-                if restoredAgentWillRunStartupCommand {
-                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .autoResumeCommandRunning
-                } else if restoredAgentWillRunStartupInput {
-                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
-                } else {
-                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
-                }
-                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+                seedSessionRestoredAgentIconState(
+                    panelId: terminalPanel.id,
+                    restorableAgent: restorableAgent,
+                    willRunStartupCommand: restoredAgentWillRunStartupCommand,
+                    willRunStartupInput: restoredAgentWillRunStartupInput
+                )
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
                     terminalPanel.enterAgentHibernation(
@@ -1409,15 +1411,12 @@ extension Workspace {
                     )
                 }
             } else {
-                restoredAgentSnapshotsByPanelId.removeValue(forKey: terminalPanel.id)
-                if restoredAgentWillRunStartupCommand {
-                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .autoResumeCommandRunning
-                } else if restoredAgentWillRunStartupInput {
-                    restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
-                } else {
-                    restoredAgentResumeStatesByPanelId.removeValue(forKey: terminalPanel.id)
-                }
-                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+                seedSessionRestoredAgentIconState(
+                    panelId: terminalPanel.id,
+                    restorableAgent: nil,
+                    willRunStartupCommand: restoredAgentWillRunStartupCommand,
+                    willRunStartupInput: restoredAgentWillRunStartupInput
+                )
             }
             // While an auto-resumed agent-hook or restorable-agent launcher
             // holds the pane's foreground no prompt runs, so a stray
@@ -2252,6 +2251,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         get { surfaceRegistry.panelTitles }
         set { surfaceRegistry.panelTitles = newValue }
     }
+    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     /// User/system custom title override for each panel; stored in the
     /// surface-registry sub-model. The former `$panelCustomTitles` Combine
     /// subscribers read `surfaceRegistry.panelCustomTitlesPublisher` instead.
@@ -2764,7 +2764,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         set { panelDirectories = newValue }
     }
 
-    private var processTitle: String
+    var processTitle: String
 
     nonisolated static func resolveCloseConfirmation(
         shellActivityState: PanelShellActivityState?,
@@ -3993,7 +3993,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         surfaceDirectoryMetadata.resolvedWorkingDirectory()
     }
 
-    private func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
+    func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
         surfaceRegistry.resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
@@ -4819,15 +4819,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             panelId: panelId,
             restoredAgent: restoredAgent
         )
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
-    /// Forwards to ``AgentHibernationCoordinator/clearRestoredAgentSnapshot(panelId:)``.
-    private func clearRestoredAgentSnapshot(panelId: UUID) {
-        agentHibernationCoordinator.clearRestoredAgentSnapshot(panelId: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-    }
-
-    /// Forwards to ``AgentHibernationCoordinator/clearRestoredAgentResumeBinding(panelId:restoredAgent:)``.
     private func clearRestoredAgentResumeBinding(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot
@@ -4995,7 +4989,25 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
-        surfaceRegistry.updatePanelTitle(panelId: panelId, title: title)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
+        let didMutateTitleDerivedAgent = panels[panelId] is TerminalPanel &&
+            updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed)
+        let didMutate = surfaceRegistry.updatePanelTitle(panelId: panelId, title: trimmed)
+        if didMutateTitleDerivedAgent {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
+        }
+        return didMutate || didMutateTitleDerivedAgent
+    }
+
+    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
+        var discardedCount = 0
+        for browserPanel in panels.values.compactMap({ $0 as? BrowserPanel }) {
+            if browserPanel.discardHiddenWebViewForSystemMemoryPressure(now: now) {
+                discardedCount += 1
+            }
+        }
+        return discardedCount
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
@@ -5005,6 +5017,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
+        titleDerivedAgentStatusKeysByPanelId = titleDerivedAgentStatusKeysByPanelId.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -6773,6 +6786,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             title: replacementPanel.displayTitle,
             icon: .some(replacementPanel.displayIcon),
             iconImageData: .some(nil),
+            iconAsset: .some(terminalTabAgentIconAsset(forPanelId: pair.key)),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
@@ -6909,6 +6923,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             title: resolvedTitle,
             icon: .some(replacementPanel.displayIcon),
             iconImageData: .some(nil),
+            iconAsset: .some(terminalTabAgentIconAsset(forPanelId: panelId)),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: customTitle != nil,
             isDirty: replacementPanel.isDirty,
@@ -7756,9 +7771,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             surfaceTTYNames.removeValue(forKey: detached.panelId)
         }
         syncRemotePortScanTTYs()
-        if let cachedTitle = detached.cachedTitle {
-            panelTitles[detached.panelId] = cachedTitle
-        }
+        seedTitleDerivedTerminalAgentState(from: detached)
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
             panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
@@ -7787,6 +7800,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
             iconImageData: detached.iconImageData,
+            iconAsset: terminalTabAgentIconAsset(forPanelId: detached.panelId),
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
@@ -7800,6 +7814,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
+            titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -7845,18 +7860,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             toTabId: id,
             surfaceId: detached.panelId
         )
-        if let restorableAgent = detached.restorableAgent {
-            restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
-            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
-        } else {
-            restoredAgentSnapshotsByPanelId.removeValue(forKey: detached.panelId)
-            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
-        }
-        if let resumeState = detached.restorableAgentResumeState {
-            restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
-        } else {
-            restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
-        }
+        seedDetachedRestoredAgentState(from: detached)
         if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
             restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
         } else {
@@ -7868,6 +7872,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        syncTerminalTabAgentIconAsset(forPanelId: detached.panelId)
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
@@ -8317,19 +8322,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     /// Check if any panel needs close confirmation
-    /// Discards every hidden browser WebView in this workspace under system
-    /// memory pressure. Returns the number of WebViews discarded.
-    @discardableResult
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
-        var discardedCount = 0
-        for browserPanel in panels.values.compactMap({ $0 as? BrowserPanel }) {
-            if browserPanel.discardHiddenWebViewForSystemMemoryPressure(now: now) {
-                discardedCount += 1
-            }
-        }
-        return discardedCount
-    }
-
     func needsConfirmClose() -> Bool {
         // The workspace's own Dock (#7144) counts toward the close/quit warning:
         // a busy Dock terminal is just as unsaved as a main-area one.
@@ -10837,6 +10829,8 @@ extension Workspace: BonsplitDelegate {
         case .toggleFullWidthTab:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleFullWidthTabMode(panelId: panelId)
+        case .disconnectRemote:
+            disconnectRemoteConnection(clearConfiguration: false)
         case .forkConversation,
              .forkConversationRight,
              .forkConversationLeft,

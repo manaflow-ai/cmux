@@ -145,6 +145,7 @@ extension DockSplitStore {
         panelCancellables.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panels.removeValue(forKey: panelId)
+        let preservedTitleDerivedAgentStatusKey = titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
 
         forceCloseDockTabIds.insert(tabId)
         defer { forceCloseDockTabIds.remove(tabId) }
@@ -152,6 +153,9 @@ extension DockSplitStore {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
             surfaceIdToPanelId[tabId] = panelId
+            if let preservedTitleDerivedAgentStatusKey {
+                titleDerivedAgentStatusKeysByPanelId[panelId] = preservedTitleDerivedAgentStatusKey
+            }
             if let preservedTransfer {
                 detachedSurfaceTransfersByPanelId[panelId] = preservedTransfer
             }
@@ -224,10 +228,17 @@ extension DockSplitStore {
         // read is unavailable.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        if kind == "terminal" {
+            _ = updateTitleDerivedTerminalAgentStatusKey(
+                forPanelId: detached.panelId,
+                title: detached.cachedTitle ?? detached.panel.displayTitle
+            )
+        }
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             icon: detached.icon,
             iconImageData: detached.iconImageData,
+            iconAsset: terminalTabAgentIconAsset(forPanelId: detached.panelId),
             kind: kind,
             isDirty: panel.isDirty,
             isLoading: detached.isLoading,
