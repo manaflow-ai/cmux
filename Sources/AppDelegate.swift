@@ -1111,17 +1111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static let screenChangeReconcileNotification = Notification.Name("com.cmuxterm.app.screenChangeReconcile")
     static let displayReconfigurationNotification = Notification.Name("com.cmuxterm.app.displayReconfiguration")
     static let screenChangeReconcileRetryLimit = 3
-    /// Per-window LRU ring mirrored from the session snapshot.
     var windowConfigFrames: [UUID: SessionConfigFrameRing] = [:]
-    /// Display signature last applied by a restore/reconcile pass.
     var lastAppliedConfigurationSignature: String?
-    /// True after a reconcile pass observed displays without a stable signature.
     var didObserveUnknownDisplayConfiguration = false
-    /// Remaining idle retries after an empty or unstable screen list.
     var screenChangeReconcileRetryBudget = 0
-    /// True while screen-change frames are blocked from per-config capture.
     var isScreenChangeCaptureSuppressed = false
-    /// Latest valid signature observed while screen-change capture is blocked.
     var screenChangeCaptureSuppressionSignature: String?
     var isDisplayReconfigurationActive = false
     var didRegisterDisplayReconfigurationCallback = false
@@ -3857,8 +3851,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: self,
             queue: .main
         ) { [weak self] note in
-            guard let self else { return }
-            self.handleDisplayReconfiguration(isBeginning: note.userInfo?["isBeginning"] as? Bool ?? false)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleDisplayReconfiguration(isBeginning: note.userInfo?["isBeginning"] as? Bool ?? false)
+            }
         }
         lifecycleSnapshotObservers.append(displayReconfigurationObserver)
 
@@ -3867,8 +3863,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: self,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            self.reconcileMainWindowFramesAfterScreenChange()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.reconcileMainWindowFramesAfterScreenChange()
+            }
         }
         lifecycleSnapshotObservers.append(screenReconcileObserver)
 
@@ -3877,15 +3875,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
 #if DEBUG
-            let names = NSScreen.screens.map(\.localizedName).joined(separator: ", ")
-            cmuxDebugLog(
-                "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
-            )
+                let names = NSScreen.screens.map(\.localizedName).joined(separator: ", ")
+                cmuxDebugLog(
+                    "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
+                )
 #endif
-            self.beginScreenChangeCaptureSuppression()
-            if !self.isDisplayReconfigurationActive { self.scheduleScreenChangeReconcileWhenIdle() }
+                self.beginScreenChangeCaptureSuppression()
+                if !self.isDisplayReconfigurationActive { self.scheduleScreenChangeReconcileWhenIdle() }
+            }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
     }
