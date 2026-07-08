@@ -23,7 +23,7 @@ internal import CMUXDebugLog
 /// stored properties are unannotated (the class itself is not `Sendable`, so
 /// they never cross an isolation boundary) which keeps the nonisolated
 /// `deinit` teardown path exactly as it was.
-@Observable public final class TerminalSurface: Identifiable {
+public final class TerminalSurface: Identifiable {
     /// The live find-in-terminal session state for one surface.
     @MainActor
     @Observable public final class SearchState {
@@ -41,7 +41,8 @@ internal import CMUXDebugLog
         /// The total number of matches, if known.
         public var total: UInt?
 
-        @ObservationIgnored var onNeedleChanged: (@MainActor (String) -> Void)?
+        @ObservationIgnored
+        var onNeedleChanged: (@MainActor (String) -> Void)?
 
         /// Creates search state with an initial needle.
         public init(needle: String = "") {
@@ -68,8 +69,8 @@ internal import CMUXDebugLog
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     /// The live runtime surface pointer, or nil before creation/after teardown.
-    @ObservationIgnored public internal(set) var surface: ghostty_surface_t?
-    @ObservationIgnored weak var attachedView: (any TerminalSurfaceNativeViewing)?
+    public internal(set) var surface: ghostty_surface_t?
+    weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering
     let engine: any TerminalEngineHosting
@@ -94,7 +95,7 @@ internal import CMUXDebugLog
     /// `setVisibleInUI(true)` re-realizes it (`realizeRenderer`) before the next
     /// draw. It mirrors Ghostty's swap-chain `defunct` flag so realize/unrealize
     /// strictly alternate (Ghostty's `displayRealized` asserts `defunct`).
-    @ObservationIgnored var rendererRealized = true
+    var rendererRealized = true
 
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
@@ -104,7 +105,7 @@ internal import CMUXDebugLog
     /// Authoritative on-screen flag, driven by `setVisibleInUI` (the same signal
     /// that drives Ghostty occlusion). The reclamation controller never releases
     /// a surface whose portal is visible.
-    @ObservationIgnored var rendererPortalVisible = false
+    var rendererPortalVisible = false
 
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
@@ -160,7 +161,7 @@ internal import CMUXDebugLog
 
     /// Text written to the surface immediately after the first spawn, if any.
     public let initialInput: String?
-    @ObservationIgnored var nextRuntimeInitialInput: String?
+    var nextRuntimeInitialInput: String?
     let initialEnvironmentOverrides: [String: String]
 
     /// The working directory requested at construction, if any.
@@ -173,7 +174,7 @@ internal import CMUXDebugLog
     /// in sync. Reads happen on the main actor (UI/focus routing) and once on
     /// the creating thread at registration.
     public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
-    @ObservationIgnored var additionalEnvironment: [String: String]
+    var additionalEnvironment: [String: String]
 
     /// When true, the surface is created in libghostty MANUAL I/O mode: no
     /// process is spawned, output is injected via `processRemoteOutput(_:)`,
@@ -185,16 +186,16 @@ internal import CMUXDebugLog
     /// whenever the rendered grid changes so the owner can size the remote tmux
     /// client to match.
     @MainActor public var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
-    @ObservationIgnored var lastReportedManualGrid: (columns: Int, rows: Int)?
+    var lastReportedManualGrid: (columns: Int, rows: Int)?
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
-    @ObservationIgnored var manualIONoReflow = true
+    var manualIONoReflow = true
     /// Retained userdata for the MANUAL-mode `io_write_cb`; released alongside
     /// the surface.
-    @ObservationIgnored var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
+    var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     /// Output delivered before the runtime surface exists. Flushed once the
     /// surface is created so background mirror output is not lost.
-    @ObservationIgnored var pendingRemoteOutput = Data()
+    var pendingRemoteOutput = Data()
     let maxPendingRemoteOutputBytes = 4 * 1_048_576
 
     /// The explicit startup environment overrides replayed on respawn.
@@ -214,46 +215,46 @@ internal import CMUXDebugLog
     /// through ``TerminalSurfaceViewProviding``).
     public let paneHost: any TerminalSurfacePaneHosting
     let surfaceView: any TerminalSurfaceNativeViewing
-    @ObservationIgnored var lastPixelWidth: UInt32 = 0
-    @ObservationIgnored var lastPixelHeight: UInt32 = 0
-    @ObservationIgnored var lastUncappedPixelWidth: UInt32 = 0
-    @ObservationIgnored var lastUncappedPixelHeight: UInt32 = 0
-    @ObservationIgnored var lastXScale: CGFloat = 0
-    @ObservationIgnored var lastYScale: CGFloat = 0
-    @ObservationIgnored var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    var lastPixelWidth: UInt32 = 0
+    var lastPixelHeight: UInt32 = 0
+    var lastUncappedPixelWidth: UInt32 = 0
+    var lastUncappedPixelHeight: UInt32 = 0
+    var lastXScale: CGFloat = 0
+    var lastYScale: CGFloat = 0
+    var mobileViewportCellLimit: (columns: Int, rows: Int)?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.
     let debugMetadataLock = NSLock()
     let createdAt: Date = Date()
-    @ObservationIgnored var runtimeSurfaceCreatedAt: Date?
-    @ObservationIgnored var teardownRequestedAt: Date?
-    @ObservationIgnored var teardownRequestReason: String?
+    var runtimeSurfaceCreatedAt: Date?
+    var teardownRequestedAt: Date?
+    var teardownRequestReason: String?
     // Main-thread only. Public socket send entrypoints are MainActor-isolated
     // before reading `surface` or mutating this pending queue.
-    @ObservationIgnored var pendingSocketInputQueue: [PendingSocketInput] = []
-    @ObservationIgnored var pendingSocketInputBytes: Int = 0
+    var pendingSocketInputQueue: [PendingSocketInput] = []
+    var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
-    @ObservationIgnored var backgroundSurfaceStartQueued = false
-    @ObservationIgnored var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
-    @ObservationIgnored var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
-    @ObservationIgnored var restoredRuntimeSurfaceStartQueued = false
-    @ObservationIgnored var requiresRestoreSpawnPacing = false
-    @ObservationIgnored var runtimeSurfaceSuspendedForAgentHibernation = false
-    @ObservationIgnored var headlessStartupWindow: NSWindow?
-    @ObservationIgnored var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    @ObservationIgnored var claudeCommandShim: ClaudeCommandShim?
-    @ObservationIgnored var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
-    @ObservationIgnored var claudeCommandShimCompletionTask: Task<Void, Never>?
-    @ObservationIgnored var claudeCommandShimInstallCompleted = false
-    @ObservationIgnored var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
+    var backgroundSurfaceStartQueued = false
+    var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
+    var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
+    var restoredRuntimeSurfaceStartQueued = false
+    var requiresRestoreSpawnPacing = false
+    var runtimeSurfaceSuspendedForAgentHibernation = false
+    var headlessStartupWindow: NSWindow?
+    var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    var claudeCommandShim: ClaudeCommandShim?
+    var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
+    var claudeCommandShimCompletionTask: Task<Void, Never>?
+    var claudeCommandShimInstallCompleted = false
+    var claudeCommandShimPendingCreationSource: RuntimeSurfaceCreationSource?
     /// The retained byte-tee lease for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds; released alongside
     /// `surfaceCallbackContext` whenever we tear down or rebuild the
     /// surface. The Mac sync server reads the tee'd bytes to broadcast
     /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
-    @ObservationIgnored var mobileByteTeeLease: (any TerminalByteTeeLease)?
+    var mobileByteTeeLease: (any TerminalByteTeeLease)?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -263,35 +264,45 @@ internal import CMUXDebugLog
     /// Start unfocused and only opt into focus when the workspace/AppKit focus
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
-    @ObservationIgnored var desiredFocusState: Bool = false
+    var desiredFocusState: Bool = false
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG
-    @ObservationIgnored var needsConfirmCloseOverrideForTesting: Bool?
-    @ObservationIgnored var runtimeSurfaceFreedOutOfBandForTesting = false
-    @ObservationIgnored var runtimeSurfaceCreateAttemptCountForTesting = 0
+    var needsConfirmCloseOverrideForTesting: Bool?
+    var runtimeSurfaceFreedOutOfBandForTesting = false
+    var runtimeSurfaceCreateAttemptCountForTesting = 0
     // Same off-isolation-reader carve-out as debugMetadataLock.
     let debugForceRefreshCountLock = NSLock()
-    @ObservationIgnored var debugForceRefreshCountValue = 0
+    var debugForceRefreshCountValue = 0
     /// Test-only override for the native free used by teardown paths.
     @MainActor
     public static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
-    @ObservationIgnored var portalLifecycleState: PortalLifecycleState = .live
-    @ObservationIgnored var portalLifecycleGeneration: UInt64 = 1
-    @ObservationIgnored var activePortalHostLease: PortalHostLease?
+    var portalLifecycleState: PortalLifecycleState = .live
+    var portalLifecycleGeneration: UInt64 = 1
+    var activePortalHostLease: PortalHostLease?
+
+    /// The Observation-tracked view state (find session + copy mode) for this
+    /// surface. See `TerminalSurfaceViewState` for why tracked state lives in
+    /// a dedicated type while this class stays untracked.
+    public let viewState = TerminalSurfaceViewState()
 
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
     /// Main-actor isolated: the observer cancels pane focus requests on the
     /// hosted view (the legacy didSet always ran on the main thread).
+    /// Forwarded to `viewState` so observation registers on the facade's
+    /// tracked storage; the assignment side effects are preserved here.
     @MainActor
-    public var searchState: SearchState? = nil {
-	        didSet {
+    public var searchState: SearchState? {
+        get { viewState.searchState }
+        set {
+            let oldValue = viewState.searchState
+            viewState.searchState = newValue
             oldValue?.onNeedleChanged = nil
-	            if let searchState {
-	                paneHost.cancelFocusRequest()
+            if let searchState = newValue {
+                paneHost.cancelFocusRequest()
 #if DEBUG
                 logDebugEvent("find.searchState created tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
@@ -312,11 +323,14 @@ internal import CMUXDebugLog
     }
 
     /// Whether keyboard copy mode is active (mirrors the surface view).
-    public internal(set) var keyboardCopyModeActive: Bool = false
+    public internal(set) var keyboardCopyModeActive: Bool {
+        get { viewState.keyboardCopyModeActive }
+        set { viewState.keyboardCopyModeActive = newValue }
+    }
 
     /// The needle from the most recently closed find session.
     public private(set) var lastSearchNeedle = ""
-    @ObservationIgnored var searchNeedleTask: Task<Void, Never>?
+    var searchNeedleTask: Task<Void, Never>?
 
     /// The key-state indicator text currently shown for the surface view.
     @MainActor
