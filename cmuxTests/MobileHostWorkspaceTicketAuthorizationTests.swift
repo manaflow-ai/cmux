@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,7 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.serialized)
+@MainActor
 struct MobileHostWorkspaceTicketAuthorizationTests {
     @Test func testWorkspaceScopedTicketAuthorizesWorkspaceActionsOnlyForTicketWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace")

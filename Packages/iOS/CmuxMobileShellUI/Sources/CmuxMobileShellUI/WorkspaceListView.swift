@@ -499,20 +499,20 @@ struct WorkspaceListView: View {
     }
     #endif
 
-    /// Flat presentation: a pinned-first list with no group headers. Used when the
-    /// Mac has no groups (or lacks the capability) or while searching.
+    /// Flat presentation: pinned-first rows when groups are unavailable or while searching.
     @ViewBuilder
     private var flatRows: some View {
+        let enablesReorder = enablesWorkspaceReorder
         ForEach(displayedFlatWorkspaces) { workspace in
-            workspaceRow(workspace, indented: false)
+            workspaceRow(workspace, indented: false, enablesReorder: enablesReorder)
         }
         .onMove(perform: moveFlatRows)
     }
 
-    /// Grouped presentation: collapsible group headers with their members nested
-    /// underneath, mirroring the Mac sidebar. Order and contiguity follow the Mac.
+    /// Grouped presentation: collapsible Mac-ordered group headers and nested members.
     @ViewBuilder
     private var groupedRows: some View {
+        let enablesReorder = enablesWorkspaceReorder
         ForEach(displayedGroupedListItems, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
@@ -532,7 +532,7 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
-                .moveDisabled(!(enablesWorkspaceReorder && anchorCapabilities.supportsMoveActions))
+                .moveDisabled(!(enablesReorder && anchorCapabilities.supportsMoveActions))
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .groupFooter(let groupID):
@@ -541,14 +541,14 @@ struct WorkspaceListView: View {
                     .listRowInsets(EdgeInsets(top: 0, leading: 32, bottom: 0, trailing: 12))
                     .listRowSeparator(.hidden)
             case .workspace(let workspace, let indented):
-                workspaceRow(workspace, indented: indented)
+                workspaceRow(workspace, indented: indented, enablesReorder: enablesReorder)
             }
         }
         .onMove(perform: moveGroupedRows)
     }
 
     @ViewBuilder
-    private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
+    private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool, enablesReorder: Bool) -> some View {
         let capabilities = workspace.actionCapabilities
         WorkspaceNavigationRow(
             workspace: workspace,
@@ -570,9 +570,9 @@ struct WorkspaceListView: View {
                 confirmCloseWorkspace()
             } : nil
         )
-        .moveDisabled(!(enablesWorkspaceReorder && capabilities.supportsMoveActions))
+        .moveDisabled(!(enablesReorder && capabilities.supportsMoveActions))
         .accessibilityHint(
-            enablesWorkspaceReorder && capabilities.supportsMoveActions
+            enablesReorder && capabilities.supportsMoveActions
                 ? L10n.string(
                     "mobile.workspace.drag.a11y",
                     defaultValue: "Drag to reorder this workspace or move it between groups."
