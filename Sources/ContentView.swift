@@ -13376,19 +13376,49 @@ struct TabItemView: View, Equatable {
     }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
-        // Debug lab "graphite" prototype: neutral elevated selection instead
-        // of the accent color, so agent state dots stay the only hues on the
-        // card. The foreground helper below auto-contrasts on it. Dies with
-        // the variant lab once a final design ships.
+        // Debug lab "graphite" prototype v2: the selection is a dark tint of
+        // the workspace's own color (custom color when set, else the user's
+        // selection color), borderless. The foreground helper below
+        // auto-contrasts on it. Dies with the variant lab once a final design
+        // ships.
         if agentRowsVariantStore.variant == .graphite {
-            return colorScheme == .dark
-                ? NSColor(calibratedWhite: 0.24, alpha: 1.0)
-                : NSColor(calibratedWhite: 0.82, alpha: 1.0)
+            return graphiteSelectionFillNSColor
         }
         return sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex
         )
+    }
+
+    /// Graphite prototype: selected-card fill = the workspace's color pulled
+    /// far toward the sidebar base, so custom colors survive as a tint
+    /// instead of a saturated slab.
+    private var graphiteSelectionFillNSColor: NSColor {
+        let base: NSColor = workspaceSnapshot.customColorHex.flatMap {
+            WorkspaceTabColorSettings.displayNSColor(
+                hex: $0,
+                colorScheme: colorScheme,
+                forceBright: false
+            )
+        } ?? sidebarSelectedWorkspaceBackgroundNSColor(
+            for: colorScheme,
+            sidebarSelectionColorHex: sidebarSelectionColorHex
+        )
+        let srgbBase = base.usingColorSpace(.sRGB) ?? base
+        let dimBase = colorScheme == .dark
+            ? NSColor(calibratedWhite: 0.14, alpha: 1.0)
+            : NSColor(calibratedWhite: 0.92, alpha: 1.0)
+        return srgbBase.blended(withFraction: colorScheme == .dark ? 0.66 : 0.45, of: dimBase) ?? srgbBase
+    }
+
+    /// Graphite prototype: the ACTIVE agent row is an even darker shade of
+    /// the same selection hue.
+    private var graphiteActiveAgentRowNSColor: NSColor {
+        let fill = graphiteSelectionFillNSColor
+        let deep = colorScheme == .dark
+            ? NSColor.black
+            : NSColor(calibratedWhite: 0.5, alpha: 1.0)
+        return fill.blended(withFraction: 0.38, of: deep) ?? fill
     }
 
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -13448,7 +13478,7 @@ struct TabItemView: View, Equatable {
 
     private var activeBorderLineWidth: CGFloat {
         if agentRowsVariantStore.variant == .graphite {
-            return isActive ? 1 : 0
+            return 0
         }
         switch activeTabIndicatorStyle {
         case .leftRail:
@@ -13461,7 +13491,7 @@ struct TabItemView: View, Equatable {
     private var activeBorderColor: Color {
         guard isActive else { return .clear }
         if agentRowsVariantStore.variant == .graphite {
-            return Color.primary.opacity(0.18)
+            return .clear
         }
         switch activeTabIndicatorStyle {
         case .leftRail:
@@ -13834,6 +13864,7 @@ struct TabItemView: View, Equatable {
                         activePanelId: tab.focusedPanelId,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
+                        activeAgentRowColor: Color(nsColor: graphiteActiveAgentRowNSColor),
                         fontScale: fontScale,
                         onFocus: { updateSelection() },
                         onFocusPanel: { panelId in
@@ -14575,13 +14606,10 @@ struct TabItemView: View, Equatable {
     }
 
     private var backgroundColor: Color {
-        // Debug lab "graphite" prototype: the selected card fills with a
-        // neutral elevated graphite instead of the accent color. Dies with
-        // the variant lab once a final design ships.
+        // Debug lab "graphite" prototype v2: dark tint of the workspace's
+        // own color. Dies with the variant lab once a final design ships.
         if agentRowsVariantStore.variant == .graphite, isActive {
-            return Color(nsColor: colorScheme == .dark
-                ? NSColor(calibratedWhite: 0.24, alpha: 1.0)
-                : NSColor(calibratedWhite: 0.82, alpha: 1.0))
+            return Color(nsColor: graphiteSelectionFillNSColor)
         }
         let style = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,

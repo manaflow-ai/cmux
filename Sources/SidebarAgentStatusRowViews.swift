@@ -101,6 +101,7 @@ struct SidebarAgentStatusInCardRows: View {
     let activePanelId: UUID?
     let isActive: Bool
     let activeForegroundColor: Color
+    let activeAgentRowColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
     let onFocusPanel: (UUID) -> Void
@@ -115,6 +116,7 @@ struct SidebarAgentStatusInCardRows: View {
                 activePanelId: activePanelId,
                 isActive: isActive,
                 activeForegroundColor: activeForegroundColor,
+                activeAgentRowColor: activeAgentRowColor,
                 fontScale: fontScale,
                 onFocus: onFocus,
                 onFocusPanel: onFocusPanel
@@ -448,12 +450,11 @@ struct SidebarAgentStatusEntryRowView: View {
 /// `TabItemView` (graphite instead of the blue selection) while this variant
 /// is active.
 struct SidebarAgentStatusGraphiteRows: View {
-    static let accent = Color(red: 124 / 255, green: 140 / 255, blue: 248 / 255)
-
     let rows: [SidebarAgentStatusRow]
     let activePanelId: UUID?
     let isActive: Bool
     let activeForegroundColor: Color
+    let activeAgentRowColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
     let onFocusPanel: (UUID) -> Void
@@ -473,6 +474,7 @@ struct SidebarAgentStatusGraphiteRows: View {
                         isActiveAgent: isActive && row.panelId == activePanelId,
                         isActive: isActive,
                         activeForegroundColor: activeForegroundColor,
+                        activeAgentRowColor: activeAgentRowColor,
                         fontScale: fontScale,
                         onFocusPanel: onFocusPanel
                     )
@@ -525,6 +527,7 @@ private struct SidebarAgentGraphiteRow: View {
     let isActiveAgent: Bool
     let isActive: Bool
     let activeForegroundColor: Color
+    let activeAgentRowColor: Color
     let fontScale: CGFloat
     let onFocusPanel: (UUID) -> Void
 
@@ -568,14 +571,10 @@ private struct SidebarAgentGraphiteRow: View {
     @ViewBuilder
     private var rowBackground: some View {
         if isActiveAgent {
+            // "Even darker of the same color": the active agent sits in a
+            // deeper shade of the card's own selection tint.
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(SidebarAgentStatusGraphiteRows.accent.opacity(0.16))
-                .overlay(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(SidebarAgentStatusGraphiteRows.accent)
-                        .frame(width: 2.5)
-                        .padding(.vertical, 2)
-                }
+                .fill(activeAgentRowColor)
         } else {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(Color.primary.opacity(isHovering ? 0.07 : 0))
