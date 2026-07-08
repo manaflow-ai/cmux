@@ -95,7 +95,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
-    private static let workspaceDiffCapability = "workspace.diff.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -321,20 +320,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
-    /// Whether the Mac that owns `workspaceID` advertises native diff review
-    /// (`workspace.diff.v1`). Checked per workspace because the diff RPCs route
-    /// to the owning Mac (foreground or secondary), whose capability set can
-    /// differ from the foreground's.
-    public func supportsDiffReview(for workspaceID: MobileWorkspacePreview.ID) -> Bool {
-        let owner = workspaces.first(where: { $0.id == workspaceID })?.macDeviceID
-        if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
-            return supportedHostCapabilities.contains(Self.workspaceDiffCapability)
-        }
-        if let owner, let subscription = secondaryMacSubscriptions[owner] {
-            return subscription.supportedHostCapabilities.contains(Self.workspaceDiffCapability)
-        }
-        return false
-    }
     /// Bumped whenever the applied terminal theme actually changes (a connect
     /// that reports a different theme than the one currently in
     /// ``TerminalThemeStore``). The mounted terminal representable observes this

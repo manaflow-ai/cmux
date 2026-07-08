@@ -15,6 +15,28 @@ extension TerminalController {
     /// mobile-sized payload.
     nonisolated static let mobileWorkspaceDiffMaxFiles = 4000
 
+    nonisolated func v2MobileWorkspaceDiffWorkerResponse(method: String, id: Any?, params: [String: Any]) -> String? {
+        switch method {
+        case "mobile.workspace.diff_status":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2MobileWorkspaceDiffStatus(params: params) }
+        case "mobile.workspace.diff_file":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2MobileWorkspaceDiffFile(params: params) }
+        default:
+            return nil
+        }
+    }
+
+    func v2MobileWorkspaceDiffDataPlaneResult(method: String, params: [String: Any]) async -> V2CallResult? {
+        switch method {
+        case "mobile.workspace.diff_status":
+            return await v2MobileWorkspaceDiffStatus(params: params)
+        case "mobile.workspace.diff_file":
+            return await v2MobileWorkspaceDiffFile(params: params)
+        default:
+            return nil
+        }
+    }
+
     func v2MobileWorkspaceDiffStatus(params: [String: Any]) async -> V2CallResult {
         switch mobileWorkspaceDiffSnapshot(params: params) {
         case .failure(let error):

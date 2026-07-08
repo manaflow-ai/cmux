@@ -1384,16 +1384,10 @@ final class MobileHostService {
         if containsIgnoredAliasParameters(request.params) {
             return scopedTicketError
         }
-
+        if let error = diffTicketAuthorizationDecision(authorization: authorization, method: request.method, workspaceSelection: workspaceSelection.value) { return error }
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             return nil
-        case "mobile.workspace.diff_status", "mobile.workspace.diff_file":
-            // Source-content reads: a workspace-scoped ticket must not read
-            // another workspace's changed files or diffs, so these are
-            // constrained like workspace.action/workspace.close rather than
-            // exempted like the metadata-only workspace list.
-            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.create":
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
@@ -1461,7 +1455,7 @@ final class MobileHostService {
         return nil
     }
 
-    private static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
+    static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
         if let workspaceSelection, authorization.createdWorkspaceIDs.contains(workspaceSelection) { return nil }
         let ticket = authorization.ticket
         let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)

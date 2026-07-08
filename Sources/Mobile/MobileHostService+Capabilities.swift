@@ -39,4 +39,13 @@ extension MobileHostService {
             "workspace.groups.v1",
         ]
     }
+
+    static func diffTicketAuthorizationDecision(
+        authorization: MobileAttachTicketAuthorization,
+        method: String,
+        workspaceSelection: String?
+    ) -> MobileHostRPCError?? {
+        guard method == "mobile.workspace.diff_status" || method == "mobile.workspace.diff_file" else { return nil }
+        return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection)
+    }
 }

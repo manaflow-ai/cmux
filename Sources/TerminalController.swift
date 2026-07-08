@@ -1241,8 +1241,8 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
+        if let response = v2MobileWorkspaceDiffWorkerResponse(method: request.method, id: request.id, params: request.params) { return response }
         switch request.method {
         case "auth.status":
             let semaphore = DispatchSemaphore(value: 0)
@@ -1347,17 +1347,6 @@ class TerminalController {
         case "mobile.attach_ticket.create":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
-            }
-        case "mobile.workspace.diff_status":
-            // Worker lane: the body hops to main only for workspace resolution
-            // and runs its git subprocesses in a detached utility task, so the
-            // socket worker (not the main actor) waits out git runtime.
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2MobileWorkspaceDiffStatus(params: request.params)
-            }
-        case "mobile.workspace.diff_file":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2MobileWorkspaceDiffFile(params: request.params)
             }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
@@ -14003,7 +13992,6 @@ class TerminalController {
     }
 
     // MARK: - Mobile Host V2 Methods
-
     @MainActor
     func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
@@ -14015,6 +14003,7 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        if let result = await v2MobileWorkspaceDiffDataPlaneResult(method: request.method, params: request.params) { return mobileHostResult(result) }
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -14023,10 +14012,6 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
-        case "mobile.workspace.diff_status":
-            result = await v2MobileWorkspaceDiffStatus(params: request.params)
-        case "mobile.workspace.diff_file":
-            result = await v2MobileWorkspaceDiffFile(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":

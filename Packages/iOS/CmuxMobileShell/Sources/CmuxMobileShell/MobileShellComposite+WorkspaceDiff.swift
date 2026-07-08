@@ -3,6 +3,23 @@ public import CmuxMobileShellModel
 internal import Foundation
 
 extension MobileShellComposite {
+    private static let workspaceDiffCapability = "workspace.diff.v1"
+
+    /// Whether the Mac that owns `workspaceID` advertises native diff review
+    /// (`workspace.diff.v1`). Checked per workspace because the diff RPCs route
+    /// to the owning Mac (foreground or secondary), whose capability set can
+    /// differ from the foreground's.
+    public func supportsDiffReview(for workspaceID: MobileWorkspacePreview.ID) -> Bool {
+        let owner = workspaces.first(where: { $0.id == workspaceID })?.macDeviceID
+        if owner == nil || owner == foregroundMacDeviceID || owner == Self.foregroundAnonymousKey {
+            return supportedHostCapabilities.contains(Self.workspaceDiffCapability)
+        }
+        if let owner, let subscription = secondaryMacSubscriptions[owner] {
+            return subscription.supportedHostCapabilities.contains(Self.workspaceDiffCapability)
+        }
+        return false
+    }
+
     /// Fetches changed files for a workspace's current git repository.
     ///
     /// - Parameter workspaceID: The workspace to review.
