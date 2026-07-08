@@ -500,7 +500,13 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         block = workflow_job_block(job_name)
         assert "      - changes" in block
         assert "      - linux-preflight" in block
-        assert "if: ${{ needs.changes.outputs.macos == 'true' }}" in block
+        # The explicit direct-needs gate replaces the implicit success() so
+        # routed linux jobs that legitimately skip upstream of linux-preflight
+        # cannot transitively skip the staged macOS jobs.
+        assert "!cancelled()" in block
+        assert "needs.changes.result == 'success'" in block
+        assert "needs.linux-preflight.result == 'success'" in block
+        assert "needs.changes.outputs.macos == 'true'" in block
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
