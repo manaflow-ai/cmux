@@ -51,7 +51,8 @@ extension NSWindow {
         browserWebKitKeyDownReentry: Bool
     ) -> Bool {
         guard event.cmuxIsUndoRedoCommandEquivalent,
-              !cmuxFirstResponderPreservesLocalUndoRedo else {
+              !cmuxFirstResponderPreservesLocalUndoRedo,
+              !cmuxIsLikelyWebInspectorResponder(firstResponder) else {
             return false
         }
         if let terminalView {
