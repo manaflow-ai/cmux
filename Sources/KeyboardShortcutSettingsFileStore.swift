@@ -715,25 +715,7 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
-
-        if let raw = jsonString(section["loadingSpinnerPosition"]) {
-            let key = SidebarCatalogSection().loadingSpinnerPosition
-            if let value = SidebarIndicatorPosition.decodeFromJSON(raw) {
-                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
-            } else {
-                logInvalid("sidebar.loadingSpinnerPosition", sourcePath: sourcePath)
-            }
-        }
-
-        if let raw = jsonString(section["notificationBadgePosition"]) {
-            let key = SidebarCatalogSection().notificationBadgePosition
-            if let value = SidebarIndicatorPosition.decodeFromJSON(raw) {
-                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
-            } else {
-                logInvalid("sidebar.notificationBadgePosition", sourcePath: sourcePath)
-            }
-        }
-
+        parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
@@ -1801,11 +1783,11 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func logInvalid(_ path: String, sourcePath: String) {
+    func logInvalid(_ path: String, sourcePath: String) {
         cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
     }
 
-    private func jsonString(_ rawValue: Any?) -> String? {
+    func jsonString(_ rawValue: Any?) -> String? {
         rawValue as? String
     }
 
@@ -1844,7 +1826,7 @@ final class CmuxSettingsFileStore {
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
-private struct ResolvedSettingsSnapshot {
+struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a

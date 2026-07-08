@@ -3,7 +3,6 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -107,38 +106,6 @@ import Testing
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    @Test func contextMenuAgentActivityChangeUpdatesDisplayedSpinnerImmediately() {
-        let current = Self.snapshot(
-            latestConversationMessage: "old message",
-            activeCodingAgentCount: 0
-        )
-        let next = Self.snapshot(
-            latestConversationMessage: "new message",
-            activeCodingAgentCount: 1
-        )
-
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: current,
-            next: next,
-            force: false,
-            contextMenuVisible: true
-        )
-
-        #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 1)
-        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
-        #expect(decision.pendingWorkspaceSnapshot == next)
-        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
-    }
-
-    @Test func presentationKeyChangesWhenAgentActivityVisibilityChanges() {
-        let hidden = Self.presentationKey(showsAgentActivity: false)
-        let visible = Self.presentationKey(showsAgentActivity: true)
-
-        #expect(hidden != visible)
-        #expect(!hidden.showsAgentActivity)
-        #expect(visible.showsAgentActivity)
-    }
-
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -155,7 +122,7 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    private static func snapshot(
+    static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
@@ -197,7 +164,7 @@ import Testing
         )
     }
 
-    private static func presentationKey(
+    static func presentationKey(
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,

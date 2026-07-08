@@ -3499,7 +3499,6 @@ struct CMUXCLI {
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
         }
-
         if command == "events" {
             try runEventsCommand(
                 commandArgs: commandArgs,
@@ -3527,11 +3526,7 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
-        try validateWorkspaceLoadingCommandBeforeSocket(
-            command: command,
-            commandArgs: commandArgs
-        )
-
+        try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -6360,7 +6355,7 @@ struct CMUXCLI {
         }
         throw CLIError(message: "Surface index not found")
     }
-    private static func callerWorkspaceForSurfaceHandle(_ raw: String?, windowRaw: String?) -> String? {
+    static func callerWorkspaceForSurfaceHandle(_ raw: String?, windowRaw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return windowRaw == nil && (trimmed.isEmpty || Int(trimmed) != nil) ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
     }
@@ -6737,17 +6732,6 @@ struct CMUXCLI {
     private static let surfaceResumeClearValueOptions: Set<String> = surfaceResumeTargetValueOptions.union([
         "--checkpoint", "--checkpoint-id", "--source",
     ])
-
-    private func validateWorkspaceLoadingCommandBeforeSocket(
-        command: String,
-        commandArgs: [String]
-    ) throws {
-        guard command == "workspace",
-              commandArgs.first?.lowercased() == "loading" else {
-            return
-        }
-        _ = try parseWorkspaceLoadingArguments(Array(commandArgs.dropFirst()))
-    }
 
     private func validateSurfaceResumeValueOptions(
         _ args: [String],
@@ -8217,12 +8201,7 @@ struct CMUXCLI {
                 windowOverride: windowOverride
             )
         case "loading":
-            try runWorkspaceLoading(
-                commandArgs: rest,
-                client: client,
-                windowId: windowOverride,
-                jsonOutput: jsonOutput
-            )
+            try runWorkspaceLoading(commandArgs: rest, client: client, windowId: windowOverride, jsonOutput: jsonOutput)
         default:
             throw CLIError(message: String(
                 format: String(
@@ -15903,16 +15882,11 @@ struct CMUXCLI {
                                       whose automatic reconnect paused because the host
                                       was unreachable
               disconnect [workspace]  Stop a remote (SSH) workspace's connection
-              loading <on|off> [--id <name>]
-                                      Toggle the workspace's loading spinner. Each --id
-                                      is a separate loader that stacks; omit for one
-                                      default loader.
+              loading <on|off> [--id <name>] Toggle the workspace loading spinner.
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
-
             env/reconnect/disconnect accept a positional handle or --workspace
             <id|ref|index>, defaulting to the caller's workspace, then the
             selected one (of --window's window when given).
-
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
@@ -15920,9 +15894,6 @@ struct CMUXCLI {
               cmux workspace close workspace:3
               cmux workspace reconnect
               cmux workspace disconnect --workspace workspace:3
-              cmux workspace loading on
-              cmux workspace loading on --id build
-              cmux workspace loading off
             """)
         case "layout":
             return Self.layoutHelpText()
@@ -25124,78 +25095,6 @@ struct CMUXCLI {
                 fallback["message"] = response
             }
             print(jsonString(fallback))
-        } else {
-            print(response)
-        }
-    }
-
-    /// `cmux workspace loading <on|off> [--id <name>]` — toggle a workspace's
-    /// loading spinner via the reserved `manual` lifecycle namespace.
-    private func runWorkspaceLoading(
-        commandArgs: [String],
-        client: SocketClient,
-        windowId: String?,
-        jsonOutput: Bool
-    ) throws {
-        let parsed = try parseWorkspaceLoadingArguments(commandArgs)
-        let usage = workspaceLoadingUsage()
-
-        // The id lands in a whitespace-tokenized v1 line, so restrict its charset.
-        let manual = AgentHibernationLifecycleStatusKeys.manualKey
-        let key: String
-        if let rawId = parsed.id?.trimmingCharacters(in: .whitespacesAndNewlines) {
-            guard !rawId.isEmpty else {
-                throw CLIError(message: usage)
-            }
-            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-            guard rawId.unicodeScalars.allSatisfy(allowed.contains) else {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.error.workspaceLoadingInvalidId",
-                        defaultValue: "Invalid --id '%@'. Use letters, digits, '.', '_', or '-' (no spaces)."
-                    ),
-                    locale: .current,
-                    rawId
-                ))
-            }
-            key = "\(manual):\(rawId)"
-        } else {
-            key = manual
-        }
-
-        // Workspace-scoped: `off` clears the loader from every panel.
-        let windowRaw = parsed.window ?? windowId
-        let workspaceArg = parsed.workspace ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
-        let winId = try normalizeWindowHandle(windowRaw, client: client)
-        let wsId = try resolveWorkspaceId(
-            workspaceArg,
-            client: client,
-            windowHandle: winId
-        )
-
-        let response = try sendV1Command(
-            "workspace_loading \(key) \(parsed.turnOn ? "on" : "off") --tab=\(wsId)",
-            client: client
-        )
-
-        if jsonOutput {
-            var before = false
-            var after = false
-            for part in response.split(separator: ";") {
-                let kv = part.split(separator: "=", maxSplits: 1)
-                guard kv.count == 2 else { continue }
-                let isOn = kv[1].trimmingCharacters(in: .whitespaces).uppercased() == "ON"
-                if kv[0] == "before" { before = isOn }
-                if kv[0] == "after" { after = isOn }
-            }
-            print(jsonString([
-                "ok": true,
-                "id": parsed.id ?? "",
-                "workspace_id": wsId,
-                "before": before,
-                "after": after,
-                "loading": after,
-            ]))
         } else {
             print(response)
         }

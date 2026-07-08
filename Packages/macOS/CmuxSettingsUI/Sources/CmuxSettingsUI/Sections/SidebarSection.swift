@@ -1,18 +1,11 @@
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-
-/// **Sidebar** section — mirrors the legacy in-app section
-/// row-for-row. Single card containing match-terminal-background
-/// followed by every workspace-row detail toggle. Rows that depend
-/// on a parent toggle (`hideAllDetails`, PR visibility, PR
-/// clickability) are disabled accordingly.
 @MainActor
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
-
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
@@ -34,13 +27,12 @@ public struct SidebarSection: View {
     @State private var showPorts: DefaultsValueModel<Bool>
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
-    @State private var showAgentActivity: DefaultsValueModel<Bool>
-    @State private var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
-    @State private var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
+    @State var showAgentActivity: DefaultsValueModel<Bool>
+    @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
+    @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
-
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -70,7 +62,7 @@ public struct SidebarSection: View {
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
-
+    /// The rendered sidebar settings section.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
@@ -478,55 +470,7 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
-            SettingsCardRow(
-                configurationReview: .json("sidebar.showAgentActivity"),
-                String(localized: "settings.app.showAgentActivity", defaultValue: "Show Loading Spinner"),
-                subtitle: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Show a loading spinner on workspaces with running coding agents or active loaders. Stays visible even when sidebar details are hidden.")
-            ) {
-                Toggle("", isOn: Binding(get: { showAgentActivity.current }, set: { showAgentActivity.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .json("sidebar.loadingSpinnerPosition"),
-                String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"),
-                subtitle: String(localized: "settings.app.loadingSpinnerPosition.subtitle", defaultValue: "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row.")
-            ) {
-                Picker("", selection: Binding(
-                    get: { loadingSpinnerPosition.current },
-                    set: { loadingSpinnerPosition.set($0) }
-                )) {
-                    ForEach(SidebarIndicatorPosition.allCases, id: \.self) { position in
-                        Text(positionLabel(position)).tag(position)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .fixedSize()
-                .disabled(!showAgentActivity.current)
-            }
-            SettingsCardDivider()
-
-            SettingsCardRow(
-                configurationReview: .json("sidebar.notificationBadgePosition"),
-                String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"),
-                subtitle: String(localized: "settings.app.notificationBadgePosition.subtitle", defaultValue: "Show the unread notification badge on the left or the right of the workspace row.")
-            ) {
-                Picker("", selection: Binding(
-                    get: { notificationBadgePosition.current },
-                    set: { notificationBadgePosition.set($0) }
-                )) {
-                    ForEach(SidebarIndicatorPosition.allCases, id: \.self) { position in
-                        Text(positionLabel(position)).tag(position)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-            SettingsCardDivider()
+            agentActivityRows
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.showCustomMetadata"),
@@ -538,15 +482,6 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
-        }
-    }
-
-    private func positionLabel(_ position: SidebarIndicatorPosition) -> String {
-        switch position {
-        case .leading:
-            return String(localized: "settings.app.loadingSpinnerPosition.left", defaultValue: "Left")
-        case .trailing:
-            return String(localized: "settings.app.loadingSpinnerPosition.right", defaultValue: "Right")
         }
     }
 

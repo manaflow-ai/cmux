@@ -8,6 +8,17 @@ struct WorkspaceLoadingArguments {
 }
 
 extension CMUXCLI {
+    func validateWorkspaceLoadingCommandBeforeSocket(
+        command: String,
+        commandArgs: [String]
+    ) throws {
+        guard command == "workspace",
+              commandArgs.first?.lowercased() == "loading" else {
+            return
+        }
+        _ = try parseWorkspaceLoadingArguments(Array(commandArgs.dropFirst()))
+    }
+
     func workspaceLoadingUsage() -> String {
         String(
             localized: "cli.workspaceLoading.usage",
@@ -116,5 +127,75 @@ extension CMUXCLI {
             workspace: wsArg,
             window: winArg
         )
+    }
+
+    /// `cmux workspace loading <on|off> [--id <name>]` toggles the workspace's
+    /// loading spinner via the reserved `manual` lifecycle namespace.
+    func runWorkspaceLoading(
+        commandArgs: [String],
+        client: SocketClient,
+        windowId: String?,
+        jsonOutput: Bool
+    ) throws {
+        let parsed = try parseWorkspaceLoadingArguments(commandArgs)
+        let usage = workspaceLoadingUsage()
+
+        let manual = AgentHibernationLifecycleStatusKeys.manualKey
+        let key: String
+        if let rawId = parsed.id?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            guard !rawId.isEmpty else {
+                throw CLIError(message: usage)
+            }
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+            guard rawId.unicodeScalars.allSatisfy(allowed.contains) else {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.error.workspaceLoadingInvalidId",
+                        defaultValue: "Invalid --id '%@'. Use letters, digits, '.', '_', or '-' (no spaces)."
+                    ),
+                    locale: .current,
+                    rawId
+                ))
+            }
+            key = "\(manual):\(rawId)"
+        } else {
+            key = manual
+        }
+
+        let windowRaw = parsed.window ?? windowId
+        let workspaceArg = parsed.workspace ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        let wsId = try resolveWorkspaceId(
+            workspaceArg,
+            client: client,
+            windowHandle: winId
+        )
+
+        let response = try sendV1Command(
+            "workspace_loading \(key) \(parsed.turnOn ? "on" : "off") --tab=\(wsId)",
+            client: client
+        )
+
+        if jsonOutput {
+            var before = false
+            var after = false
+            for part in response.split(separator: ";") {
+                let kv = part.split(separator: "=", maxSplits: 1)
+                guard kv.count == 2 else { continue }
+                let isOn = kv[1].trimmingCharacters(in: .whitespaces).uppercased() == "ON"
+                if kv[0] == "before" { before = isOn }
+                if kv[0] == "after" { after = isOn }
+            }
+            print(jsonString([
+                "ok": true,
+                "id": parsed.id ?? "",
+                "workspace_id": wsId,
+                "before": before,
+                "after": after,
+                "loading": after,
+            ]))
+        } else {
+            print(response)
+        }
     }
 }
