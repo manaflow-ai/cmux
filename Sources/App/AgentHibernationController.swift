@@ -316,7 +316,7 @@ final class AgentHibernationController {
     /// main actor only if the pane still qualifies. The snapshot MUST complete before
     /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
     /// so the teardown is sequenced after it rather than racing it; the re-validation
-    /// below covers anything that changed during the brief I/O hop.
+    /// below covers disable/stop and anything else that changed during the brief I/O hop.
     private func beginConfirmedTeardown(
         record: AgentHibernationRecord,
         confirmationFingerprint: String,
@@ -328,9 +328,10 @@ final class AgentHibernationController {
                 AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
             }.value
             // Re-validate: the pane must still be exactly as confirmed. Any activity,
-            // scrollback change, hibernation, or surface loss during the hop aborts;
-            // the regular 30s tick will re-arm a fresh confirmation if still idle.
-            guard !record.terminalPanel.isAgentHibernated,
+            // scrollback change, hibernation disable, hibernation, or surface loss
+            // during the hop aborts; the regular 30s tick will re-arm if still idle.
+            guard AgentHibernationTrackingGate.isEnabled(),
+                  !record.terminalPanel.isAgentHibernated,
                   record.terminalPanel.surface.hasLiveSurface,
                   let currentFingerprint = self.hibernationFingerprint(for: record),
                   currentFingerprint == confirmationFingerprint,

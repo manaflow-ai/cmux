@@ -15,9 +15,8 @@ enum AgentHibernationTranscriptGuard {
         processIDs: Set<Int>,
         fileManager: FileManager = .default
     ) async {
-        // The clobber, if any, lands during Claude's exit path. Wait briefly for
-        // the signaled processes to disappear, then run an immediate restore pass.
         if !processIDs.isEmpty {
+            // Bound the wait for signaled processes to disappear before checking.
             let deadline = ContinuousClock.now.advanced(by: .seconds(30))
             while ContinuousClock.now < deadline {
                 let anyAlive = processIDs.contains { pid in
@@ -26,9 +25,13 @@ enum AgentHibernationTranscriptGuard {
                 if !anyAlive { break }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            if restoreIfClobbered(snapshot, fileManager: fileManager) { return }
         }
+
+        // The exit-path rewrite lands within seconds of SIGTERM/pty-close; check
+        // immediately after a short settle so a quick user resume cannot beat the
+        // restore, then fall through to the escalating backstop.
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        if restoreIfClobbered(snapshot, fileManager: fileManager) { return }
 
         // Backstop for SIGHUP-only teardowns with no tracked pid, and for
         // stragglers past the bounded process-exit window.
