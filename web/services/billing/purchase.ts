@@ -27,6 +27,14 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 
 type BillingDb = ReturnType<typeof cloudDb>;
 
+type StripeSubscriptionValuesInput = {
+  subscription: Stripe.Subscription;
+  customerId: string;
+  stackUserId: string;
+  stackTeamId?: string | null;
+  scope: "user" | "team";
+};
+
 type StackBillingUser = {
   readonly id: string;
   readonly primaryEmail?: string | null;
@@ -455,22 +463,17 @@ async function upsertTeamStripeCustomer(
 
 async function upsertStripeSubscription(
   db: BillingDb,
-  input: {
-    subscription: Stripe.Subscription;
-    customerId: string;
-    stackUserId: string;
-    stackTeamId?: string | null;
-    scope: "user" | "team";
-  },
+  input: StripeSubscriptionValuesInput,
 ): Promise<void> {
   const values = stripeSubscriptionValues(input);
+  const updateValues = mutableStripeSubscriptionValues(input);
   await db
     .insert(stripeSubscriptions)
     .values(values)
     .onConflictDoUpdate({
       target: stripeSubscriptions.id,
       set: {
-        ...values,
+        ...updateValues,
         updatedAt: sql`now()`,
       },
     });
@@ -484,14 +487,14 @@ async function updateExistingUserStripeSubscription(
     stackUserId: string;
   },
 ): Promise<void> {
-  const values = stripeSubscriptionValues({
+  const updateValues = mutableStripeSubscriptionValues({
     ...input,
     scope: "user",
   });
   await db
     .update(stripeSubscriptions)
     .set({
-      ...values,
+      ...updateValues,
       updatedAt: sql`now()`,
     })
     .where(
@@ -504,13 +507,7 @@ async function updateExistingUserStripeSubscription(
     );
 }
 
-function stripeSubscriptionValues(input: {
-  subscription: Stripe.Subscription;
-  customerId: string;
-  stackUserId: string;
-  stackTeamId?: string | null;
-  scope: "user" | "team";
-}) {
+function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;
   const plan = input.scope === "team" ? TEAM_PLAN_ID : PRO_PLAN_ID;
   return {
@@ -526,6 +523,23 @@ function stripeSubscriptionValues(input: {
     currentPeriodEnd: subscriptionCurrentPeriodEnd(subscription),
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
     raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
+  };
+}
+
+function mutableStripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
+  const values = stripeSubscriptionValues(input);
+  return {
+    customerId: values.customerId,
+    stackUserId: values.stackUserId,
+    stackTeamId: values.stackTeamId,
+    status: values.status,
+    priceId: values.priceId,
+    plan: values.plan,
+    seats: values.seats,
+    scope: values.scope,
+    currentPeriodEnd: values.currentPeriodEnd,
+    cancelAtPeriodEnd: values.cancelAtPeriodEnd,
+    raw: values.raw,
   };
 }
 

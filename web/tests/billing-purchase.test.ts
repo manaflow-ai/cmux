@@ -15,6 +15,7 @@ const { applySubscriptionUpdate, recordCheckoutCompletion } = await import(
 
 const inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+const upsertUpdates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
 
@@ -24,7 +25,8 @@ function fakeDb() {
       values: (values: Record<string, unknown>) => {
         inserts.push({ table, values });
         return {
-          onConflictDoUpdate: () => {
+          onConflictDoUpdate: (options?: { set?: Record<string, unknown> }) => {
+            upsertUpdates.push({ table, values: options?.set ?? {} });
             const error = insertErrorsByTable.get(table);
             if (error) return Promise.reject(error);
             return Promise.resolve();
@@ -126,6 +128,7 @@ describe("recordCheckoutCompletion", () => {
   beforeEach(() => {
     inserts.length = 0;
     updates.length = 0;
+    upsertUpdates.length = 0;
     insertErrorsByTable.clear();
     selectResults = [];
   });
@@ -492,6 +495,9 @@ describe("recordCheckoutCompletion", () => {
 
     expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
+    expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
+      "id",
+    );
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
   });
 
@@ -606,6 +612,9 @@ describe("recordCheckoutCompletion", () => {
           insert.values.stackUserId === "user_123",
       ),
     ).toBe(true);
+    expect(
+      upsertUpdates.find((entry) => entry.table === stripeSubscriptions)?.values,
+    ).not.toHaveProperty("id");
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
