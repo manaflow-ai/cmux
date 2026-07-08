@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
-import { requestIsExternallySecure } from "../../lib/request-scheme";
 import { stackServerApp } from "../../lib/stack";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +9,7 @@ type SignOutAndSignInDependencies = {
   signOut: ((options: { redirectUrl: string }) => Promise<void>) | null;
 };
 
-const STACK_ACCESS_COOKIE_NAMES = ["hexclave-access", "stack-access"] as const;
+const STACK_ACCESS_COOKIE = "stack-access";
 const LEGACY_STACK_REFRESH_COOKIE = "stack-refresh";
 const STACK_CUSTOM_REFRESH_COOKIE_MARKER = "--custom-";
 const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -43,24 +42,21 @@ function canStartSignOut(request: NextRequest): boolean {
 }
 
 function isStackAuthCookie(name: string, projectId: string): boolean {
-  const refreshNames = [
-    `hexclave-refresh-${projectId}`,
-    `stack-refresh-${projectId}`,
-    LEGACY_STACK_REFRESH_COOKIE,
-  ];
+  const refreshName = `stack-refresh-${projectId}`;
   return (
-    STACK_ACCESS_COOKIE_NAMES.some((cookieName) => matchesStackCookieName(name, cookieName)) ||
-    refreshNames.some((cookieName) => matchesStackCookieName(name, cookieName))
+    name === STACK_ACCESS_COOKIE ||
+    name === `__Host-${STACK_ACCESS_COOKIE}` ||
+    name === `__Secure-${STACK_ACCESS_COOKIE}` ||
+    name === LEGACY_STACK_REFRESH_COOKIE ||
+    name === `__Host-${LEGACY_STACK_REFRESH_COOKIE}` ||
+    name === `__Secure-${LEGACY_STACK_REFRESH_COOKIE}` ||
+    name === refreshName ||
+    name === `__Host-${refreshName}` ||
+    name === `__Secure-${refreshName}` ||
+    name.startsWith(`${refreshName}--`) ||
+    name.startsWith(`__Host-${refreshName}--`) ||
+    name.startsWith(`__Secure-${refreshName}--`)
   );
-}
-
-function matchesStackCookieName(name: string, cookieName: string): boolean {
-  for (const prefix of ["__Host-", "__Secure-", ""]) {
-    if (name === `${prefix}${cookieName}` || name.startsWith(`${prefix}${cookieName}--`)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function decodeStackBase32Text(value: string): string | null {
@@ -83,22 +79,14 @@ function decodeStackBase32Text(value: string): string | null {
 }
 
 function stackCustomRefreshCookieDomain(name: string, projectId: string): string | null {
-  const cookieName = unprefixedCookieName(name);
-  for (const refreshName of [`hexclave-refresh-${projectId}`, `stack-refresh-${projectId}`]) {
-    const prefix = `${refreshName}${STACK_CUSTOM_REFRESH_COOKIE_MARKER}`;
-    if (cookieName.startsWith(prefix)) return decodeStackBase32Text(cookieName.slice(prefix.length));
-  }
-  return null;
-}
-
-function unprefixedCookieName(name: string): string {
-  if (name.startsWith("__Host-")) return name.slice("__Host-".length);
-  if (name.startsWith("__Secure-")) return name.slice("__Secure-".length);
-  return name;
+  const cookieName = name.startsWith("__Secure-") ? name.slice("__Secure-".length) : name;
+  const prefix = `stack-refresh-${projectId}${STACK_CUSTOM_REFRESH_COOKIE_MARKER}`;
+  if (!cookieName.startsWith(prefix)) return null;
+  return decodeStackBase32Text(cookieName.slice(prefix.length));
 }
 
 function clearStackAuthCookies(response: NextResponse, request: NextRequest, projectId: string) {
-  const secure = requestIsExternallySecure(request);
+  const secure = request.nextUrl.protocol === "https:";
   for (const cookie of request.cookies.getAll()) {
     if (!isStackAuthCookie(cookie.name, projectId)) continue;
     const domain = stackCustomRefreshCookieDomain(cookie.name, projectId);
