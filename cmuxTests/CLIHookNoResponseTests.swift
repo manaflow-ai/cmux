@@ -296,7 +296,7 @@ struct CLIHookNoResponseTests {
                 NSLocalizedDescriptionKey: "socket path too long: \(path)",
             ])
         }
-        _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+        withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
                     buffer[index] = CChar(bitPattern: utf8[index])

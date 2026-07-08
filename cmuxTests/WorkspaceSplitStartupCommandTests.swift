@@ -98,10 +98,10 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             split: expectedDividerPosition,
             children: [
                 .pane(CmuxPaneDefinition(surfaces: [
-                    CmuxSurfaceDefinition(type: CmuxSurfaceType.terminal, name: "Left")
+                    CmuxSurfaceDefinition(type: .terminal, name: "Left")
                 ])),
                 .pane(CmuxPaneDefinition(surfaces: [
-                    CmuxSurfaceDefinition(type: CmuxSurfaceType.terminal, name: "Right")
+                    CmuxSurfaceDefinition(type: .terminal, name: "Right")
                 ]))
             ]
         ))

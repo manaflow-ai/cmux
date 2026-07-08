@@ -6339,15 +6339,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
 #if DEBUG
-        let shouldStartWithHiddenSidebarForTerminalViewportUITest =
-            ProcessInfo.processInfo.environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
+        let initialSidebarIsVisible = ProcessInfo.processInfo.environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
+            ? false
+            : (sessionWindowSnapshot?.sidebar.isVisible ?? true)
 #else
-        let shouldStartWithHiddenSidebarForTerminalViewportUITest = false
+        let initialSidebarIsVisible = sessionWindowSnapshot?.sidebar.isVisible ?? true
 #endif
         let sidebarState = SidebarState(
-            isVisible: shouldStartWithHiddenSidebarForTerminalViewportUITest
-                ? false
-                : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
+            isVisible: initialSidebarIsVisible,
             persistedWidth: CGFloat(sidebarWidth)
         )
         let sidebarSelectionState = SidebarSelectionState(

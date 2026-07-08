@@ -2492,7 +2492,7 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
 
 @MainActor
 final class BrowserSessionHistoryRestoreTests: XCTestCase {
-    private final class ProvisionalNavigationRaceServer {
+    private final class ProvisionalNavigationRaceServer: @unchecked Sendable {
         enum ServerError: Error {
             case listenerDidNotBecomeReady
             case listenerPortUnavailable
@@ -2982,7 +2982,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     private final class WKTransferWrapperView: NSView {
     }
 
-    final class FakeInspector: NSObject {
+    final class FakeInspector: NSObject, @unchecked Sendable {
         enum HideBehavior {
             case unsupported
             case noEffect
