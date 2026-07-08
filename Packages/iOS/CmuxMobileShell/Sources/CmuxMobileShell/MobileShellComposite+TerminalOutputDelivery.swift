@@ -188,6 +188,20 @@ extension MobileShellComposite {
         )
     }
 
+    /// Whether delivering this frame establishes the render-grid baseline the
+    /// baseline-wait gate is holding out for. Mirrors the authoritative
+    /// delivery path's inline computation; the replay success path uses it to
+    /// resolve the `.baselineWait` stall gate. Read BEFORE
+    /// ``recordTerminalRenderGridDelivery(_:)`` mutates the alternate-baseline set.
+    func renderGridEstablishesBaseline(_ renderGrid: MobileTerminalRenderGridFrame) -> Bool {
+        renderGrid.full
+            || (
+                renderGrid.activeScreen == .primary
+                    && !terminalAlternateRenderGridBaselineSurfaceIDs.contains(renderGrid.surfaceID)
+                    && renderGrid.isReplaceableViewportPatchForMobileDelivery
+            )
+    }
+
     /// Whether a surface currently has an attached output stream consumer.
     func hasTerminalOutputSink(surfaceID: String) -> Bool {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil

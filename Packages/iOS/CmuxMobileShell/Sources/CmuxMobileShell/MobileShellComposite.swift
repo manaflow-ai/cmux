@@ -6952,6 +6952,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                         }
                     }
+                    let establishedRenderGridBaseline = self.renderGridEstablishesBaseline(renderGrid)
                     self.recordTerminalRenderGridDelivery(renderGrid)
                     self.rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
                     // A delivered grid is progress even if the payload omitted
@@ -6963,6 +6964,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         fullReplacement: renderGrid.full
                     )
                     self.terminalSyncDiagnostics.replayAcked(surface: Self.diagnosticSurfaceHandle(surfaceID))
+                    if establishedRenderGridBaseline {
+                        self.terminalSyncDiagnostics.gateResolved(
+                            surface: Self.diagnosticSurfaceHandle(surfaceID),
+                            gate: .baselineWait,
+                            how: .replayAck,
+                            transport: self.terminalOutputTransport.debugName
+                        )
+                    }
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {

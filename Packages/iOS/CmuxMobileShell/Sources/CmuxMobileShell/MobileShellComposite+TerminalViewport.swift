@@ -196,11 +196,9 @@ extension MobileShellComposite {
                 // bumped the generation yet. The pre-ACK barrier must survive
                 // for the superseding report to carry; finishing here would
                 // clear it (or replay early) before the newest report owns
-                // recovery.
-                terminalSyncDiagnostics.viewportBarrierOutcome(
-                    .cancelledSuperseded,
-                    surface: Self.diagnosticSurfaceHandle(surfaceID)
-                )
+                // recovery. The scheduler's onReportCancelled hook already
+                // recorded this cancellation; recording here again would
+                // double-count one supersession.
                 return nil
             }
             finishPrearmedTerminalViewportBarrierWithoutResize(

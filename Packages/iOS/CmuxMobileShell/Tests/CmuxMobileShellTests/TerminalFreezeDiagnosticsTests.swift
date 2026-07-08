@@ -362,7 +362,7 @@ import Testing
     #expect(viewportEvents.first?["outcome"] == .string("cancelled_superseded"))
 }
 
-private final class RecordingFreezeAnalytics: AnalyticsEmitting, @unchecked Sendable {
+final class RecordingFreezeAnalytics: AnalyticsEmitting, @unchecked Sendable {
     private var recorded: [(name: String, properties: [String: AnalyticsValue])] = []
 
     func capture(_ event: String, _ properties: [String: AnalyticsValue]) {
