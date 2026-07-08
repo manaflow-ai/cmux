@@ -23,8 +23,16 @@ public struct UnifiedDiffParser: Sendable {
         var oldLine = 0
         var newLine = 0
         var lineID = 0
+        var iteration = 0
 
         for rawLine in rawLines {
+            // Cooperative cancellation: callers discard the result of a
+            // cancelled load, so bail out of a stale multi-MB parse early
+            // instead of allocating the rest of its lines.
+            iteration &+= 1
+            if iteration % 4096 == 0, Task.isCancelled {
+                break
+            }
             if let header = HunkHeader(rawLine: rawLine) {
                 if let current {
                     hunks.append(current.build())

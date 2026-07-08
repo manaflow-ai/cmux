@@ -208,11 +208,19 @@ struct DiffReviewFileView: View {
     }
 
     /// Runs the pure unified-diff parse on a background task; the response and
-    /// parse result are Sendable value types.
+    /// parse result are Sendable value types. Cancellation of the SwiftUI
+    /// load task is forwarded into the detached parse (Task.detached alone
+    /// severs it), and the parser checks it cooperatively, so rapid file
+    /// navigation does not stack stale multi-MB parses.
     private nonisolated static func parseDiff(_ response: MobileWorkspaceDiffFileResponse) async -> DiffParseResult {
-        await Task.detached(priority: .userInitiated) {
+        let task = Task.detached(priority: .userInitiated) {
             UnifiedDiffParser().parse(response.unifiedDiff, isTruncated: response.truncated)
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 }
 

@@ -136,6 +136,27 @@ import Testing
         #expect(diff.unifiedDiff.contains("+changed"))
     }
 
+    @Test func externalDiffDriverIsBypassedForMachineReadableOutput() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let fileURL = repo.appendingPathComponent("driven.txt")
+        try Data("original\n".utf8).write(to: fileURL)
+        try runTestGit(in: repo, ["add", "--", "driven.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add driven"])
+        try Data("changed\n".utf8).write(to: fileURL)
+        // A configured external diff driver would replace the unified format
+        // (and execute an arbitrary tool) unless the service disables it.
+        try runTestGit(in: repo, ["config", "diff.external", "echo EXTERNAL"])
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_EXTERNAL_DIFF"] = "echo EXTERNAL"
+        let service = GitDiffService(environment: environment)
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "driven.txt"))
+
+        #expect(diff.unifiedDiff.contains("+changed"))
+        #expect(!diff.unifiedDiff.contains("EXTERNAL"))
+    }
+
     @Test func directoryShapedFileDiffRequestIsRejected() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

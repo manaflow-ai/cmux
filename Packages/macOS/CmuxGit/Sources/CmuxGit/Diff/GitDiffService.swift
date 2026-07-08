@@ -120,7 +120,11 @@ public struct GitDiffService: Sendable {
         if isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
             let result = runGit(
                 in: repoRoot,
-                arguments: ["diff", "--no-index", "--no-color", "--", "/dev/null", path],
+                // `--no-ext-diff --no-textconv`: this output feeds a
+                // machine parser, so repo/user-configured `diff.external`
+                // or textconv drivers must neither execute nor replace the
+                // unified format.
+                arguments: ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", "/dev/null", path],
                 acceptedTerminationStatuses: [0, 1],
                 maxOutputBytes: maxOutputBytes
             )
@@ -129,7 +133,7 @@ public struct GitDiffService: Sendable {
         }
         let result = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--no-color", "--find-renames", "--", Self.literalPathspec(path)],
+            arguments: ["diff", "HEAD", "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--", Self.literalPathspec(path)],
             maxOutputBytes: maxOutputBytes
         )
         guard let output = result.successOutput else { return nil }
@@ -315,6 +319,9 @@ public struct GitDiffService: Sendable {
         "GIT_NAMESPACE",
         "GIT_PREFIX",
         "GIT_CEILING_DIRECTORIES",
+        // Diff output feeds a machine parser; an ambient external diff
+        // driver must not execute or replace the unified format.
+        "GIT_EXTERNAL_DIFF",
     ]
 
     private func nonLockingGitEnvironment() -> [String: String] {
