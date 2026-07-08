@@ -3152,10 +3152,9 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         }
 
         override func makeWorkspaceForCreation(
-            title: String,
+            title: String, explicitTitle: String?,
             workingDirectory: String?,
-            portOrdinal: Int,
-            configTemplate: CmuxSurfaceConfigTemplate?,
+            portOrdinal: Int, inheritedTerminalFontPoints: Float?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
@@ -3164,14 +3163,13 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialBrowserOmnibarVisible: Bool,
             initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
-            allowTextBoxFocusDefault: Bool
+            allowTextBoxFocusDefault: Bool, chromeInheritanceSource: Workspace?
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
-                title: title,
+                title: title, explicitTitle: explicitTitle,
                 workingDirectory: workingDirectory,
-                portOrdinal: portOrdinal,
-                configTemplate: configTemplate,
+                portOrdinal: portOrdinal, inheritedTerminalFontPoints: inheritedTerminalFontPoints,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
@@ -3180,7 +3178,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault, chromeInheritanceSource: chromeInheritanceSource
             )
         }
     }
@@ -3456,17 +3454,14 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             injectedConfig = config
         }
 
-        override func inheritedTerminalConfigForNewWorkspace(
-            workspace: Workspace?
-        ) -> CmuxSurfaceConfigTemplate? {
-            injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
+        override func inheritedTerminalFontPointsForNewWorkspace(workspace: Workspace?) -> Float? {
+            injectedConfig?.fontSize ?? super.inheritedTerminalFontPointsForNewWorkspace(workspace: workspace)
         }
 
         override func makeWorkspaceForCreation(
-            title: String,
+            title: String, explicitTitle: String?,
             workingDirectory: String?,
-            portOrdinal: Int,
-            configTemplate: CmuxSurfaceConfigTemplate?,
+            portOrdinal: Int, inheritedTerminalFontPoints: Float?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
@@ -3475,14 +3470,13 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialBrowserOmnibarVisible: Bool,
             initialBrowserTransparentBackground: Bool,
             workspaceEnvironment: [String: String],
-            allowTextBoxFocusDefault: Bool
+            allowTextBoxFocusDefault: Bool, chromeInheritanceSource: Workspace?
         ) -> Workspace {
-            capturedConfigTemplate = configTemplate
+            capturedConfigTemplate = workspaceCreationConfigTemplate(inheritedTerminalFontPoints: inheritedTerminalFontPoints)
             return super.makeWorkspaceForCreation(
-                title: title,
+                title: title, explicitTitle: explicitTitle,
                 workingDirectory: workingDirectory,
-                portOrdinal: portOrdinal,
-                configTemplate: configTemplate,
+                portOrdinal: portOrdinal, inheritedTerminalFontPoints: inheritedTerminalFontPoints,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
@@ -3491,7 +3485,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault, chromeInheritanceSource: chromeInheritanceSource
             )
         }
     }
