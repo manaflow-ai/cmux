@@ -1,5 +1,6 @@
 import CoreGraphics
 import CmuxWindowing
+import struct CmuxWorkspaces.SessionRectSnapshot
 import Testing
 
 #if canImport(cmux_DEV)

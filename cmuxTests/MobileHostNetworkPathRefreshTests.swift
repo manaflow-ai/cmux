@@ -160,7 +160,7 @@ import Testing
         // flight (its cache generation already captured) before the
         // invalidation runs — `async let` alone does not guarantee the child
         // has begun — and `gate` holds it there until after the invalidation.
-        let started = DispatchSemaphore(value: 0)
+        let started = MobileHostNetworkPathAsyncSignal()
         let gate = DispatchSemaphore(value: 0)
         // Start a resolution that represents the OLD network and hold it
         // in flight while the path changes underneath it.
@@ -172,7 +172,7 @@ import Testing
                 return ["stale-old-net.tail1234.ts.net"]
             }
         )
-        started.wait()
+        await started.wait()
         resolver.invalidateResolvedTailscaleHostCache()
         gate.signal()
         // The awaiting caller still gets the hosts it resolved (it asked
@@ -181,5 +181,36 @@ import Testing
         _ = await staleResolution
         let afterStaleStore = resolver.routes(port: 51000, now: Date(), immediateHosts: { [] })
         #expect(!tailscaleHosts(in: afterStaleStore).contains("stale-old-net.tail1234.ts.net"))
+    }
+}
+
+private final class MobileHostNetworkPathAsyncSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var didSignal = false
+
+    func signal() {
+        lock.lock()
+        if let continuation {
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume()
+            return
+        }
+        didSignal = true
+        lock.unlock()
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if didSignal {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
     }
 }
