@@ -3384,6 +3384,14 @@ final class Workspace: Identifiable, ObservableObject {
         sharedLiveAgentIndexReloadCancellable = SharedLiveAgentIndex.shared.didReload.sink { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshTerminalAgentTabIcons() }
         }
+        // One-time sync: when the workspace finishes initialising AFTER the shared
+        // index has already loaded (and fired its `didReload`), the tab icons would
+        // otherwise stay blank until the NEXT reload. Pull the cached state now so
+        // restored terminal and agent-session tabs show their brand marks immediately.
+        if SharedLiveAgentIndex.shared.index != nil {
+            refreshAgentSessionTabIcons()
+            refreshTerminalAgentTabIcons()
+        }
 
         installAgentTabIconAppearanceObservation()
     }
