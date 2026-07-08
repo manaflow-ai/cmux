@@ -343,6 +343,14 @@ impl RemoteSession {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
             }
+            Some("layout-changed") => {
+                self.tree_stale.store(true, Ordering::Release);
+                if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
+                    self.emit(MuxEvent::LayoutChanged(screen));
+                } else {
+                    self.emit(MuxEvent::TreeChanged);
+                }
+            }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
                     self.tree_stale.store(true, Ordering::Release);
