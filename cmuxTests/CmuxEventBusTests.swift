@@ -1,5 +1,6 @@
 import XCTest
-import CMUXWorkstream
+import CMUXAgentLaunch
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,6 +9,21 @@ import CMUXWorkstream
 #endif
 
 final class CmuxEventBusTests: XCTestCase {
+    private static func currentResidentBytes() throws -> UInt64 {
+        var info = proc_taskinfo()
+        let size = proc_pidinfo(
+            getpid(),
+            PROC_PIDTASKINFO,
+            0,
+            &info,
+            Int32(MemoryLayout<proc_taskinfo>.stride)
+        )
+        guard size == Int32(MemoryLayout<proc_taskinfo>.stride) else {
+            throw XCTSkip("Unable to sample current resident memory")
+        }
+        return UInt64(info.pti_resident_size)
+    }
+
     func testSubscribeReplaysEventsAfterSequenceAndReportsAck() throws {
         let bus = CmuxEventBus(retainedEventLimit: 4)
         bus.publish(
@@ -214,6 +230,63 @@ final class CmuxEventBusTests: XCTestCase {
         CmuxSocketEventMapper.publish(command: command, response: response)
 
         XCTAssertNil(snapshot.subscription.next(timeout: 0.2))
+    }
+
+    func testPublishV2ReadTextResponseDoesNotAccumulateOnLongLivedThread() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let commandObject: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": "read-text-retention",
+            "method": "surface.read_text",
+            "params": [
+                "workspace_id": UUID().uuidString,
+                "surface_id": UUID().uuidString,
+                "scrollback": true,
+                "lines": 700
+            ]
+        ]
+        let largeText = String(repeating: "x", count: 512 * 1_024)
+        let responseObject: [String: Any] = [
+            "id": "read-text-retention",
+            "ok": true,
+            "result": [
+                "text": largeText,
+                "base64": "",
+                "workspace_id": UUID().uuidString,
+                "surface_id": UUID().uuidString
+            ]
+        ]
+        let commandData = try JSONSerialization.data(withJSONObject: commandObject)
+        let responseData = try JSONSerialization.data(withJSONObject: responseObject)
+        let command = try XCTUnwrap(String(data: commandData, encoding: .utf8))
+        let response = try XCTUnwrap(String(data: responseData, encoding: .utf8))
+
+        let before = try Self.currentResidentBytes()
+        let didFinishLoop = DispatchSemaphore(value: 0)
+        let releaseThread = DispatchSemaphore(value: 0)
+        let iterations = 180
+
+        Thread.detachNewThread {
+            for _ in 0..<iterations {
+                CmuxSocketEventMapper.publish(command: command, response: response)
+            }
+            didFinishLoop.signal()
+            _ = releaseThread.wait(timeout: .now() + 10)
+        }
+
+        XCTAssertEqual(didFinishLoop.wait(timeout: .now() + 15), .success)
+        let after = try Self.currentResidentBytes()
+        releaseThread.signal()
+
+        let growth = after > before ? after - before : 0
+        XCTAssertLessThan(
+            growth,
+            UInt64(32 * 1_024 * 1_024),
+            "publishV2 retained \(growth) bytes after \(iterations) large surface.read_text responses on one socket worker thread"
+        )
+        XCTAssertTrue(CmuxEventBus.shared.retainedSnapshot().isEmpty)
     }
 
     func testNotificationReplacementPublishesRemovedThenCreatedWithReplacedIds() throws {

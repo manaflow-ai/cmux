@@ -9,7 +9,34 @@ nonisolated struct CmuxTopProcessScopeCacheKey: Hashable {
 }
 
 private nonisolated struct CmuxTopProcessScopeCacheValue {
-    let scope: CmuxTopProcessScope
+    // nil means "this process was probed and has no cmux scope". A negative entry
+    // is honored as a hit only until `negativeExpiresAtNanos`, so a non-cmux
+    // process is re-probed at most once per TTL window instead of on every
+    // system.top poll. Positive entries never expire (`negativeExpiresAtNanos` is
+    // ignored when `scope != nil`): a cmux scope comes from inherited environment
+    // or a stable argv and does not disappear for the process lifetime.
+    let scope: CmuxTopProcessScope?
+    let negativeExpiresAtNanos: UInt64
+}
+
+// How long a "no cmux scope" result stays cached before the process is probed
+// again. The scope is derived from argv/environment, which an `exec` can change
+// without changing the pid or process start time (the cache key), so a process
+// first sampled in its fork-before-exec window, or one that execs into a
+// `cmux hooks … monitor` later, must be re-probed eventually or it would never
+// be attributed. A newly spawned process has a new cache key and is probed
+// immediately; this TTL only bounds attribution latency for same-pid execs while
+// collapsing the steady-state re-probe storm for non-cmux processes.
+// Internal (not private) so tests can read the TTL via @testable import.
+nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
+
+// Result of probing a single process for its cmux scope. `resolved` means the
+// probe completed (the scope may legitimately be absent) and is safe to cache.
+// `unavailable` means a transient failure (process exited mid-probe, pid reuse,
+// or a failed sysctl) and must NOT be cached so the next poll retries.
+nonisolated enum CmuxTopProcessScopeProbeResult: Equatable {
+    case resolved(CmuxTopProcessScope?)
+    case unavailable
 }
 
 // CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
@@ -40,21 +67,50 @@ nonisolated extension CmuxTopProcessSnapshot {
 
     static func cachedCMUXScope(
         for pid: Int,
-        cacheKey: CmuxTopProcessScopeCacheKey
+        cacheKey: CmuxTopProcessScopeCacheKey,
+        nowNanoseconds: UInt64,
+        probe: (Int, CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScopeProbeResult = CmuxTopProcessSnapshot.cmuxScopeProbe
     ) -> CmuxTopProcessScope? {
         if let cached = cmuxTopScopeCache.withLock({ cache in cache[cacheKey] }) {
-            return cached.scope
+            if let scope = cached.scope {
+                // Positive results never expire: a discovered cmux scope is stable.
+                return scope
+            }
+            if nowNanoseconds < cached.negativeExpiresAtNanos {
+                // Negative result still within its TTL: honor the cached miss.
+                return nil
+            }
+            // Negative TTL expired: fall through and re-probe in case the process
+            // execed into a cmux-scoped command since it was last sampled.
         }
 
-        guard let scope = cmuxScope(for: pid, expectedCacheKey: cacheKey) else {
+        switch probe(pid, cacheKey) {
+        case .resolved(let scope):
+            // Cache the resolved result. Positive scopes are kept indefinitely;
+            // negative scopes are kept only until the TTL elapses so a later exec
+            // is eventually attributed. The key is pruned to live pids each
+            // capture, so a recycled pid gets a fresh key.
+            //
+            // capture() runs concurrently (async task-manager sampling and sync
+            // system.top socket handling), and the probe happened outside the
+            // lock. Never let a stale negative from an older capture clobber a
+            // positive scope a newer capture already discovered for the same
+            // process: if we probed nil but a positive entry now exists, keep and
+            // return it.
+            return cmuxTopScopeCache.withLock { cache -> CmuxTopProcessScope? in
+                if scope == nil, let existing = cache[cacheKey], let existingScope = existing.scope {
+                    return existingScope
+                }
+                cache[cacheKey] = CmuxTopProcessScopeCacheValue(
+                    scope: scope,
+                    negativeExpiresAtNanos: nowNanoseconds &+ cmuxTopNegativeScopeTTLNanoseconds
+                )
+                return scope
+            }
+        case .unavailable:
+            // Transient failure: do not cache, retry on the next poll.
             return nil
         }
-
-        cmuxTopScopeCache.withLock { cache in
-            cache[cacheKey] = CmuxTopProcessScopeCacheValue(scope: scope)
-        }
-
-        return scope
     }
 
     static func pruneCMUXScopeCache(activeKeys: Set<CmuxTopProcessScopeCacheKey>) {
@@ -63,33 +119,60 @@ nonisolated extension CmuxTopProcessSnapshot {
         }
     }
 
-    private static func cmuxScope(
+    // Probes a single process for its cmux scope via sysctl.
+    //
+    // `KERN_PROCARGS2` can fail two very different ways: transiently, because the
+    // process exited mid-probe or its pid was reused (then `kinfoProc` no longer
+    // matches the expected start-time key), or permanently, because the process
+    // belongs to another user / is protected (the kernel denies procargs for the
+    // process's whole life). We must cache the permanent case as a definitive
+    // "no readable cmux scope" — those processes are not cmux-scoped and stay in
+    // `activeKeys`, so leaving them uncached would re-run this sysctl fan-out on
+    // every poll. We must NOT cache the transient case, so a process that is
+    // simply mid-exec is retried.
+    //
+    // The discriminator is liveness: if a procargs read fails but the process is
+    // still alive with the same start time, the failure is a permanent denial and
+    // resolves to nil; otherwise it raced with exit/reuse and is `.unavailable`.
+    // Callers derive `expectedCacheKey` from a `proc_bsdinfo` snapshot of this pid
+    // in the same enumeration pass, so a pre-read `kinfoProc` check would only
+    // repeat work. The post-read guard still catches pid reuse during the
+    // `KERN_PROCARGS2` probe window.
+    static func cmuxScopeProbe(
         for pid: Int,
         expectedCacheKey: CmuxTopProcessScopeCacheKey
-    ) -> CmuxTopProcessScope? {
-        guard let currentProcess = kinfoProc(for: pid),
-              scopeCacheKey(from: currentProcess) == expectedCacheKey else {
-            return nil
-        }
+    ) -> CmuxTopProcessScopeProbeResult {
+        guard pid > 0, pid <= Int(Int32.max) else { return .unavailable }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0
         guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
               size > MemoryLayout<Int32>.size else {
-            return nil
+            // Sizing failed: permanent denial if still alive, else exit race.
+            return processMatchesKey(pid, expectedCacheKey) ? .resolved(nil) : .unavailable
         }
 
         var buffer = [UInt8](repeating: 0, count: size)
         let success = buffer.withUnsafeMutableBytes { rawBuffer in
             sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
         }
-        guard success else { return nil }
-        guard let currentProcess = kinfoProc(for: pid),
-              scopeCacheKey(from: currentProcess) == expectedCacheKey else {
-            return nil
+        guard success else {
+            return processMatchesKey(pid, expectedCacheKey) ? .resolved(nil) : .unavailable
+        }
+        guard processMatchesKey(pid, expectedCacheKey) else {
+            return .unavailable
         }
 
-        return cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size))))
+        return .resolved(cmuxScope(fromKernProcArgs: Array(buffer.prefix(Int(size)))))
+    }
+
+    // True when `pid` is still the same process (same start time) as the key.
+    private static func processMatchesKey(
+        _ pid: Int,
+        _ expectedCacheKey: CmuxTopProcessScopeCacheKey
+    ) -> Bool {
+        guard let process = kinfoProc(for: pid) else { return false }
+        return scopeCacheKey(from: process) == expectedCacheKey
     }
 
     static func cmuxScope(fromKernProcArgs bytes: [UInt8]) -> CmuxTopProcessScope? {

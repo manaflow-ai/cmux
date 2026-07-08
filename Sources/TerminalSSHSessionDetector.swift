@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxRemoteSession
 import Foundation
 import Darwin
 
@@ -100,7 +102,7 @@ struct DetectedSSHSession: Equatable {
                     ])
                 }
 
-                let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: normalizedLocalURL)
+                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
                 let result = try Self.runProcess(
                     executable: "/usr/bin/scp",
                     arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
@@ -176,8 +178,8 @@ struct DetectedSSHSession: Equatable {
     }
 
     private func sshArguments(command: String) -> [String] {
-        var args: [String] = [
-            "-T",
+        var args: [String] = ["-T"] + SSHHostConfiguredRemoteCommand().overrideArguments
+        args += [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
@@ -310,11 +312,11 @@ struct DetectedSSHSession: Equatable {
         }
 
         let stdout = String(
-            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading),
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         let stderr = String(
-            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading),
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         if operation?.isCancelled == true {
@@ -475,7 +477,7 @@ enum TerminalSSHSessionDetector {
             return []
         }
 
-        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         process.waitUntilExit()
 
         guard process.terminationStatus == 0,
@@ -506,7 +508,7 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    private static func commandLineArguments(forPID pid: Int32) -> [String]? {
+    static func commandLineArguments(forPID pid: Int32) -> [String]? {
         var mib = [CTL_KERN, KERN_PROCARGS2, pid]
         var size: size_t = 0
         guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > 4 else {

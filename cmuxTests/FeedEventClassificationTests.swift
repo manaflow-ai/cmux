@@ -82,6 +82,14 @@ struct FeedEventClassificationTests {
         #expect(classify("claude", "PermissionRequest", tool: "AskUserQuestion").name == "AskUserQuestion")
     }
 
+    @Test func claudeLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+        for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
+            let classification = classify("claude", event, tool: "Bash")
+            #expect(classification.name == event)
+            #expect(classification.actionable == false)
+        }
+    }
+
     // MARK: Generic agents without a dedicated approval event
 
     /// Agents whose only signal is `PreToolUse` (gemini, copilot, …) still
@@ -104,14 +112,38 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
     }
 
-    /// Codex has a dedicated `PermissionRequest` feed event, so its
-    /// pre-tool events (`PreToolUse` and the Codex-specific
-    /// `beforeShellExecution`) are telemetry only.
+    /// Codex runs `PermissionRequest` hooks before its own approval reviewer,
+    /// so Feed must keep both pre-tool events and permission requests as
+    /// telemetry. Otherwise "Approve for me" gets bypassed by cmux's Feed UI.
     @Test func codexPreToolUseIsTelemetry() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == true)
+        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
+        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
+    }
+
+    @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+        for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
+            let classification = classify("codex", event, tool: "shell")
+            #expect(classification.name == event)
+            #expect(classification.actionable == false)
+        }
+    }
+
+    @Test func codexSnakeCaseLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+        let cases = [
+            ("post_tool_use", "PostToolUse"),
+            ("pre_compact", "PreCompact"),
+            ("post_compact", "PostCompact"),
+            ("subagent_start", "SubagentStart"),
+            ("subagent_stop", "SubagentStop"),
+        ]
+        for (event, expectedName) in cases {
+            let classification = classify("codex", event, tool: "shell")
+            #expect(classification.name == expectedName)
+            #expect(classification.actionable == false)
+        }
     }
 
     /// Unknown source + unknown event is safe by default.

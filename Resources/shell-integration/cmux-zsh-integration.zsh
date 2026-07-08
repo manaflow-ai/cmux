@@ -151,6 +151,23 @@ _cmux_report_tty_via_relay() {
     _cmux_relay_rpc "surface.report_tty" "$params"
 }
 
+_cmux_report_pwd_via_relay() {
+    local pwd="$1"
+    _cmux_socket_uses_remote_relay || return 1
+    [[ -n "$pwd" ]] || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+
+    local pwd_json params
+    pwd_json="$(_cmux_json_escape "$pwd")"
+    params="{\"workspace_id\":\"$workspace_id\",\"path\":\"$pwd_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+}
+
 _cmux_ports_kick_via_relay() {
     local reason="${1:-command}"
     _cmux_socket_uses_remote_relay || return 1
@@ -182,24 +199,150 @@ _cmux_now() {
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
+_cmux_path_prepend_unique_directory() {
+    local directory="$1"
+    local current_path="${2-}"
+    local skipped_directory="${3-}"
+    local result="$directory"
+    local rest="$current_path"
+    local entry=""
+    local has_more=false
+
+    [[ -n "$directory" ]] || {
+        printf '%s' "$current_path"
+        return 0
+    }
+    [[ -n "$current_path" ]] || {
+        printf '%s' "$directory"
+        return 0
+    }
+
+    while true; do
+        if [[ "$rest" == *:* ]]; then
+            entry="${rest%%:*}"
+            rest="${rest#*:}"
+            has_more=true
+        else
+            entry="$rest"
+            rest=""
+            has_more=false
+        fi
+
+        if [[ "$entry" != "$directory" && ( -z "$skipped_directory" || "$entry" != "$skipped_directory" ) ]]; then
+            result="$result:$entry"
+        fi
+        [[ "$has_more" == true ]] || break
+    done
+
+    printf '%s' "$result"
+}
+_cmux_install_cli_command_shim() {
+    local command_name="$1"
+    local wrapper_path="$2"
+    local shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/${CMUX_SURFACE_ID:-$$}"
+    local shim_path="$shim_root/$command_name"
+    local escaped_wrapper="$wrapper_path"
+
+    escaped_wrapper="${escaped_wrapper//\\/\\\\}"
+    escaped_wrapper="${escaped_wrapper//\"/\\\"}"
+    escaped_wrapper="${escaped_wrapper//\$/\\\$}"
+    escaped_wrapper="${escaped_wrapper//\`/\\\`}"
+
+    /bin/mkdir -p "$shim_root" >/dev/null 2>&1 || return 0
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        if [[ "$command_name" == "claude" ]]; then
+            printf 'cmux_wrapper="%s"\n' "$escaped_wrapper"
+            printf '%s\n' 'if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then'
+            printf '%s\n' '    cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"'
+            printf '%s\n' '    if [[ -x "$cmux_candidate" ]]; then'
+            printf '%s\n' '        cmux_wrapper="$cmux_candidate"'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'fi'
+            printf '%s\n' 'if [[ ! -x "$cmux_wrapper" ]]; then'
+            printf '%s\n' '    cmux_cli="$(command -v cmux 2>/dev/null || true)"'
+            printf '%s\n' '    if [[ -n "$cmux_cli" ]]; then'
+            printf '%s\n' '        cmux_candidate="$(dirname "$cmux_cli")/cmux-claude-wrapper"'
+            printf '%s\n' '        if [[ -x "$cmux_candidate" ]]; then'
+            printf '%s\n' '            cmux_wrapper="$cmux_candidate"'
+            printf '%s\n' '        fi'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'fi'
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
+            printf '%s\n' '    exec "$cmux_wrapper" "$@"'
+            printf '%s\n' 'fi'
+            printf '%s\n' 'cmux_path_without_shim=""'
+            printf '%s\n' 'cmux_old_ifs="$IFS"'
+            printf '%s\n' 'IFS=:'
+            printf '%s\n' 'for cmux_entry in ${PATH:-}; do'
+            printf '%s\n' '    if [[ "$cmux_entry" == "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then'
+            printf '%s\n' '        continue'
+            printf '%s\n' '    fi'
+            printf '%s\n' '    if [[ -z "$cmux_path_without_shim" ]]; then'
+            printf '%s\n' '        cmux_path_without_shim="$cmux_entry"'
+            printf '%s\n' '    else'
+            printf '%s\n' '        cmux_path_without_shim="$cmux_path_without_shim:$cmux_entry"'
+            printf '%s\n' '    fi'
+            printf '%s\n' 'done'
+            printf '%s\n' 'IFS="$cmux_old_ifs"'
+            printf '%s\n' 'export PATH="$cmux_path_without_shim"'
+            printf '%s\n' 'exec claude "$@"'
+        else
+            printf 'exec "%s" "$@"\n' "$escaped_wrapper"
+        fi
+    # Use zsh's explicit clobber redirection (>|) so cmux always refreshes its
+    # own generated shim, even when the user's interactive zsh has `noclobber`
+    # set. A plain `>` is refused under noclobber and prints `file exists` on
+    # startup (the writer runs again from the _cmux_fix_path precmd hook after
+    # the shim already exists). See issue #6714.
+    } >|"$shim_path" 2>/dev/null || return 0
+    /bin/chmod 0700 "$shim_path" >/dev/null 2>&1 || return 0
+
+    if [[ "$command_name" == "claude" ]]; then
+        export CMUX_CLAUDE_WRAPPER_SHIM="$shim_path"
+        export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
+    fi
+
+    PATH="$(_cmux_path_prepend_unique_directory "$shim_root" "${PATH-}")"
+    hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
+}
+_cmux_claude_wrapper_command() {
+    if [[ -x "${CMUX_CLAUDE_WRAPPER_SHIM:-}" ]]; then
+        "$CMUX_CLAUDE_WRAPPER_SHIM" "$@"
+    elif [[ -x "${_CMUX_CLAUDE_WRAPPER:-}" ]]; then
+        "$_CMUX_CLAUDE_WRAPPER" "$@"
+    else
+        command claude "$@"
+    fi
+}
 _cmux_install_cli_wrapper() {
     local command_name="$1"
     local wrapper_variable="$2"
+    local wrapper_file="${3:-$command_name}"
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
     [[ -n "$integration_dir" ]] || return 0
 
     integration_dir="${integration_dir%/}"
     local bundle_dir="${integration_dir%/shell-integration}"
-    local wrapper_path="$bundle_dir/bin/$command_name"
+    local wrapper_path="$bundle_dir/bin/$wrapper_file"
     [[ -x "$wrapper_path" ]] || return 0
 
     # Keep the bundled wrapper ahead of later PATH mutations. Install it
     # via eval so an existing alias cannot break parsing.
     typeset -g "$wrapper_variable=$wrapper_path"
+    if [[ "$command_name" == "claude" ]]; then
+        _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
+    fi
     builtin unalias "$command_name" >/dev/null 2>&1 || true
-    eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    if [[ "$command_name" == "claude" ]]; then
+        eval "$command_name() { _cmux_claude_wrapper_command \"\$@\"; }"
+    else
+        eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+    fi
 }
-_cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER
+_cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 
 _cmux_normalize_claude_config_dir() {
@@ -1568,12 +1711,16 @@ _cmux_precmd() {
     local now="$(_cmux_now)"
     local cmd_start="$_CMUX_CMD_START"
     _CMUX_CMD_START=0
+    local pwd="$PWD"
     local cmd_dur=0
     if [[ -n "$cmd_start" && "$cmd_start" != 0 ]]; then
         cmd_dur=$(( now - cmd_start ))
     fi
 
     if (( ! cmux_has_unix_socket )); then
+        if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+            _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
+        fi
         if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
             _cmux_ports_kick refresh
         fi
@@ -1581,7 +1728,6 @@ _cmux_precmd() {
     fi
 
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    local pwd="$PWD"
     _cmux_set_git_active_pwd "$pwd"
 
     _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
@@ -1718,19 +1864,18 @@ _cmux_precmd() {
 # Ensure Resources/bin is at the front of PATH, and remove the app's
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.zprofile/.zshrc) may prepend other dirs after launch.
-# We fix this once on first prompt (after all init files have run).
+# We fix this once on first prompt (after all init files have run), and
+# reinstall cmux-owned wrapper functions in case user startup replaced them.
 _cmux_fix_path() {
     if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
         local gui_dir="${GHOSTTY_BIN_DIR%/}"
         local bin_dir="${gui_dir%/MacOS}/Resources/bin"
         if [[ -d "$bin_dir" ]]; then
-            # Remove existing entries and re-prepend the CLI bin dir.
-            local -a parts=("${(@s/:/)PATH}")
-            parts=("${(@)parts:#$bin_dir}")
-            parts=("${(@)parts:#$gui_dir}")
-            PATH="${bin_dir}:${(j/:/)parts}"
+            PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi
     fi
+    _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+    _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
 }
 

@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"><title>occlusion-overlay</title>
+<style>
+  #overlay { position: fixed; inset: 0; pointer-events: none; background: rgba(0, 0, 0, 0.02); }
+  #banner { position: sticky; top: 0; height: 24px; background: rgba(200, 0, 0, 0.4); margin-bottom: -16px; }
+  #wrap-label { position: relative; display: inline-block; }
+  #wrap-label .cover { position: absolute; inset: 0; background: rgba(0, 0, 255, 0.3); }
+</style>
+</head>
+<body>
+<div id="banner"></div>
+<button id="under-banner">partially covered</button>
+<br>
+<button id="under-overlay">under overlay</button>
+<label id="wrap-label"><input type="checkbox" id="covered-check"><span class="cover"></span></label>
+<div id="overlay"></div>
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function logEvent(ev, target, extra) {
+    window.__cmuxLog.push(Object.assign(
+      { seq: ++seq, type: ev.type, target, isTrusted: ev.isTrusted },
+      extra || {}
+    ));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  let overlayOk = false;
+  let checkOk = false;
+  let bannerOk = false;
+  function check() {
+    if (overlayOk && checkOk && bannerOk) statusEl.textContent = 'PASS';
+  }
+
+  document.getElementById('under-overlay').addEventListener('click', (ev) => {
+    logEvent(ev, '#under-overlay');
+    overlayOk = true;
+    check();
+  });
+  const box = document.getElementById('covered-check');
+  box.addEventListener('change', (ev) => {
+    logEvent(ev, '#covered-check', { checked: box.checked });
+    if (box.checked) checkOk = true;
+    check();
+  });
+  document.getElementById('under-banner').addEventListener('click', (ev) => {
+    logEvent(ev, '#under-banner');
+    bannerOk = true;
+    check();
+  });
+</script>
+</body>
+</html>

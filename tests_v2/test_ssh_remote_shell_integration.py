@@ -283,14 +283,19 @@ def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface
     env["CMUX_PANEL_ID"] = surface_id
 
     master_fd, slave_fd = pty.openpty()
-    proc = subprocess.Popen(
-        ["/bin/sh", "-lc", startup_command],
-        stdin=slave_fd,
-        stdout=slave_fd,
-        stderr=slave_fd,
-        env=env,
-        start_new_session=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            ["/bin/sh", "-lc", startup_command],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=env,
+            start_new_session=True,
+        )
+    except Exception:
+        os.close(slave_fd)
+        os.close(master_fd)
+        raise
     os.close(slave_fd)
     return proc, master_fd
 

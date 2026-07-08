@@ -2,6 +2,10 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
+import CmuxTestSupport
+import CmuxTerminal
+import CmuxFoundation
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
@@ -10,7 +14,7 @@ struct TerminalPanelView: View {
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
-    @State private var terminalFontSize = GhosttyConfig.load().fontSize
+    @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -57,7 +61,9 @@ struct TerminalPanelView: View {
     }
 
     private var terminalBody: some View {
-        VStack(spacing: 0) {
+        @Bindable var textBoxState = panel.textBoxState
+
+        return VStack(spacing: 0) {
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
             GhosttyTerminalView(
@@ -92,6 +98,9 @@ struct TerminalPanelView: View {
                 TextBoxInputContainer(
                     text: $panel.textBoxContent,
                     attachments: $panel.textBoxAttachments,
+                    selectedSubmitActionID: $textBoxState.selectedSubmitActionID,
+                    pendingProviderLaunchAction: $textBoxState.pendingProviderLaunchAction,
+                    pendingProviderLaunchStartedAt: $textBoxState.pendingProviderLaunchStartedAt,
                     surface: panel.surface,
                     terminalBackgroundColor: appearance.backgroundColor,
                     terminalForegroundColor: appearance.foregroundColor,
@@ -100,13 +109,23 @@ struct TerminalPanelView: View {
                         weight: .regular
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
-                    terminalAgentContext: terminalAgentContext,
+                    terminalAgentContext: effectiveTerminalAgentContext,
+                    shellActivityState: panel.shellActivity.state,
+                    allowsCommandTemplateSubmit: TextBoxInputContainer.allowsCommandTemplateSubmit(
+                        shellActivityState: panel.shellActivity.state
+                    ),
                     onFocusTextBox: {
                         panel.textBoxDidBecomeFocused()
                         onFocus()
                     },
                     onToggleFocus: {
                         _ = panel.focusTextBoxInputOrTerminal()
+                    },
+                    onRecordLaunchCommand: { command in
+                        panel.recordTextBoxLaunchCommand(command)
+                    },
+                    onClearLaunchCommand: {
+                        panel.clearTextBoxLaunchCommand()
                     },
                     onEscape: {
                         panel.handleTextBoxEscape()
@@ -125,7 +144,46 @@ struct TerminalPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            terminalFontSize = GhosttyConfig.load().fontSize
+            terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
+        }
+    }
+
+    private var effectiveTerminalAgentContext: String {
+        Self.effectiveTerminalAgentContext(
+            terminalAgentContext,
+            pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand
+        )
+    }
+
+    static func effectiveTerminalAgentContext(
+        _ terminalAgentContext: String,
+        pendingLaunchCommand: String?
+    ) -> String {
+        var context = terminalAgentContext
+        appendTextBoxLaunchContext(
+            "textBoxPendingLaunchCommand:",
+            command: pendingLaunchCommand,
+            to: &context
+        )
+        return context
+    }
+
+    private static func appendTextBoxLaunchContext(
+        _ prefix: String,
+        command: String?,
+        to context: inout String
+    ) {
+        guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else { return }
+        let marker = "\(prefix)\(command)"
+        let existingLines = context
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard !existingLines.contains(marker) else { return }
+        if context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            context = marker
+        } else {
+            context += "\n\(marker)"
         }
     }
 }
@@ -143,14 +201,13 @@ private struct AgentHibernationPlaceholderView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: "pause.circle")
-                .font(.system(size: 34, weight: .regular))
+            CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular)
                 .foregroundStyle(.secondary)
             VStack(spacing: 4) {
                 Text(String(localized: "terminal.agentHibernation.title", defaultValue: "Agent hibernated"))
-                    .font(.headline)
+                    .cmuxFont(.headline)
                 Text(state.agentDisplayName)
-                    .font(.subheadline)
+                    .cmuxFont(.subheadline)
                     .foregroundStyle(.secondary)
                 Text(
                     String.localizedStringWithFormat(
@@ -158,7 +215,7 @@ private struct AgentHibernationPlaceholderView: View {
                         lastActivityText
                     )
                 )
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundStyle(.tertiary)
             }
             Button(String(localized: "terminal.agentHibernation.resume", defaultValue: "Resume")) {
@@ -217,7 +274,7 @@ private func recordTerminalViewportGeometryForUITest(proxy: GeometryProxy, panel
         hostedFrameInContent = .zero
     }
 
-    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH") { payload in
+    _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH") { payload in
         payload["terminalViewportPanelId"] = panel.id.uuidString
         payload["terminalViewportPanelWidth"] = terminalViewportFormat(proxy.size.width)
         payload["terminalViewportPanelHeight"] = terminalViewportFormat(proxy.size.height)
@@ -263,7 +320,11 @@ struct PanelAppearance {
     }
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
-        fromConfig(config, usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow())
+        fromConfig(
+            config,
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: false)
+        )
     }
 
     static func fromConfig(_ config: GhosttyConfig, usesTransparentWindow: Bool) -> PanelAppearance {

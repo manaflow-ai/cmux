@@ -2,6 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import {
+  featureWorkflowContentLocales,
+  featureWorkflowDocRequestForPathname,
+} from "./i18n/locale-availability";
+import { buildAlternateLinkHeader } from "./i18n/seo";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -37,14 +42,43 @@ export default function middleware(request: NextRequest) {
     });
   }
 
+  if (pathname === "/app-pricing" || pathname === "/app-pricing/") {
+    return NextResponse.next();
+  }
+
+  // Post-checkout pages live outside the [locale] tree, like /app-pricing.
+  // Without this bypass next-intl rewrites them into /<locale>/billing/...,
+  // which has no route and 404s via the pass-through root layout.
+  if (pathname === "/billing" || pathname.startsWith("/billing/")) {
+    return NextResponse.next();
+  }
+
   if (pathname.includes(".")) {
     return NextResponse.next();
   }
 
+  const featureWorkflowDocRequest =
+    featureWorkflowDocRequestForPathname(pathname);
+  if (featureWorkflowDocRequest && !featureWorkflowDocRequest.locale) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/en${featureWorkflowDocRequest.path}`;
+    const response = NextResponse.rewrite(url);
+    setFeatureWorkflowDocLinkHeader(
+      response,
+      request,
+      featureWorkflowDocRequest.path,
+    );
+    return response;
+  }
+
   // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,
   // and skip next-intl for /legal-page so locale detection can't redirect back.
-  const legalPages = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
-  if (legalPages.has(pathname)) {
+  const englishOnlyPages = new Set([
+    "/privacy-policy",
+    "/terms-of-service",
+    "/eula",
+  ]);
+  if (englishOnlyPages.has(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = `/en${pathname}`;
     return NextResponse.rewrite(url);
@@ -52,14 +86,42 @@ export default function middleware(request: NextRequest) {
   const secondSlash = pathname.indexOf("/", 1);
   if (secondSlash !== -1) {
     const rest = pathname.slice(secondSlash);
-    if (legalPages.has(rest)) {
+    if (englishOnlyPages.has(rest)) {
       const url = request.nextUrl.clone();
       url.pathname = rest;
       return NextResponse.redirect(url, 301);
     }
   }
 
-  return intlMiddleware(request);
+  const response = intlMiddleware(request);
+  if (featureWorkflowDocRequest) {
+    setFeatureWorkflowDocLinkHeader(
+      response,
+      request,
+      featureWorkflowDocRequest.path,
+    );
+  }
+
+  return response;
+}
+
+function setFeatureWorkflowDocLinkHeader(
+  response: NextResponse,
+  request: NextRequest,
+  path: string,
+) {
+  response.headers.set(
+    "Link",
+    buildAlternateLinkHeader(
+      requestOrigin(request),
+      path,
+      featureWorkflowContentLocales,
+    ),
+  );
+}
+
+function requestOrigin(request: NextRequest) {
+  return request.nextUrl.origin;
 }
 
 export const config = {

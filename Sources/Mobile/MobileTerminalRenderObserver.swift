@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxTerminal
 import Foundation
 
 /// Pushes terminal render events only while a mobile client is actively subscribed.
@@ -8,23 +9,13 @@ import Foundation
 final class MobileTerminalRenderObserver {
     static let shared = MobileTerminalRenderObserver()
 
-    private struct RenderGridState {
-        var columns: Int
-        var rows: Int
-        var stateSeq: UInt64
-        /// Per-row signatures of text *and* resolved styling, so a style-only
-        /// change (e.g. typing over a dimmed shell autosuggestion) still marks
-        /// the row dirty. See `MobileTerminalRenderGridFrame.rowSignatures()`.
-        var rowSignatures: [String]
-    }
-
     private var releaseFrameDemand: (() -> Void)?
     private var releaseTickDemand: (() -> Void)?
     private var observers: [NSObjectProtocol] = []
     private var pendingSurfaceIDs = Set<UUID>()
     private var hasPendingGlobalUpdate = false
     private var isEmitFlushScheduled = false
-    private var renderGridStatesBySurfaceID: [UUID: RenderGridState] = [:]
+    private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
 
     private init() {}
 
@@ -172,7 +163,7 @@ final class MobileTerminalRenderObserver {
         guard shouldEmitRenderGridEvents else { return }
         let renderSurfaceIDs: Set<UUID>
         if surfaceIDs.isEmpty, shouldEmitGlobal {
-            renderSurfaceIDs = Set(TerminalSurfaceRegistry.shared.allSurfaces().map(\.id))
+            renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
         } else {
             renderSurfaceIDs = surfaceIDs
         }
@@ -183,55 +174,17 @@ final class MobileTerminalRenderObserver {
 
     private func emitRenderGrid(surfaceID: UUID) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
-        guard let surface = TerminalSurfaceRegistry.shared.surface(id: surfaceID),
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
 
-        let previous = renderGridStatesBySurfaceID[surfaceID]
-        let nextSignatures = snapshot.frame.rowSignatures()
-        let frame: MobileTerminalRenderGridFrame
-        if let previous,
-           previous.columns == snapshot.frame.columns,
-           previous.rows == snapshot.frame.rows {
-            var changedRows = Set<Int>()
-            let count = min(previous.rowSignatures.count, nextSignatures.count)
-            for index in 0..<count where previous.rowSignatures[index] != nextSignatures[index] {
-                changedRows.insert(index)
-            }
-
-            if changedRows.isEmpty {
-                guard previous.stateSeq != snapshot.frame.stateSeq else { return }
-                guard let emptyFrame = try? MobileTerminalRenderGridFrame(
-                    surfaceID: snapshot.frame.surfaceID,
-                    stateSeq: snapshot.frame.stateSeq,
-                    columns: snapshot.frame.columns,
-                    rows: snapshot.frame.rows,
-                    cursor: snapshot.frame.cursor,
-                    full: false,
-                    styles: snapshot.frame.styles,
-                    rowSpans: []
-                ) else {
-                    return
-                }
-                frame = emptyFrame
-            } else {
-                guard let deltaFrame = try? snapshot.frame.filteredRows(changedRows, full: false) else {
-                    return
-                }
-                frame = deltaFrame
-            }
-        } else {
-            frame = snapshot.frame
-        }
-
-        renderGridStatesBySurfaceID[surfaceID] = RenderGridState(
-            columns: frame.columns,
-            rows: frame.rows,
-            stateSeq: frame.stateSeq,
-            rowSignatures: nextSignatures
-        )
+        guard let emission = try? snapshot.frame.renderGridEmission(
+            comparedTo: renderGridStatesBySurfaceID[surfaceID]
+        ) else { return }
+        let frame = emission.frame
+        renderGridStatesBySurfaceID[surfaceID] = emission.state
         guard let payload = try? frame.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
         #if DEBUG

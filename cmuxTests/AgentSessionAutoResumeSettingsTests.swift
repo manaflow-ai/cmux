@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -665,7 +666,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     func testResumeLauncherReturnsToLaunchCwdAfterAgentExits() {
         let dir = "/tmp/repo-resume"
         let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
-            command: "{ cd -- '\(dir)' 2>/dev/null || [ ! -d '\(dir)' ]; } && 'claude' '--resume' 'abc'",
+            command: "cd -- '\(dir)' 2>/dev/null || [ ! -d '\(dir)' ] && 'claude' '--resume' 'abc'",
             workingDirectory: dir
         )
         let script = lines.joined(separator: "\n")

@@ -1,4 +1,7 @@
 import AppKit
+import CmuxCommandPalette
+import CmuxSidebar
+import CmuxSwiftRender
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
@@ -9,6 +12,8 @@ extension ContentView {
         switch commandId {
         case "palette.newWorkspace":
             return .newTab
+        case "palette.newBrowserWorkspace":
+            return .newBrowserWorkspace
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
@@ -79,6 +84,8 @@ extension ContentView {
             return .attachTextBoxFile
         case "palette.terminalSendCtrlF":
             return .sendCtrlFToTerminal
+        case "palette.terminalClearScreenKeepScrollback":
+            return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.equalizeSplits":
@@ -133,6 +140,8 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .customSidebar:
+            return "palette.showRightSidebarCustomSidebar"
         }
     }
 
@@ -154,7 +163,7 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -167,7 +176,7 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
-        case .feed, .dock:
+        case .feed, .dock, .customSidebar:
             return nil
         }
     }
@@ -193,6 +202,25 @@ extension ContentView {
         openRightSidebarToolPane(mode)
     }
 
+    func openCustomSidebarPane(_ name: String) {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        sidebarSelectionState.selection = .tabs
+        workspace.clearSplitZoom()
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.openOrFocusCustomSidebarSplit(from: focusedPanelId, name: name) != nil {
+            return
+        }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              workspace.openOrFocusCustomSidebarSurface(inPane: paneId, name: name, focus: true) != nil else {
+            NSSound.beep()
+            return
+        }
+    }
+
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
@@ -203,4 +231,25 @@ extension ContentView {
         }
         return mode.shortcutAction
     }
+
+    func rightSidebarCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
+        let selectedId = tabManager.selectedTabId
+        let workspaces = tabManager.tabs.enumerated().map { index, workspace in
+            workspace.customSidebarWorkspaceSnapshot(
+                index: index,
+                selectedId: selectedId,
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            )
+        }
+        let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            selectedWorkspaceId: selectedId,
+            selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
+            totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
+    }
+
 }
