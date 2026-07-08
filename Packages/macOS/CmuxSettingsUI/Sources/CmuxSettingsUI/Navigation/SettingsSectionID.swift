@@ -89,7 +89,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
-        case .mobile: return "ios iphone ipad mobile pairing local network sync"
+        case .mobile: return "ios iphone ipad mobile pairing local network sync keep awake caffeinate prevent sleep insomnia"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"

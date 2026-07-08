@@ -51,19 +51,23 @@ final class SleepyModeController {
     private var overlayWindows: [SleepyOverlayWindow] = []
     private var screenObserver: NSObjectProtocol?
 
-    private var systemAssertionID = IOPMAssertionID(0)
-    private var displayAssertionID = IOPMAssertionID(0)
-    private var hasSystemAssertion = false
-    private var hasDisplayAssertion = false
+    private let systemPowerAssertion = PowerAssertionHolder(
+        type: kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+        reason: "cmux Sleepy Mode"
+    )
+    private let displayPowerAssertion = PowerAssertionHolder(
+        type: kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+        reason: "cmux Sleepy Mode"
+    )
 
     private init() {}
 
-    var isHoldingPowerAssertions: Bool { hasSystemAssertion || hasDisplayAssertion }
+    var isHoldingPowerAssertions: Bool { systemPowerAssertion.isHeld || displayPowerAssertion.isHeld }
 
     /// True only when BOTH keep-awake assertions are held (system idle sleep and
     /// display sleep). Drives the honest on-screen badge — if either failed, the
     /// UI must not claim the Mac is safely staying awake.
-    var keepAwakeFullyActive: Bool { hasSystemAssertion && hasDisplayAssertion }
+    var keepAwakeFullyActive: Bool { systemPowerAssertion.isHeld && displayPowerAssertion.isHeld }
 
     func toggle() {
         if isActive { deactivate() } else { activate() }
@@ -167,33 +171,12 @@ final class SleepyModeController {
     /// In-process equivalent of `caffeinate -d -i`: keep the display awake so the
     /// screensaver stays visible, and stop the system from idle-sleeping.
     private func beginPowerAssertions() {
-        let reason = "cmux Sleepy Mode" as CFString
-        if !hasSystemAssertion {
-            var id = IOPMAssertionID(0)
-            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &id) == kIOReturnSuccess {
-                systemAssertionID = id
-                hasSystemAssertion = true
-            }
-        }
-        if !hasDisplayAssertion {
-            var id = IOPMAssertionID(0)
-            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), reason, &id) == kIOReturnSuccess {
-                displayAssertionID = id
-                hasDisplayAssertion = true
-            }
-        }
+        systemPowerAssertion.acquire()
+        displayPowerAssertion.acquire()
     }
 
     private func endPowerAssertions() {
-        if hasSystemAssertion {
-            IOPMAssertionRelease(systemAssertionID)
-            hasSystemAssertion = false
-            systemAssertionID = IOPMAssertionID(0)
-        }
-        if hasDisplayAssertion {
-            IOPMAssertionRelease(displayAssertionID)
-            hasDisplayAssertion = false
-            displayAssertionID = IOPMAssertionID(0)
-        }
+        systemPowerAssertion.release()
+        displayPowerAssertion.release()
     }
 }

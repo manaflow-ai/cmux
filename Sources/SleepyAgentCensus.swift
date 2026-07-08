@@ -23,6 +23,10 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
         return cached
     }
 
+    static func runningAgentCount() -> Int {
+        compute().total
+    }
+
     private static func compute() -> SleepyAgentCounts {
         guard let app = AppDelegate.shared else { return SleepyAgentCounts() }
         var counts = SleepyAgentCounts()
