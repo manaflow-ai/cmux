@@ -52,9 +52,8 @@ extension RestorableAgentSessionIndex {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan, and the
-        // OpenCode, claude-fork-fallback, and registry passes below all walk the same
-        // cmux-scoped process list; memoize so each pid is read once per snapshot.
+        // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
+        // the OpenCode, claude-fork-fallback, and registry passes read each pid once.
         // updateValue (not subscript) so a nil miss is unambiguously stored, not removed.
         var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
         func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {

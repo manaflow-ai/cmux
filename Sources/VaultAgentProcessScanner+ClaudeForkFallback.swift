@@ -217,9 +217,14 @@ extension RestorableAgentSessionIndex {
         detected: ProcessDetectedSnapshotEntry,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     ) -> Bool {
-        guard let earliestStart = detected.agentProcessIDs
-            .compactMap({ processIdentityProvider($0)?.startSeconds }).min() else { return true }
-        return candidate.updatedAt >= TimeInterval(earliestStart)
+        // Full subsecond start time: comparing whole seconds would let a record updated
+        // at 15.1s survive a fork process started at 15.9s within the same second.
+        let startTimes = detected.agentProcessIDs.compactMap { pid -> TimeInterval? in
+            guard let identity = processIdentityProvider(pid) else { return nil }
+            return TimeInterval(identity.startSeconds) + TimeInterval(identity.startMicroseconds) / 1_000_000
+        }
+        guard let earliestStart = startTimes.min() else { return true }
+        return candidate.updatedAt >= earliestStart
     }
 
     /// A `.forkParentFallback` detection is claude-kind identity inferred from a live
