@@ -293,11 +293,37 @@ private func cmuxInjectedClaudeHookSettingsArgumentPrefixEnd(_ args: [String]) -
     return nil
 }
 
-/// Mirrors the claude wrapper's injected-settings markers used by
-/// `AgentLaunchSanitizer`'s hook-settings replacement (`claude-hook` script
-/// paths / `hooks claude` subcommands).
+/// Matches only the live cmux Claude wrapper's injected settings shape. This is
+/// used as executable-identity proof, so unlike the resume sanitizer's legacy
+/// stripping path it must not accept arbitrary user JSON that merely mentions
+/// `hooks claude` or `claude-hook`.
 private func isCmuxInjectedClaudeHookSettingsValue(_ value: String) -> Bool {
-    value.contains("claude-hook") || value.contains("hooks claude")
+    guard let data = value.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          object["preferredNotifChannel"] as? String == "notifications_disabled",
+          let hooks = object["hooks"] else {
+        return false
+    }
+    return containsCmuxClaudeWrapperHookCommand(hooks)
+}
+
+private func containsCmuxClaudeWrapperHookCommand(_ value: Any) -> Bool {
+    switch value {
+    case let string as String:
+        return isCmuxClaudeWrapperHookCommand(string)
+    case let array as [Any]:
+        return array.contains { containsCmuxClaudeWrapperHookCommand($0) }
+    case let dictionary as [String: Any]:
+        return dictionary.values.contains { containsCmuxClaudeWrapperHookCommand($0) }
+    default:
+        return false
+    }
+}
+
+private func isCmuxClaudeWrapperHookCommand(_ command: String) -> Bool {
+    let normalized = command.replacingOccurrences(of: "\\", with: "/")
+    return normalized.contains("CMUX_CLAUDE_HOOK_CMUX_BIN") &&
+        normalized.contains(" hooks claude ")
 }
 
 /// The npm package directory each marker agent's runtime entrypoint lives in.
