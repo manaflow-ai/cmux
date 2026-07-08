@@ -31,11 +31,14 @@ import CmuxSidebar
 private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 private typealias StoredShortcut = cmux_DEV.StoredShortcut
+// Internal unique-named alias: cross-file helpers can't expose the private alias above.
+typealias BrowserConfigStoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
 private typealias BrowserThemeMode = cmux.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 private typealias StoredShortcut = cmux.StoredShortcut
+typealias BrowserConfigStoredShortcut = cmux.StoredShortcut
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
@@ -3055,7 +3058,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func withTemporaryShortcut(
         action: KeyboardShortcutSettings.Action,
-        shortcut: StoredShortcut,
+        shortcut: BrowserConfigStoredShortcut,
         _ body: () -> Void
     ) {
         let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
@@ -3135,8 +3138,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
-    var commandWCloseTabShortcut: StoredShortcut {
-        StoredShortcut(key: "w", command: true, shift: false, option: false, control: false, keyCode: 13)
+    var commandWCloseTabShortcut: BrowserConfigStoredShortcut {
+        BrowserConfigStoredShortcut(key: "w", command: true, shift: false, option: false, control: false, keyCode: 13)
     }
 
     func closeBrowserPanel(_ panel: BrowserPanel) {
