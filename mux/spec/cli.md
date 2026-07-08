@@ -52,6 +52,8 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | --- | --- | --- | --- | --- |
 | `identify` | implemented | none | global flags | one metadata line |
 | `list-workspaces` | implemented | none | global flags | tree lines |
+| `export-layout` | implemented | none | `--screen <id>` | JSON result object |
+| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>` | screen and pane/surface lines |
 | `send` | implemented | `--surface <id>` | `--text <text>`, `--bytes <base64>` | none |
 | `read-screen` | implemented | `--surface <id>` | none | screen text |
 | `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
@@ -61,6 +63,11 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
 | `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
 | `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
+| `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
+| `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
+| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
+| `zoom-pane` | implemented | none | `--pane <id>`, `--mode toggle|on|off` | zoom state line |
+| `process-info` | implemented | `--surface <id>` | none | process metadata line |
 | `set-default-colors` | implemented | none | `--fg #rrggbb`, `--bg #rrggbb` | none |
 | `close-surface` | implemented | `--surface <id>` | none | none |
 | `close-pane` | implemented | `--pane <id>` | none | none |

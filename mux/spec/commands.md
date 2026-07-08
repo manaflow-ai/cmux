@@ -46,6 +46,7 @@ object{
       name: string|null,
       active: boolean,
       active_pane: Id,
+      zoomed_pane: Id|null,
       layout: Layout,
       panes: array<Pane>
     }>
@@ -58,6 +59,13 @@ object{
 ```text
 object{type:"leaf",pane:Id}
 | object{type:"split",dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+```
+
+`DeclarativeLayout`:
+
+```text
+object{type:"leaf",cwd?:string,command?:array<string>}
+| object{type:"split",dir:"right"|"down",ratio:float32,a:DeclarativeLayout,b:DeclarativeLayout}
 ```
 
 `Pane`:
@@ -166,6 +174,60 @@ Example:
 {"id":2,"cmd":"list-workspaces"}
 {"id":2,"ok":true,"data":{"workspaces":[{"id":4,"name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
+
+### export-layout
+
+| Field | Value |
+| --- | --- |
+| name | `export-layout` |
+| status | implemented |
+| since | protocol 6 |
+
+Returns one screen's canonical split tree and the surface ids attached to each leaf pane. Zoom state does not rewrite the exported tree.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screen` | `Id` | default active screen | Must identify a screen |
+
+Result:
+
+```text
+object{layout:Layout,panes:array<object{pane:Id,surfaces:array<Id>}>}
+```
+
+Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
+
+CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSON stdout both print the exact result object.
+
+### apply-layout
+
+| Field | Value |
+| --- | --- |
+| name | `apply-layout` |
+| status | implemented |
+| since | protocol 6 |
+
+Creates a new screen in the given or active workspace from a declarative split tree. Each leaf creates a new pane with one PTY surface. `command` is argv (`array<string>`), not a shell string. Ratios use the same clamp path as `set-ratio`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | default active workspace | Existing workspace; if omitted and none exists, one is created |
+| `name` | `string` | default null | New screen name |
+| `layout` | `DeclarativeLayout` | required | Must contain at least one leaf |
+
+Result:
+
+```text
+object{screen:Id,panes:array<object{pane:Id,surface:Id}>}
+```
+
+Errors: `unknown workspace <id>`, `layout must contain at least one leaf`, `leaf command must not be empty`, spawn or PTY error string, `bad request: ...`.
+
+CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] --layout <json>`; plain stdout prints the new screen and created pane/surface pairs; JSON stdout prints the exact result object.
 
 ### send
 
@@ -617,6 +679,112 @@ Example:
 {"id":11,"cmd":"set-ratio","pane":2,"dir":"right","ratio":0.7}
 {"id":11,"ok":true,"data":{}}
 ```
+
+### pane-neighbor
+
+| Field | Value |
+| --- | --- |
+| name | `pane-neighbor` |
+| status | implemented |
+| since | protocol 6 |
+
+Queries the directional adjacent pane in the screen split layout. It does not change focus.
+
+Params: `object{pane:Id,dir:"left"|"right"|"up"|"down"}`.
+
+Result:
+
+```text
+object{pane:Id|null}
+```
+
+Errors: `unknown pane <id>`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `pane-neighbor`; flags `--pane <id> --dir left|right|up|down`; plain stdout prints the pane id or `null`; JSON stdout prints the exact result object.
+
+### focus-direction
+
+| Field | Value |
+| --- | --- |
+| name | `focus-direction` |
+| status | implemented |
+| since | protocol 6 |
+
+Moves focus from the supplied pane, or the active pane, to its directional neighbor.
+
+Params: `object{pane?:Id,dir:"left"|"right"|"up"|"down"}`.
+
+Result:
+
+```text
+object{pane:Id}
+```
+
+Errors: `no active pane`, `unknown pane <id>`, `no neighbor`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `focus-direction`; flags `[--pane <id>] --dir left|right|up|down`; plain stdout prints the focused pane id; JSON stdout prints the exact result object.
+
+### swap-pane
+
+| Field | Value |
+| --- | --- |
+| name | `swap-pane` |
+| status | implemented |
+| since | protocol 6 |
+
+Exchanges two pane leaves in the split tree, preserving each pane's tabs and all split ratios. The target is either a directional neighbor or an explicit pane id.
+
+Params: `object{pane:Id,dir:"left"|"right"|"up"|"down"}` or `object{pane:Id,target:Id}`.
+
+Result: `object{}`.
+
+Errors: `one of dir or target is required`, `use only one of dir or target`, `no neighbor`, `unknown pane/target`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `swap-pane`; flags `--pane <id> (--dir left|right|up|down | --target <id>)`; plain stdout no output; JSON stdout exact result object.
+
+### zoom-pane
+
+| Field | Value |
+| --- | --- |
+| name | `zoom-pane` |
+| status | implemented |
+| since | protocol 6 |
+
+Sets per-screen zoom state. A zoomed pane renders as the only pane in its screen; the canonical split tree is preserved for restore and export.
+
+Params: `object{pane?:Id,mode?:"toggle"|"on"|"off"}`. Defaults: active pane and `toggle`.
+
+Result:
+
+```text
+object{pane:Id,zoomed:boolean,zoomed_pane:Id|null}
+```
+
+Errors: `no active pane`, `unknown pane <id>`, bad `mode`, `bad request: ...`.
+
+CLI mapping: verb `zoom-pane`; flags `[--pane <id>] [--mode toggle|on|off]`; plain stdout prints zoom state; JSON stdout prints the exact result object.
+
+### process-info
+
+| Field | Value |
+| --- | --- |
+| name | `process-info` |
+| status | implemented |
+| since | protocol 6 |
+
+Returns PTY child metadata for a surface.
+
+Params: `object{surface:Id}`.
+
+Result:
+
+```text
+object{pid:uint32|null,command:string|null,cwd:string|null}
+```
+
+Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
+
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
 
 ### set-default-colors
 

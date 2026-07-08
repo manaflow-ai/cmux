@@ -148,6 +148,11 @@ pub struct SurfaceResizedEvent {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct LayoutChangedEvent {
+    pub screen: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct VtStateEvent {
     pub surface: u64,
     pub cols: u16,
@@ -173,6 +178,7 @@ pub struct ResizedEvent {
 #[derive(Debug, Clone)]
 pub enum Event {
     TreeChanged,
+    LayoutChanged(LayoutChangedEvent),
     SurfaceOutput(SurfaceEvent),
     SurfaceResized(SurfaceResizedEvent),
     SurfaceExited(SurfaceEvent),
@@ -644,6 +650,7 @@ fn parse_event(value: Value) -> Event {
     let event = value.get("event").and_then(Value::as_str).unwrap_or_default();
     match event {
         "tree-changed" => Event::TreeChanged,
+        "layout-changed" => parse_typed(value).map_or_else(Event::Unknown, Event::LayoutChanged),
         "surface-output" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceOutput),
         "surface-resized" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceResized),
         "surface-exited" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceExited),
