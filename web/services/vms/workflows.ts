@@ -31,7 +31,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { maxActiveVmsForPlan } from "./entitlements";
-import { isProviderNotFoundError } from "./providerErrors";
+import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
@@ -1321,7 +1321,7 @@ export function revokeExpiredIdentityLeases(input: {
       const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
         Effect.as(true),
         Effect.catchAll((err) => {
-          if (isProviderNotFoundError(err.cause)) return Effect.succeed(true);
+          if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
           return Effect.succeed(false);
         }),
       );
@@ -1581,7 +1581,7 @@ function revokeActiveIdentities(
       const revoked = yield* revokeSSHIdentityForCleanup(providers, vm.provider, identityHandle).pipe(
         Effect.as(true),
         Effect.catchAll((err) => {
-          if (isProviderNotFoundError(err.cause)) return Effect.succeed(true);
+          if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
           if (!options.failOnCleanupError) return Effect.succeed(false);
           return repo.markLeasesRevoked(revokedIds).pipe(
             Effect.andThen(Effect.fail(err)),
