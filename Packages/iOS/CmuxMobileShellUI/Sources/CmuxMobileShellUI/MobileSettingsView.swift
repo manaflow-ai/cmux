@@ -368,8 +368,7 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry from Settings: walk the explainer again. `onComplete`
                 // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
+                // current blocker is highlighted, since Settings means setup passed.
                 OnboardingFlowView(
                     onComplete: { showingOnboarding = false },
                     setupHelpHighlight: setupHelpHighlight
@@ -377,9 +376,7 @@ struct MobileSettingsView: View {
             }
             .sheet(isPresented: $showingSetupHelp) {
                 // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings is reached only from
-                // the connected workspace list, so there is no current blocker to
-                // mark "You are here".
+                // gate with its concrete next step. Settings means setup passed.
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
             .mobileSettingsAccountDeletionAlerts(
