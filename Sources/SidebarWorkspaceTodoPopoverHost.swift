@@ -1,11 +1,123 @@
 import AppKit
 import SwiftUI
 
-/// Hosts a workspace-todo popover (the glyph's status popover and the
-/// checklist popover) in a real NSPopover. SwiftUI's native `.popover()`
-/// doesn't reliably let an embedded TextField become first responder in
-/// cmux's focus-managed environment because the terminal keeps grabbing
-/// focus back; the checklist popover's add-item field needs one.
+/// Invisible popover content view that promotes the popover window to key as
+/// soon as AppKit attaches it, so real controls receive keyboard input.
+struct PopoverKeyWindowElevator: NSViewRepresentable {
+    struct PromotionResult {
+        let hasWindow: Bool
+        let canBecomeKey: Bool
+        let wasKeyWindow: Bool
+        let isKeyWindow: Bool
+        let windowVisible: Bool
+        let occlusionVisible: Bool
+        let appActive: Bool
+        let keyWindowKind: String
+    }
+
+    final class KeyElevatingView: NSView {
+        private var occlusionObserver: NSObjectProtocol?
+
+        deinit {
+            removeOcclusionObserver()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeOcclusionObserver()
+            guard let window else { return }
+            let promotion = PopoverKeyWindowElevator.promoteToKeyIfPossible(window)
+#if DEBUG
+            PopoverKeyWindowElevator.logPromotion("focus.todoPopover.elevator", promotion)
+#endif
+            guard promotion.canBecomeKey,
+                  !promotion.isKeyWindow,
+                  !promotion.occlusionVisible else { return }
+            occlusionObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification,
+                object: window,
+                queue: nil
+            ) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          let window = notification.object as? NSWindow else { return }
+                    guard window.occlusionState.contains(.visible) else { return }
+#if DEBUG
+                    let retry = PopoverKeyWindowElevator.promoteToKeyIfPossible(window)
+                    PopoverKeyWindowElevator.logPromotion("focus.todoPopover.elevator.visible", retry)
+#else
+                    _ = PopoverKeyWindowElevator.promoteToKeyIfPossible(window)
+#endif
+                    self.removeOcclusionObserver()
+                }
+            }
+        }
+
+        private func removeOcclusionObserver() {
+            guard let occlusionObserver else { return }
+            NotificationCenter.default.removeObserver(occlusionObserver)
+            self.occlusionObserver = nil
+        }
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        KeyElevatingView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    @discardableResult
+    static func promoteToKeyIfPossible(_ window: NSWindow?) -> PromotionResult {
+        guard let window else {
+            return PromotionResult(
+                hasWindow: false,
+                canBecomeKey: false,
+                wasKeyWindow: false,
+                isKeyWindow: false,
+                windowVisible: false,
+                occlusionVisible: false,
+                appActive: NSApp.isActive,
+                keyWindowKind: String(describing: NSApp.keyWindow.map { type(of: $0) })
+            )
+        }
+        let wasKeyWindow = window.isKeyWindow
+        let canBecomeKey = window.canBecomeKey
+        if canBecomeKey, !wasKeyWindow {
+            window.makeKey()
+        }
+        return PromotionResult(
+            hasWindow: true,
+            canBecomeKey: canBecomeKey,
+            wasKeyWindow: wasKeyWindow,
+            isKeyWindow: window.isKeyWindow,
+            windowVisible: window.isVisible,
+            occlusionVisible: window.occlusionState.contains(.visible),
+            appActive: NSApp.isActive,
+            keyWindowKind: String(describing: NSApp.keyWindow.map { type(of: $0) })
+        )
+    }
+
+#if DEBUG
+    static func logPromotion(_ prefix: String, _ promotion: PromotionResult) {
+        cmuxDebugLog(
+            "\(prefix) windowPresent=\(promotion.hasWindow) "
+                + "canBecomeKey=\(promotion.canBecomeKey) "
+                + "keyBefore=\(promotion.wasKeyWindow) keyAfter=\(promotion.isKeyWindow) "
+                + "windowVisible=\(promotion.windowVisible) "
+                + "occlusionVisible=\(promotion.occlusionVisible) "
+                + "appActive=\(promotion.appActive) "
+                + "keyWindowKind=\(promotion.keyWindowKind)"
+        )
+    }
+#endif
+}
+
+/// Hosts workspace-todo popovers that need the generic NSPopover lifecycle:
+/// the sidebar checklist popover and the todo pane header's status popover.
+/// SwiftUI's native `.popover()` doesn't reliably let an embedded TextField
+/// become first responder in cmux's focus-managed environment because the
+/// terminal keeps grabbing focus back; the checklist popover's add-item field
+/// needs one.
 ///
 /// Follows the `SectionPopoverHost` pattern in `SessionIndexView.swift`:
 /// - DO NOT set `sizingOptions = [.preferredContentSize]` on the hosting
@@ -148,6 +260,15 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             if isPresented {
                 isPresented = false
             }
+        }
+
+        func popoverDidShow(_ notification: Notification) {
+#if DEBUG
+            let promotion = PopoverKeyWindowElevator.promoteToKeyIfPossible(hostingController.view.window)
+            PopoverKeyWindowElevator.logPromotion("focus.todoPopover.didShow", promotion)
+#else
+            _ = PopoverKeyWindowElevator.promoteToKeyIfPossible(hostingController.view.window)
+#endif
         }
 
         private func makePopover() -> NSPopover {

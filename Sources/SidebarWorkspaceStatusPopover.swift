@@ -94,7 +94,8 @@ struct SidebarWorkspaceStatusPopoverModel: Equatable {
 /// The glyph-click status popover: the Auto row, a divider, the five status
 /// lanes (each drawing the real glyph), and — while a lane is pinned — a
 /// footnote explaining the pin auto-clears. Arrow keys move the highlight,
-/// Return applies and closes, Esc closes, and a lane's first letter jumps.
+/// Return or click applies and closes, Esc closes, and a lane's first letter
+/// jumps.
 struct SidebarWorkspaceStatusPopover: View {
     let model: SidebarWorkspaceStatusPopoverModel
     /// Applies a lane (`nil` = Auto) through the shared status action path.
@@ -157,6 +158,7 @@ struct SidebarWorkspaceStatusPopover: View {
         }
         .padding(6)
         .frame(width: 200, alignment: .leading)
+        .background(PopoverKeyWindowElevator())
         .focusable()
         .focusEffectDisabled()
         .focused($isFocused)
@@ -228,19 +230,15 @@ struct SidebarWorkspaceStatusPopover: View {
         .accessibilityIdentifier("SidebarWorkspaceStatusPopoverLane.\(lane.id)")
     }
 
-    /// Applies a lane WITHOUT closing: the override flows back through the
-    /// glyph control, the model recomputes, and the checkmark + Auto row
-    /// re-render in place, so every pick (including Todo, which is often the
-    /// inferred lane and thus visually identical) gives immediate feedback.
-    /// Dismissal is left to Esc / `onExitCommand` / click-away.
+    /// Applies a lane through the shared status path, then dismisses like a
+    /// standard menu selection.
     private func apply(_ lane: WorkspaceTodoStatusLane) {
         if lane.isNone {
             onSelectNone()
-            onClose()
         } else {
             onSelectLane(lane.status)
-            highlightedIndex = lanes.firstIndex(of: lane) ?? highlightedIndex
         }
+        onClose()
     }
 
     private func applyHighlighted(_ lanes: [WorkspaceTodoStatusLane]) {
@@ -309,10 +307,10 @@ struct SidebarWorkspaceTaskStatusGlyphControl: View {
             .contentShape(Rectangle().inset(by: -3))
         }
         .buttonStyle(.plain)
-        // SwiftUI's native popover (not the NSPopover host) because the
-        // status popover has no TextField that needs first responder, and an
-        // embedded NSViewRepresentable inside a `.onHover`-tracked sidebar row
-        // suppresses the row's hover tracking (hover-close "x" never appears).
+        // SwiftUI's native popover (not the NSPopover host). An embedded
+        // NSViewRepresentable inside a `.onHover`-tracked sidebar row
+        // suppresses the row's hover tracking (hover-close "x" never appears),
+        // so any AppKit lifecycle bridge must live inside popover content.
         .popover(
             isPresented: Binding(
                 get: { isPopoverPresented },

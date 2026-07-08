@@ -7,6 +7,7 @@ extension TerminalController {
         "debug.textbox.inline_fixture",
         "debug.textbox.interact",
         "debug.app.activate",
+        "debug.workspace_todo.checklist_add_field",
         "debug.command_palette.toggle",
         "debug.command_palette.rename_tab.open",
         "debug.command_palette.visible",

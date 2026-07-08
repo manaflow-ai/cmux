@@ -6,10 +6,9 @@ import SwiftUI
 ///
 /// It exists because a SwiftUI `TextField` does not reliably become first
 /// responder inside an `NSPopover` window while cmux's terminal is the focused
-/// pane behind it: the terminal keeps AppKit first responder, so keystrokes
-/// fall through to it. This field, like the sidebar rename field, calls
-/// `window.makeFirstResponder(self)` the moment it enters its window, so it
-/// wins first responder inside the popover window and typing lands here.
+/// pane behind it: the terminal keeps AppKit first responder unless the
+/// popover window becomes key. This field, like the sidebar rename field,
+/// calls `window.makeFirstResponder(self)` the moment it enters its window.
 ///
 /// Behavior is checklist-specific (NOT rename): Return commits, Escape cancels,
 /// and losing focus commits any non-empty text (so clicking a checkbox mid-type
@@ -108,12 +107,17 @@ final class FocusGrabbingTextField: NSTextField {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-        // Take first responder on appear. This wins keyboard focus when the
-        // field lives in the main window (like the sidebar rename field), which
-        // is why the checklist card is rendered in-window rather than a floating
-        // NSPopover (a separate window cmux keeps non-key, so keys fall to the
-        // terminal).
+#if DEBUG
+        let windowKind = String(describing: type(of: window))
+        let makeFirstResponderResult = window.makeFirstResponder(self)
+        cmuxDebugLog(
+            "focus.todoPopover.textField windowKind=\(windowKind) "
+                + "isKeyWindow=\(window.isKeyWindow) "
+                + "makeFirstResponder=\(makeFirstResponderResult)"
+        )
+#else
         window.makeFirstResponder(self)
+#endif
         if selectsAllOnFocus {
             currentEditor()?.selectAll(nil)
         } else if let editor = currentEditor() {
