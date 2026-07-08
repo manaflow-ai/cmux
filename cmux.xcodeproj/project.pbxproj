@@ -1014,6 +1014,7 @@
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A6AC72050000000000000001 /* SpinnerCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72050000000000000002 /* SpinnerCard.swift */; };
+		A6AC72090000000000000001 /* SpinnerEnergy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72090000000000000002 /* SpinnerEnergy.swift */; };
 		5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */; };
 		A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */; };
 		A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72070000000000000002 /* SpinnerSpec.swift */; };
@@ -2293,6 +2294,7 @@
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 			C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		A6AC72050000000000000002 /* SpinnerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerCard.swift; sourceTree = "<group>"; };
+		A6AC72090000000000000002 /* SpinnerEnergy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerEnergy.swift; sourceTree = "<group>"; };
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
 		A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryRootView.swift; sourceTree = "<group>"; };
 		A6AC72070000000000000002 /* SpinnerSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerSpec.swift; sourceTree = "<group>"; };
@@ -3145,6 +3147,7 @@
 					5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */,
 					A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */,
 					A6AC72070000000000000002 /* SpinnerSpec.swift */,
+					A6AC72090000000000000002 /* SpinnerEnergy.swift */,
 					A6AC72050000000000000002 /* SpinnerCard.swift */,
 					A6AC72040000000000000002 /* OverlayComparison.swift */,
 					A6AC72030000000000000002 /* NativeSpinner.swift */,
@@ -4967,6 +4970,7 @@
 				5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */,
 					A5001226 /* SocketControlMode+Display.swift in Sources */,
 					A6AC72050000000000000001 /* SpinnerCard.swift in Sources */,
+					A6AC72090000000000000001 /* SpinnerEnergy.swift in Sources */,
 					5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */,
 					A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */,
 					A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */,
