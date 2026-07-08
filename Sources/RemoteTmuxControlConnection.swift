@@ -962,6 +962,7 @@ final class RemoteTmuxControlConnection {
                 for pane in closing.paneIDsInOrder {
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
+                    paneHeaderLabels[pane] = nil
                 }
             }
             activePaneByWindow[id] = nil
