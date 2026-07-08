@@ -248,6 +248,26 @@ struct DockPrimitiveControlTests {
         #expect(ambiguousStore.errorMessage?.contains("matches multiple") == true)
     }
 
+    @Test("UUID-shaped browser profile names fall back to name lookup")
+    func uuidShapedBrowserProfileNamesFallBackToNameLookup() throws {
+        let defaultID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let profileID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
+        let uuidShapedName = "00000000-0000-0000-0000-000000000003"
+
+        var index = DockBrowserProfileIndex(
+            defaultProfileID: defaultID,
+            defaultProfileDisplayName: "Default"
+        )
+        index.addProfile(id: defaultID, displayName: "Default", slug: "default")
+        index.addProfile(id: profileID, displayName: uuidShapedName, slug: "uuid-shaped")
+
+        let resolution = try index.resolve(uuidShapedName)
+
+        #expect(resolution.id == profileID)
+        #expect(resolution.displayName == uuidShapedName)
+        #expect(!resolution.isDefault)
+    }
+
     @Test("Project trust fingerprints bind browser profile identity")
     @MainActor
     func projectTrustFingerprintBindsBrowserProfileIdentity() throws {

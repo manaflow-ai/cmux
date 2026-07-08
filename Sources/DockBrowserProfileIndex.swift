@@ -36,14 +36,13 @@ struct DockBrowserProfileIndex {
         }
 
         if let uuid = UUID(uuidString: normalizedReference) {
-            guard let displayName = displayNamesByID[uuid] else {
-                throw Self.unknownProfileError(normalizedReference)
+            if let displayName = displayNamesByID[uuid] {
+                return DockBrowserProfileResolution(
+                    id: uuid,
+                    displayName: displayName,
+                    isDefault: uuid == defaultProfileID
+                )
             }
-            return DockBrowserProfileResolution(
-                id: uuid,
-                displayName: displayName,
-                isDefault: uuid == defaultProfileID
-            )
         }
 
         let ids = idsByReferenceKey[Self.lookupKey(normalizedReference)] ?? []
