@@ -24,7 +24,11 @@ import {
   vaultUploadGrants,
   vaultUploadTombstones,
 } from "../../../db/schema";
-import { ACTIVE_STRIPE_PRO_STATUSES } from "../../../services/billing/pro";
+import {
+  ACTIVE_STRIPE_PRO_STATUSES,
+  syncProPlanMetadata,
+  type ProMetadataCustomer,
+} from "../../../services/billing/pro";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
 import { deleteObject } from "../../../services/vault/storage";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
@@ -37,7 +41,7 @@ export const dynamic = "force-dynamic";
 type DeletableStackUser = {
   readonly id: string;
   readonly delete: () => Promise<void>;
-};
+} & ProMetadataCustomer;
 
 export async function DELETE(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
@@ -50,6 +54,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const destroyedVms = await destroyPersonalCloudVms(user.id);
     await deleteVaultObjectsForAccount(user.id);
     await resolveUserBillingForAccountDeletion(user.id);
+    await clearUserBillingEntitlementsForAccountDeletion(stackUser);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -86,7 +91,8 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
   const user = await getStackServerApp().getUser({
     tokenStore: { accessToken, refreshToken },
   });
-  if (!user || typeof (user as Partial<DeletableStackUser>).delete !== "function") return null;
+  const candidate = user as Partial<DeletableStackUser>;
+  if (!user || typeof candidate.delete !== "function" || typeof candidate.update !== "function") return null;
   return user as DeletableStackUser;
 }
 
@@ -177,6 +183,10 @@ async function resolveUserBillingForAccountDeletion(userId: string): Promise<voi
   }
 }
 
+async function clearUserBillingEntitlementsForAccountDeletion(user: DeletableStackUser): Promise<void> {
+  await syncProPlanMetadata(user, false);
+}
+
 async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
   const db = cloudDb();
   await db.transaction(async (tx) => {
@@ -237,7 +247,7 @@ function personalUsageScope(userId: string) {
 }
 
 const SENSITIVE_ERROR_TEXT =
-  /(srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]{10,})/g;
+  /(Bearer\s+\S+|eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,})/g;
 
 function logAccountDeleteError(label: string, error: unknown): void {
   console.error(label, sanitizedErrorSummary(error));

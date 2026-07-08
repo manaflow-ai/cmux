@@ -5,7 +5,7 @@ import Testing
 struct AccountDeletionClientTests {
     @Test func deleteAccountSendsNativeAuthHeaders() async throws {
         let recorder = RecordedAccountDeletionRequest()
-        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test/base") { request in
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test/base", requestTimeout: 12) { request in
             await recorder.record(request)
             return (
                 Data(),
@@ -23,6 +23,7 @@ struct AccountDeletionClientTests {
         let request = await recorder.request
         #expect(request?.url?.absoluteString == "https://cmux.test/base/api/account")
         #expect(request?.httpMethod == "DELETE")
+        #expect(request?.timeoutInterval == 12)
         #expect(request?.value(forHTTPHeaderField: "Authorization") == "Bearer access-token")
         #expect(request?.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh-token")
     }
@@ -59,6 +60,16 @@ struct AccountDeletionClientTests {
         }
 
         await #expect(throws: AccountDeletionRequestError.stackDeleteIncomplete) {
+            try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
+        }
+    }
+
+    @Test func deleteAccountMapsTransportTimeout() async {
+        let client = AccountDeletionClient(apiBaseURL: "https://cmux.test") { _ in
+            throw URLError(.timedOut)
+        }
+
+        await #expect(throws: AccountDeletionRequestError.timedOut) {
             try await client.deleteAccount(accessToken: "access-token", refreshToken: "refresh-token")
         }
     }

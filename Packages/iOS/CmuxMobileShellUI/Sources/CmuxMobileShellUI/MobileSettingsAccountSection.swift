@@ -99,6 +99,10 @@ struct MobileSettingsAccountSection: View {
             } catch {
                 if case AccountDeletionRequestError.stackDeleteIncomplete = error {
                     deleteAccountFailureKind = .stackDeleteIncomplete
+                } else if case AccountDeletionRequestError.timedOut = error {
+                    deleteAccountFailureKind = .timedOut
+                } else if case AuthError.timedOut = error {
+                    deleteAccountFailureKind = .timedOut
                 } else {
                     deleteAccountFailureKind = .generic
                 }
@@ -124,6 +128,7 @@ struct MobileSettingsAccountSection: View {
 private enum DeleteAccountFailureKind {
     case generic
     case stackDeleteIncomplete
+    case timedOut
 
     var localizedMessage: String {
         switch self {
@@ -136,6 +141,11 @@ private enum DeleteAccountFailureKind {
             return L10n.string(
                 "mobile.settings.deleteAccountPartialFailureMessage",
                 defaultValue: "Your cmux data was deleted, but account sign-in cleanup did not finish. Try Delete Account again to complete deletion."
+            )
+        case .timedOut:
+            return L10n.string(
+                "mobile.settings.deleteAccountTimedOutMessage",
+                defaultValue: "Account deletion timed out. Check your connection and try again."
             )
         }
     }

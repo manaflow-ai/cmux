@@ -4,6 +4,7 @@ public enum AccountDeletionRequestError: Error, Equatable {
     case invalidAPIBaseURL
     case unauthorized
     case stackDeleteIncomplete
+    case timedOut
     case rejected(statusCode: Int)
     case invalidResponse
 }
@@ -16,15 +17,18 @@ nonisolated private struct AccountDeletionErrorResponse: Decodable {
 
 struct AccountDeletionClient: Sendable {
     private let apiBaseURL: String
+    private let requestTimeout: TimeInterval
     private let load: AccountDeletionRequestLoader
 
     init(
         apiBaseURL: String,
+        requestTimeout: TimeInterval = 60,
         load: @escaping AccountDeletionRequestLoader = { request in
             try await URLSession.shared.data(for: request)
         }
     ) {
         self.apiBaseURL = apiBaseURL
+        self.requestTimeout = requestTimeout
         self.load = load
     }
 
@@ -34,12 +38,18 @@ struct AccountDeletionClient: Sendable {
             throw AccountDeletionRequestError.invalidAPIBaseURL
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, timeoutInterval: requestTimeout)
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
 
-        let (data, response) = try await load(request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await load(request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw AccountDeletionRequestError.timedOut
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AccountDeletionRequestError.invalidResponse
         }
@@ -68,9 +78,13 @@ extension AuthCoordinator {
     /// after this succeeds so app-level teardown hooks run in the right order.
     public func deleteAccount() async throws {
         let tokens = try await currentTokens()
-        try await AccountDeletionClient(apiBaseURL: apiBaseURL).deleteAccount(
-            accessToken: tokens.accessToken,
-            refreshToken: tokens.refreshToken
-        )
+        let apiBaseURL = apiBaseURL
+        let timeout = timeouts.network
+        try await runPhase(.accountDeletion, timeout: timeout) {
+            try await AccountDeletionClient(apiBaseURL: apiBaseURL).deleteAccount(
+                accessToken: tokens.accessToken,
+                refreshToken: tokens.refreshToken
+            )
+        }
     }
 }

@@ -2,9 +2,20 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { cloudVmBillingGrants } from "../db/schema";
 
+const ACCOUNT_USER_ID = "account-user-1";
+const storageModule = await import("../services/vault/storage");
+const realDeleteObject = storageModule.deleteObject;
+const workflowsModule = await import("../services/vms/workflows");
+const realDestroyVm = workflowsModule.destroyVm;
+const realListUserVms = workflowsModule.listUserVms;
+const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
+
 const deleteStackUser = mock(async () => {
   routeEvents.push("stack-delete");
   if (stackDeleteError) throw stackDeleteError;
+});
+const updateStackUser = mock(async () => {
+  routeEvents.push("metadata-update");
 });
 const getUser = mock(async () => stackUser(stackUserIds.shift()));
 const transaction = mock(async (...args: unknown[]) => {
@@ -105,7 +116,12 @@ mock.module("../db/client", () => ({
 }));
 
 mock.module("../services/vault/storage", () => ({
-  deleteObject,
+  ...storageModule,
+  deleteObject: ((...args: Parameters<typeof realDeleteObject>) => {
+    const [objectKey] = args;
+    if (isAccountDeletionVaultObject(objectKey)) return deleteObject(...args);
+    return realDeleteObject(...args);
+  }) as typeof realDeleteObject,
 }));
 
 mock.module("../services/billing/stripe", () => ({
@@ -117,9 +133,22 @@ mock.module("../services/billing/stripe", () => ({
 }));
 
 mock.module("../services/vms/workflows", () => ({
-  destroyVm,
-  listUserVms,
-  runVmWorkflow,
+  ...workflowsModule,
+  destroyVm: ((...args: Parameters<typeof realDestroyVm>) => {
+    const [input] = args;
+    if (input.userId === ACCOUNT_USER_ID) return destroyVm(...args);
+    return realDestroyVm(...args);
+  }) as typeof realDestroyVm,
+  listUserVms: ((...args: Parameters<typeof realListUserVms>) => {
+    const [userId] = args;
+    if (userId === ACCOUNT_USER_ID) return listUserVms(...args);
+    return realListUserVms(...args);
+  }) as typeof realListUserVms,
+  runVmWorkflow: ((...args: unknown[]) => {
+    const [program] = args;
+    if (isAccountDeletionWorkflowProgram(program)) return runVmWorkflow(...args);
+    return realRunVmWorkflow(...args);
+  }) as typeof workflowsModule.runVmWorkflow,
 }));
 
 const { DELETE } = await import("../app/api/account/route");
@@ -128,6 +157,7 @@ beforeEach(() => {
   console.error = consoleError as typeof console.error;
   consoleError.mockClear();
   deleteStackUser.mockClear();
+  updateStackUser.mockClear();
   getUser.mockClear();
   transaction.mockClear();
   mockDb.select.mockClear();
@@ -194,8 +224,11 @@ describe("account deletion route", () => {
     ]);
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
+    expect(updateStackUser).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: {},
+    });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(routeEvents).toEqual(["transaction", "stack-delete"]);
+    expect(routeEvents).toEqual(["metadata-update", "transaction", "stack-delete"]);
   });
 
   test("does not delete rows or Stack user when vault object cleanup fails", async () => {
@@ -238,7 +271,9 @@ describe("account deletion route", () => {
   });
 
   test("returns a retryable partial-failure response when Stack deletion fails after cmux data deletion", async () => {
-    stackDeleteError = new Error("Bearer access-token leaked by upstream");
+    stackDeleteError = new Error(
+      "raw eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhY2NvdW50LXVzZXItMSJ9.signaturePart leaked by upstream",
+    );
 
     const response = await DELETE(accountDeletionRequest());
 
@@ -250,11 +285,14 @@ describe("account deletion route", () => {
     });
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deletedTableCount).toBeGreaterThan(10);
+    expect(updateStackUser).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: {},
+    });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(routeEvents).toEqual(["transaction", "stack-delete"]);
+    expect(routeEvents).toEqual(["metadata-update", "transaction", "stack-delete"]);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.stack_user_failed_after_data_delete",
-      "Error: [redacted] leaked by upstream",
+      "Error: raw [redacted] leaked by upstream",
     );
   });
 
@@ -284,8 +322,28 @@ function stackUser(id = "account-user-1") {
     id,
     displayName: null,
     primaryEmail: "account@example.com",
+    clientReadOnlyMetadata: { cmuxPlan: "pro" },
     selectedTeam: null,
     listTeams: async () => [],
+    update: updateStackUser,
     delete: deleteStackUser,
   };
+}
+
+function isAccountDeletionVaultObject(objectKey: string): boolean {
+  return objectKey.startsWith(`vault/u/${ACCOUNT_USER_ID}/`) ||
+    objectKey === "vault/uploads/grant" ||
+    objectKey === "vault/uploads/tombstone";
+}
+
+function isAccountDeletionWorkflowProgram(program: unknown): boolean {
+  if (!program || typeof program !== "object") return false;
+  const candidate = program as {
+    readonly kind?: unknown;
+    readonly userId?: unknown;
+    readonly input?: { readonly userId?: unknown };
+  };
+  if (candidate.kind === "listUserVms") return candidate.userId === ACCOUNT_USER_ID;
+  if (candidate.kind === "destroyVm") return candidate.input?.userId === ACCOUNT_USER_ID;
+  return false;
 }

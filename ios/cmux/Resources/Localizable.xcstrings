@@ -4098,6 +4098,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccountTimedOutMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account deletion timed out. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの削除がタイムアウトしました。接続を確認してからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountMessage": {
       "extractionState": "manual",
       "localizations": {
