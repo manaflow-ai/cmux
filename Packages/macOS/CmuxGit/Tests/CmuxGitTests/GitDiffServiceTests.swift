@@ -264,15 +264,23 @@ import Testing
             gitExecutableURL: stalledGit,
             processDeadlineSeconds: 0.5
         )
-        let start = Date()
-        let root = service.repositoryRoot(for: repo.path)
-        let elapsed = Date().timeIntervalSince(start)
 
-        // The watchdog must kill the subprocess at ~0.5s; without it this call
-        // blocks for the full 30s sleep (and the phone's RPC timeout would
-        // leave the process running).
-        #expect(root == nil)
-        #expect(elapsed < 5)
+        // Assert on causality, not latency: the watchdog must let this
+        // synchronous call RETURN. We run it off the test thread and wait on its
+        // completion signal. The 5s wait deadline bounds only the failure path
+        // and sits an order of magnitude below the fake git's 30s sleep, so a
+        // working watchdog (kills the subprocess at ~0.5s) signals long before
+        // it, while a broken watchdog never signals and the wait times out,
+        // failing the test deterministically. No measured duration is asserted.
+        let finished = DispatchSemaphore(value: 0)
+        let box = StalledRootBox()
+        DispatchQueue.global().async {
+            box.value = service.repositoryRoot(for: repo.path)
+            finished.signal()
+        }
+        let signalled = finished.wait(timeout: .now() + 5)
+        #expect(signalled == .success)
+        #expect(box.value == nil)
     }
 
     private func makeTempRepo() throws -> URL {
@@ -301,4 +309,12 @@ import Testing
         process.waitUntilExit()
         try #require(process.terminationStatus == 0)
     }
+}
+
+/// Carries the off-thread `repositoryRoot` result back to the test. The write
+/// happens before the semaphore is signalled and the read happens after the
+/// wait returns `.success`, so that ordering (not a lock) makes the single
+/// hand-off memory-safe; hence `@unchecked Sendable`.
+private final class StalledRootBox: @unchecked Sendable {
+    var value: String?
 }
