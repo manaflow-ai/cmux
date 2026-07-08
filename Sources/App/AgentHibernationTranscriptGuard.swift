@@ -1,10 +1,43 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 
 enum AgentHibernationTranscriptGuard {
     struct TeardownTranscriptSnapshot: Sendable {
         let transcriptPath: String
         let snapshotPath: String
+    }
+
+    static let restoreCheckDelaysSeconds: [UInt64] = [20, 60, 180, 600]
+
+    static func runPostTeardownRestoreChecks(
+        snapshot: TeardownTranscriptSnapshot,
+        processIDs: Set<Int>,
+        fileManager: FileManager = .default
+    ) async {
+        // The clobber, if any, lands during Claude's exit path. Wait briefly for
+        // the signaled processes to disappear, then run an immediate restore pass.
+        if !processIDs.isEmpty {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while ContinuousClock.now < deadline {
+                let anyAlive = processIDs.contains { pid in
+                    pid > 0 && pid <= Int(Int32.max) && kill(pid_t(pid), 0) == 0
+                }
+                if !anyAlive { break }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if restoreIfClobbered(snapshot, fileManager: fileManager) { return }
+        }
+
+        // Backstop for SIGHUP-only teardowns with no tracked pid, and for
+        // stragglers past the bounded process-exit window.
+        for delaySeconds in restoreCheckDelaysSeconds {
+            try? await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            if restoreIfClobbered(snapshot, fileManager: fileManager) {
+                return
+            }
+        }
     }
 
     static func resolveTranscriptPath(
@@ -17,23 +50,13 @@ enum AgentHibernationTranscriptGuard {
             return nil
         }
 
-        let configRoot: String
-        if let override = normalized(agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) {
-            let expanded = expandTilde(in: override, homeDirectory: homeDirectory)
-            configRoot = ClaudeConfigDirectoryPath.preferredPath(
-                expanded,
-                fileManager: fileManager,
-                homeDirectory: homeDirectory
-            )
-        } else {
-            configRoot = (homeDirectory as NSString).appendingPathComponent(".claude")
-        }
-
-        let projectRoot = ((configRoot as NSString).appendingPathComponent("projects") as NSString)
-            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
-        for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
-            if isRegularFile(atPath: candidate, fileManager: fileManager) {
-                return candidate
+        for configRoot in claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
+            let projectRoot = ((configRoot as NSString).appendingPathComponent("projects") as NSString)
+                .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory))
+            for candidate in transcriptCandidates(projectRoot: projectRoot, sessionId: agent.sessionId) {
+                if isRegularFile(atPath: candidate, fileManager: fileManager) {
+                    return candidate
+                }
             }
         }
         return nil
@@ -150,6 +173,55 @@ enum AgentHibernationTranscriptGuard {
             return false
         }
         return fileType == .typeRegular
+    }
+
+    private static func directoryExists(atPath path: String, fileManager: FileManager) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private static func claudeConfigRoots(
+        for agent: SessionRestorableAgentSnapshot,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> [String] {
+        if let override = normalized(agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) {
+            let expanded = expandTilde(in: override, homeDirectory: homeDirectory)
+            return [
+                ClaudeConfigDirectoryPath.preferredPath(
+                    expanded,
+                    fileManager: fileManager,
+                    homeDirectory: homeDirectory
+                ),
+            ]
+        }
+
+        var roots: [String] = []
+        var seen: Set<String> = []
+        func appendRoot(_ path: String) {
+            let standardized = (path as NSString).standardizingPath
+            guard seen.insert(standardized).inserted else { return }
+            roots.append(standardized)
+        }
+
+        let accountRoot = (homeDirectory as NSString).appendingPathComponent(".codex-accounts/claude")
+        if directoryExists(atPath: accountRoot, fileManager: fileManager),
+           let accountDirs = try? fileManager.contentsOfDirectory(atPath: accountRoot) {
+            for accountDir in accountDirs.sorted() {
+                let accountPath = (accountRoot as NSString).appendingPathComponent(accountDir)
+                guard directoryExists(atPath: accountPath, fileManager: fileManager) else { continue }
+                appendRoot(accountPath)
+            }
+        }
+        appendRoot((homeDirectory as NSString).appendingPathComponent(".claude"))
+        appendRoot(
+            ClaudeConfigDirectoryPath.preferredPath(
+                (homeDirectory as NSString).appendingPathComponent(".subrouter/codex/claude"),
+                fileManager: fileManager,
+                homeDirectory: homeDirectory
+            )
+        )
+        return roots
     }
 
     private static func defaultSnapshotDirectoryURL() -> URL? {

@@ -296,21 +296,11 @@ final class AgentHibernationController {
                 return
             }
             confirmations.removeValue(forKey: record.key)
-            // This blocking copy must complete before SIGTERM or pty-close suspension can
-            // trigger Claude's interrupted-exit transcript rewrite.
-            let snapshot = AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: record.agent)
-            terminateScopedProcessesForHibernation(record: record)
-            record.workspace.enterAgentHibernation(
-                panelId: record.key.panelId,
-                agent: record.agent,
-                lastActivityAt: Date(timeIntervalSince1970: effectiveLastActivityAt)
+            beginConfirmedTeardown(
+                record: record,
+                confirmationFingerprint: confirmation.fingerprint,
+                effectiveLastActivityAt: effectiveLastActivityAt
             )
-            if let snapshot {
-                Task.detached(priority: .utility) {
-                    try? await Task.sleep(nanoseconds: 20_000_000_000)
-                    AgentHibernationTranscriptGuard.restoreIfClobbered(snapshot)
-                }
-            }
             return
         }
 
@@ -320,6 +310,48 @@ final class AgentHibernationController {
             sampledAt: now,
             dueAt: now + settings.confirmationSeconds
         )
+    }
+
+    /// Runs the transcript snapshot off the main actor, then resumes teardown on the
+    /// main actor only if the pane still qualifies. The snapshot MUST complete before
+    /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
+    /// so the teardown is sequenced after it rather than racing it; the re-validation
+    /// below covers anything that changed during the brief I/O hop.
+    private func beginConfirmedTeardown(
+        record: AgentHibernationRecord,
+        confirmationFingerprint: String,
+        effectiveLastActivityAt: TimeInterval
+    ) {
+        let agent = record.agent
+        Task { @MainActor in
+            let snapshot = await Task.detached(priority: .utility) {
+                AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
+            }.value
+            // Re-validate: the pane must still be exactly as confirmed. Any activity,
+            // scrollback change, hibernation, or surface loss during the hop aborts;
+            // the regular 30s tick will re-arm a fresh confirmation if still idle.
+            guard !record.terminalPanel.isAgentHibernated,
+                  record.terminalPanel.surface.hasLiveSurface,
+                  let currentFingerprint = self.hibernationFingerprint(for: record),
+                  currentFingerprint == confirmationFingerprint,
+                  (self.activityByPanel[record.key] ?? 0) <= effectiveLastActivityAt else {
+                return
+            }
+            self.terminateScopedProcessesForHibernation(record: record)
+            record.workspace.enterAgentHibernation(
+                panelId: record.key.panelId,
+                agent: record.agent,
+                lastActivityAt: Date(timeIntervalSince1970: effectiveLastActivityAt)
+            )
+            guard let snapshot else { return }
+            let processIDs = record.processIDs
+            Task.detached(priority: .utility) {
+                await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+                    snapshot: snapshot,
+                    processIDs: processIDs
+                )
+            }
+        }
     }
 
     private func updateTailFingerprintSample(

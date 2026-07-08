@@ -101,6 +101,59 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
+    func resolveTranscriptPathSearchesAccountRootsAndDefaultClaudeRoot() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/repo"
+        let accountSessionId = "session-account"
+        let accountRoot = home
+            .appendingPathComponent(".codex-accounts", isDirectory: true)
+            .appendingPathComponent("claude", isDirectory: true)
+            .appendingPathComponent("acct-1", isDirectory: true)
+        let accountTranscript = transcriptURL(configRoot: accountRoot, cwd: cwd, sessionId: accountSessionId)
+        try FileManager.default.createDirectory(
+            at: accountTranscript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try populatedTranscript.write(to: accountTranscript, atomically: true, encoding: .utf8)
+
+        let accountAgent = agent(sessionId: accountSessionId, workingDirectory: cwd)
+        #expect(
+            AgentHibernationTranscriptGuard.resolveTranscriptPath(
+                agent: accountAgent,
+                homeDirectory: home.path
+            ) == accountTranscript.path
+        )
+
+        let snapshot = try #require(
+            AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+                agent: accountAgent,
+                homeDirectory: home.path,
+                snapshotDirectory: snapshots
+            )
+        )
+        #expect(snapshot.transcriptPath == accountTranscript.path)
+        #expect(try String(contentsOfFile: snapshot.snapshotPath, encoding: .utf8) == populatedTranscript)
+
+        let defaultSessionId = "session-default"
+        let defaultTranscript = transcriptURL(home: home, cwd: cwd, sessionId: defaultSessionId)
+        try FileManager.default.createDirectory(
+            at: defaultTranscript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try populatedTranscript.write(to: defaultTranscript, atomically: true, encoding: .utf8)
+
+        #expect(
+            AgentHibernationTranscriptGuard.resolveTranscriptPath(
+                agent: agent(sessionId: defaultSessionId, workingDirectory: cwd),
+                homeDirectory: home.path
+            ) == defaultTranscript.path
+        )
+    }
+
+    @Test
     func resolveTranscriptPathHonorsConfigOverrideAndRejectsUnsupportedAgents() throws {
         let home = try temporaryDirectory()
         let customConfig = home.appendingPathComponent("custom-claude", isDirectory: true)
