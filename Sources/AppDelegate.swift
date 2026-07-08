@@ -1117,6 +1117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
     var screenChangeCaptureSuppressionSignature: String?
+    var screenChangeCaptureSuppressionSignatureGeneration: Int?
+    var displayReconfigurationGeneration = 0
+    var isDisplayReconfigurationTransactionOpen = false
     var didRegisterDisplayReconfigurationCallback = false
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state.
@@ -3849,10 +3852,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forName: Self.displayReconfigurationNotification,
             object: self,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.handleDisplayReconfigurationDidBegin()
+                let isBeginning = note.userInfo?["isBeginning"] as? Bool ?? false
+                self.handleDisplayReconfiguration(isBeginning: isBeginning)
             }
         }
         lifecycleSnapshotObservers.append(displayReconfigurationObserver)
@@ -3882,8 +3886,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
                 )
 #endif
-                self.beginScreenChangeCaptureSuppression()
-                self.scheduleScreenChangeReconcileWhenIdle()
+                self.handleScreenParametersDidChange()
             }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)

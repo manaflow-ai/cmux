@@ -9,11 +9,12 @@ private func cmuxDisplayReconfigurationCallback(
     _ userInfo: UnsafeMutableRawPointer?
 ) {
     guard let userInfo else { return }
-    guard flags.contains(.beginConfigurationFlag) else { return }
     let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
+    let isBeginning = flags.contains(.beginConfigurationFlag)
     NotificationCenter.default.post(
         name: Notification.Name("com.cmuxterm.app.displayReconfiguration"),
-        object: appDelegate
+        object: appDelegate,
+        userInfo: ["isBeginning": isBeginning]
     )
 }
 
@@ -71,11 +72,11 @@ extension AppDelegate {
     /// (issue #2135), then re-clamps any window whose titlebar is still
     /// unreachable (#6913 safety net).
     ///
-    /// CoreGraphics display reconfiguration begin/end callbacks own the
-    /// transaction boundary. The capture firewall is only released by a later
-    /// capture attempt that observes the reconciled signature while no
-    /// transaction is active. A nil signature leaves the previous restore
-    /// baseline intact.
+    /// CoreGraphics display reconfiguration callbacks gate the transaction
+    /// boundary. The capture firewall is only released by a later capture
+    /// attempt that observes the reconciled signature from the latest display
+    /// generation while no transaction is active. A nil signature leaves the
+    /// previous restore baseline intact.
     func scheduleScreenChangeReconcileWhenIdle() {
         NotificationQueue.default.enqueue(
             Notification(name: Self.screenChangeReconcileNotification, object: self),
@@ -103,8 +104,23 @@ extension AppDelegate {
         didRegisterDisplayReconfigurationCallback = false
     }
 
-    func handleDisplayReconfigurationDidBegin() {
+    func handleDisplayReconfiguration(isBeginning: Bool) {
+        displayReconfigurationGeneration += 1
         beginScreenChangeCaptureSuppression()
+        if isBeginning {
+            isDisplayReconfigurationTransactionOpen = true
+        } else {
+            isDisplayReconfigurationTransactionOpen = false
+            scheduleScreenChangeReconcileWhenIdle()
+        }
+    }
+
+    func handleScreenParametersDidChange() {
+        displayReconfigurationGeneration += 1
+        beginScreenChangeCaptureSuppression()
+        if !isDisplayReconfigurationTransactionOpen {
+            scheduleScreenChangeReconcileWhenIdle()
+        }
     }
 
     func reconcileMainWindowFramesAfterScreenChange() {
@@ -113,6 +129,7 @@ extension AppDelegate {
         // mid-teardown geometry. Leaving suppression armed fails closed; restore
         // completion reruns this pass if a screen change was skipped.
         guard !isApplyingSessionRestore, !isTerminatingApp else { return }
+        guard !isDisplayReconfigurationTransactionOpen else { return }
         let displays = currentDisplayGeometries()
         guard !displays.available.isEmpty else {
             requeueScreenChangeReconcileIfPossible()
@@ -144,6 +161,7 @@ extension AppDelegate {
             screenChangeReconcileRetryBudget = 0
             if isScreenChangeCaptureSuppressed {
                 screenChangeCaptureSuppressionSignature = signature
+                screenChangeCaptureSuppressionSignatureGeneration = displayReconfigurationGeneration
             }
         } else {
             didObserveUnknownDisplayConfiguration = true
@@ -363,12 +381,14 @@ extension AppDelegate {
     func beginScreenChangeCaptureSuppression() {
         isScreenChangeCaptureSuppressed = true
         screenChangeCaptureSuppressionSignature = nil
+        screenChangeCaptureSuppressionSignatureGeneration = nil
         screenChangeReconcileRetryBudget = Self.screenChangeReconcileRetryLimit
     }
 
     func shouldReleaseScreenChangeCaptureSuppression(for signature: String) -> Bool {
         guard isScreenChangeCaptureSuppressed else { return true }
         return screenChangeCaptureSuppressionSignature == signature
+            && screenChangeCaptureSuppressionSignatureGeneration == displayReconfigurationGeneration
     }
 
     func requeueScreenChangeReconcileIfPossible() {
