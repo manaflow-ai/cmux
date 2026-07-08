@@ -4592,70 +4592,6 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     }
 
-    func setAgentLifecycle(
-        key: String,
-        panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
-    ) {
-        let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        recordAgentLifecycleChange(panelId: targetPanelId)
-    }
-
-    @discardableResult
-    func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
-        var didClear = false
-        let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
-        for panelId in panelIds {
-            guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
-            agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
-            if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
-                agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
-            }
-            didClear = true
-            recordAgentLifecycleChange(panelId: panelId)
-        }
-        return didClear
-    }
-
-    func clearAgentLifecycleStates(panelId: UUID) {
-        guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
-        recordAgentLifecycleChange(panelId: panelId)
-    }
-
-    func clearAllAgentLifecycleStates() {
-        let panelIds = Array(agentLifecycleStatesByPanelId.keys)
-        guard !panelIds.isEmpty else { return }
-        agentLifecycleStatesByPanelId.removeAll()
-        for panelId in panelIds {
-            recordAgentLifecycleChange(panelId: panelId)
-        }
-    }
-
-    private func recordAgentLifecycleChange(panelId: UUID) {
-        AgentHibernationController.shared.recordAgentLifecycleChange(
-            workspaceId: id,
-            panelId: panelId
-        )
-    }
-
-    func agentHibernationLifecycleState(
-        panelId: UUID,
-        fallback: AgentHibernationLifecycleState?
-    ) -> AgentHibernationLifecycleState {
-        guard let panelStates = agentLifecycleStatesByPanelId[panelId],
-              !panelStates.isEmpty else {
-            return fallback ?? .unknown
-        }
-        let states = Array(panelStates.values)
-        if states.contains(.running) { return .running }
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.unknown) { return .unknown }
-        if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
-    }
-
     func restorableAgentForHibernation(
         panelId: UUID,
         index: RestorableAgentSessionIndex
@@ -12926,12 +12862,9 @@ extension Workspace: BonsplitDelegate {
             switch builtInAction {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
+            case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(
-                    tabManager: owningTabManager,
-                    preferredWindow: presentingWindow,
-                    debugSource: "surfaceTabBar.cloudVM"
-                )
+                _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
                 MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:

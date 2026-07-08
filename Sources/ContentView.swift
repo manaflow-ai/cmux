@@ -6053,21 +6053,6 @@ struct ContentView: View {
         return commands
     }
 
-    private func commandPaletteConfigActionID(for commandId: String) -> String? {
-        switch commandId {
-        case "palette.newTerminalTab":
-            return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
-        case "palette.newBrowserTab":
-            return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
-        case "palette.terminalSplitRight":
-            return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
-        case "palette.terminalSplitDown":
-            return CmuxSurfaceTabBarBuiltInAction.splitDown.configID
-        default:
-            return nil
-        }
-    }
-
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
@@ -6345,6 +6330,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
+        contributions.append(Self.commandPaletteNewAgentChatContribution())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
@@ -7573,6 +7559,7 @@ struct ContentView: View {
                 )
             }
         }
+        registerAgentChatCommandPaletteHandler(&registry)
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
@@ -9567,6 +9554,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
+    let loadingSpinnerPosition: SidebarIndicatorPosition
+    let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -9623,6 +9612,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
 
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
+        loadingSpinnerPosition = settings.value(for: catalog.sidebar.loadingSpinnerPosition)
+        notificationBadgePosition = settings.value(for: catalog.sidebar.notificationBadgePosition)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
@@ -10065,6 +10056,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.showAgentActivity) private var showAgentActivity
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -12371,6 +12363,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
+            showsAgentActivity: showAgentActivity,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -13139,6 +13132,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let usesVerticalBranchLayout: Bool
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
+        let showsAgentActivity: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
@@ -13176,6 +13170,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
+        let activeCodingAgentCount: Int
         let compactGitBranchSummaryText: String?
         let compactDirectoryCandidates: [String]
         let compactBranchDirectoryCandidates: [String]
@@ -13208,6 +13203,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.showsAgentActivity == rhs.showsAgentActivity &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -13252,6 +13248,7 @@ struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13618,6 +13615,7 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -13658,17 +13656,22 @@ struct TabItemView: View, Equatable {
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
             scaledCloseButtonHitSize
         )
+
+        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
+        let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
+        let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
+        let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
+        let leadingSlotActive = badgeOnLeading || spinnerOnLeading
+        let trailingStatusActive = badgeOnTrailing || spinnerOnTrailing
+        let titleRowSpacing: CGFloat = spinnerOnLeading ? 6 : 8
+        let badgeFont = magnifiedFont(scaledFontSize(9), weight: .semibold)
+        let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
+        let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
         let rowView = VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
-                    ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
-                    }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+            HStack(alignment: .top, spacing: titleRowSpacing) {
+                if leadingSlotActive {
+                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: scaledUnreadBadgeSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13751,28 +13754,8 @@ struct TabItemView: View, Equatable {
                         .layoutPriority(1)
                 }
 
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        CmuxSystemSymbolImage(magnified: "xmark", pointSize: scaledFontSize(9), weight: .medium)
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
+                if trailingStatusActive || canCloseWorkspace {
+                    SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: { tabManager.closeWorkspaceWithConfirmation(tab) })
                 }
             }
 
@@ -14828,6 +14811,10 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
+            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: showsAgentActivity,
+                statesByPanelId: tab.agentLifecycleStatesByPanelId
+            ),
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,

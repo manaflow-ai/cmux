@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v5 in `mux/crates/mux-core/src/server.rs`. Proposed commands are future protocol v6 design.
+This file specifies the JSON command contract for the cmux-mux protocol. Implemented commands match protocol v6 in `mux/crates/mux-core/src/server.rs`.
 
 ## Notation
 
@@ -131,7 +131,129 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":5,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-mux","version":"0.1.0","protocol":6,"session":"main","pid":12345}}
+```
+
+### ping
+
+| Field | Value |
+| --- | --- |
+| name | `ping` |
+| status | implemented |
+| since | protocol 6 |
+
+Lightweight liveness probe. Unlike `identify`, this does not return session metadata.
+
+Params: none.
+
+Result:
+
+```text
+object{ok:true,version:string,protocol:uint32}
+```
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `ping`; flags none; plain stdout prints `cmux-mux version=<version> protocol=<protocol>`; JSON stdout prints the exact result object.
+
+Example:
+
+```json
+{"id":2,"cmd":"ping"}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":6}}
+```
+
+### reload-config
+
+| Field | Value |
+| --- | --- |
+| name | `reload-config` |
+| status | implemented |
+| since | protocol 6 |
+
+Requests that attached TUI frontends re-read the mux config from the same source as startup config loading (`CMUX_MUX_CONFIG`, then XDG config, then `~/.config/cmux/mux.json`) and redraw. Headless servers acknowledge the command but have no TUI state to update.
+
+Params: none.
+
+Result:
+
+```text
+object{reloaded:true,path:string|null}
+```
+
+Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates local server launch options for future browser surfaces when a local TUI is present; existing browser runtimes, already-open browser surfaces, and remote headless servers may require restart for browser endpoint/profile/binary changes.
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `reload-config`; flags none; plain stdout prints nothing; JSON stdout prints the exact result object.
+
+Example:
+
+```json
+{"id":3,"cmd":"reload-config"}
+{"id":3,"ok":true,"data":{"reloaded":true,"path":"/Users/me/.config/cmux/mux.json"}}
+```
+
+### set-window-title
+
+| Field | Value |
+| --- | --- |
+| name | `set-window-title` |
+| status | implemented |
+| since | protocol 6 |
+
+Requests attached TUI frontends to set the outer terminal emulator window title by writing OSC 0 and OSC 2 sequences to their controlling stdout. This is display-only and does not change focus or selection.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `title` | `string` | required | C0 controls are sanitized before OSC output |
+
+Result:
+
+```text
+object{}
+```
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `set-window-title`; flags `--title <title>`; plain stdout and JSON stdout are empty result object behavior.
+
+Example:
+
+```json
+{"id":4,"cmd":"set-window-title","title":"hello"}
+{"id":4,"ok":true,"data":{}}
+```
+
+### clear-window-title
+
+| Field | Value |
+| --- | --- |
+| name | `clear-window-title` |
+| status | implemented |
+| since | protocol 6 |
+
+Requests attached TUI frontends to restore the default outer terminal window title. The current TUI default is empty.
+
+Params: none.
+
+Result:
+
+```text
+object{}
+```
+
+Errors: `bad request: ...`.
+
+CLI mapping: verb `clear-window-title`; flags none; plain stdout and JSON stdout are empty result object behavior.
+
+Example:
+
+```json
+{"id":5,"cmd":"clear-window-title"}
+{"id":5,"ok":true,"data":{}}
 ```
 
 ### list-workspaces

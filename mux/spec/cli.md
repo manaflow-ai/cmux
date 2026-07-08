@@ -51,6 +51,10 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | Verb | Status | Required flags/args | Optional flags | Human stdout |
 | --- | --- | --- | --- | --- |
 | `identify` | implemented | none | global flags | one metadata line |
+| `ping` | implemented | none | global flags | one liveness line |
+| `reload-config` | implemented | none | global flags | none |
+| `set-window-title` | implemented | `--title <title>` | global flags | none |
+| `clear-window-title` | implemented | none | global flags | none |
 | `list-workspaces` | implemented | none | global flags | tree lines |
 | `export-layout` | implemented | none | `--screen <id>` | JSON result object |
 | `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>` | screen and pane/surface lines |

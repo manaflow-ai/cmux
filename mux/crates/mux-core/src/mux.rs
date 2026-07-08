@@ -31,6 +31,16 @@ pub enum MuxEvent {
     Bell(SurfaceId),
     Notification(NotificationEvent),
     Status(String),
+    /// A frontend should reload its local mux configuration and redraw.
+    ConfigReloadRequested,
+    /// A frontend should set its host terminal window title. Empty clears it.
+    WindowTitleRequested(String),
+    /// A PTY surface viewport moved within its scrollback.
+    ScrollChanged {
+        surface: SurfaceId,
+        offset: u64,
+        at_bottom: bool,
+    },
     /// The workspace/screen/pane/tab tree changed (from any frontend or
     /// the control socket).
     TreeChanged,
@@ -192,7 +202,7 @@ pub struct Mux {
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
-    surface_options: SurfaceOptions,
+    surface_options: Mutex<SurfaceOptions>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -227,7 +237,7 @@ impl Mux {
             next_id: AtomicU64::new(1),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
-            surface_options,
+            surface_options: Mutex::new(surface_options),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
@@ -286,7 +296,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
-        let mut opts = self.surface_options.clone();
+        let mut opts = self.surface_options.lock().unwrap().clone();
         if cwd.is_some() {
             opts.cwd = cwd;
         }
@@ -326,7 +336,7 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> Arc<Surface> {
         let id = self.next_id();
-        let opts = self.surface_options.clone();
+        let opts = self.surface_options.lock().unwrap().clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         let surface = browser::new_surface(id, url.clone(), size, cell_pixels, &opts);
@@ -340,7 +350,8 @@ impl Mux {
         if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
             return Ok(existing.clone());
         }
-        let created = BrowserRuntime::connect(&self.surface_options)?;
+        let opts = self.surface_options.lock().unwrap().clone();
+        let created = BrowserRuntime::connect(&opts)?;
         *runtime = Some(created.clone());
         Ok(created)
     }
@@ -517,6 +528,13 @@ impl Mux {
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
+    }
+
+    /// Update options used for future surface/browser launches.
+    pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
+        let mut options = self.surface_options.lock().unwrap();
+        update(&mut options);
+        options.browser_session_name = self.session.clone();
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
@@ -900,7 +918,7 @@ impl Mux {
             (pane_id, size)
         };
         let id = self.next_id();
-        let opts = self.surface_options.clone();
+        let opts = self.surface_options.lock().unwrap().clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         let surface = browser::new_surface(id, url.clone(), size, cell_pixels, &opts);
