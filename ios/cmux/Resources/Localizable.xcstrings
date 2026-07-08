@@ -4098,6 +4098,57 @@
         }
       }
     },
+    "mobile.settings.privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシー"
+          }
+        }
+      }
+    },
+    "mobile.settings.privacyFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Product analytics include app launches, pairing results, feature usage, and counts. They never include terminal text, prompts, pasted content, images, or files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "製品分析には、アプリの起動、ペアリング結果、機能の使用状況、件数が含まれます。ターミナルのテキスト、プロンプト、貼り付けた内容、画像、ファイルは含まれません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.privacyPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシーポリシー"
+          }
+        }
+      }
+    },
     "mobile.settings.previewLines": {
       "extractionState": "manual",
       "localizations": {
@@ -4196,6 +4247,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータをセットアップ"
+          }
+        }
+      }
+    },
+    "mobile.settings.shareProductAnalytics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Product Analytics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "製品分析を共有"
           }
         }
       }

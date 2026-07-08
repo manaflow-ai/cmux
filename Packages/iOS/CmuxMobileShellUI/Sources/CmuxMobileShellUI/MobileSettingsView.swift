@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
@@ -6,7 +7,7 @@ import CmuxMobileWorkspace
 import SwiftUI
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
-/// can confirm which cmux account this device uses — the account must match the
+/// can confirm which cmux account this device uses, since the account must match the
 /// Mac it pairs with), plus terminal shortcuts, agent notifications, and the
 /// paired Mac. Presented as a sheet from the workspace list.
 struct MobileSettingsView: View {
@@ -27,6 +28,7 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var productAnalyticsEnabled = MobileTelemetryConsentStore(defaults: .standard).isEnabled
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
@@ -71,8 +73,8 @@ struct MobileSettingsView: View {
                 }
 
                 // Stack team switcher. Only shown when the user belongs to more than
-                // one team. Rendered as an INLINE picker — each team is a row with a
-                // checkmark on the current one — so every team is visible at a glance
+                // one team. Rendered as an INLINE picker: each team is a row with a
+                // checkmark on the current one, so every team is visible at a glance
                 // and one tap switches (clearer than a menu/navigation push for a
                 // small set). Selecting a team writes `selectedTeamID`, which the root
                 // view observes to re-scope the team-bound surfaces (paired Macs,
@@ -257,6 +259,31 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsNotifications")
                 }
 
+                Section {
+                    Toggle(isOn: productAnalyticsBinding) {
+                        Text(L10n.string(
+                            "mobile.settings.shareProductAnalytics",
+                            defaultValue: "Share Product Analytics"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsProductAnalytics")
+
+                    Link(destination: Self.privacyPolicyURL) {
+                        Label(
+                            L10n.string("mobile.settings.privacyPolicy", defaultValue: "Privacy Policy"),
+                            systemImage: "hand.raised"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsPrivacyPolicy")
+                } header: {
+                    Text(L10n.string("mobile.settings.privacy", defaultValue: "Privacy"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.privacyFooter",
+                        defaultValue: "Product analytics include app launches, pairing results, feature usage, and counts. They never include terminal text, prompts, pasted content, images, or files."
+                    ))
+                }
+
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
@@ -271,7 +298,10 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
+            .onAppear {
+                notificationsEnabled = pushCoordinator.isEnabled
+                productAnalyticsEnabled = MobileTelemetryConsentStore(defaults: .standard).isEnabled
+            }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -325,6 +355,18 @@ struct MobileSettingsView: View {
     /// keeps that honest instead of mislabeling a connected Mac as unreachable.
     private var setupHelpHighlight: MobileSetupGuidanceState? {
         nil
+    }
+
+    private static let privacyPolicyURL = URL(string: "https://cmux.com/privacy-policy")!
+
+    private var productAnalyticsBinding: Binding<Bool> {
+        Binding(
+            get: { productAnalyticsEnabled },
+            set: { newValue in
+                productAnalyticsEnabled = newValue
+                MobileTelemetryConsentStore(defaults: .standard).setEnabled(newValue)
+            }
+        )
     }
 
     /// Whether the Connection section has any rows to show. When this sheet is
