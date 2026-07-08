@@ -90,11 +90,11 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
 | `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
 | `send-key` | implemented | `--surface <id> <key>...` | none | none |
-| `copy` | implemented | `--surface <id> --mode screen|selection|scrollback` | none | text |
-| `ids` | implemented | none | `--kind workspace|screen|pane|surface` | id lines |
-| `notify` | implemented | `--title <title> --body <body>` | `--level info|warning|error`, `--surface <id>` | notification id |
+| `copy` | implemented | `--surface <id> --mode screen\|selection\|scrollback` | none | text |
+| `ids` | implemented | none | `--kind workspace\|screen\|pane\|surface` | id lines |
+| `notify` | implemented | `--title <title> --body <body>` | `--level info\|warning\|error`, `--surface <id>` | notification id |
 | `list-agents` | implemented | none | `--surface <id>`, `--state <state>` | agent lines |
-| `report-agent` | implemented | `--surface <id> --state <state> --source socket|hook` | `--session <id>` | none |
+| `report-agent` | implemented | `--surface <id> --state <state> --source socket\|hook` | `--session <id>` | none |
 
 ## Worked Examples
 
