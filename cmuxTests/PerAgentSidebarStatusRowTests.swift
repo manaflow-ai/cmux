@@ -455,4 +455,30 @@ struct PerAgentSidebarStatusRowTests {
         #expect(workspace.panelScopedAgentStatusSnapshots(panelId: panelId)?.first?.key == "claude_code")
         #expect(workspace.panelScopedAgentLifecycleSnapshots(panelId: panelId)?["claude_code"] == "unknown")
     }
+
+    @Test
+    func testRestoreSessionSnapshotSeedsPanelScopedRowsAfterEphemeralClears() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.recordPanelStatusEntry(
+            makeEntry(key: "codex", value: "Reviewing PR", timestamp: Date(timeIntervalSince1970: 500)),
+            panelId: panelId
+        )
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        let oldToNewPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(oldToNewPanelIds[panelId])
+
+        // restoreSessionSnapshot clears statusEntries/agent PIDs/lifecycles
+        // AFTER restorePane, so the seed must run after those clears. Seeding
+        // during panel creation shipped exactly this bug: the clears wiped
+        // the rows before the sidebar ever saw them.
+        let row = try #require(restored.sidebarAgentStatusRows().first)
+        #expect(row.panelId == restoredPanelId)
+        #expect(row.statusKey == "codex")
+        #expect(row.value == "Reviewing PR")
+        #expect(row.lifecycle == .needsInput)
+    }
 }

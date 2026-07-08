@@ -223,22 +223,10 @@ extension Workspace {
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
 
-        // Status entries and agent PIDs are ephemeral runtime state tied to running
-        // processes (e.g. claude_code "Running"). Don't restore them across app
-        // restarts because the processes that set them are gone.
-        statusEntries.removeAll()
-        clearAllAgentPIDs(refreshPorts: false)
-        clearAllAgentLifecycleStates()
-        agentListeningPorts.removeAll()
-        // Panel-scoped agent status is restorable UI state, unlike PIDs: the
-        // rows re-bind to the restored panes so the sidebar stays informative
-        // and click-navigable across relaunch. Seed AFTER the ephemeral-state
-        // clears above, which would otherwise wipe the seeds (restorePane runs
-        // earlier).
-        for (oldPanelId, newPanelId) in oldToNewPanelIds {
-            guard let terminal = panelSnapshotsById[oldPanelId]?.terminal else { continue }
-            restorePanelScopedAgentStatus(terminal: terminal, panelId: newPanelId)
-        }
+        resetAgentRuntimeStateForSessionRestore(
+            panelSnapshotsById: panelSnapshotsById,
+            oldToNewPanelIds: oldToNewPanelIds
+        )
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,

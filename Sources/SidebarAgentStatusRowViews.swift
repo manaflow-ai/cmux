@@ -180,14 +180,20 @@ private struct SidebarAgentStatusEntryRow: View {
         }
         let name = Self.agentDisplayName(statusKey: row.statusKey)
         if let lifecycleText {
-            return "\(name): \(lifecycleText)"
+            return String(
+                localized: "sidebar.agentStatus.nameWithLifecycle",
+                defaultValue: "\(name): \(lifecycleText)"
+            )
         }
         return name
     }
 
     private var helpText: String {
         guard let paneLabel = row.paneLabel else { return displayText }
-        return "\(displayText) (\(paneLabel))"
+        return String(
+            localized: "sidebar.agentStatus.valueWithPaneLabel",
+            defaultValue: "\(displayText) (\(paneLabel))"
+        )
     }
 
     private var lifecycleText: String? {

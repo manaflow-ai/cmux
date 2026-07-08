@@ -1385,52 +1385,27 @@ enum SurfaceResumeBindingScriptStore {
     }
 }
 
+/// The synthesized memberwise initializer (every property defaults to nil)
+/// replaces the hand-written one; keep new properties `var ... = nil` so the
+/// synthesized parameter list stays fully defaulted.
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
-    var workingDirectory: String?
-    var scrollback: String?
-    var agent: SessionRestorableAgentSnapshot?
-    var tmuxStartCommand: String?
-    var hibernation: SessionAgentHibernationSnapshot?
-    var resumeBinding: SurfaceResumeBindingSnapshot?
-    var textBoxDraft: SessionTextBoxInputDraftSnapshot?
-    var isRemoteTerminal: Bool?
-    var remotePTYSessionID: String?
+    var workingDirectory: String? = nil
+    var scrollback: String? = nil
+    var agent: SessionRestorableAgentSnapshot? = nil
+    var tmuxStartCommand: String? = nil
+    var hibernation: SessionAgentHibernationSnapshot? = nil
+    var resumeBinding: SurfaceResumeBindingSnapshot? = nil
+    var textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil
+    var isRemoteTerminal: Bool? = nil
+    var remotePTYSessionID: String? = nil
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
-    var wasAgentRunning: Bool?
+    var wasAgentRunning: Bool? = nil
     /// Panel-scoped structured agent status reports (one per status key), so
     /// per-agent sidebar rows keep their pane binding across restart.
-    var agentStatusEntries: [SessionStatusEntrySnapshot]?
+    var agentStatusEntries: [SessionStatusEntrySnapshot]? = nil
     /// Last known agent lifecycle raw value per structured status key.
-    var agentLifecyclesByStatusKey: [String: String]?
-
-    init(
-        workingDirectory: String? = nil,
-        scrollback: String? = nil,
-        agent: SessionRestorableAgentSnapshot? = nil,
-        tmuxStartCommand: String? = nil,
-        hibernation: SessionAgentHibernationSnapshot? = nil,
-        resumeBinding: SurfaceResumeBindingSnapshot? = nil,
-        textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
-        isRemoteTerminal: Bool? = nil,
-        remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil,
-        agentStatusEntries: [SessionStatusEntrySnapshot]? = nil,
-        agentLifecyclesByStatusKey: [String: String]? = nil
-    ) {
-        self.workingDirectory = workingDirectory
-        self.scrollback = scrollback
-        self.agent = agent
-        self.tmuxStartCommand = tmuxStartCommand
-        self.hibernation = hibernation
-        self.resumeBinding = resumeBinding
-        self.textBoxDraft = textBoxDraft
-        self.isRemoteTerminal = isRemoteTerminal
-        self.remotePTYSessionID = remotePTYSessionID
-        self.wasAgentRunning = wasAgentRunning
-        self.agentStatusEntries = agentStatusEntries
-        self.agentLifecyclesByStatusKey = agentLifecyclesByStatusKey
-    }
+    var agentLifecyclesByStatusKey: [String: String]? = nil
 }
 
 extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}

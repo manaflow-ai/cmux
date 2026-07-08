@@ -248,6 +248,28 @@ extension Workspace {
 
     // MARK: - Session persistence
 
+    /// Runs the session-restore reset for agent runtime state: status entries
+    /// and agent PIDs are ephemeral state tied to running processes (e.g.
+    /// claude_code "Running"), so they never survive a restart. Panel-scoped
+    /// agent status is restorable UI state, unlike PIDs: the rows re-bind to
+    /// the restored panes so the sidebar stays informative and click-navigable
+    /// across relaunch. Seeding MUST run after the clears: restorePane runs
+    /// earlier in restoreSessionSnapshot, so seeding during panel creation is
+    /// wiped before the sidebar ever sees it (this bug shipped).
+    func resetAgentRuntimeStateForSessionRestore(
+        panelSnapshotsById: [UUID: SessionPanelSnapshot],
+        oldToNewPanelIds: [UUID: UUID]
+    ) {
+        statusEntries.removeAll()
+        clearAllAgentPIDs(refreshPorts: false)
+        clearAllAgentLifecycleStates()
+        agentListeningPorts.removeAll()
+        for (oldPanelId, newPanelId) in oldToNewPanelIds {
+            guard let terminal = panelSnapshotsById[oldPanelId]?.terminal else { continue }
+            restorePanelScopedAgentStatus(terminal: terminal, panelId: newPanelId)
+        }
+    }
+
     /// Panel-scoped structured status reports for the session snapshot, so a
     /// restored pane keeps its own sidebar row (and stays click-navigable)
     /// instead of degrading to the ambiguous workspace-level slot.
