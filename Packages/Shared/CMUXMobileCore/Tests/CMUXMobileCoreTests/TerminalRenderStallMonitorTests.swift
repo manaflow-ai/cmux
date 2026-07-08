@@ -170,4 +170,14 @@ import Testing
         #expect(monitor.activeGates(now: start.addingTimeInterval(3))[9] == [.pendingInputSeq, .viewportBarrier])
         #expect(monitor.secondsSinceLastAppliedFrame(surface: 9, now: start.addingTimeInterval(3)) == 3)
     }
+
+    @Test func surfaceResolvedPurgesLastAppliedFrameClock() {
+        let start = Date(timeIntervalSince1970: 500)
+        var monitor = TerminalRenderStallMonitor(stallThreshold: 5)
+
+        monitor.noteFrameApplied(surface: 4, now: start)
+        _ = monitor.noteSurfaceResolved(surface: 4, how: .reconnect, now: start.addingTimeInterval(1))
+
+        #expect(monitor.secondsSinceLastAppliedFrame(surface: 4, now: start.addingTimeInterval(2)) == nil)
+    }
 }

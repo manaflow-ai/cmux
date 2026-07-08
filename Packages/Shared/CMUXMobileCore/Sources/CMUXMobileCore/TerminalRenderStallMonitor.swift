@@ -192,7 +192,12 @@ public struct TerminalRenderStallMonitor: Sendable {
         how: TerminalStallRecoveryCause,
         now: Date
     ) -> [TerminalStallEmission] {
-        closeEpisodes(surface: surface, how: how, now: now, useAttribution: false)
+        // The reset that closes every episode also invalidates the applied-frame
+        // clock: pre-reset paint times must not leak into a later episode's
+        // seconds-since-last-applied-frame, and a detached surface must not
+        // retain an entry forever.
+        lastAppliedFrameAt.removeValue(forKey: surface)
+        return closeEpisodes(surface: surface, how: how, now: now, useAttribution: false)
     }
 
     /// Returns open episodes for one surface.

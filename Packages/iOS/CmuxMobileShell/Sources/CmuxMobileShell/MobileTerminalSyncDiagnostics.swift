@@ -15,7 +15,7 @@ final class MobileTerminalSyncDiagnostics {
     )
     private var replayStartedAtBySurface: [UInt32: Date] = [:]
     private var barrierStartedAtBySurface: [UInt32: Date] = [:]
-    private var dropCountsBySurfaceGate: [String: UInt64] = [:]
+    private var dropCountsBySurfaceGate: [UInt64: UInt64] = [:]
     private var inputHighWaterBytes = 0
     private var inputBatchStartedAt: Date?
 
@@ -39,7 +39,7 @@ final class MobileTerminalSyncDiagnostics {
         ackSeqGap: Int? = nil
     ) {
         let timestamp = now()
-        let dropKey = "\(surface):\(gate.rawValue)"
+        let dropKey = Self.dropKey(surface: surface, gate: gate)
         let previousDropCount = dropCountsBySurfaceGate[dropKey] ?? 0
         let sampleCount = droppedFrames > previousDropCount ? droppedFrames : previousDropCount + 1
         dropCountsBySurfaceGate[dropKey] = sampleCount
@@ -84,6 +84,11 @@ final class MobileTerminalSyncDiagnostics {
             ["transport": .string(transport)]
         }
         resetDropCounts(surface: surface)
+        // The reset wiped the shell's replay/barrier tracking for this surface,
+        // so a latency measured across it would span two unrelated attempts,
+        // and a detached surface must not retain entries forever.
+        replayStartedAtBySurface.removeValue(forKey: surface)
+        barrierStartedAtBySurface.removeValue(forKey: surface)
     }
 
     func replayRequested(surface: UInt32, trigger: ReplayTrigger) {
@@ -368,12 +373,18 @@ final class MobileTerminalSyncDiagnostics {
         return UInt32(clamping: Int(max(0, now().timeIntervalSince(start) * 1000)))
     }
 
+    /// Packs a surface handle and gate into one integer key so the per-frame
+    /// drop path never allocates a string. Gate raw values fit in the low byte.
+    private static func dropKey(surface: UInt32, gate: TerminalRenderDropGate) -> UInt64 {
+        (UInt64(surface) << 8) | UInt64(gate.rawValue)
+    }
+
     private func resetDropCounts(surface: UInt32) {
-        let prefix = "\(surface):"
-        dropCountsBySurfaceGate = dropCountsBySurfaceGate.filter { !$0.key.hasPrefix(prefix) }
+        let surfaceBits = UInt64(surface) << 8
+        dropCountsBySurfaceGate = dropCountsBySurfaceGate.filter { $0.key & ~0xFF != surfaceBits }
     }
 
     private func resetDropCount(surface: UInt32, gate: TerminalRenderDropGate) {
-        dropCountsBySurfaceGate.removeValue(forKey: "\(surface):\(gate.rawValue)")
+        dropCountsBySurfaceGate.removeValue(forKey: Self.dropKey(surface: surface, gate: gate))
     }
 }
