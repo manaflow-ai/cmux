@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class RightSidebarToolPanel: Panel, ObservableObject {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
 

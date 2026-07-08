@@ -1,4 +1,4 @@
-# cmux-mux Rust Client
+# cmux Rust Client
 
 Synchronous Rust client for the cmux-mux Unix-socket JSON-lines protocol.
 
@@ -6,16 +6,16 @@ Synchronous Rust client for the cmux-mux Unix-socket JSON-lines protocol.
 
 ```bash
 cd mux
-cargo build -p cmux-mux-client --locked
+cargo build -p cmux-client --locked
 ```
 
 ## Usage
 
 ```rust
-use cmux_mux_client::{ClientConfig, MuxClient};
+use cmux_client::{ClientConfig, CmuxClient};
 
 let socket = std::env::var("CMUX_MUX_SOCKET")?;
-let mut client = MuxClient::connect(ClientConfig::from_socket_path(socket))?;
+let mut client = CmuxClient::connect(ClientConfig::from_socket_path(socket))?;
 let surface = client.new_workspace(Some("sdk-demo"), Some(80), Some(24))?.surface;
 client.send(surface, Some("echo hello\r"), None)?;
 println!("{}", client.read_screen(surface)?.text);
@@ -26,5 +26,5 @@ println!("{}", client.read_screen(surface)?.text);
 
 ```bash
 cd mux
-CMUX_MUX_SOCKET=/path/to/session.sock cargo run -p cmux-mux-client --example e2e --locked
+CMUX_MUX_SOCKET=/path/to/session.sock cargo run -p cmux-client --example e2e --locked
 ```
