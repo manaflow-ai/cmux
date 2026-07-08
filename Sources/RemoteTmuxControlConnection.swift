@@ -14,8 +14,8 @@ final class RemoteTmuxControlConnection {
     typealias ConnectionState = RemoteTmuxConnectionState
     typealias PaneForegroundState = RemoteTmuxPaneForegroundState
     typealias Snapshot = RemoteTmuxControlConnectionSnapshot
-    private typealias CommandKind = RemoteTmuxControlCommandKind
-    private typealias PostAttachAction = RemoteTmuxPostAttachAction
+    typealias CommandKind = RemoteTmuxControlCommandKind
+    typealias PostAttachAction = RemoteTmuxPostAttachAction
 
     /// The host this connection talks to.
     let host: RemoteTmuxHost
