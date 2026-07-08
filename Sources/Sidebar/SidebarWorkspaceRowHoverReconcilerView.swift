@@ -47,11 +47,11 @@ final class SidebarWorkspaceRowHoverReconcilerView: NSView {
     }
 
     func reconcilePointerLocation(pointInView: NSPoint) {
-        reportPointerHovering(bounds.contains(pointInView))
+        reportPointerHovering(bounds.contains(pointInView), force: true)
     }
 
-    private func reportPointerHovering(_ hovering: Bool) {
-        guard lastReportedHover != hovering else { return }
+    private func reportPointerHovering(_ hovering: Bool, force: Bool = false) {
+        guard force || lastReportedHover != hovering else { return }
         lastReportedHover = hovering
         onPointerHoverChanged?(hovering)
     }
