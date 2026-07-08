@@ -7,10 +7,11 @@
 /// via `applyiOSDefaults`; macOS keeps a larger 4 MB default because local
 /// terminal users scroll locally. Runtime config loads this directive before
 /// user config files, so an explicit user `scrollback-limit` overrides it.
-public enum GhosttyScrollbackLimitDefault {
+extension GhosttyConfig {
     /// The cmux-managed macOS default `scrollback-limit`, in bytes.
-    public static let bytes: Int = 4_000_000
+    public static let defaultScrollbackLimitBytes: Int = 4_000_000
 
     /// The Ghostty config directive loaded before user config files.
-    public static let configDirective: String = "scrollback-limit = \(bytes)"
+    public static let defaultScrollbackLimitConfigDirective: String =
+        "scrollback-limit = \(defaultScrollbackLimitBytes)"
 }

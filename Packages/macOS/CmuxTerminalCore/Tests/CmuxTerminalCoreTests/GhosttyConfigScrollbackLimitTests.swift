@@ -6,7 +6,7 @@ struct GhosttyConfigScrollbackLimitTests {
     @Test func defaultScrollbackLimitMatchesCmuxManagedDefault() {
         let config = GhosttyConfig()
 
-        #expect(config.scrollbackLimit == GhosttyScrollbackLimitDefault.bytes)
+        #expect(config.scrollbackLimit == GhosttyConfig.defaultScrollbackLimitBytes)
         #expect(config.scrollbackLimit == 4_000_000)
     }
 
@@ -29,17 +29,17 @@ struct GhosttyConfigScrollbackLimitTests {
     @Test func parseScrollbackLimitDefaultDirectiveRoundTrips() {
         var config = GhosttyConfig()
 
-        config.parse(GhosttyScrollbackLimitDefault.configDirective)
+        config.parse(GhosttyConfig.defaultScrollbackLimitConfigDirective)
 
-        #expect(config.scrollbackLimit == GhosttyScrollbackLimitDefault.bytes)
+        #expect(config.scrollbackLimit == GhosttyConfig.defaultScrollbackLimitBytes)
     }
 
     @Test func parseInvalidScrollbackLimitLeavesDefaultUntouched() {
         var config = GhosttyConfig()
 
         config.parse("scrollback-limit = abc")
-        #expect(config.scrollbackLimit == GhosttyScrollbackLimitDefault.bytes)
+        #expect(config.scrollbackLimit == GhosttyConfig.defaultScrollbackLimitBytes)
         config.parse("scrollback-limit = -1")
-        #expect(config.scrollbackLimit == GhosttyScrollbackLimitDefault.bytes)
+        #expect(config.scrollbackLimit == GhosttyConfig.defaultScrollbackLimitBytes)
     }
 }

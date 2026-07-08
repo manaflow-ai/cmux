@@ -976,7 +976,7 @@ class GhosttyApp {
             }
 
             // Keep the fallback bounded even when user files fail to initialize.
-            loadInlineGhosttyConfig(GhosttyScrollbackLimitDefault.configDirective, into: fallbackConfig, prefix: "cmux-default-scrollback", logLabel: "default scrollback limit")
+            loadInlineGhosttyConfig(GhosttyConfig.defaultScrollbackLimitConfigDirective, into: fallbackConfig, prefix: "cmux-default-scrollback", logLabel: "default scrollback limit")
             loadInlineGhosttyConfig(
                 "macos-background-from-layer = true",
                 into: fallbackConfig,
@@ -1198,7 +1198,7 @@ class GhosttyApp {
         conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) -> Bool {
         // Load before user files so explicit user scrollback-limit overrides win.
-        loadInlineGhosttyConfig(GhosttyScrollbackLimitDefault.configDirective, into: config, prefix: "cmux-default-scrollback", logLabel: "default scrollback limit")
+        loadInlineGhosttyConfig(GhosttyConfig.defaultScrollbackLimitConfigDirective, into: config, prefix: "cmux-default-scrollback", logLabel: "default scrollback limit")
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
         let themeColorScheme = conditionalThemeColorScheme ?? preferredColorScheme
