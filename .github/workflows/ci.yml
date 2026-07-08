@@ -214,6 +214,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE_SHA: ${{ github.event.before }}
         run: |
@@ -226,7 +227,7 @@ jobs:
             python3 scripts/swift_file_length_budget.py \
               --budget .github/swift-file-length-budget.tsv \
               --base-ref "$BASE_REF" \
-              --merge-ref origin/main \
+              --merge-ref "origin/${BASE_BRANCH:-main}" \
               --merge-head "$HEAD_SHA"
           elif [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
             python3 scripts/swift_file_length_budget.py \
