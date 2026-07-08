@@ -10,6 +10,11 @@ import Foundation
 enum ProWelcomeChecklistPresenter {
     static let seenDefaultsKey = "cmux.pro.welcomeChecklist.seen"
 
+    /// Tracks the dedicated welcome workspace so repeated presentations reuse
+    /// and focus it instead of spawning a duplicate workspace each time.
+    @MainActor
+    static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
+
     static func shouldPresentAutomatically(isPro: Bool, seen: Bool, flagEnabled: Bool) -> Bool {
         isPro && !seen && flagEnabled
     }
@@ -66,12 +71,33 @@ extension ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
-        let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
-        if AppDelegate.shared?.performProUpgradeWorkspaceAction(
-            title: title, url: url, debugSource: "proWelcomeChecklist") != nil {
+        if presentDedicatedProWelcomeWorkspace(url: url) {
             return
         }
         presentBrowserSplit(url: url, transparentBackground: true)
+    }
+
+    private static func presentDedicatedProWelcomeWorkspace(url: URL) -> Bool {
+        guard let appDelegate = AppDelegate.shared else { return false }
+        if let workspaceId = ProWelcomeChecklistPresenter.workspaceReuseState.reusableWorkspaceID(
+            exists: { appDelegate.proUpgradeWorkspaceExists(workspaceId: $0) }
+        ) {
+            if appDelegate.focusProUpgradeWorkspace(workspaceId: workspaceId, url: url) {
+                return true
+            }
+            ProWelcomeChecklistPresenter.workspaceReuseState.clear()
+        }
+
+        let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
+        guard let workspace = appDelegate.performProUpgradeWorkspaceAction(
+            title: title,
+            url: url,
+            debugSource: "proWelcomeChecklist"
+        ) else {
+            return false
+        }
+        ProWelcomeChecklistPresenter.workspaceReuseState.recordCreatedWorkspace(id: workspace.id)
+        return true
     }
 
     /// Builds an app web URL (pricing or Pro welcome) decorated with the current
