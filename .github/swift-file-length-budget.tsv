@@ -24,7 +24,7 @@
 4759	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4121	Sources/BrowserWindowPortal.swift
+4132	Sources/BrowserWindowPortal.swift
 4007	cmuxTests/TabManagerUnitTests.swift
 3964	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3953	cmuxTests/WindowAndDragTests.swift
