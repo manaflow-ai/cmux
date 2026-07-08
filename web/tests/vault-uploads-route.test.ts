@@ -11,8 +11,15 @@ const sha256 = "a".repeat(64);
 const storageModule = await import("../services/vault/storage");
 const realBuildObjectKey = storageModule.buildObjectKey;
 let presignFailure: Error | null = null;
+let beforeNextPresignFailure: (() => Promise<void>) | null = null;
 const presignPut = mock(async (...args: unknown[]) => {
   const [key, contentLength] = args as [string, number];
+  if (beforeNextPresignFailure) {
+    const run = beforeNextPresignFailure;
+    beforeNextPresignFailure = null;
+    await run();
+    throw new Error("transient presign failure");
+  }
   if (presignFailure) throw presignFailure;
   return `https://storage.test/${encodeURIComponent(key)}?contentLength=${contentLength}`;
 });
@@ -52,6 +59,7 @@ beforeEach(async () => {
   process.env.CMUX_VAULT_MAX_UPLOAD_BYTES = "1000000";
   process.env.CMUX_VAULT_MAX_USER_BYTES = "1000000";
   presignFailure = null;
+  beforeNextPresignFailure = null;
   presignPut.mockClear();
   deleteObject.mockClear();
   getUser.mockClear();
@@ -105,6 +113,37 @@ describe("Vault uploads route", () => {
     expect(rows[0].compressedSizeBytes).toBe(123);
     expect(rows[0].createdAt.getTime()).toBe(previousCreatedAt.getTime());
     expect(rows[0].expiresAt.getTime()).toBe(previousExpiresAt.getTime());
+  });
+
+  dbTest("does not restore an older grant over a newer successful retry", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    await db
+      .insert(vaultUploadGrants)
+      .values({
+        userId,
+        objectKey,
+        compressedSizeBytes: 123,
+        createdAt: new Date("2030-01-01T00:00:00.000Z"),
+        expiresAt: new Date("2030-01-02T00:00:00.000Z"),
+      });
+
+    beforeNextPresignFailure = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const response = await POST(uploadRequest({ compressedSizeBytes: 789 }));
+      expect(response.status).toBe(200);
+      expect((await response.json()).items[0].status).toBe("upload");
+    };
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).items[0].error).toBe("upload_presign_failed");
+    const rows = await db
+      .select()
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].compressedSizeBytes).toBe(789);
   });
 
   dbTest("removes a newly-created upload grant when presign fails", async () => {

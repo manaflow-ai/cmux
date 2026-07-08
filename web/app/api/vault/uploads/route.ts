@@ -48,6 +48,7 @@ type ReservedUploadResult =
   | (VaultUploadItemBase & {
     readonly status: "upload";
     readonly grantId: string;
+    readonly grantCreatedAt: Date;
     readonly grantExpiresAt: Date;
     readonly previousGrant: ExistingUploadGrant | null;
     readonly objectKey: string;
@@ -212,6 +213,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         relPath: item.relPath,
         status: "upload",
         grantId: grant.id,
+        grantCreatedAt: now,
         grantExpiresAt,
         previousGrant: previousGrant && !objectKeysCreatedInRequest.has(objectKey)
           ? previousGrant
@@ -278,6 +280,8 @@ async function presignReservedUploads(
         .where(and(
           eq(vaultUploadGrants.id, item.previousGrant.id),
           eq(vaultUploadGrants.objectKey, item.objectKey),
+          eq(vaultUploadGrants.createdAt, item.grantCreatedAt),
+          eq(vaultUploadGrants.expiresAt, item.grantExpiresAt),
         ))
         .catch(() => undefined);
       continue;
@@ -287,6 +291,7 @@ async function presignReservedUploads(
       .where(and(
         eq(vaultUploadGrants.id, item.grantId),
         eq(vaultUploadGrants.objectKey, item.objectKey),
+        eq(vaultUploadGrants.createdAt, item.grantCreatedAt),
         eq(vaultUploadGrants.expiresAt, item.grantExpiresAt),
       ))
       .catch(() => undefined);
