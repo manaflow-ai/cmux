@@ -19,6 +19,9 @@ public struct MobileBrowserPane: View {
     /// the field shows the user's in-progress text rather than the live URL.
     @FocusState private var isAddressFocused: Bool
 
+    /// Opens the current page in Safari when requested from the overflow menu.
+    @Environment(\.openURL) private var openURL
+
     /// Invoked when the user closes the browser pane.
     private let onClose: () -> Void
 
@@ -65,6 +68,8 @@ public struct MobileBrowserPane: View {
 
             reloadOrStopButton
 
+            overflowMenu
+
             Button(action: onClose) {
                 Image(systemName: "xmark")
             }
@@ -77,27 +82,60 @@ public struct MobileBrowserPane: View {
     }
 
     private var addressField: some View {
-        TextField(
-            L10n.string("mobile.browser.addressPlaceholder", defaultValue: "Search or enter address"),
-            text: $state.addressText
-        )
-        .textFieldStyle(.roundedBorder)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled(true)
-        .keyboardType(.webSearch)
-        .submitLabel(.go)
-        .focused($isAddressFocused)
-        .onChange(of: isAddressFocused) { _, focused in
-            // Mirror editing focus into the state so the web view's URL observer
-            // does not overwrite in-progress typing (see `isAddressEditing`).
-            state.isAddressEditing = focused
-        }
-        .onSubmit {
-            if state.submitAddress() {
-                isAddressFocused = false
+        HStack(spacing: 6) {
+            securityIndicator
+
+            TextField(
+                L10n.string("mobile.browser.addressPlaceholder", defaultValue: "Search or enter address"),
+                text: $state.addressText
+            )
+            .textFieldStyle(.plain)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled(true)
+            .keyboardType(.webSearch)
+            .submitLabel(.go)
+            .focused($isAddressFocused)
+            .onChange(of: isAddressFocused) { _, focused in
+                // Mirror editing focus into the state so the web view's URL observer
+                // does not overwrite in-progress typing (see `isAddressEditing`).
+                state.isAddressEditing = focused
             }
+            .onSubmit {
+                if state.submitAddress() {
+                    isAddressFocused = false
+                }
+            }
+            .accessibilityIdentifier("MobileBrowserAddressField")
         }
-        .accessibilityIdentifier("MobileBrowserAddressField")
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .frame(minHeight: 36)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(.separator).opacity(0.35), lineWidth: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private var securityIndicator: some View {
+        switch BrowserSecurityIndicator.state(for: state.currentURL) {
+        case .secure:
+            Image(systemName: "lock.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel(L10n.string("mobile.browser.security.secure", defaultValue: "Secure connection"))
+                .accessibilityIdentifier("MobileBrowserSecureIndicator")
+        case .insecure:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(L10n.string("mobile.browser.security.insecure", defaultValue: "Not secure"))
+                .accessibilityIdentifier("MobileBrowserInsecureIndicator")
+        case .none:
+            EmptyView()
+        }
     }
 
     @ViewBuilder
@@ -118,6 +156,68 @@ public struct MobileBrowserPane: View {
             }
             .accessibilityLabel(L10n.string("mobile.browser.reload", defaultValue: "Reload"))
             .accessibilityIdentifier("MobileBrowserReloadButton")
+        }
+    }
+
+    private var overflowMenu: some View {
+        Menu {
+            shareMenuItem
+
+            Button {
+                if let url = state.currentURL {
+                    openURL(url)
+                }
+            } label: {
+                menuLabel(
+                    L10n.string("mobile.browser.openInSafari", defaultValue: "Open in Safari"),
+                    systemImage: "safari"
+                )
+            }
+            .disabled(state.currentURL == nil)
+
+            Button {
+                state.togglePrefersDesktopSite()
+            } label: {
+                menuLabel(
+                    state.prefersDesktopSite
+                        ? L10n.string("mobile.browser.requestMobileSite", defaultValue: "Request Mobile Site")
+                        : L10n.string("mobile.browser.requestDesktopSite", defaultValue: "Request Desktop Site"),
+                    systemImage: state.prefersDesktopSite ? "iphone" : "desktopcomputer"
+                )
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .frame(width: 44, height: 44)
+        }
+        .accessibilityLabel(L10n.string("mobile.browser.more", defaultValue: "More"))
+        .accessibilityIdentifier("MobileBrowserOverflowMenu")
+    }
+
+    @ViewBuilder
+    private var shareMenuItem: some View {
+        if let url = state.currentURL {
+            ShareLink(item: url) {
+                menuLabel(
+                    L10n.string("mobile.browser.share", defaultValue: "Share"),
+                    systemImage: "square.and.arrow.up"
+                )
+            }
+        } else {
+            Button {} label: {
+                menuLabel(
+                    L10n.string("mobile.browser.share", defaultValue: "Share"),
+                    systemImage: "square.and.arrow.up"
+                )
+            }
+            .disabled(true)
+        }
+    }
+
+    private func menuLabel(_ title: String, systemImage: String) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: systemImage)
         }
     }
 

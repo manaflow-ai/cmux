@@ -61,6 +61,16 @@ public final class BrowserSurfaceState: Identifiable {
     /// The page's current committed URL, or `nil` before the first navigation.
     public var currentURL: URL?
 
+    /// The most recent WebKit interaction state for this surface.
+    ///
+    /// `WKWebView` instances are view-lifecycle objects and can be torn down
+    /// during workspace switches. This data lets a fresh web view restore the
+    /// page plus its back/forward list while the in-memory surface survives.
+    public var savedInteractionState: Data?
+
+    /// Whether subsequent page loads should request the desktop site.
+    public var prefersDesktopSite: Bool
+
     /// Whether a navigation is in flight. Drives the progress indicator and the
     /// reload/stop button affordance.
     public var isLoading: Bool
@@ -101,6 +111,8 @@ public final class BrowserSurfaceState: Identifiable {
         self.isAddressEditing = false
         self.title = nil
         self.currentURL = initialURL
+        self.savedInteractionState = nil
+        self.prefersDesktopSite = false
         self.isLoading = false
         self.estimatedProgress = 0
         self.canGoBack = false
@@ -117,6 +129,33 @@ public final class BrowserSurfaceState: Identifiable {
         loadRequest = url
         addressText = url.absoluteString
         lastErrorMessage = nil
+        savedInteractionState = nil
+    }
+
+    /// Store a new WebKit interaction-state snapshot when WebKit provides one.
+    ///
+    /// - Parameter data: The `WKWebView.interactionState` data snapshot, or
+    ///   `nil` when WebKit has no restorable state yet.
+    public func saveInteractionState(_ data: Data?) {
+        guard let data else { return }
+        savedInteractionState = data
+    }
+
+    /// Update the desktop-site preference and request a reload when a page is
+    /// already loaded.
+    ///
+    /// - Parameter value: Whether subsequent loads should prefer desktop mode.
+    public func setPrefersDesktopSite(_ value: Bool) {
+        guard prefersDesktopSite != value else { return }
+        prefersDesktopSite = value
+        if loadRequest == nil, currentURL != nil {
+            request(.reload)
+        }
+    }
+
+    /// Flip the desktop-site preference.
+    public func togglePrefersDesktopSite() {
+        setPrefersDesktopSite(!prefersDesktopSite)
     }
 
     /// Resolve and load whatever is currently in the address bar, returning
