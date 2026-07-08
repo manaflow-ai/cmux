@@ -33,6 +33,43 @@ export function scrollCompensationDelta(index: number, anchorIndex: number, prev
   return index < anchorIndex ? nextHeight - (previousHeight ?? estimate) : 0;
 }
 
+type VirtualRowMeasureNode = Pick<HTMLDivElement, "getBoundingClientRect" | "querySelector">;
+
+export interface VirtualRowMeasurementState {
+  heights: Map<number, number>;
+  measured: { current: { total: number; count: number } };
+  estimate: { current: number };
+  anchorIndex: { current: number };
+  scrollRef: { current: HTMLElement | null };
+  bumpVersion: () => void;
+}
+
+export function measureVirtualRow(index: number, node: VirtualRowMeasureNode, state: VirtualRowMeasurementState): boolean {
+  const next = node.getBoundingClientRect().height;
+  const prev = state.heights.get(index);
+  if (Math.abs((prev ?? state.estimate.current) - next) <= 1) return false;
+
+  const delta = scrollCompensationDelta(index, state.anchorIndex.current, prev, next, state.estimate.current);
+  state.heights.set(index, next);
+  const measured = state.measured.current;
+  if (prev == null) {
+    measured.count += 1;
+    measured.total += next;
+  } else {
+    measured.total += next - prev;
+  }
+  if (measured.count) state.estimate.current = Math.max(80, measured.total / measured.count);
+  const scroll = state.scrollRef.current;
+  if (scroll && delta) scroll.scrollTop += delta;
+  state.bumpVersion();
+  return true;
+}
+
+export function measureVirtualRowFromResize(index: number, node: VirtualRowMeasureNode, state: VirtualRowMeasurementState): boolean {
+  if (node.querySelector('[data-disclosure-animating="true"]')) return false;
+  return measureVirtualRow(index, node, state);
+}
+
 export function useVirtualTurns(count: number, enabled = true) {
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
@@ -99,33 +136,24 @@ export function useVirtualTurns(count: number, enabled = true) {
       cleanups.current.get(index)?.();
       cleanups.current.delete(index);
       if (!node || !enabled) return;
-      const update = () => {
-        if (node.querySelector('[data-disclosure-animating="true"]')) return;
-        const next = node.getBoundingClientRect().height;
-        const prev = heights.current.get(index);
-        if (Math.abs((prev ?? estimate.current) - next) > 1) {
-          const delta = scrollCompensationDelta(index, anchorIndex.current, prev, next, estimate.current);
-          heights.current.set(index, next);
-          if (prev == null) {
-            measured.current.count += 1;
-            measured.current.total += next;
-          } else {
-            measured.current.total += next - prev;
-          }
-          if (measured.current.count) estimate.current = Math.max(80, measured.current.total / measured.current.count);
-          const scroll = scrollRef.current;
-          if (scroll && delta) scroll.scrollTop += delta;
-          setVersion((v) => v + 1);
-        }
+      const measurementState: VirtualRowMeasurementState = {
+        heights: heights.current,
+        measured,
+        estimate,
+        anchorIndex,
+        scrollRef,
+        bumpVersion: () => setVersion((v) => v + 1),
       };
-      update();
-      const obs = new ResizeObserver(update);
+      const updateFromResize = () => measureVirtualRowFromResize(index, node, measurementState);
+      const updateFromExplicitRemeasure = () => measureVirtualRow(index, node, measurementState);
+      updateFromResize();
+      const obs = new ResizeObserver(updateFromResize);
       obs.observe(node);
       observers.current.set(index, obs);
-      node.addEventListener("virtual-row-remeasure", update);
+      node.addEventListener("virtual-row-remeasure", updateFromExplicitRemeasure);
       cleanups.current.set(index, () => {
         obs.disconnect();
-        node.removeEventListener("virtual-row-remeasure", update);
+        node.removeEventListener("virtual-row-remeasure", updateFromExplicitRemeasure);
       });
     };
     measureCallbacks.current.set(index, cb);

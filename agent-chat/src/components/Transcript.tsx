@@ -20,12 +20,32 @@ export function disclosureShouldRender(open: boolean, present: boolean): boolean
   return open || present;
 }
 
-export function disclosureHeightKeyframes(open: boolean, from: number, measuredHeight: number): Keyframe[] {
+export function disclosureHeightKeyframes(open: boolean, from: number, measuredHeight: number, fromOpacity = from > 0 ? 1 : 0): Keyframe[] {
   const to = open ? measuredHeight : 0;
   return [
-    { height: `${Math.max(0, from)}px`, opacity: from > 0 ? 1 : 0 },
+    { height: `${Math.max(0, from)}px`, opacity: fromOpacity },
     { height: `${Math.max(0, to)}px`, opacity: open ? 1 : 0 },
   ];
+}
+
+export function disclosureSnapshotStyle(computedHeight: string, fallbackHeight: number, computedOpacity: string): { height: string; opacity: string } {
+  const parsedHeight = Number.parseFloat(computedHeight);
+  const height = Math.max(0, Number.isFinite(parsedHeight) ? parsedHeight : fallbackHeight);
+  const parsedOpacity = Number.parseFloat(computedOpacity);
+  const opacity = Number.isFinite(parsedOpacity) ? Math.min(1, Math.max(0, parsedOpacity)) : (height > 0 ? 1 : 0);
+  return { height: `${height}px`, opacity: String(opacity) };
+}
+
+function pinCurrentDisclosureAnimationFrame(node: HTMLDivElement, animation: Animation | null) {
+  const computed = getComputedStyle(node);
+  const snapshot = disclosureSnapshotStyle(computed.height, node.getBoundingClientRect().height, computed.opacity);
+  try {
+    animation?.commitStyles();
+  } catch {
+    // Some test/browser environments do not support commitStyles for this effect.
+  }
+  node.style.height = snapshot.height;
+  node.style.opacity = snapshot.opacity;
 }
 
 function DisclosureMotion({ open, className, children }: { open: boolean; className?: string; children: () => ReactNode }) {
@@ -60,6 +80,7 @@ function DisclosureMotion({ open, className, children }: { open: boolean; classN
       return;
     }
     if (!open && !present) {
+      if (animationRef.current) pinCurrentDisclosureAnimationFrame(node, animationRef.current);
       animationRef.current?.cancel();
       animationRef.current = null;
       node.style.height = "0px";
@@ -69,7 +90,10 @@ function DisclosureMotion({ open, className, children }: { open: boolean; classN
     }
     if (!inner) return;
 
-    const currentHeight = Number.parseFloat(getComputedStyle(node).height) || node.getBoundingClientRect().height || 0;
+    const computed = getComputedStyle(node);
+    const currentHeight = Number.parseFloat(computed.height) || node.getBoundingClientRect().height || 0;
+    const parsedOpacity = Number.parseFloat(computed.opacity);
+    const currentOpacity = Number.isFinite(parsedOpacity) ? parsedOpacity : (currentHeight > 0 ? 1 : 0);
     animationRef.current?.cancel();
     animationRef.current = null;
 
@@ -83,7 +107,7 @@ function DisclosureMotion({ open, className, children }: { open: boolean; classN
     }
 
     const measuredHeight = inner.scrollHeight;
-    const keyframes = disclosureHeightKeyframes(open, currentHeight, measuredHeight);
+    const keyframes = disclosureHeightKeyframes(open, currentHeight, measuredHeight, currentOpacity);
     const animation = node.animate(keyframes, {
       duration: open ? DISCLOSURE_OPEN_MS : DISCLOSURE_COLLAPSE_MS,
       easing: open ? "cubic-bezier(.16, 1, .3, 1)" : "ease-in",
@@ -91,7 +115,7 @@ function DisclosureMotion({ open, className, children }: { open: boolean; classN
     animationRef.current = animation;
     setAnimating(true);
     node.style.height = `${currentHeight}px`;
-    node.style.opacity = String(currentHeight > 0 ? 1 : 0);
+    node.style.opacity = String(currentOpacity);
 
     animation.onfinish = () => {
       if (animationRef.current !== animation) return;
@@ -114,7 +138,10 @@ function DisclosureMotion({ open, className, children }: { open: boolean; classN
       }
     };
     return () => {
-      if (animationRef.current === animation) animation.cancel();
+      if (animationRef.current === animation) {
+        pinCurrentDisclosureAnimationFrame(node, animation);
+        animation.cancel();
+      }
     };
   }, [open, present]);
 

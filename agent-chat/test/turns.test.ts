@@ -1,9 +1,9 @@
 import type { Block } from "../src/session";
 import { activityRowLabel, groupTurns, summarizeTurnActivity } from "../src/turns";
-import { scrollCompensationDelta, virtualRange } from "../src/hooks/useVirtualTurns";
+import { measureVirtualRow, measureVirtualRowFromResize, scrollCompensationDelta, virtualRange } from "../src/hooks/useVirtualTurns";
 
 (globalThis as any).location ??= { pathname: "/" };
-const { disclosureHeightKeyframes, disclosureShouldRender } = await import("../src/components/Transcript");
+const { disclosureHeightKeyframes, disclosureShouldRender, disclosureSnapshotStyle } = await import("../src/components/Transcript");
 
 const activity: Block[] = [
   { kind: "tool", toolId: "read", name: "cat", detail: "AGENTS.md", status: "ok" },
@@ -100,6 +100,38 @@ const visibleDelta = scrollCompensationDelta(3, 3, 100, 140, 260);
 if (visibleDelta !== 0) {
   throw new Error(`measurement at/after anchor should not compensate, got ${visibleDelta}`);
 }
+const remeasureVersions = { current: 0 };
+let rowHeight = 340;
+const rowEvents = new EventTarget();
+const animatingRow = Object.assign(rowEvents, {
+  getBoundingClientRect: () => ({ height: rowHeight }) as DOMRect,
+  querySelector: (selector: string) => selector === '[data-disclosure-animating="true"]' ? ({} as Element) : null,
+});
+const remeasureState = {
+  heights: new Map<number, number>([[0, 100]]),
+  measured: { current: { total: 100, count: 1 } },
+  estimate: { current: 100 },
+  anchorIndex: { current: 1 },
+  scrollRef: { current: { scrollTop: 0 } as HTMLElement },
+  bumpVersion: () => { remeasureVersions.current += 1; },
+};
+const remeasureVersionCount = () => remeasureVersions.current;
+if (measureVirtualRowFromResize(0, animatingRow, remeasureState)) {
+  throw new Error("ResizeObserver path should not remeasure while a disclosure is animating");
+}
+if (remeasureState.heights.get(0) !== 100 || remeasureVersionCount() !== 0) {
+  throw new Error("ResizeObserver guard should leave the cached row height unchanged during animation");
+}
+animatingRow.addEventListener("virtual-row-remeasure", () => {
+  measureVirtualRow(0, animatingRow, remeasureState);
+});
+animatingRow.dispatchEvent(new Event("virtual-row-remeasure"));
+if (remeasureState.heights.get(0) !== rowHeight || remeasureVersionCount() !== 1) {
+  throw new Error(`explicit disclosure remeasure should update while animating, got height ${remeasureState.heights.get(0)} versions ${remeasureVersionCount()}`);
+}
+if (remeasureState.scrollRef.current.scrollTop !== 240) {
+  throw new Error(`remeasure above anchor should preserve scroll position with delta, got ${remeasureState.scrollRef.current.scrollTop}`);
+}
 if (!disclosureShouldRender(true, false) || !disclosureShouldRender(false, true) || disclosureShouldRender(false, false)) {
   throw new Error("disclosure presence state should keep children mounted while opening or closing only");
 }
@@ -110,6 +142,15 @@ if (interruptedOpen[0].height !== "42px" || interruptedOpen[1].height !== "180px
 const interruptedClose = disclosureHeightKeyframes(false, 77, 180);
 if (interruptedClose[0].height !== "77px" || interruptedClose[1].height !== "0px") {
   throw new Error(`disclosure close should animate from current measured height to zero: ${JSON.stringify(interruptedClose)}`);
+}
+// Browser verification is still needed for actual WAAPI cleanup timing; Bun has no animation engine here.
+const midCloseSnapshot = disclosureSnapshotStyle("110px", 149, "0.42");
+if (midCloseSnapshot.height !== "110px" || midCloseSnapshot.opacity !== "0.42") {
+  throw new Error(`disclosure cleanup should preserve the mid-flight computed style: ${JSON.stringify(midCloseSnapshot)}`);
+}
+const reopenFromMidClose = disclosureHeightKeyframes(true, Number.parseFloat(midCloseSnapshot.height), 149, Number.parseFloat(midCloseSnapshot.opacity));
+if (reopenFromMidClose[0].height !== "110px" || reopenFromMidClose[0].opacity !== 0.42 || reopenFromMidClose[1].height !== "149px") {
+  throw new Error(`interrupted reopen should continue from current height instead of snap to start: ${JSON.stringify(reopenFromMidClose)}`);
 }
 
 console.log("turn summary and virtualization: OK");

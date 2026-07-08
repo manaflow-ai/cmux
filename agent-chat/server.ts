@@ -16,7 +16,7 @@ import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -109,6 +109,7 @@ interface WsData {
 
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
+let currentTheme = resolveGhosttyTheme();
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
@@ -1196,22 +1197,114 @@ export function cssFontFamily(value: string | undefined | null, fallback: string
   return families.length ? `${families.join(", ")}, ${fallback}` : fallback;
 }
 
-function fontVars(theme: GhosttyTheme): string {
+function resolvedFontValues(theme: GhosttyTheme): Record<string, string> {
   const fonts = resolveUiConfig().fonts;
   const baseSize = fonts.baseSize ?? 14;
   const codeSize = fonts.codeSize ?? theme.fontSize ?? 12.5;
   const codeLineHeight = fonts.codeLineHeight ?? 1.5;
   const sans = cssFontFamily(fonts.sansFamily, DEFAULT_SANS);
   const mono = cssFontFamily(fonts.monoFamily ?? theme.fontFamily, DEFAULT_MONO);
-  return `--font-sans: ${sans}; --font-mono: ${mono}; --font-size-base: ${baseSize}px; ` +
-    `--font-size-code: ${codeSize}px; --font-line-code: ${codeLineHeight}; `;
+  return {
+    "--font-sans": sans,
+    "--font-mono": mono,
+    "--font-size-base": `${baseSize}px`,
+    "--font-size-code": `${codeSize}px`,
+    "--font-line-code": String(codeLineHeight),
+  };
 }
 
-function paletteVars(theme: GhosttyTheme): string {
-  return theme.palette
-    .map((color, i) => `--ansi-${i}: ${color}; --ansi-${ANSI_NAMES[i]}: ${color};`)
-    .join(" ") +
-    ` --selection-background: ${theme.selectionBackground ?? theme.palette[4]}; --cursor-color: ${theme.cursorColor ?? theme.foreground}; `;
+export function themeVarMap(theme: GhosttyTheme, opts: { transparent?: boolean; opacity?: number } = {}): Record<string, string> {
+  const transparent = opts.transparent === true;
+  const opacity = transparent ? (typeof opts.opacity === "number" && Number.isFinite(opts.opacity) ? opts.opacity : theme.opacity) : 1;
+  const n = parseInt(theme.background.slice(1), 16);
+  const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+  const vars: Record<string, string> = {
+    "--bg": theme.background,
+    "--fg": theme.foreground,
+    "--bg-body": `rgba(${rgb}, ${opacity})`,
+    "--bg-html": transparent ? "transparent" : theme.background,
+    "--accent": theme.palette[12],
+    "--green": theme.palette[2],
+    "--red": theme.palette[1],
+    "--amber": theme.palette[3],
+    "--selection-background": theme.selectionBackground ?? theme.palette[4],
+    "--cursor-color": theme.cursorColor ?? theme.foreground,
+    ...resolvedFontValues(theme),
+  };
+  for (const [i, color] of theme.palette.entries()) {
+    vars[`--ansi-${i}`] = color;
+    vars[`--ansi-${ANSI_NAMES[i]}`] = color;
+  }
+  return vars;
+}
+
+function varsToCss(vars: Record<string, string>): string {
+  return Object.entries(vars).map(([key, value]) => `${key}: ${value};`).join(" ");
+}
+
+export function themeCssVars(theme: GhosttyTheme, opts: { transparent?: boolean; opacity?: number } = {}): string {
+  return varsToCss(themeVarMap(theme, opts));
+}
+
+function themeForClient(theme: GhosttyTheme): GhosttyTheme {
+  return theme;
+}
+
+function sameTheme(a: GhosttyTheme, b: GhosttyTheme): boolean {
+  return JSON.stringify(themeForClient(a)) === JSON.stringify(themeForClient(b));
+}
+
+function broadcastTheme(theme: GhosttyTheme) {
+  const payload = JSON.stringify({ kind: "theme", theme: themeForClient(theme), vars: themeVarMap(theme) });
+  for (const ws of allSockets) ws.send(payload);
+}
+
+let themeWatchers: FSWatcher[] = [];
+let themeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let themePollTimer: ReturnType<typeof setInterval> | null = null;
+
+function closeThemeWatchers() {
+  for (const watcher of themeWatchers) watcher.close();
+  themeWatchers = [];
+}
+
+function armThemeWatchers(theme: GhosttyTheme) {
+  closeThemeWatchers();
+  for (const file of theme.sources) {
+    try {
+      themeWatchers.push(watch(file, { persistent: false }, () => scheduleThemeRefresh()));
+    } catch {
+      // Missing files are still covered by the poll fallback and re-armed
+      // after the next successful resolve.
+    }
+  }
+}
+
+function scheduleThemeRefresh() {
+  if (themeRefreshTimer) clearTimeout(themeRefreshTimer);
+  themeRefreshTimer = setTimeout(() => {
+    themeRefreshTimer = null;
+    refreshThemeNow();
+  }, 120);
+}
+
+export function refreshThemeNow(): boolean {
+  const next = resolveGhosttyTheme(true);
+  const changed = !sameTheme(currentTheme, next);
+  currentTheme = next;
+  armThemeWatchers(next);
+  if (changed) broadcastTheme(next);
+  return changed;
+}
+
+function startThemeWatcher() {
+  armThemeWatchers(currentTheme);
+  if (themePollTimer) clearInterval(themePollTimer);
+  themePollTimer = setInterval(() => refreshThemeNow(), 5000);
+}
+
+export function themeMessageForTest(theme: GhosttyTheme): string {
+  return JSON.stringify({ kind: "theme", theme: themeForClient(theme), vars: themeVarMap(theme) });
 }
 
 // Inject the resolved Ghostty theme as CSS variables at serve time so the
@@ -1220,24 +1313,14 @@ function paletteVars(theme: GhosttyTheme): string {
 // transparent_background, so only genuinely transparent surfaces get an alpha
 // body; `?opacity=` is a dogfood override.
 function renderPage(url: URL): string {
-  const theme = resolveGhosttyTheme();
+  currentTheme = resolveGhosttyTheme();
   const transparent = url.searchParams.get("transparent") === "1";
   const override = parseFloat(url.searchParams.get("opacity") ?? "");
-  const opacity = transparent ? (Number.isNaN(override) ? theme.opacity : override) : 1;
-  const n = parseInt(theme.background.slice(1), 16);
-  const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
-  const accent = theme.palette[12];
-  const green = theme.palette[2];
-  const red = theme.palette[1];
-  const amber = theme.palette[3];
   // In opaque mode html paints the same solid bg as body, so nothing behind
   // the webview (a terminal surface) can composite through the transparent
   // document root. In transparent mode html stays clear on purpose so
   // background-opacity/blur show through.
-  const bgHtml = transparent ? "transparent" : theme.background;
-  const css = `:root { --bg: ${theme.background}; --fg: ${theme.foreground}; ` +
-    `--bg-body: rgba(${rgb}, ${opacity}); --bg-html: ${bgHtml}; --accent: ${accent}; ` +
-    `--green: ${green}; --red: ${red}; --amber: ${amber}; ${paletteVars(theme)} ${fontVars(theme)} }`;
+  const css = `:root { ${themeCssVars(currentTheme, { transparent, opacity: Number.isNaN(override) ? undefined : override })} }`;
   // Shell: theme vars first (so the first paint is the terminal bg), the
   // static stylesheet, a mount point, and the bundled React app (Base UI).
   const script = url.pathname === "/gallery" ? "/gallery.js" : "/app.js";
@@ -1411,7 +1494,10 @@ function startServer() {
     if (url.pathname === "/app.css") {
       return assetResponse(req, await cssAsset());
     }
-    if (url.pathname === "/api/theme") return Response.json(resolveGhosttyTheme());
+    if (url.pathname === "/api/theme") {
+      currentTheme = resolveGhosttyTheme();
+      return Response.json(themeForClient(currentTheme));
+    }
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
     if (url.pathname === "/api/sessions" && req.method === "POST") {
@@ -1487,6 +1573,7 @@ function startServer() {
       console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
     });
   }
+  startThemeWatcher();
 
   console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
 }

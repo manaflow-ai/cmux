@@ -19,9 +19,13 @@ import {
   resetAssetCachesForTest,
   resolveFileDiffPath,
   sendPromptForTest,
+  themeCssVars,
+  themeMessageForTest,
+  themeVarMap,
   turnBaselineCountForTest,
   turnBaselineKeysForTest,
 } from "../server";
+import type { GhosttyTheme } from "../theme";
 import type { Adapter, AgentEvent, SessionCtx, SessionStatus } from "../types";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -64,6 +68,32 @@ const sanitized = cssFontFamily(`Bad";} body { color:red</style>, Good\\Name`, f
 assert(!/[;{}<>]/.test(sanitized), `sanitized font family should not contain CSS/HTML breakers: ${sanitized}`);
 assert(sanitized.includes(`"Bad\\" body  color:red/style"`), `sanitized font family should escape quotes and strip angle brackets: ${sanitized}`);
 assert(sanitized.includes(`"Good\\\\Name"`), `sanitized font family should escape backslashes: ${sanitized}`);
+
+const fakeTheme: GhosttyTheme = {
+  background: "#112233",
+  foreground: "#ddeeff",
+  palette: [
+    "#000000", "#110000", "#001100", "#111100", "#000011", "#110011", "#001111", "#bbbbbb",
+    "#444444", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+  ],
+  selectionBackground: "#334455",
+  cursorColor: "#abcdef",
+  fontFamily: "Test Mono",
+  fontSize: 13,
+  opacity: 0.72,
+  blur: 0,
+  isLight: false,
+  source: "test",
+  sources: ["/tmp/ghostty-config"],
+};
+const themeVars = themeVarMap(fakeTheme, { transparent: true });
+assert(themeVars["--bg"] === "#112233", "theme vars should include background");
+assert(themeVars["--bg-html"] === "transparent", "transparent theme vars should keep html clear");
+assert(themeVars["--bg-body"] === "rgba(17, 34, 51, 0.72)", `transparent theme vars should use theme opacity: ${themeVars["--bg-body"]}`);
+assert(themeVars["--ansi-bright-blue"] === "#0000ff", "theme vars should include named ANSI colors");
+assert(themeCssVars(fakeTheme).includes("--font-mono"), "theme CSS should include resolved font variables");
+const themeMsg = JSON.parse(themeMessageForTest(fakeTheme));
+assert(themeMsg.kind === "theme" && themeMsg.vars["--accent"] === "#0000ff", "theme WS message should carry the resolved variable map");
 
 const root = join(import.meta.dir, "..", "scratch", "git-output-cap-test");
 await rm(root, { recursive: true, force: true });
