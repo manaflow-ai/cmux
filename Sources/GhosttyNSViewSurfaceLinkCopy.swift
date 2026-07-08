@@ -6,7 +6,7 @@ extension GhosttyNSView {
               let workspace = terminalSurface.owningWorkspace(),
               let link = WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
                 workspace: workspace,
-                surfaceId: terminalSurface.id
+                panelId: terminalSurface.id
               ) else {
             NSSound.beep()
             return

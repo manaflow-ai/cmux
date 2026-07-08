@@ -141,7 +141,7 @@ struct CmuxDurableDeepLinkRestoreTests {
         let link = try #require(
             WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
                 workspace: workspace,
-                surfaceId: surfaceId
+                panelId: panel.id
             )
         )
 
