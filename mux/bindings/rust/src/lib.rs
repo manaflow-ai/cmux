@@ -6,10 +6,10 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub type Result<T> = std::result::Result<T, MuxError>;
+pub type Result<T> = std::result::Result<T, CmuxError>;
 
 #[derive(Debug)]
-pub enum MuxError {
+pub enum CmuxError {
     Command { message: String, id: Option<Value> },
     Decode(String),
     Connection(String),
@@ -17,7 +17,7 @@ pub enum MuxError {
     ProtocolVersion(String),
 }
 
-impl fmt::Display for MuxError {
+impl fmt::Display for CmuxError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Command { message, .. } => write!(f, "{message}"),
@@ -29,7 +29,7 @@ impl fmt::Display for MuxError {
     }
 }
 
-impl std::error::Error for MuxError {}
+impl std::error::Error for CmuxError {}
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
@@ -186,14 +186,14 @@ pub enum Event {
     Unknown(Value),
 }
 
-pub struct MuxClient {
+pub struct CmuxClient {
     config: ClientConfig,
     conn: JsonLineConnection,
     next_id: u64,
     protocol: Option<u32>,
 }
 
-impl MuxClient {
+impl CmuxClient {
     pub fn connect(config: ClientConfig) -> Result<Self> {
         let conn = JsonLineConnection::connect(&config.socket_path, config.timeout)?;
         Ok(Self { config, conn, next_id: 1, protocol: None })
@@ -230,9 +230,9 @@ impl MuxClient {
         let response = self.send_raw(request)?;
         if response.get("ok") == Some(&Value::Bool(true)) {
             let data = response.get("data").cloned().unwrap_or(Value::Object(Map::new()));
-            serde_json::from_value(data).map_err(|err| MuxError::Decode(err.to_string()))
+            serde_json::from_value(data).map_err(|err| CmuxError::Decode(err.to_string()))
         } else {
-            Err(MuxError::Command {
+            Err(CmuxError::Command {
                 message: response
                     .get("error")
                     .and_then(Value::as_str)
@@ -464,28 +464,28 @@ impl MuxClient {
         self.request::<Empty>("scroll-surface", params).map(|_| ())
     }
 
-    pub fn subscribe(&mut self) -> Result<MuxStream> {
+    pub fn subscribe(&mut self) -> Result<CmuxStream> {
         self.open_stream("subscribe", Map::new())
     }
 
-    pub fn attach_surface(&mut self, surface: u64) -> Result<MuxStream> {
+    pub fn attach_surface(&mut self, surface: u64) -> Result<CmuxStream> {
         let protocol = match self.protocol {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
         if protocol > 6 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
-            return Err(MuxError::ProtocolVersion(format!(
+            return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
         }
         self.open_stream("attach-surface", surface_params(surface))
     }
 
-    fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<MuxStream> {
+    fn open_stream(&mut self, cmd: &str, mut params: Map<String, Value>) -> Result<CmuxStream> {
         let id = self.next_id();
         params.insert("id".to_string(), Value::from(id));
         params.insert("cmd".to_string(), Value::from(cmd));
-        MuxStream::open(&self.config.socket_path, self.config.timeout, Value::Object(params))
+        CmuxStream::open(&self.config.socket_path, self.config.timeout, Value::Object(params))
     }
 
     fn next_id(&mut self) -> u64 {
@@ -495,12 +495,12 @@ impl MuxClient {
     }
 }
 
-pub struct MuxStream {
+pub struct CmuxStream {
     conn: JsonLineConnection,
     buffered: Vec<Event>,
 }
 
-impl MuxStream {
+impl CmuxStream {
     fn open(socket_path: &PathBuf, timeout: Duration, request: Value) -> Result<Self> {
         let mut conn = JsonLineConnection::connect(socket_path, timeout)?;
         let request_id = request.get("id").cloned();
@@ -518,7 +518,7 @@ impl MuxStream {
             if response.get("ok") == Some(&Value::Bool(true)) {
                 return Ok(Self { conn, buffered });
             }
-            return Err(MuxError::Command {
+            return Err(CmuxError::Command {
                 message: response
                     .get("error")
                     .and_then(Value::as_str)
@@ -554,7 +554,7 @@ impl MuxStream {
     }
 }
 
-impl Iterator for MuxStream {
+impl Iterator for CmuxStream {
     type Item = Result<Event>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -570,44 +570,44 @@ struct JsonLineConnection {
 impl JsonLineConnection {
     fn connect(socket_path: &PathBuf, timeout: Duration) -> Result<Self> {
         let stream = UnixStream::connect(socket_path).map_err(|err| {
-            MuxError::Connection(format!(
+            CmuxError::Connection(format!(
                 "cannot connect to session socket {}: {err}",
                 socket_path.display()
             ))
         })?;
         stream
             .set_read_timeout(Some(timeout))
-            .map_err(|err| MuxError::Connection(format!("set read timeout failed: {err}")))?;
+            .map_err(|err| CmuxError::Connection(format!("set read timeout failed: {err}")))?;
         stream
             .set_write_timeout(Some(timeout))
-            .map_err(|err| MuxError::Connection(format!("set write timeout failed: {err}")))?;
+            .map_err(|err| CmuxError::Connection(format!("set write timeout failed: {err}")))?;
         let writer = stream
             .try_clone()
-            .map_err(|err| MuxError::Connection(format!("socket clone failed: {err}")))?;
+            .map_err(|err| CmuxError::Connection(format!("socket clone failed: {err}")))?;
         Ok(Self { writer, reader: BufReader::new(stream) })
     }
 
     fn send(&mut self, value: &Value) -> Result<()> {
         let mut encoded =
-            serde_json::to_vec(value).map_err(|err| MuxError::Decode(err.to_string()))?;
+            serde_json::to_vec(value).map_err(|err| CmuxError::Decode(err.to_string()))?;
         encoded.push(b'\n');
         self.writer
             .write_all(&encoded)
-            .map_err(|err| MuxError::Connection(format!("socket write failed: {err}")))
+            .map_err(|err| CmuxError::Connection(format!("socket write failed: {err}")))
     }
 
     fn recv(&mut self) -> Result<Value> {
         let mut line = String::new();
         match self.reader.read_line(&mut line) {
-            Ok(0) => Err(MuxError::Connection("session socket closed".to_string())),
-            Ok(_) => serde_json::from_str(&line).map_err(|err| MuxError::Decode(err.to_string())),
+            Ok(0) => Err(CmuxError::Connection("session socket closed".to_string())),
+            Ok(_) => serde_json::from_str(&line).map_err(|err| CmuxError::Decode(err.to_string())),
             Err(err)
                 if err.kind() == std::io::ErrorKind::WouldBlock
                     || err.kind() == std::io::ErrorKind::TimedOut =>
             {
-                Err(MuxError::Timeout("session did not respond".to_string()))
+                Err(CmuxError::Timeout("session did not respond".to_string()))
             }
-            Err(err) => Err(MuxError::Connection(format!("socket read failed: {err}"))),
+            Err(err) => Err(CmuxError::Connection(format!("socket read failed: {err}"))),
         }
     }
 
@@ -618,18 +618,17 @@ impl JsonLineConnection {
     ) -> Result<T> {
         let previous =
             self.reader.get_ref().read_timeout().map_err(|err| {
-                MuxError::Connection(format!("read timeout lookup failed: {err}"))
+                CmuxError::Connection(format!("read timeout lookup failed: {err}"))
             })?;
         self.reader
             .get_ref()
             .set_read_timeout(Some(timeout))
-            .map_err(|err| MuxError::Connection(format!("set read timeout failed: {err}")))?;
+            .map_err(|err| CmuxError::Connection(format!("set read timeout failed: {err}")))?;
         let result = operation(self);
-        let restore = self
-            .reader
-            .get_ref()
-            .set_read_timeout(previous)
-            .map_err(|err| MuxError::Connection(format!("restore read timeout failed: {err}")));
+        let restore =
+            self.reader.get_ref().set_read_timeout(previous).map_err(|err| {
+                CmuxError::Connection(format!("restore read timeout failed: {err}"))
+            });
         match (result, restore) {
             (Ok(value), Ok(())) => Ok(value),
             (Err(err), _) => Err(err),
