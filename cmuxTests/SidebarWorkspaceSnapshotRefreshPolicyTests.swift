@@ -148,6 +148,7 @@ import Testing
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
+            agentStatusRows: [],
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
