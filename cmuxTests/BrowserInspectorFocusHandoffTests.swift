@@ -8,6 +8,11 @@ import WebKit
 @testable import cmux
 #endif
 
+// The test mutates process-global AppKit state (responder swizzles, the
+// portal registry), but needs no `.serialized`: the suite is @MainActor and
+// the test body contains no suspension points, so it runs atomically with
+// respect to every other main-actor-bound test, and the swizzle/registry
+// state is installed and cleared within that single synchronous slice.
 @MainActor
 @Suite("Browser inspector focus handoff")
 struct BrowserInspectorFocusHandoffTests {
