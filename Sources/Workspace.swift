@@ -13604,15 +13604,17 @@ extension Workspace: BonsplitDelegate {
 
     private func surfaceTabBarPaneHasDisplayableDiff(inPane pane: PaneID) -> Bool {
         guard owningTabManager != nil else { return false }
+        // Mirror the owner chain openDiffViewerFromSurfaceTabBar targets: the
+        // pane's selected surface, then the workspace repo (its cwd is the
+        // execution fallback). Never other panes' repos — a dirty sibling in
+        // another repo must not enable a Diff item that would open against
+        // this pane's clean cwd.
         if let selectedTab = bonsplitController.selectedTab(inPane: pane),
            let panelId = panelIdFromSurfaceId(selectedTab.id),
            let isDirty = panelGitBranches[panelId]?.isDirty {
             return isDirty
         }
-        if let workspaceIsDirty = gitBranch?.isDirty {
-            return workspaceIsDirty
-        }
-        return panelGitBranches.values.contains { $0.isDirty }
+        return gitBranch?.isDirty ?? false
     }
 
     private func surfaceTabBarMenuTitle(for executable: SurfaceTabBarExecutableButton) -> String {
