@@ -166,7 +166,10 @@ extension TerminalController: ControlNotificationContext {
         }
         let opened = AppDelegate.shared?.openTerminalNotification(notification) ?? false
         let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
-        let snapshot = Self.controlSnapshot(current)
+        let snapshot = Self.controlSnapshot(
+            current,
+            surfaceID: opened ? (current.panelId ?? current.surfaceId) : current.surfaceId
+        )
         return opened ? .opened(snapshot) : .targetNotFound(snapshot)
     }
 
@@ -174,7 +177,7 @@ extension TerminalController: ControlNotificationContext {
         guard let opened = AppDelegate.shared?.jumpToLatestUnread() else { return nil }
         let store = TerminalNotificationStore.shared
         let current = store.notifications.first(where: { $0.id == opened.id }) ?? opened
-        return Self.controlSnapshot(current)
+        return Self.controlSnapshot(current, surfaceID: current.panelId ?? current.surfaceId)
     }
 
     func controlNotificationClear() {
@@ -254,12 +257,13 @@ extension TerminalController: ControlNotificationContext {
     /// through the package's `ControlNotificationFieldFormatter`, the single
     /// source of truth for the ISO-8601 `created_at` shape.
     private static func controlSnapshot(
-        _ notification: TerminalNotification
+        _ notification: TerminalNotification,
+        surfaceID: UUID? = nil
     ) -> ControlNotificationSnapshot {
         ControlNotificationSnapshot(
             id: notification.id,
             workspaceID: notification.tabId,
-            surfaceID: notification.surfaceId,
+            surfaceID: surfaceID ?? notification.surfaceId,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,

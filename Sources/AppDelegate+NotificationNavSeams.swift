@@ -95,24 +95,59 @@ final class NotificationNavSeamAdapter:
 
     // MARK: NotificationOpenRouting
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        owner?.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId) ?? false
+    func openRouted(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?
+    ) -> Bool {
+        owner?.openRouted(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows
+        ) ?? false
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInWindow(
+        windowId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?
+    ) -> Bool {
         owner?.openInWindow(
             windowId: windowId,
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows
         ) ?? false
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInActiveWindowFallback(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?
+    ) -> Bool {
         owner?.openInActiveWindowFallback(
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollRow: scrollRow,
+            scrollTotalRows: scrollTotalRows
         ) ?? false
     }
 
@@ -230,6 +265,22 @@ extension AppDelegate {
         notificationStore?.markRead(id: id)
     }
 
+    /// Whether `notification` is openable by the jump-to-latest scan. A thin
+    /// shim over `NotificationNavSnapshot.isOpenableForJump`, kept so the legacy
+    /// predicate name and its unit test remain valid (and prove the package
+    /// predicate matches the original contract). The coordinator itself uses the
+    /// snapshot predicate directly; this is not on its hot path.
+    static func shouldOpenFromJumpToLatestUnread(
+        _ notification: TerminalNotification,
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
+    ) -> Bool {
+        notification.navSnapshot.isOpenableForJump(
+            excludingNotificationId: excludedNotificationId,
+            excludingWorkspaceId: excludedWorkspaceId
+        )
+    }
+
     // MARK: MainWindowContextResolving helpers
 
     var orderedTargetsForUnreadJump: [MainWindowTarget] {
@@ -294,11 +345,32 @@ extension AppDelegate {
 
     // MARK: NotificationOpenRouting helpers
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    func openRouted(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?
+    ) -> Bool {
+        openNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: navScrollPosition(row: scrollRow, totalRows: scrollTotalRows)
+        )
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInWindow(
+        windowId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?
+    ) -> Bool {
         guard let context = registeredMainWindow(forWindowId: windowId) else {
             return false
         }
@@ -307,16 +379,53 @@ extension AppDelegate {
             context,
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: navScrollPosition(row: scrollRow, totalRows: scrollTotalRows)
         )
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    func openInActiveWindowFallback(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollRow: Int?,
+        scrollTotalRows: Int?
+    ) -> Bool {
+        openNotificationFallback(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: navScrollPosition(row: scrollRow, totalRows: scrollTotalRows)
+        )
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? {
         tabTitle(for: tabId)
+    }
+
+    private func navScrollPosition(row: Int?, totalRows: Int?) -> TerminalNotificationScrollPosition? {
+        guard let row else { return nil }
+        return TerminalNotificationScrollPosition(row: row, totalRows: totalRows)
+    }
+
+    // MARK: FinderRevealing helpers
+
+    func finderFileExists(atPath path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path)
+    }
+
+    func finderSelectFile(path: String) -> Bool {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        // `activateFileViewerSelecting` returns no status; the legacy
+        // `revealInFinder` returned `true` on this branch.
+        return true
+    }
+
+    func finderOpenDirectory(path: String) -> Bool {
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     // MARK: FocusedNotificationResolving helpers
@@ -336,79 +445,6 @@ extension AppDelegate {
         return FocusedNotificationTarget(tabId: target.tabId, surfaceId: target.surfaceId)
     }
 
-    func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
-        guard let surfaceId,
-              let workspace = workspaceFor(tabId: tabId) else {
-            return nil
-        }
-        let panelId: UUID?
-        if workspace.panels[surfaceId] != nil {
-            panelId = surfaceId
-        } else {
-            panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
-        }
-        guard let panelId,
-              workspace.panels[panelId] != nil else {
-            return nil
-        }
-        return FocusedPanel(tabId: tabId, panelId: panelId)
-    }
-
-    func panelHasRestoredUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.hasRestoredUnreadIndicator(panelId: panel.panelId) ?? false
-    }
-
-    func workspaceHasContributingRestoredUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.hasWorkspaceContributingRestoredUnreadIndicator ?? false
-    }
-
-    func panelIsManualUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.manualUnreadPanelIds.contains(panel.panelId) ?? false
-    }
-
-    func panelIsRepresentativeForWorkspaceManualUnread(_ panel: FocusedPanel) -> Bool {
-        workspaceFor(tabId: panel.tabId)?.representativePanelIdForWorkspaceManualUnread() == panel.panelId
-    }
-
-    func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
-        notificationStore?.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId) ?? false
-    }
-
-    func storeHasManualUnread(forTabId tabId: UUID) -> Bool {
-        notificationStore?.hasManualUnread(forTabId: tabId) ?? false
-    }
-
-    func storeHasRestoredUnread(forTabId tabId: UUID) -> Bool {
-        notificationStore?.hasRestoredUnreadIndicator(forTabId: tabId) ?? false
-    }
-
-    func workspaceIsUnread(forTabId tabId: UUID) -> Bool {
-        notificationStore?.workspaceIsUnread(forTabId: tabId) ?? false
-    }
-
-    func storeMarkRead(forTabId tabId: UUID) {
-        notificationStore?.markRead(forTabId: tabId)
-    }
-
-    func storeMarkUnread(forTabId tabId: UUID) {
-        notificationStore?.markUnread(forTabId: tabId)
-    }
-
-    func storeClearManualUnread(forTabId tabId: UUID) {
-        _ = notificationStore?.clearManualUnread(forTabId: tabId)
-    }
-
-    func markPanelRead(_ panel: FocusedPanel) {
-        workspaceFor(tabId: panel.tabId)?.markPanelRead(panel.panelId)
-    }
-
-    func markPanelUnread(_ panel: FocusedPanel) {
-        workspaceFor(tabId: panel.tabId)?.markPanelUnread(panel.panelId)
-    }
-
-    func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
-        notificationStore?.markLatestNotificationAsOldestUnread(forTabId: tabId, surfaceId: surfaceId)
-    }
 }
 
 /// Value-bridge from the app-target click action onto the package's value-typed
@@ -435,8 +471,11 @@ extension TerminalNotification {
             id: id,
             tabId: tabId,
             surfaceId: surfaceId,
+            panelId: panelId,
             isRead: isRead,
-            clickAction: clickAction?.navClickAction
+            clickAction: clickAction?.navClickAction,
+            scrollRow: scrollPosition?.row,
+            scrollTotalRows: scrollPosition?.totalRows
         )
     }
 }

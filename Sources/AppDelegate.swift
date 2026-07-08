@@ -7173,7 +7173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// shared jump-unread capture file. The notification-open routing lives in
     /// `AppDelegate` (it needs live window/context state), so it writes through
     /// ``JumpUnreadUITestRecorder``'s single capture-file writer.
-    private func writeJumpUnreadTestData(_ updates: [String: String]) {
+    func writeJumpUnreadTestData(_ updates: [String: String]) {
         let recorder = jumpUnreadUITestRecorder ?? JumpUnreadUITestRecorder(appDelegate: self)
         jumpUnreadUITestRecorder = recorder
         recorder.writeData(updates)
@@ -7342,7 +7342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// ``MultiWindowNotificationUITestScaffold`` (the env-gated capture-file
     /// writer that owns this scenario), creating it lazily if a notification
     /// open fires before setup ran.
-    private func recordMultiWindowNotificationFocusIfNeeded(
+    func recordMultiWindowNotificationFocusIfNeeded(
         windowId: UUID,
         tabId: UUID,
         surfaceId: UUID?,
@@ -11173,42 +11173,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationClickPerformer.perform(action.navClickAction)
     }
 
-    /// Forwards to ``NotificationOpenRoutingCoordinator`` (the extracted routing
-    /// decision skeleton). The window mechanics and the `#if DEBUG` UI-test
-    /// recorders stay app-side behind the ``NotificationOpenRoutingHosting`` and
-    /// ``NotificationOpenRoutingTracing`` seams (see
-    /// `AppDelegate+NotificationOpenRoutingSeams.swift`), so behavior is
-    /// byte-identical to the previous in-`AppDelegate` body.
-    @discardableResult
-    func openNotification(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        notificationOpenRoutingCoordinator.openRouted(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            notificationId: notificationId
-        )
-    }
-
-    /// Forwards to ``NotificationOpenRoutingCoordinator/openInContext(_:tabId:surfaceId:notificationId:)``,
-    /// wrapping the value-typed context in a ``RegisteredMainWindowToken`` for the
-    /// seam boundary.
-    func openNotificationInContext(_ context: RegisteredMainWindow, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        notificationOpenRoutingCoordinator.openInContext(
-            RegisteredMainWindowToken(context),
-            tabId: tabId,
-            surfaceId: surfaceId,
-            notificationId: notificationId
-        )
-    }
-
-    /// Forwards to ``NotificationOpenRoutingCoordinator/openFallback(tabId:surfaceId:notificationId:)``.
-    func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        notificationOpenRoutingCoordinator.openFallback(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            notificationId: notificationId
-        )
-    }
-
     // MARK: NotificationOpenRoutingHosting witnesses
     //
     // The window mechanics behind ``NotificationOpenRoutingHosting``, lifted off
@@ -11443,7 +11407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Live selection-model hook: records the jump-to-unread focus once the
     /// model settles on the expected tab/surface. Forwards to
     /// ``JumpUnreadUITestRecorder``.
-    private func recordJumpUnreadFocusFromModelIfNeeded(
+    func recordJumpUnreadFocusFromModelIfNeeded(
         tabManager: TabManager,
         tabId: UUID,
         expectedSurfaceId: UUID?
@@ -11465,7 +11429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManager?.tabs.first(where: { $0.id == tabId })?.title
     }
 
-    private func bringToFront(
+    func bringToFront(
         _ window: NSWindow,
         reason: MainWindowVisibilityController.Reason = .focusMainWindow
     ) {
@@ -11477,7 +11441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// ``MultiWindowNotificationUITestScaffold`` (which snapshots the live
     /// `mainWindowContexts` and writes the env-gated capture file), creating it
     /// lazily if an open-failure fires before setup ran.
-    private func recordMultiWindowNotificationOpenFailureIfNeeded(
+    func recordMultiWindowNotificationOpenFailureIfNeeded(
         tabId: UUID,
         surfaceId: UUID?,
         notificationId: UUID?,

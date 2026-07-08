@@ -56,6 +56,10 @@ extension MobileHostService {
             result = controller.v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = controller.v2MobileWorkspaceAction(params: request.params)
+        case "workspace.move":
+            result = controller.v2MobileWorkspaceMove(params: request.params)
+        case "workspace.group.action":
+            result = controller.v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await controller.v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":

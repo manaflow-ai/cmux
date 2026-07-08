@@ -272,6 +272,20 @@ public struct SidebarWorkspaceContextMenu: View {
         }
         .disabled(!data.hasLatestNotifications)
 
+        Menu(String(localized: "contextMenu.notifications", defaultValue: "Notifications", bundle: .main)) {
+            if data.workspaceNotifications.isEmpty {
+                Button(String(localized: "contextMenu.notifications.empty", defaultValue: "No Notifications", bundle: .main)) {}
+                    .disabled(true)
+            } else {
+                ForEach(data.workspaceNotifications) { notification in
+                    Button(notification.title) {
+                        actions.onOpenNotification(notification.id)
+                    }
+                }
+            }
+        }
+        .disabled(targetIds.isEmpty)
+
         Divider()
 
         Button(data.copyWorkspaceIDLabel) {

@@ -96,6 +96,8 @@ public struct SidebarWorkspaceContextMenuData: Sendable {
     public let canMarkUnread: Bool
     /// Whether any target has a latest notification to clear.
     public let hasLatestNotifications: Bool
+    /// Notifications shown in the workspace notification submenu.
+    public let workspaceNotifications: [SidebarWorkspaceNotificationMenuItem]
 
     /// Localized copy-workspace-id button label.
     public let copyWorkspaceIDLabel: String
@@ -144,6 +146,7 @@ public struct SidebarWorkspaceContextMenuData: Sendable {
         canMarkRead: Bool,
         canMarkUnread: Bool,
         hasLatestNotifications: Bool,
+        workspaceNotifications: [SidebarWorkspaceNotificationMenuItem],
         copyWorkspaceIDLabel: String,
         copyWorkspaceLinkLabel: String,
         canShowInFinder: Bool
@@ -185,8 +188,19 @@ public struct SidebarWorkspaceContextMenuData: Sendable {
         self.canMarkRead = canMarkRead
         self.canMarkUnread = canMarkUnread
         self.hasLatestNotifications = hasLatestNotifications
+        self.workspaceNotifications = workspaceNotifications
         self.copyWorkspaceIDLabel = copyWorkspaceIDLabel
         self.copyWorkspaceLinkLabel = copyWorkspaceLinkLabel
         self.canShowInFinder = canShowInFinder
+    }
+}
+
+public struct SidebarWorkspaceNotificationMenuItem: Identifiable, Sendable {
+    public let id: UUID
+    public let title: String
+
+    public init(id: UUID, title: String) {
+        self.id = id
+        self.title = title
     }
 }

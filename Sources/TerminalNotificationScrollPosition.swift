@@ -1,0 +1,3 @@
+import CmuxNotifications
+
+typealias TerminalNotificationScrollPosition = CmuxNotifications.TerminalNotificationScrollPosition

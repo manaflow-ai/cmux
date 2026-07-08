@@ -27,6 +27,8 @@ public struct TerminalNotification: Identifiable, Hashable, Sendable {
     public var isRead: Bool
     /// Whether the owning pane should flash to surface this notification.
     public var paneFlash: Bool = true
+    /// Terminal scrollback position captured when the notification was recorded.
+    public var scrollPosition: TerminalNotificationScrollPosition?
     /// The action performed when the notification is clicked, if any.
     public var clickAction: TerminalNotificationClickAction?
 
@@ -42,6 +44,7 @@ public struct TerminalNotification: Identifiable, Hashable, Sendable {
         createdAt: Date,
         isRead: Bool,
         paneFlash: Bool = true,
+        scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
         self.id = id
@@ -54,6 +57,7 @@ public struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.scrollPosition = scrollPosition
         self.clickAction = clickAction
     }
 

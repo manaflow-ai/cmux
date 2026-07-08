@@ -8222,7 +8222,7 @@ struct TabItemView: View, Equatable {
         isEditing = false
     }
 
-    private func refreshWorkspaceSnapshot(force: Bool = false) {
+    func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
             current: workspaceSnapshotStorage,
@@ -8367,6 +8367,12 @@ struct TabItemView: View, Equatable {
             canMarkRead: notificationStore.canMarkWorkspaceRead(forTabIds: targetIds),
             canMarkUnread: notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds),
             hasLatestNotifications: hasLatestNotifications(in: targetIds),
+            workspaceNotifications: workspaceNotificationMenuItems(targetIds).map { notification in
+                SidebarWorkspaceNotificationMenuItem(
+                    id: notification.id,
+                    title: workspaceNotificationMenuTitle(notification)
+                )
+            },
             copyWorkspaceIDLabel: copyWorkspaceIDLabel,
             copyWorkspaceLinkLabel: copyWorkspaceLinkLabel,
             canShowInFinder: workspaceSnapshot.finderDirectoryPath != nil
@@ -8450,6 +8456,13 @@ struct TabItemView: View, Equatable {
             onMarkRead: { ids in markTabsRead(ids) },
             onMarkUnread: { ids in markTabsUnread(ids) },
             onClearLatestNotifications: { ids in clearLatestNotifications(ids) },
+            onOpenNotification: { notificationId in
+                guard let notification = notificationStore.notifications.first(where: { $0.id == notificationId }) else {
+                    NSSound.beep()
+                    return
+                }
+                openWorkspaceContextMenuNotification(notification)
+            },
             onCopyWorkspaceIds: { ids in copyWorkspaceIdsToPasteboard(ids) },
             onCopyWorkspaceLinks: { ids in copyWorkspaceLinksToPasteboard(ids) },
             onShowInFinder: {

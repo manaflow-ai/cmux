@@ -1,0 +1,5 @@
+import CmuxNotifications
+
+typealias NotificationAuthorizationState = CmuxNotifications.NotificationAuthorizationState
+typealias TerminalNotificationClickAction = CmuxNotifications.TerminalNotificationClickAction
+typealias TerminalNotification = CmuxNotifications.TerminalNotification

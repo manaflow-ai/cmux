@@ -25,6 +25,8 @@ public struct SessionNotificationSnapshot: Codable, Sendable {
     /// Whether the owning pane should flash; `nil` in legacy snapshots, restored
     /// as `true`.
     public var paneFlash: Bool?
+    /// Terminal scrollback position captured when the notification was recorded.
+    public var scrollPosition: TerminalNotificationScrollPosition?
     /// The action performed when the notification is clicked, if any.
     public var clickAction: TerminalNotificationClickAction?
 
@@ -37,6 +39,7 @@ public struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
+        scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
         self.id = id
@@ -46,6 +49,7 @@ public struct SessionNotificationSnapshot: Codable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.scrollPosition = scrollPosition
         self.clickAction = clickAction
     }
 
@@ -60,6 +64,7 @@ public struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
+            scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction
         )
     }
@@ -79,6 +84,7 @@ public struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,
+            scrollPosition: scrollPosition,
             clickAction: clickAction
         )
     }

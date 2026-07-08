@@ -6458,7 +6458,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
-    private let surfaceView: GhosttyNSView
+    let surfaceView: GhosttyNSView
     private let terminalDropZoneOverlayTransitionPlanner = TerminalDropZoneOverlayTransitionPlanner()
     private let terminalImageTransferIndicatorPolicy = TerminalImageTransferIndicatorPolicy()
     private let terminalOverlayZOrderPolicy = TerminalOverlayZOrderPolicy()
@@ -6512,9 +6512,9 @@ final class GhosttySurfaceScrollView: NSView {
     /// Tracks whether the user has scrolled away from the bottom to review scrollback.
     /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
     /// where the terminal fights the user's scroll position.
-    private var userScrolledAwayFromBottom = false
+    var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
-    private var allowExplicitScrollbarSync = false
+    var allowExplicitScrollbarSync = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true

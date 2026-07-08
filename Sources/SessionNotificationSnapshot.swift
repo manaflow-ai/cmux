@@ -1,0 +1,3 @@
+import CmuxNotifications
+
+typealias SessionNotificationSnapshot = CmuxNotifications.SessionNotificationSnapshot

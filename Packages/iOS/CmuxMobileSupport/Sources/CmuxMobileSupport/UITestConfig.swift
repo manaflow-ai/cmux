@@ -90,7 +90,7 @@ public struct UITestConfig {
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
             || workspaceDetailDelayedTerminalPreviewEnabled
             || workspaceDetailCreateDelayedTerminalPreviewEnabled
-            || workspaceDetailRefreshingTerminalMenuPreviewEnabled
+            || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
         return false

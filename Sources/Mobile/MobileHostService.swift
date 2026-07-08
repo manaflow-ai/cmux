@@ -968,11 +968,11 @@ final class MobileHostService {
         // pairing is bound to "who is signed in on this Mac" rather than a stored
         // ticket, so it survives Mac restarts and ticket expiry.
         if devStackTokenAuthorized(request) {
-            return nil
+            return ticketAuthorizationResultIfNeeded(for: request)
         }
         do {
             try await verifyStackAuthOffMainActor(auth: request.auth)
-            return nil
+            return ticketAuthorizationResultIfNeeded(for: request)
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different
             // account than the one signed in on this Mac. Surface a distinct code
@@ -990,6 +990,20 @@ final class MobileHostService {
                 message: "Mobile sync authorization failed."
             ))
         }
+    }
+
+    private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+        let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
+        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || createsWorkspaceInGroup
+        guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachToken.isEmpty else {
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+        }
+        guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+        }
+        if let error = authorization.authorizationError(for: request) { return .failure(error) }
+        return nil
     }
 
     private nonisolated func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {
@@ -1025,17 +1039,11 @@ final class MobileHostService {
         }
     }
 
-    static func debugTicketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest,
-        createdWorkspaceIDs: Set<String> = [],
-        createdTerminalIDs: Set<String> = []
-    ) -> MobileHostRPCError? {
-        MobileAttachTicketAuthorization(
-            ticket: ticket,
-            createdWorkspaceIDs: createdWorkspaceIDs,
-            createdTerminalIDs: createdTerminalIDs
-        ).authorizationError(for: request)
+    private static var scopedTicketError: MobileHostRPCError {
+        MobileHostRPCError(
+            code: "forbidden",
+            message: "Attach ticket is not valid for this workspace or terminal."
+        )
     }
 
     private func handleListenerState(_ state: NWListener.State, generation: UUID) {

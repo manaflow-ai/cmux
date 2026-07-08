@@ -31,7 +31,16 @@ extension MobileAttachTicketAuthorization {
         case "mobile.workspace.list", "workspace.list":
             return nil
         case "workspace.create":
+            guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
+                return macScopedWorkspaceMutationAuthorizationError()
+            }
             return nil
+        case "workspace.move":
+            return macScopedWorkspaceMutationAuthorizationError(workspaceSelection: workspaceSelection.value)
+        case "workspace.action", "workspace.close":
+            return workspaceAuthorizationError(workspaceSelection: workspaceSelection.value)
+        case "workspace.group.action":
+            return macScopedWorkspaceMutationAuthorizationError()
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
             // terminal selection), so it is Mac-scoped like the workspace list and
@@ -105,6 +114,25 @@ extension MobileAttachTicketAuthorization {
             return Self.scopedTicketError
         }
         return nil
+    }
+
+    private func workspaceAuthorizationError(workspaceSelection: String?) -> MobileHostRPCError? {
+        if let workspaceSelection, createdWorkspaceIDs.contains(workspaceSelection) {
+            return nil
+        }
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ticketWorkspaceID.isEmpty {
+            guard let workspaceSelection, workspaceSelection == ticketWorkspaceID else {
+                return Self.scopedTicketError
+            }
+        }
+        return nil
+    }
+
+    private func macScopedWorkspaceMutationAuthorizationError(workspaceSelection: String? = nil) -> MobileHostRPCError? {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ticketWorkspaceID.isEmpty else { return Self.scopedTicketError }
+        return workspaceAuthorizationError(workspaceSelection: workspaceSelection)
     }
 
     private static var scopedTicketError: MobileHostRPCError {

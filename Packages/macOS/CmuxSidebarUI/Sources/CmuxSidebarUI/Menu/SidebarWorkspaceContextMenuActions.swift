@@ -65,6 +65,8 @@ public struct SidebarWorkspaceContextMenuActions {
     public let onMarkUnread: ([UUID]) -> Void
     /// Clears the latest notification for the given ids.
     public let onClearLatestNotifications: ([UUID]) -> Void
+    /// Opens a notification selected from the workspace notification submenu.
+    public let onOpenNotification: (UUID) -> Void
     /// Copies the workspace ids of the given ids to the pasteboard.
     public let onCopyWorkspaceIds: ([UUID]) -> Void
     /// Copies the workspace links of the given ids to the pasteboard.
@@ -100,6 +102,7 @@ public struct SidebarWorkspaceContextMenuActions {
         onMarkRead: @escaping ([UUID]) -> Void,
         onMarkUnread: @escaping ([UUID]) -> Void,
         onClearLatestNotifications: @escaping ([UUID]) -> Void,
+        onOpenNotification: @escaping (UUID) -> Void,
         onCopyWorkspaceIds: @escaping ([UUID]) -> Void,
         onCopyWorkspaceLinks: @escaping ([UUID]) -> Void,
         onShowInFinder: @escaping () -> Void
@@ -130,6 +133,7 @@ public struct SidebarWorkspaceContextMenuActions {
         self.onMarkRead = onMarkRead
         self.onMarkUnread = onMarkUnread
         self.onClearLatestNotifications = onClearLatestNotifications
+        self.onOpenNotification = onOpenNotification
         self.onCopyWorkspaceIds = onCopyWorkspaceIds
         self.onCopyWorkspaceLinks = onCopyWorkspaceLinks
         self.onShowInFinder = onShowInFinder
