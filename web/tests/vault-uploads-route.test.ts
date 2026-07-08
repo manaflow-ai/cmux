@@ -126,10 +126,9 @@ describe("Vault uploads route", () => {
         compressedSizeBytes: 123,
         createdAt: new Date("2030-01-01T00:00:00.000Z"),
         expiresAt: new Date("2030-01-02T00:00:00.000Z"),
-      });
+    });
 
     beforeNextPresignFailure = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 5));
       const response = await POST(uploadRequest({ compressedSizeBytes: 789 }));
       expect(response.status).toBe(200);
       expect((await response.json()).items[0].status).toBe("upload");
