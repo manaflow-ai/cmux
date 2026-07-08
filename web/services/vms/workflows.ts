@@ -1471,15 +1471,11 @@ function revokeActiveIdentities(
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const leases = yield* repo.activeIdentityLeases(vm.id);
-    if (options.failOnCleanupError && leases.length > ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT) {
-      return yield* Effect.fail(new VmProviderOperationError({
-        provider: vm.provider,
-        operation: "revokeSSHIdentity",
-        cause: new Error(`too many active identity leases pending cleanup: ${leases.length}`),
-      }));
-    }
+    const leasesToRevoke = options.failOnCleanupError
+      ? leases.slice(0, ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT)
+      : leases;
     const revokedIds: string[] = [];
-    for (const lease of leases) {
+    for (const lease of leasesToRevoke) {
       const identityHandle = lease.providerIdentityHandle;
       if (!identityHandle) continue;
       const revoked = yield* providers.revokeSSHIdentity(vm.provider, identityHandle).pipe(
@@ -1495,6 +1491,13 @@ function revokeActiveIdentities(
       if (revoked) revokedIds.push(lease.id);
     }
     yield* repo.markLeasesRevoked(revokedIds);
+    if (options.failOnCleanupError && leases.length > ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT) {
+      return yield* Effect.fail(new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "revokeSSHIdentity",
+        cause: new Error(`too many active identity leases pending cleanup: ${leases.length}`),
+      }));
+    }
   });
 }
 

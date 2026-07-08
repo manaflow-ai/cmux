@@ -1738,7 +1738,7 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
-  dbTest("does not run unbounded SSH identity cleanup before minting a replacement", async () => {
+  dbTest("revokes one bounded SSH identity cleanup batch before blocking replacement minting", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const [vm] = await sql<{ id: string }[]>`
@@ -1789,8 +1789,15 @@ describe("VM Effect workflows", () => {
         }).pipe(Effect.provide(providerLayer(provider))),
       ),
     ).rejects.toThrow();
-    expect(revokeCalls).toBe(0);
+    expect(revokeCalls).toBe(8);
     expect(mintCalls).toBe(0);
+
+    const [{ remainingLeaseCount }] = await sql<{ remainingLeaseCount: string }[]>`
+      select count(*)::text as "remainingLeaseCount"
+      from cloud_vm_leases
+      where vm_id = ${vm.id} and revoked_at is null
+    `;
+    expect(remainingLeaseCount).toBe("1");
   });
 
   dbTest("resumes a paused VM before minting SSH credentials", async () => {

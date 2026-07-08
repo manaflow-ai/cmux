@@ -40,6 +40,8 @@ type ReservedUploadResult =
   })
   | (VaultUploadItemBase & {
     readonly status: "upload";
+    readonly grantId: string;
+    readonly grantExpiresAt: Date;
     readonly objectKey: string;
     readonly compressedSizeBytes: number;
   });
@@ -163,29 +165,34 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
       }
 
       const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
-      await lockedDb
+      const grantExpiresAt = new Date(now.getTime() + UPLOAD_GRANT_TTL_MS);
+      const [grant] = await lockedDb
         .insert(vaultUploadGrants)
         .values({
           userId,
           objectKey,
           compressedSizeBytes: item.compressedSizeBytes,
           createdAt: now,
-          expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
+          expiresAt: grantExpiresAt,
         })
         .onConflictDoUpdate({
           target: vaultUploadGrants.objectKey,
           set: {
             compressedSizeBytes: item.compressedSizeBytes,
             createdAt: now,
-            expiresAt: new Date(now.getTime() + UPLOAD_GRANT_TTL_MS),
+            expiresAt: grantExpiresAt,
           },
-        });
+        })
+        .returning({ id: vaultUploadGrants.id });
+      if (!grant) throw new Error("vault upload grant upsert returned no row");
       projectedUserBytes += item.compressedSizeBytes;
       lockedResults.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,
         relPath: item.relPath,
         status: "upload",
+        grantId: grant.id,
+        grantExpiresAt,
         objectKey,
         compressedSizeBytes: item.compressedSizeBytes,
       });
@@ -222,6 +229,14 @@ async function presignReservedUploads(
         putUrl: await presignPut(item.objectKey, item.compressedSizeBytes),
       });
     } catch {
+      await db
+        .delete(vaultUploadGrants)
+        .where(and(
+          eq(vaultUploadGrants.id, item.grantId),
+          eq(vaultUploadGrants.objectKey, item.objectKey),
+          eq(vaultUploadGrants.expiresAt, item.grantExpiresAt),
+        ))
+        .catch(() => undefined);
       results.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,
