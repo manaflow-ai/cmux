@@ -8,7 +8,7 @@
 //! queries then work identically in both cases.
 
 mod remote;
-mod tree;
+pub(crate) mod tree;
 
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
@@ -22,7 +22,7 @@ use mux_core::{
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
-pub use tree::TreeView;
+pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub enum Session {
     Local(Arc<Mux>),
@@ -93,9 +93,22 @@ impl Session {
         }
     }
 
+    pub fn apply_config(&self, config: &crate::config::Config) {
+        if let Session::Local(mux) = self {
+            mux.update_surface_options(|options| {
+                crate::config::apply_browser_to_surface_options(config, options);
+            });
+        }
+    }
+
     pub fn tree(&self) -> TreeView {
         match self {
-            Session::Local(mux) => mux.with_state(tree::tree_from_state),
+            Session::Local(mux) => {
+                let notifications = mux.surface_notifications();
+                mux.with_state(|state| {
+                    tree::tree_from_state_with_notifications(state, &notifications)
+                })
+            }
             Session::Remote(remote) => remote.tree().unwrap_or_default(),
         }
     }
@@ -465,6 +478,56 @@ impl SurfaceHandle {
             SurfaceHandle::Local(surface) => surface.with_terminal(f),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
                 Some(f(&mut surface.term.lock().unwrap()))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn scroll_delta(&self, delta: isize) -> Option<bool> {
+        match self {
+            SurfaceHandle::Local(surface) => {
+                let before = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                surface.scroll_delta(delta).ok()?;
+                let after = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                Some(before != after)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut term = surface.term.lock().unwrap();
+                let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                term.scroll_delta(delta);
+                let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                Some(before != after)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn scroll_to_bottom(&self) -> Option<bool> {
+        match self {
+            SurfaceHandle::Local(surface) => {
+                let before = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                surface.scroll_to_bottom().ok()?;
+                let after = surface
+                    .with_terminal(|term| term.scrollbar().map(|sb| sb.offset))
+                    .flatten()
+                    .unwrap_or(0);
+                Some(before != after)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut term = surface.term.lock().unwrap();
+                let before = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                term.scroll_to_bottom();
+                let after = term.scrollbar().map(|sb| sb.offset).unwrap_or(0);
+                Some(before != after)
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }

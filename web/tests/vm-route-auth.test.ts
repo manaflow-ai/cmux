@@ -700,15 +700,55 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("rejects VM create when Stack Auth returns multiple teams but no selected/requested team", async () => {
+  test("uses the paid Stack team when multiple teams have no selected/requested team", async () => {
     getUser.mockResolvedValue({
       id: "user-1",
       displayName: null,
       primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
       selectedTeam: null,
       listTeams: async () => [
         { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
-        { id: "team-2", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+        { id: "team-2", clientReadOnlyMetadata: { cmuxPlan: "team" } },
+      ],
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-team-paid",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      billingCustomerType: "team",
+      billingTeamId: "team-2",
+      billingPlanId: "team",
+      maxActiveVms: 10,
+    }));
+    expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("rejects VM create when multiple Stack teams have no paid metadata and no selected/requested team", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: null,
+      listTeams: async () => [
+        { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+        { id: "team-2", clientReadOnlyMetadata: { cmuxPlan: "" } },
       ],
     });
 

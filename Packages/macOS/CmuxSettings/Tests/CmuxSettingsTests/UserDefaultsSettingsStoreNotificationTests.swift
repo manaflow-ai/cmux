@@ -219,9 +219,6 @@ struct UserDefaultsSettingsStoreNotificationTests {
             let stream = await store.valueEvents(for: key)
             for await event in stream {
                 await recorder.append(event)
-                if await recorder.count() >= 3 {
-                    break
-                }
             }
         }
         defer {
@@ -292,6 +289,68 @@ struct UserDefaultsSettingsStoreNotificationTests {
         let storedValue = await store.value(for: key)
         #expect(acceptedSource == nil)
         #expect(storedValue == key.defaultValue)
+    }
+
+    @Test func sameValueBackingNotificationSurvivesUnrelatedDefaultsNoise() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let noiseSuiteName = "cmux.tests.noise.\(UUID().uuidString)"
+        nonisolated(unsafe) let backingDefaults = UserDefaults(suiteName: suiteName)!
+        nonisolated(unsafe) let noiseDefaults = UserDefaults(suiteName: noiseSuiteName)!
+        let store = UserDefaultsSettingsStore(defaults: backingDefaults)
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let recorder = UserDefaultsSettingsEventRecorder<String>()
+        let source = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+            }
+        }
+        defer {
+            task.cancel()
+            backingDefaults.removePersistentDomain(forName: suiteName)
+            noiseDefaults.removePersistentDomain(forName: noiseSuiteName)
+        }
+
+        await waitForEventCount(1, in: recorder)
+
+        await store.set("#SAME", for: key, source: source)
+        let localEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#SAME" && event.mutationSource == source
+        }
+        #expect(localEvent?.mutationSource == source)
+
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: backingDefaults
+        )
+        for _ in 0..<16 {
+            NotificationCenter.default.post(
+                name: UserDefaults.didChangeNotification,
+                object: noiseDefaults
+            )
+        }
+
+        let externalEvent = await waitForEvent(in: recorder) { event in
+            event.value == "#SAME"
+                && event.mutationSource == nil
+                && event.supersededMutationSource == source
+        }
+        #expect(externalEvent?.supersededMutationSource == source)
+
+        let staleSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+        let acceptedSource = await store.set("#STALE", for: key, source: staleSource)
+        let storedValue = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(storedValue == "#SAME")
     }
 
     @Test func valueEventsDrainSupersededSourceAfterBackingSameValueNotification() async {

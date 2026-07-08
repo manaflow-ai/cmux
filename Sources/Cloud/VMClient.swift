@@ -3,6 +3,7 @@ import Foundation
 
 enum VMClientError: Error, CustomStringConvertible {
     case notSignedIn
+    case sessionRefreshFailed
     case backendUnreachable(url: String, detail: String)
     case httpStatus(Int, String)
     case malformedResponse(String)
@@ -16,6 +17,14 @@ enum VMClientError: Error, CustomStringConvertible {
                 What to do:
                   cmux auth login
                   cmux auth status
+                """
+        case .sessionRefreshFailed:
+            return """
+                You are signed in, but cmux could not refresh your session (network or server issue).
+
+                What to do:
+                  Retry in a moment.
+                  If it keeps failing, run `cmux auth status` to check your session.
                 """
         case .backendUnreachable(let url, let detail):
             return """
@@ -726,6 +735,8 @@ actor VMClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
         }

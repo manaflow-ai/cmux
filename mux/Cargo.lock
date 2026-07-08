@@ -136,7 +136,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-mux-client"
+name = "cmux-client"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -540,6 +540,7 @@ dependencies = [
  "libc",
  "mux-cdp",
  "portable-pty",
+ "regex",
  "serde",
  "serde_json",
  "tungstenite",

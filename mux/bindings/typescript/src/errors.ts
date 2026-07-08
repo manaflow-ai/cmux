@@ -1,11 +1,11 @@
-export class MuxError extends Error {
+export class CmuxError extends Error {
   constructor(message: string) {
     super(message);
     this.name = new.target.name;
   }
 }
 
-export class MuxCommandError extends MuxError {
+export class CmuxCommandError extends CmuxError {
   readonly commandId: unknown;
   readonly response: unknown;
 
@@ -16,6 +16,6 @@ export class MuxCommandError extends MuxError {
   }
 }
 
-export class MuxConnectionError extends MuxError {}
-export class MuxProtocolError extends MuxError {}
-export class MuxTimeoutError extends MuxError {}
+export class CmuxConnectionError extends CmuxError {}
+export class CmuxProtocolError extends CmuxError {}
+export class CmuxTimeoutError extends CmuxError {}
