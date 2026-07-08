@@ -51,6 +51,10 @@ public struct MobileAnalyticsComposition {
     ///   - tokenProvider: The auth token source (production: `AuthCoordinator`).
     ///   - defaults: Persistence for the opt-out flag, the anonymous client id,
     ///     and sessionization. Defaults to `.standard`; inject a suite in tests.
+    ///   - consent: The telemetry opt-out gate. Defaults to the same
+    ///     `UserDefaults`-backed provider used before; the app composition root
+    ///     injects its crash-reporting provider so both systems read the same
+    ///     gate instance.
     ///   - session: The URLSession used by the uploader. Defaults to a
     ///     short-timeout session (see ``analyticsSession()``) so a hung analytics
     ///     request cannot keep the emitter's consumer pinned in `upload` for long;
@@ -59,6 +63,7 @@ public struct MobileAnalyticsComposition {
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
         defaults: UserDefaults = .standard,
+        consent: (any AnalyticsConsentProviding)? = nil,
         session: URLSession? = nil
     ) {
         let networkSession = session ?? Self.analyticsSession()
@@ -67,7 +72,7 @@ public struct MobileAnalyticsComposition {
             tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
             session: networkSession
         )
-        let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
+        let consent = consent ?? UserDefaultsAnalyticsConsentProvider(defaults: defaults)
         // Resolve the per-install id once, here, at the single point that owns
         // analytics. This composition is built before the app shell, so reading
         // the id is also what *mints* it on a fresh install — which is exactly why

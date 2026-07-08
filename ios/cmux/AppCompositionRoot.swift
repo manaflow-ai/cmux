@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
+import CmuxMobileCrashReporting
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -52,9 +53,12 @@ final class AppCompositionRoot {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
+        let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
+        MobileCrashReporter.startIfEnabled(consent: telemetryConsent)
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
-            tokenProvider: auth.coordinator
+            tokenProvider: auth.coordinator,
+            consent: telemetryConsent
         )
         self.pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
