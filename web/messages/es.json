@@ -43,7 +43,8 @@
     "language": "Idioma",
     "assets": "Recursos",
     "openSource": "Open source",
-    "guides": "Guías"
+    "guides": "Guías",
+    "compare": "Comparar"
   },
   "home": {
     "taglinePrefix": "La terminal diseñada para ",
@@ -109,6 +110,60 @@
     "faqSupportA": "cmux es gratuito y de código abierto, y siempre lo será. Si quieres respaldar el desarrollo y obtener acceso anticipado a lo que viene, incluyendo cmux AI, la app de iOS y los Cloud VMs, echa un vistazo a <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqFeatureQ": "Tengo una sugerencia o he encontrado un error",
     "faqFeatureA": "Queremos saberlo. Abre un <issuesLink>issue</issuesLink> o un <prLink>pull request</prLink> en GitHub, o <mailLink>escríbenos</mailLink>."
+  },
+  "dashboard": {
+    "aiAccounts": {
+      "metaTitle": "Cuentas de IA — cmux",
+      "metaDescription": "Gestiona las cuentas de proveedores de IA del equipo para cmux.",
+      "section": "Panel",
+      "title": "Cuentas de IA",
+      "description": "Gestiona las cuentas de proveedores que este equipo puede usar con cmux AI.",
+      "personalTeam": "Personal",
+      "teamSwitcherLabel": "Equipo",
+      "notConfiguredTitle": "La gestión de cuentas de IA aún no está disponible",
+      "notConfiguredBody": "Las cuentas de IA de equipo no están habilitadas en esta implementación. Inténtalo más tarde o contacta con soporte.",
+      "loadErrorTitle": "No se pudieron cargar las cuentas",
+      "loadErrorBody": "No se pudo conectar con el servicio de cuentas. Inténtalo de nuevo en un momento.",
+      "accountsTitle": "Cuentas conectadas",
+      "accountsCount": "{count, plural, one {# cuenta} other {# cuentas}}",
+      "emptyTitle": "Aún no hay cuentas",
+      "emptyBody": "Añade una cuenta de proveedor para que este equipo pueda usarla.",
+      "providerColumn": "Proveedor",
+      "labelColumn": "Etiqueta",
+      "createdColumn": "Creada",
+      "actionsColumn": "Acciones",
+      "unlabeledAccount": "Sin etiqueta",
+      "unknownCreatedAt": "Desconocida",
+      "addAccountsTitle": "Añadir cuenta",
+      "providerClaude": "Claude OAuth",
+      "providerAnthropicApiKey": "Clave de API de Anthropic",
+      "providerCodex": "Codex OAuth",
+      "providerOpenAiApiKey": "Clave de API de OpenAI",
+      "providerUnknown": "Proveedor desconocido",
+      "labelField": "Etiqueta",
+      "labelPlaceholder": "Predeterminada del equipo",
+      "oauthJsonField": "OAuth JSON",
+      "apiKeyField": "Clave de API",
+      "addClaude": "Añadir Claude",
+      "addAnthropic": "Añadir Anthropic",
+      "addCodex": "Añadir Codex",
+      "addOpenAi": "Añadir OpenAI",
+      "addSuccess": "Cuenta añadida.",
+      "addError": "No se pudo guardar la cuenta.",
+      "deleteError": "No se pudo eliminar la cuenta.",
+      "jsonError": "Pega un objeto JSON válido.",
+      "validationError": "Revisa los datos de la cuenta y vuelve a intentarlo.",
+      "teamAccessError": "No tienes acceso a este equipo.",
+      "deletingAction": "Eliminando",
+      "deleteAction": "Eliminar",
+      "deleteConfirmTitle": "¿Eliminar esta cuenta?",
+      "deleteConfirmBody": "La cuenta del proveedor se eliminará para todo el equipo. Para volver a añadirla necesitarás las credenciales originales.",
+      "cancelAction": "Cancelar",
+      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
+      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
+      "anthropicKeyPlaceholder": "sk-ant-...",
+      "openAiKeyPlaceholder": "sk-..."
+    }
   },
   "community": {
     "title": "Comunidad",
@@ -495,6 +550,25 @@
         "p3": "cmux son solo terminales y navegadores, con una CLI para controlarlos. Con unos pocos scripts de bash puedes gestionar worktrees, manejar varios checkouts o abrir sesiones remotas, y organizar tu espacio de trabajo como mejor te encaje.",
         "p4": "cmux debería adaptarse a tu flujo de trabajo en lugar de imponerte uno. Queremos que cmux se sienta como un hogar.",
         "p5": "<link>cmux-home</link> es un ejemplo de ello. Es un pequeño TUI en Rust que inicia espacios de trabajo de Claude y Codex y observa su estado en vivo, construido enteramente sobre las primitivas de cmux. El lanzador usa plantillas de comandos, así que puedes sustituirlas por tus propios scripts para crear worktrees, elegir un checkout o conectarte por SSH a una VM. Haz un fork y hazlo tuyo."
+      },
+      "claudeCodeBestWorktreeManager": {
+        "title": "Claude Code es el mejor gestor de worktrees",
+        "summary": "Usa Claude Code, Codex, scripts y primitivas de cmux para construir el flujo de worktrees que tu base de código realmente necesita.",
+        "date": "3 de julio de 2026",
+        "p1": "Los gestores de worktrees integrados siempre acaban siendo limitados. Suelen asumir un solo repo, Git, un flujo de ramas bendecido y la idea de un equipo de producto sobre lo que significa preparar un entorno. Las bases de código reales no se quedan dentro de esas líneas.",
+        "p2": "El <zen>Zen de cmux</zen> dice que los desarrolladores deberían crear sus propias herramientas y explorar el espacio de formas de trabajar con código. Los worktrees son una primitiva útil, pero también lo son varios checkouts, repos de backend y frontend en carpetas distintas, máquinas remotas, proyectos sin Git, scripts locales y, a veces, programar directamente en main porque es lo más rápido para esa tarea.",
+        "superRepoTitle": "El patrón de super repo",
+        "superRepoP1": "Un super repo es un checkout de control que sabe dónde viven los repos reales, cómo se crean los worktrees, cómo se emparejan repos relacionados, qué scripts preparan cada workspace y cómo se revisan y fusionan las PR. cmuxterm-hq es un super repo: contiene el checkout principal de cmux, worktrees de cmux por tarea, checkouts de Zed, scripts de hq, skills reutilizables y las reglas que siguen los agentes para no pisarse.",
+        "superRepoP2": "La idea no es que todos copien ese árbol de directorios exacto. La idea es que un repo local de control puede describir todo tu sistema operativo de ingeniería. Un repo de backend y otro de frontend pueden abrirse juntos. Una app móvil y una API web pueden recargarse juntas. Una rama puede crearse en un repo y tener una rama equivalente en otro. Esa forma pertenece a tu equipo, no a un botón genérico de worktree.",
+        "agentTitle": "Deja que el agente gestione los worktrees",
+        "agentP1": "Claude Code y Codex son mejores gestores de worktrees que la mayoría de gestores integrados porque pueden leer las reglas del repo, ejecutar scripts, crear worktrees en varios repos, limpiar sus propios worktrees, arreglar conflictos, subir ramas, abrir PR y fusionar después de que pasen CI y revisiones.",
+        "agentP2": "Nuestros flujos más usados son task-worktree-pr y autoreview. Funcionan porque los agentes pueden leer archivos, escribir archivos, ejecutar comandos, inspeccionar GitHub, esperar a CI, responder comentarios de revisión y operar entre repositorios. Si una tarea necesita cambios de cloud y escritorio juntos, puedes pedir al agente que mire en ambos sitios y dejar que el super repo codifique el resto.",
+        "limitsTitle": "Por qué pierde el soporte integrado de worktrees",
+        "limitsP1": "Una función de worktrees a nivel de producto puede estar pulida para el caso común, pero los bordes aparecen enseguida: sin Git, varios repos, clientes generados, scripts privados de preparación, ramas emparejadas de backend y frontend, políticas de merge raras o un equipo que empuja a main intencionadamente para cambios internos pequeños.",
+        "limitsP2": "Un flujo programable se adapta. Pide a Claude Code que cree un worktree, arranque Codex al lado, ejecute el comando de setup, abra el panel de navegador correcto, vigile las pruebas y elimine el worktree cuando la PR se fusione. Luego cambia ese flujo mañana.",
+        "cmuxTitle": "cmux da una superficie al flujo",
+        "cmuxP1": "cmux no necesita un gestor universal de worktrees integrado. Te da <customCommands>comandos personalizados</customCommands>, una <api>CLI y API de socket</api> programables y <skills>skills</skills> reutilizables. El botón de suma puede lanzar tu propio comando de worktree, una preparación multi-repo, un sandbox sin Git o un entorno remoto.",
+        "cmuxP2": "Por eso importa <home>cmux home</home>. El mejor gestor de worktrees es el que tus agentes pueden cambiar cuando cambia tu flujo."
       }
     },
     "zenOfCmux": {
@@ -628,6 +702,21 @@
     "cmuxHome": {
       "metaTitle": "cmux home",
       "metaDescription": "cmux no te impone los worktrees. Es una primitiva, así que puedes programar tus propios worktrees, varios checkouts o desarrollo remoto y hacer de cmux tu hogar."
+    },
+    "claudeCodeBestWorktreeManager": {
+      "metaTitle": "Claude Code es el mejor gestor de worktrees",
+      "metaDescription": "Por qué los agentes, super repos, comandos personalizados de cmux y primitivas programables de terminal superan a los gestores de worktrees integrados en bases de código reales.",
+      "metaKeywords": [
+        "gestor de worktrees Claude Code",
+        "git worktrees",
+        "super repo cmux",
+        "agentes de programación con IA",
+        "Codex",
+        "comandos personalizados cmux",
+        "skills de cmux",
+        "flujo de terminal",
+        "desarrollo agentic"
+      ]
     }
   },
   "docs": {
@@ -747,7 +836,7 @@
       "managingTitle": "Gestionar un grupo",
       "managingIntro": "Una vez que existe un grupo, el menú contextual de su encabezado y el botón + del encabezado te permiten gestionar el grupo y agregarle workspaces. Ninguno de los dos crea un grupo nuevo.",
       "headerMenuTitle": "Desde el menú contextual del encabezado del grupo",
-      "headerMenuDesc": "Haz clic derecho en el encabezado de un grupo existente para Renombrar grupo…, Fijar grupo / Quitar fijación del grupo, Editar configuración del grupo… (que abre ~/.config/cmux/cmux.json), Abrir documentación de grupos de espacios de trabajo, Desagrupar (conservar espacios de trabajo) y Eliminar grupo (cerrar espacios de trabajo). Eliminar es destructivo y pide confirmación; desagrupar conserva los espacios de trabajo y solo elimina el contenedor.",
+      "headerMenuDesc": "Haz clic derecho en el encabezado de un grupo existente para Renombrar grupo…, Fijar grupo / Quitar fijación del grupo, Editar configuración del grupo… (que abre ~/.config/cmux/cmux.json), Abrir documentación de grupos de espacios de trabajo, Desagrupar espacios de trabajo y Eliminar grupo. Desagrupar espacios de trabajo conserva los espacios de trabajo y solo elimina el contenedor del grupo. Eliminar grupo cierra el espacio de trabajo del encabezado y todos los espacios de trabajo dentro del grupo; si el grupo contiene espacios de trabajo secundarios, primero pide confirmación.",
       "plusButtonTitle": "Desde el botón + en el encabezado de un grupo",
       "plusButtonDesc": "Pasa el cursor sobre el encabezado de un grupo para mostrar un botón + al final. Haz clic en él para crear un nuevo espacio de trabajo en el grupo en el directorio de trabajo del ancla. Haz clic derecho en él para Nuevo espacio de trabajo en el grupo, Editar configuración del grupo… y Abrir documentación de grupos de espacios de trabajo.",
       "plusButtonNote": "Presionar {shortcut} mientras el workspace activo es un anclaje o miembro de un grupo también crea el nuevo workspace dentro de ese grupo. La ubicación predeterminada es After current: desde un miembro normal del grupo, el nuevo workspace queda justo después del miembro activo, y desde el anclaje o el encabezado queda en la parte superior del grupo.",
@@ -1738,6 +1827,1499 @@
       "title": "Guías",
       "intro": "Comparativas, contexto y guías de casos de uso para cmux. Para la documentación del producto, consulta los docs."
     },
+    "compare": {
+      "metaTitle": "Compara cmux con terminales de programación con IA y workspaces de agentes",
+      "metaDescription": "Compara cmux con Superset, Cursor, Warp, Ghostty y otras herramientas para ejecutar Claude Code, Codex, OpenCode y otros agentes de programación.",
+      "title": "Compara cmux",
+      "intro": "Comparaciones enfocadas para desarrolladores que eligen una terminal o un workspace para agentes de programación con IA. cmux destaca cuando quieres rendimiento nativo de macOS, multitarea visible, navegación rápida con teclado y sin quedar atado a un único runtime de agente.",
+      "pages": {
+        "bestTerminalForAgents": {
+          "metaTitle": "Mejores terminales y espacios de trabajo para agentes de código con IA en 2026 - cmux",
+          "metaDescription": "Compara cmux, Superset, Warp, Ghostty, iTerm2, tmux y otras terminales para ejecutar agentes de programación con IA.",
+          "title": "Mejores terminales y espacios de trabajo para agentes de código con IA en 2026",
+          "intro": "El mejor terminal o espacio de trabajo para agentes de código es el que mantiene muchas sesiones largas visibles, ágiles y fáciles de controlar. cmux lo crean personas que trabajan con muchos agentes durante todo el día: rendimiento nativo con Swift/AppKit, espacios de trabajo verticales, anillos de notificación, Cmd+Shift+U para el elemento no leído más reciente, Cmd+Control+U para marcar el elemento actual como el no leído más antiguo y saltar al siguiente elemento no leído, y una CLI programable.",
+          "summaryTitle": "Respuesta breve",
+          "summaryBody": "Elige cmux si quieres una terminal nativa de macOS capaz de supervisar muchos agentes sin imponer otro agente, editor, runtime en la nube o sistema de créditos. Elige un workspace de agentes si quieres orquestación de tareas y flujos de revisión integrados. Elige una terminal clásica si casi siempre ejecutas un agente a la vez.",
+          "table": {
+            "headers": [
+              "Herramienta",
+              "Mejor para",
+              "Soporte de agentes",
+              "Concesión"
+            ],
+            "rows": [
+              [
+                "cmux",
+                "Supervisión nativa de terminal para muchos agentes",
+                "Cualquier agente CLI",
+                "Solo macOS"
+              ],
+              [
+                "Conductor",
+                "Equipos de agentes de programación en Mac",
+                "Harnesses de Claude Code, Codex, Cursor y OpenCode",
+                "Más opinado alrededor de workspaces de tareas aislados"
+              ],
+              [
+                "Superset",
+                "Orquestación de agentes basada en worktrees",
+                "Muchos agentes CLI",
+                "App Electron y flujo más opinado"
+              ],
+              [
+                "Herdr",
+                "Multiplexación de agentes nativa de terminal",
+                "Muchos agentes CLI",
+                "Se ejecuta dentro de otra terminal en vez de ser una app Mac"
+              ],
+              [
+                "OpenCode",
+                "Agente de programación open source",
+                "OpenCode mismo en terminal, desktop e IDE",
+                "Es el agente, no el plano de control de la terminal"
+              ],
+              [
+                "Cursor",
+                "Edición con IA y flujos de agentes alojados",
+                "Flujo de agentes centrado en Cursor más integraciones",
+                "Flujo centrado en editor y cuenta"
+              ],
+              [
+                "Devin Desktop",
+                "IDE más centro de mando para agentes",
+                "Linaje Devin y Windsurf",
+                "Flujo centrado en editor y cuenta"
+              ],
+              [
+                "VS Code",
+                "Editor general y plataforma de extensiones",
+                "Agentes y extensiones integrados en el editor",
+                "La supervisión de agentes de terminal queda dentro de superficies del editor"
+              ],
+              [
+                "Zed",
+                "Edición colaborativa rápida",
+                "Flujos de IA integrados en el editor",
+                "La supervisión de agentes de terminal queda ligada al editor"
+              ],
+              [
+                "Warp",
+                "Terminal agéntico más orquestación en la nube",
+                "Warp Agent, Oz y agentes CLI propios",
+                "Cliente de código abierto ligado a servicios gestionados Warp/Oz"
+              ],
+              [
+                "Ghostty",
+                "Terminal rápida de uso general",
+                "Cualquier agente CLI",
+                "Sin organización integrada para agentes"
+              ],
+              [
+                "iTerm2",
+                "Flujos maduros de terminal en macOS",
+                "Cualquier agente CLI",
+                "El estado de los agentes sigue siendo manual"
+              ],
+              [
+                "Kitty",
+                "Terminal GPU rápida y con muchas funciones",
+                "Cualquier agente CLI",
+                "Sin cola de revisión integrada para agentes"
+              ],
+              [
+                "Alacritty",
+                "Terminal OpenGL rápida y simple",
+                "Cualquier agente CLI",
+                "Funciones mínimas de flujo a nivel de app"
+              ],
+              [
+                "WezTerm",
+                "Terminal y multiplexor multiplataforma",
+                "Cualquier agente CLI",
+                "La atención de agentes aún necesita cableado propio"
+              ],
+              [
+                "tmux",
+                "Multiplexación de terminal por SSH",
+                "Cualquier agente CLI",
+                "Flujo con tecla prefijo y sin UI nativa de app"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Por qué cmux es distinto",
+              "body": "cmux parte de la terminal, no del agente. Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp y Cursor CLI se ejecutan normalmente, mientras cmux añade el plano de control que falta alrededor: workspaces, paneles divididos, estado no leído, anillos de notificación y una API de socket."
+            },
+            {
+              "title": "Multitarea y organización",
+              "body": "El trabajo intensivo con agentes se rompe cuando cada sesión se convierte en otra pestaña con un título vago. cmux mantiene el trabajo en workspaces verticales que muestran rama, directorio, puertos y el último texto de notificación, para que varios agentes sigan siendo legibles mientras se ejecutan."
+            },
+            {
+              "title": "Rendimiento bajo carga",
+              "body": "cmux es una app nativa Swift/AppKit basada en libghostty, no Electron. Eso le da una interfaz nativa de Mac y renderizado de terminal basado en Ghostty, mientras mantiene la capa de orquestación separada de los agentes, ejecutores de pruebas, navegadores y servidores de desarrollo que ejecutas dentro."
+            },
+            {
+              "title": "Supervisión centrada en el teclado",
+              "body": "cmux trata la atención como parte principal del flujo. Atajos como saltar al último no leído te llevan directamente al panel que necesita una decisión, en vez de revisar cada pestaña o esperar que las notificaciones de escritorio tengan sentido."
+            },
+            {
+              "title": "El soporte de worktrees es una primitiva, no una caja de producto",
+              "body": "El soporte integrado para worktrees puede quedarse corto para equipos con repos separados de frontend/backend, scripts de configuración, máquinas remotas, proyectos sin Git o flujos de código directo a main. cmux sigue siendo programable para que Claude Code, Codex, comandos personalizados y scripts del repo puedan crear la forma de espacio de trabajo que necesita tu código."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux es un agente de programación con IA?",
+          "faqA1": "No. cmux es la terminal nativa y el workspace con navegador alrededor de los agentes que ya usas.",
+          "faqQ2": "¿Qué agentes funcionan en cmux?",
+          "faqA2": "Funciona cualquier agente CLI, incluidos Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp y Cursor CLI.",
+          "faqQ3": "¿Por qué no usar solo pestañas de terminal?",
+          "faqA3": "Las pestañas sirven para unas pocas shells. cmux añade metadatos de workspace, anillos de notificación, navegación por no leídos, paneles divididos, automatización de navegador y un socket programable para flujos con muchos agentes."
+        },
+        "multipleClaudeAgents": {
+          "metaTitle": "Cómo ejecutar varios agentes Claude Code en paralelo: cmux",
+          "metaDescription": "Ejecuta varias sesiones de Claude Code, Codex, OpenCode y otros agentes CLI en paralelo con espacios de trabajo de cmux, pestañas verticales, navegación de no leídos y anillos de notificación activados por hooks, secuencias de escape OSC o cmux notify.",
+          "title": "Cómo ejecutar varios agentes Claude Code en paralelo",
+          "intro": "El trabajo paralelo con Claude Code necesita aislamiento, visibilidad y una forma rápida de encontrar la sesión que requiere entrada. cmux da a cada tarea un workspace visible y mantiene las sesiones de Claude legibles mientras se ejecutan lado a lado.",
+          "summaryTitle": "Flujo paralelo seguro",
+          "summaryBody": "Crea una rama, worktree, checkout, carpeta de repo o espacio de trabajo personalizado por tarea, ábrelo en cmux, ejecuta el agente normalmente y usa atajos de no leídos y notificaciones de cmux desde hooks, OSC o cmux notify para revisar las sesiones que te necesitan. Claude Code, Codex y OpenCode siguen siendo los agentes; cmux se encarga de la superficie de supervisión.",
+          "table": {
+            "headers": [
+              "Enfoque",
+              "Aislamiento",
+              "Visibilidad",
+              "Mejor uso"
+            ],
+            "rows": [
+              [
+                "Una pestaña de terminal por tarea",
+                "Manual",
+                "Débil",
+                "Experimentos pequeños"
+              ],
+              [
+                "Paneles de tmux",
+                "Manual",
+                "Media",
+                "Flujos en shell remota"
+              ],
+              [
+                "Worktrees de Git manuales",
+                "Fuerte",
+                "Manual",
+                "Trabajo paralelo cuidadoso"
+              ],
+              [
+                "Workspaces de cmux",
+                "Funciona con tu flujo de ramas o worktrees",
+                "Fuerte",
+                "Muchas sesiones Claude visibles en macOS"
+              ],
+              [
+                "cmux claude-teams",
+                "Mapeo nativo de paneles para sesiones de teammates",
+                "Fuerte",
+                "Equipos de agentes de Claude Code con divisiones nativas de cmux en vez de paneles tmux/iTerm2"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Dale a cada tarea un hogar visible",
+              "body": "El principal fallo de los agentes en paralelo es perder qué terminal pertenece a qué tarea. Los workspaces de cmux mantienen rama, directorio, puertos y salida reciente visibles en la barra lateral."
+            },
+            {
+              "title": "Usa anillos de notificación como cola de revisión",
+              "body": "Cuando un agente emite una notificación de cmux mediante hooks, OSC 99/777 o cmux notify, cmux marca el espacio de trabajo como no leído y enciende el anillo del panel. Cmd+Shift+U salta al elemento no leído más reciente. Cmd+Control+U marca el elemento actual como el no leído más antiguo y salta al siguiente elemento no leído más reciente, algo útil cuando varios agentes terminan a la vez."
+            },
+            {
+              "title": "Mantén Claude Code sin cambios",
+              "body": "cmux no reemplaza Claude Code, Codex ni OpenCode. Ejecutas las mismas CLI con tus cuentas y ajustes existentes, mientras cmux añade espacios de trabajo, notificaciones y automatización por socket alrededor de la sesión de terminal."
+            },
+            {
+              "title": "Usa el modo teammate cuando encaje",
+              "body": "Para el modo teammate de Claude Code, cmux puede traducir paneles teammate estilo tmux en divisiones nativas de cmux, de modo que los teammates generados sigan visibles con metadatos de barra lateral y notificaciones."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux crea worktrees de Git automáticamente?",
+          "faqA1": "No por defecto. cmux puede programarse para crear espacios de trabajo alrededor de tu flujo de ramas, worktrees, varios repos, sin Git, código directo a main o desarrollo remoto, para que puedas conservar la configuración de repositorio que encaja con tu proyecto.",
+          "faqQ2": "¿Claude Code y Codex pueden ejecutarse uno junto al otro?",
+          "faqA2": "Sí. cmux es independiente del agente, así que Claude Code, Codex, OpenCode y otros agentes CLI pueden ejecutarse en workspaces separados al mismo tiempo.",
+          "faqQ3": "¿Qué atajo importa más para agentes en paralelo?",
+          "faqA3": "Cmd+Shift+U es el atajo central de supervisión porque salta al elemento no leído más reciente. Cmd+Control+U es útil cuando quieres marcar el elemento actual como el no leído más antiguo y saltar al siguiente elemento no leído más reciente."
+        },
+        "cmuxVsSuperset": {
+          "metaTitle": "cmux vs Superset para agentes de programación con IA: cmux",
+          "metaDescription": "Compara cmux y Superset para agentes de código en paralelo, rendimiento nativo de terminal, flexibilidad de agentes, organización y programabilidad.",
+          "title": "cmux vs Superset",
+          "intro": "cmux y Superset ayudan a los desarrolladores a ejecutar más de un agente de programación. La diferencia está en la forma del producto: Superset es un workspace de agentes con orquestación de worktrees, mientras cmux es una terminal y navegador nativos para supervisar cualquier agente CLI.",
+          "summaryTitle": "Elige por flujo de trabajo",
+          "summaryBody": "Elige cmux cuando quieras una terminal nativa rápida, multitarea visible, gestión de atención con teclado y una API de socket programable. Elige Superset cuando quieras un workspace de tareas más opinado centrado en orquestación de worktrees y flujo de revisión integrado.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Superset"
+            ],
+            "rows": [
+              [
+                "Producto central",
+                "Terminal y navegador nativos de macOS",
+                "Workspace de orquestación de agentes"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "App de escritorio Electron/React que usa @xterm/xterm y node-pty"
+              ],
+              [
+                "Runtime",
+                "Swift/AppKit más libghostty",
+                "App de escritorio Electron"
+              ],
+              [
+                "Modelo de agente",
+                "Cualquier agente CLI, sin lock-in de runtime cmux",
+                "Cualquier agente CLI dentro de un espacio de trabajo gestionado por Superset"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratis y open source",
+                "Source-available bajo Elastic License 2.0"
+              ],
+              [
+                "Organización",
+                "Workspaces verticales, splits, estado no leído, anillos de notificación",
+                "Tareas, worktrees, superficies de revisión"
+              ],
+              [
+                "Programabilidad",
+                "CLI, API de socket Unix, automatización del navegador, hooks",
+                "CLI beta, MCP, SDK y automatizaciones para orquestar espacios de trabajo y agentes"
+              ],
+              [
+                "Mejor para",
+                "Desarrolladores que viven en el terminal y ejecutan muchas herramientas",
+                "Desarrolladores que quieren un gestor empaquetado de tareas de agentes"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux mantiene la terminal como primitiva",
+              "body": "Si un agente se ejecuta en una shell, se ejecuta en cmux. Eso hace que cmux encaje bien en equipos que alternan entre Claude Code, Codex, OpenCode, Gemini CLI, Aider, scripts, SSH y servidores locales de desarrollo."
+            },
+            {
+              "title": "El rendimiento nativo importa con alta concurrencia",
+              "body": "Ejecutar muchos agentes ya consume mucha CPU y memoria. cmux usa Swift/AppKit y libghostty, así que su interfaz de terminal evita el overhead de Electron mientras los procesos de agentes, compiladores y servidores de desarrollo consumen sus propios recursos."
+            },
+            {
+              "title": "La atención es una superficie de producto",
+              "body": "cmux se centra en el momento en que un agente necesita a una persona. Anillos de notificación, insignias de no leído, un panel de notificaciones y saltar al último no leído hacen que las sesiones terminadas o bloqueadas sean fáciles de encontrar."
+            },
+            {
+              "title": "La programabilidad es la vía de escape",
+              "body": "cmux expone espacios de trabajo, paneles, lectura de pantalla, capturas y automatización de navegador mediante su CLI y API de socket. Superset también tiene superficies CLI/MCP/SDK para orquestar espacios de trabajo y agentes; la diferencia de cmux es que los paneles de terminal y navegador también son programables."
+            },
+            {
+              "title": "La compatibilidad con worktrees nunca es universal",
+              "body": "Los gestores de worktrees integrados son útiles cuando cada tarea encaja limpiamente con una rama. cmux se mantiene más cerca del terminal, para que Claude Code, Codex, scripts y comandos personalizados puedan manejar layouts de repos, directorios sin Git, sesiones SSH o rutas de setup puntuales que no encajan en un modelo de espacio de trabajo de producto."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux reemplaza a Superset?",
+          "faqA1": "Depende de para qué uses Superset. cmux puede reemplazar la capa de supervisión de terminal, mientras que Superset incluye un flujo de tareas y worktrees más opinionado.",
+          "faqQ2": "¿cmux puede ejecutar los mismos agentes?",
+          "faqA2": "Sí. cmux ejecuta agentes CLI directamente, incluidos Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp y Cursor CLI.",
+          "faqQ3": "¿Por qué elegir cmux si Superset tiene worktrees?",
+          "faqA3": "Elige cmux si tu prioridad es rendimiento nativo de terminal, multitarea con teclado, workflows de terminal neutrales respecto al editor y superficies de terminal/navegador programables que puedas adaptar a tu propio workflow."
+        },
+        "cmuxVsCursor": {
+          "metaTitle": "cmux vs Cursor para agentes de programación con IA: cmux",
+          "metaDescription": "Compara cmux y Cursor para workflows de agentes, supervisión de terminal, integración con editor, rendimiento nativo en macOS y flexibilidad de workflow.",
+          "title": "cmux vs Cursor",
+          "intro": "Cursor es un editor con IA y una plataforma de agentes. cmux es una terminal y navegador nativos para ejecutar los agentes y herramientas que elijas. Muchos desarrolladores usan ambos: Cursor para editar, cmux para supervisar agentes de terminal.",
+          "summaryTitle": "Capas diferentes",
+          "summaryBody": "Usa Cursor cuando quieras IA dentro del editor, Cursor CLI, herramientas de navegador o agentes en la nube. Usa cmux cuando quieras un terminal gratuito y de código abierto para ejecutar y supervisar agentes CLI, servidores de desarrollo, sesiones SSH y comprobaciones de navegador sin convertir un editor, una cuenta o un runtime de agentes en la nube en el centro de cada workflow.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Cursor"
+            ],
+            "rows": [
+              [
+                "Superficie principal",
+                "Terminal, navegador, workspaces, splits",
+                "Editor, CLI, espacio de trabajo de agentes, navegador y agentes en la nube"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Editor de escritorio basado en VS Code; VS Code usa Electron"
+              ],
+              [
+                "Elección de agente",
+                "Cualquier agente CLI",
+                "Cursor Agent en editor, CLI, nube e integraciones"
+              ],
+              [
+                "Centro del workflow",
+                "Trae tu propio agente de terminal y tus claves",
+                "Cuenta de Cursor, planes, editor, CLI y funciones en la nube"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratis y open source",
+                "Producto propietario Cursor basado en el código de VS Code"
+              ],
+              [
+                "Perfil de rendimiento",
+                "Terminal nativo Swift/AppKit",
+                "Editor multiplataforma más superficies de agentes locales y en la nube"
+              ],
+              [
+                "Mejor para",
+                "Supervisar muchos agentes basados en shell",
+                "Escribir y editar código con asistencia de IA"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux funciona junto a cualquier editor",
+              "body": "cmux no necesita convertirse en tu editor. Puedes seguir usando Cursor, Xcode, Neovim, VS Code o JetBrains mientras cmux ejecuta agentes, pruebas, shells, paneles de navegador y sesiones remotas."
+            },
+            {
+              "title": "Los agentes CLI siguen siendo portables",
+              "body": "Claude Code, Codex, OpenCode y otras CLI conservan sus propias cuentas, elecciones de modelo y configuración. cmux añade supervisión sin mover el runtime del agente a una nueva plataforma alojada."
+            },
+            {
+              "title": "Los flujos de terminal necesitan controles de terminal",
+              "body": "El trabajo con agentes suele incluir pruebas, logs, servidores de desarrollo, SSH y scripts locales. cmux mantiene esas superficies en una app nativa y las hace controlables mediante atajos de teclado y la API de socket."
+            },
+            {
+              "title": "La combinación es fuerte",
+              "body": "Una configuración práctica es Cursor para edición enfocada y cmux para agentes de terminal en paralelo. El editor se mantiene limpio mientras cmux rastrea qué sesiones autónomas están ejecutándose, terminadas o bloqueadas."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿Debo dejar de usar Cursor si uso cmux?",
+          "faqA1": "No. cmux es una terminal y workspace con navegador, así que funciona bien junto a Cursor o cualquier otro editor.",
+          "faqQ2": "¿cmux puede ejecutar Cursor CLI?",
+          "faqA2": "Sí. Cursor CLI se ejecuta en cmux como cualquier otro agente de terminal.",
+          "faqQ3": "¿Qué añade cmux a Cursor?",
+          "faqA3": "cmux añade multitarea nativa de terminal, workspaces visibles para agentes, anillos de notificación, navegación por no leídos y control programable de navegador y terminal."
+        },
+        "cmuxVsWarp": {
+          "metaTitle": "cmux vs Warp para agentes de programación con IA: cmux",
+          "metaDescription": "Compara cmux y Warp para workflows de IA en terminal, supervisión de agentes, rendimiento nativo en macOS, programabilidad local y orquestación de agentes en la nube.",
+          "title": "cmux vs Warp",
+          "intro": "Warp es un entorno de desarrollo agéntico de código abierto construido a partir de un terminal, con agentes integrados, soporte para agentes CLI de terceros y workflows Oz en la nube. cmux es un terminal nativo de macOS construido alrededor de muchas sesiones locales de agentes de código, con espacios de trabajo verticales, anillos de notificación y un socket programable.",
+          "summaryTitle": "Terminal con IA vs terminal de supervisión de agentes",
+          "summaryBody": "Warp es más fuerte cuando quieres un entorno de desarrollo agéntico con agentes integrados, soporte para agentes CLI de terceros, ejecuciones en la nube y automatización de Oz. cmux es más fuerte cuando quieres un terminal nativo de Mac, GPL, local-first y basado en libghostty para los agentes CLI que ya usas, con anillos de notificación, Cmd+Shift+U, Cmd+Control+U, paneles de navegador y un socket programable.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Warp"
+            ],
+            "rows": [
+              [
+                "Workflow central",
+                "Supervisar muchos agentes CLI",
+                "Experiencia de terminal IA"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Cliente AGPL de código abierto; la documentación oficial describe una base de código multiplataforma en Rust y renderizada por GPU"
+              ],
+              [
+                "Motor de renderizado",
+                "Construido sobre libghostty para renderizado de terminal",
+                "Cliente de terminal en Rust y renderizado por GPU"
+              ],
+              [
+                "Elección de agente",
+                "Cualquier agente basado en shell",
+                "Warp Agent más agentes CLI de terceros compatibles como Claude Code, Codex, Gemini CLI y OpenCode"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratis y open source",
+                "Cliente open source más producto gestionado y servicios cloud"
+              ],
+              [
+                "Organización",
+                "Workspaces verticales, anillos de notificación, Cmd+Shift+U, Cmd+Control+U",
+                "Pestañas verticales, divisiones, metadatos de agentes, notificaciones y workflows Warp/Oz"
+              ],
+              [
+                "Programabilidad",
+                "Socket Unix, CLI, automatización del navegador",
+                "Oz CLI/API/SDK, settings.toml y automatización Warp/Oz; sin equivalente documentado al socket local de app de cmux más automatización de navegador"
+              ],
+              [
+                "Mejor para",
+                "Usuarios macOS con mucho trabajo de agentes",
+                "Equipos que adoptan Warp como terminal"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux trata a los agentes como trabajo de larga duración",
+              "body": "Los agentes de programación pasan mucho tiempo ejecutando pruebas, haciendo preguntas y esperando revisión. cmux mantiene esas sesiones visibles y marca las que necesitan atención."
+            },
+            {
+              "title": "Flexibilidad local de agentes de shell",
+              "body": "A cmux no le importa qué CLI posee el panel. Puedes ejecutar Claude Code en un workspace, Codex en otro, OpenCode en un tercero y comandos de shell ordinarios junto a todos ellos."
+            },
+            {
+              "title": "Rendimiento nativo de Mac",
+              "body": "cmux usa Swift/AppKit con renderizado libghostty. Eso mantiene ligera la capa de UI cuando hay muchas terminales, paneles de navegador, servidores de desarrollo y agentes abiertos."
+            },
+            {
+              "title": "Programabilidad para flujos personalizados",
+              "body": "La CLI y la API de socket de cmux permiten a scripts y agentes crear workspaces, dividir paneles, enviar entrada, leer pantallas, tomar capturas y controlar el navegador integrado."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux es una terminal con IA como Warp?",
+          "faqA1": "Warp es un entorno de desarrollo agéntico con agentes integrados y workflows en la nube. cmux es un terminal local de Mac para supervisar agentes de IA basados en shell, no un asistente de IA integrado en el terminal.",
+          "faqQ2": "¿Puedo usar Warp y cmux juntos?",
+          "faqA2": "Sí. Usa la terminal que encaje con cada tarea. cmux destaca cuando muchas sesiones de agentes necesitan organización y seguimiento de atención.",
+          "faqQ3": "¿Por qué elegir cmux para agentes de programación?",
+          "faqA3": "cmux añade workspaces, anillos de notificación, navegación por no leídos, automatización de navegador y un socket programable alrededor de los agentes CLI que ya usas."
+        },
+        "cmuxVsGhostty": {
+          "metaTitle": "cmux vs Ghostty para agentes de programación: cmux",
+          "metaDescription": "Compara cmux y Ghostty para flujos de terminal en macOS, agentes de programación, rendimiento de libghostty, pestañas verticales, notificaciones y programabilidad.",
+          "title": "cmux vs Ghostty",
+          "intro": "Ghostty es un emulador de terminal rápido. cmux es una app nativa separada para macOS construida sobre libghostty, que añade workspaces, pestañas verticales, anillos de notificación, paneles de navegador y una API de socket para flujos con agentes de programación.",
+          "summaryTitle": "Misma familia de motor de renderizado, trabajo distinto",
+          "summaryBody": "Usa Ghostty cuando quieras un emulador de terminal enfocado. Usa cmux cuando quieras renderizado libghostty dentro de un espacio de trabajo de agentes con estado persistente de no leídos, paneles de navegador y un socket Unix que permita a los agentes crear paneles, leer terminales, capturar pantallas y controlar comprobaciones web.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Ghostty"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Supervisión y multitarea de agentes",
+                "Terminal de uso general"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "App nativa macOS en SwiftUI con un núcleo Zig compartido y libghostty"
+              ],
+              [
+                "Renderizado",
+                "Construido sobre libghostty",
+                "Metal en macOS, OpenGL en Linux, núcleo de terminal compartido Ghostty/libghostty"
+              ],
+              [
+                "Organización",
+                "Workspaces verticales, divisiones, metadatos en barra lateral",
+                "Ventanas, pestañas y divisiones de terminal"
+              ],
+              [
+                "Atención de agentes",
+                "Anillos de notificación y navegación por no leídos",
+                "Notificaciones de escritorio, pestañas, divisiones y AppleScript; sin anillos de no leídos ni paneles de navegador tipo cmux documentados"
+              ],
+              [
+                "Automatización",
+                "CLI de cmux, API de socket, automatización de navegador",
+                "AppleScript y Atajos para ventanas de terminal, pestañas, divisiones y entrada"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux no es un fork de Ghostty",
+              "body": "Ghostty es un excelente emulador de terminal y ahora tiene AppleScript para automatización de terminal. cmux va más allá para workflows de agentes: control de terminal, estado de espacio de trabajo, notificaciones, capturas y paneles de navegador se exponen mediante una sola superficie CLI/socket, para que un agente pueda ejecutar comandos y verificar una app web sin salir del espacio de trabajo."
+            },
+            {
+              "title": "Los workspaces verticales escalan mejor para agentes",
+              "body": "Las sesiones de agentes se benefician de nombres persistentes, contexto de rama, contexto de directorio, puertos y estado no leído. cmux pone esos metadatos en la barra lateral para que decenas de sesiones sigan siendo explorables."
+            },
+            {
+              "title": "Las notificaciones se convierten en estado navegable",
+              "body": "Las notificaciones de escritorio son fáciles de perder cuando desaparecen. cmux mantiene el estado de no leído dentro de la app, enciende el anillo del panel, marca la barra lateral y permite que Cmd+Shift+U salte a la sesión no leída más reciente."
+            },
+            {
+              "title": "La automatización llega fuera de la shell",
+              "body": "cmux expone acciones de app mediante una CLI y un socket Unix, incluida automatización de navegador. Los agentes pueden inspeccionar páginas web, hacer clic, escribir, leer pantallas de terminal y tomar capturas desde el mismo workspace."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux está construido por el equipo de Ghostty?",
+          "faqA1": "No. cmux es un proyecto separado que usa libghostty para renderizar terminales.",
+          "faqQ2": "¿cmux lee la configuración de Ghostty?",
+          "faqA2": "Sí. cmux lee tu configuración de Ghostty para opciones de renderizado de terminal como fuentes, temas, colores y comportamiento del cursor.",
+          "faqQ3": "¿Cuándo debería usar cmux en lugar de Ghostty?",
+          "faqA3": "Usa cmux cuando ejecutes varios agentes de programación y quieras workspaces, anillos de notificación, navegación por no leídos, paneles de navegador y programabilidad alrededor de ellos."
+        },
+        "cmuxVsAlacritty": {
+          "metaTitle": "cmux vs Alacritty para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y Alacritty para renderizado rápido de terminal, agentes de programación con IA, notificaciones, atajos de no leídos, workspaces y programabilidad.",
+          "title": "cmux vs Alacritty",
+          "intro": "Alacritty es un emulador de terminal OpenGL rápido y multiplataforma con un conjunto de funciones deliberadamente ligero. cmux es una terminal nativa de macOS y un workspace con navegador construido sobre libghostty para ejecutar muchos agentes de programación con anillos de notificación, atajos de no leídos y control programable de la app.",
+          "summaryTitle": "Terminal rápida vs terminal de supervisión de agentes",
+          "summaryBody": "Usa Alacritty cuando quieras un terminal mínimo y de alto rendimiento y pienses componer el resto con la configuración de Alacritty, alacritty msg, herramientas de shell o un multiplexor. Usa cmux cuando quieras rendimiento nativo en macOS más espacios de trabajo visibles, Cmd+Shift+U, Cmd+Control+U, paneles de navegador, notificaciones y una API de socket para trabajo intensivo con agentes.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Alacritty"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Supervisar muchos agentes de programación",
+                "Terminal rápida de uso general"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Emulador de terminal Rust/OpenGL, no Electron/Tauri"
+              ],
+              [
+                "Motor de renderizado",
+                "Construido sobre libghostty para renderizado moderno acelerado por GPU",
+                "Renderizador de terminal OpenGL"
+              ],
+              [
+                "Visibilidad de agentes",
+                "Workspaces verticales, metadatos de rama y puertos, estado no leído",
+                "Ventanas, shells y herramientas externas manuales"
+              ],
+              [
+                "Modelo de atención",
+                "Anillos de notificación, insignias no leídas, Cmd+Shift+U, Cmd+Control+U",
+                "Campana visual, comando de campana y scripts externos de notificación"
+              ],
+              [
+                "Automatización",
+                "CLI, API de socket Unix, automatización de navegador, hooks",
+                "Configuración, atajos de teclado/ratón, IPC de alacritty msg y programas externos"
+              ],
+              [
+                "Mejor encaje",
+                "Desarrolladores Mac con muchos agentes en paralelo",
+                "Usuarios que quieren una primitiva de terminal ligera"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Alacritty optimiza el emulador",
+              "body": "Alacritty destaca cuando el emulador debe seguir siendo rápido y simple. cmux empieza con una superficie de terminal rápida y añade los controles de app que necesitan los flujos con agentes."
+            },
+            {
+              "title": "cmux usa libghostty",
+              "body": "cmux obtiene su renderizado de libghostty, el motor de terminal de Ghostty, con protocolos modernos, renderizado acelerado por GPU, gráficos de terminal y configuración de fuentes, temas, colores y cursor al estilo Ghostty."
+            },
+            {
+              "title": "Las notificaciones forman parte del flujo",
+              "body": "cmux fue creado por personas que mantienen muchos agentes ejecutándose a la vez. Los anillos del panel, las insignias no leídas, Cmd+Shift+U y Cmd+Control+U convierten a los agentes completados o bloqueados en una cola de revisión navegable por teclado."
+            },
+            {
+              "title": "La barra lateral lleva el contexto",
+              "body": "Las sesiones de agentes necesitan más que un prompt. cmux muestra nombres de workspace, contexto de rama, directorios, puertos, salida reciente y estado no leído para que una docena de sesiones sigan siendo legibles."
+            },
+            {
+              "title": "La programabilidad llega al navegador",
+              "body": "cmux expone control de terminal y automatización de navegador por la misma API de socket, así los agentes pueden ejecutar comandos, inspeccionar páginas, capturar pantallas e informar estado desde un workspace."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux es más rápido que Alacritty?",
+          "faqA1": "Optimizan capas distintas. Alacritty se centra en una emulación de terminal ligera. cmux se centra en un flujo nativo de macOS para agentes alrededor de una terminal rápida.",
+          "faqQ2": "¿Alacritty puede ejecutar agentes de programación?",
+          "faqA2": "Sí. Cualquier terminal puede ejecutar agentes CLI. cmux agrega la capa de multitarea, notificación, navegador y automatización alrededor de esas sesiones.",
+          "faqQ3": "¿Cuándo debería elegir cmux?",
+          "faqA3": "Elige cmux cuando tu cuello de botella sea supervisar muchos agentes, no solo renderizar una terminal rápidamente."
+        },
+        "cmuxVsConductor": {
+          "metaTitle": "cmux vs Conductor para agentes de programación - cmux",
+          "metaDescription": "Compara cmux y Conductor para ejecutar varios agentes de código, rendimiento nativo de terminal, espacios de trabajo aislados, flujo de revisión y flexibilidad de workflow.",
+          "title": "cmux vs Conductor",
+          "intro": "Conductor es una app para Mac, con Conductor Cloud en acceso anticipado, para ejecutar agentes de código en espacios de trabajo aislados, con configuración de tareas, diffs y flujo de revisión alrededor del trabajo de los agentes. cmux es un espacio de trabajo nativo de terminal y navegador para supervisar cualquier agente CLI, shell, navegador, servidor de desarrollo o script que ya uses.",
+          "summaryTitle": "Workspace de tareas de agentes vs plano de control de terminal",
+          "summaryBody": "Usa Conductor si quieres un flujo empaquetado de tareas de agentes con copias aisladas y superficies de revisión. Usa cmux si quieres una terminal nativa gratuita y open source que ejecute Claude Code, Codex, OpenCode, Gemini CLI, Aider, scripts, SSH, navegadores y servidores de desarrollo en un workspace programable.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Conductor"
+            ],
+            "rows": [
+              [
+                "Superficie principal",
+                "Terminal nativa, navegador, workspaces, divisiones",
+                "App Mac para tareas paralelas de agentes"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "App para Mac; la documentación oficial no especifica todo el stack de escritorio, mientras que publicaciones públicas de los fundadores describen Tauri con backend en Rust y renderizador nativo de Mac"
+              ],
+              [
+                "Modelo de agente",
+                "Cualquier agente CLI o herramienta de shell",
+                "Harnesses de Claude Code, Codex, Cursor y OpenCode"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratuita y open source",
+                "Producto propietario gratuito con componentes de código abierto de terceros"
+              ],
+              [
+                "Organización",
+                "Workspaces verticales, anillos de panel, estado no leído, metadatos de rama y puertos",
+                "Workspaces de tarea aislados y flujo de revisión"
+              ],
+              [
+                "Programabilidad",
+                "CLI, API de socket Unix, automatización de navegador, hooks",
+                "Flujo de producto alrededor de tareas de agentes"
+              ],
+              [
+                "Mejor encaje",
+                "Desarrolladores que quieren una primitiva de terminal para muchas herramientas",
+                "Desarrolladores que quieren un gestor empaquetado de tareas de agentes"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux es más amplio que un flujo de agentes",
+              "body": "Conductor es atractivo cuando el trabajo consiste en ejecutar varias tareas aisladas con agentes de código. cmux cubre la capa de supervisión de terminal para ese estilo de trabajo y además ejecuta Gemini CLI, Aider, Amp, shells normales, SSH, navegadores, servicios locales y otras herramientas CLI sin cambiar el primitivo de terminal."
+            },
+            {
+              "title": "El rendimiento nativo importa todo el día",
+              "body": "cmux usa Swift/AppKit con renderizado libghostty. La UI se mantiene ligera mientras agentes, tests, language servers y servidores de desarrollo consumen CPU y memoria."
+            },
+            {
+              "title": "La atención se dirige con teclado",
+              "body": "cmux convierte finalizaciones y preguntas de agentes en estado no leído dentro de la app. Los anillos de notificación, Cmd+Shift+U para saltar al último no leído y Cmd+Control+U para recorrer trabajo no leído hacen navegable la cola de revisión sin revisar cada workspace."
+            },
+            {
+              "title": "La programabilidad queda abierta",
+              "body": "La CLI y la API de socket de cmux crean workspaces, dividen paneles, envían entrada, leen pantallas, capturan screenshots y controlan paneles de navegador. Los equipos pueden construir flujos tipo conductor encima."
+            },
+            {
+              "title": "Un modelo Git-worktree-first no encaja con todos los workflows",
+              "body": "El modelo de espacio de trabajo documentado de Conductor se basa en Git: cada espacio de trabajo se asigna a una rama y un worktree de Git. Algunos equipos tienen repos de backend y frontend en lugares distintos, algunos workflows no son Git-first, y algunas comprobaciones locales deben ejecutarse directamente desde un checkout existente. cmux expone primitivos de terminal, navegador, espacio de trabajo y socket para que desarrolladores y agentes puedan componer esos workflows por su cuenta."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux reemplaza a Conductor?",
+          "faqA1": "Puede reemplazar la capa de supervisión de terminal. Conductor sigue encajando para equipos que quieren un flujo empaquetado de tareas con worktrees y revisión integrada.",
+          "faqQ2": "¿cmux puede ejecutar varios agentes Claude Code?",
+          "faqA2": "Sí. Ejecuta cada sesión de Claude Code en su propio workspace o configuración de rama/worktree y usa anillos de no leídos y navegación con teclado para revisarlas.",
+          "faqQ3": "¿Por qué elegir cmux en vez de un gestor dedicado de tareas de agentes?",
+          "faqA3": "Elige cmux cuando tu flujo incluye terminales arbitrarias, navegadores, scripts, setups multi-repo o sin Git, y quieres una terminal nativa programable en vez de un modelo fijo."
+        },
+        "cmuxVsDevin": {
+          "metaTitle": "cmux vs Devin para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y Devin para supervisión local de agentes en terminal, agentes de ingeniería en la nube, flujos multiagente, programabilidad y revisión.",
+          "title": "cmux vs Devin",
+          "intro": "Devin es un ingeniero de software con IA para planificar y ejecutar tareas de ingeniería entre codebases y herramientas de equipo. cmux es el workspace local nativo de terminal y navegador para supervisar los agentes CLI, shells, pruebas y verificaciones de navegador que ejecutas tú.",
+          "summaryTitle": "Supervisión local vs ingeniería delegada",
+          "summaryBody": "Usa Devin cuando quieras asignar trabajo de ingeniería a una plataforma gestionada de agentes. Usa cmux cuando quieras una terminal local gratuita y open source que mantenga Claude Code, Codex, OpenCode, Gemini CLI, Aider, SSH, scripts, notificaciones y navegadores visibles en tu Mac con rendimiento nativo y un socket programable.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Devin"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Supervisar flujos locales de terminal y navegador",
+                "Planificar y ejecutar tareas de ingeniería delegadas"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Devin Cloud más Devin Desktop derivado de VS Code"
+              ],
+              [
+                "Dónde corre el trabajo",
+                "Tu Mac, shell, repos y entorno de desarrollo",
+                "VMs de Devin Cloud, más Devin CLI local y Devin Local"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratuita y open source",
+                "Servicio propietario de Cognition y software de escritorio"
+              ],
+              [
+                "Elección de agente",
+                "Cualquier agente CLI o herramienta de shell",
+                "Devin Cloud, Devin Local, Devin CLI y agentes compatibles con ACP"
+              ],
+              [
+                "Revisión humana",
+                "Anillos de no leídos, paneles, capturas, comprobaciones de navegador y diffs locales",
+                "Flujo de revisión e integración de la plataforma"
+              ],
+              [
+                "Mejor encaje",
+                "Desarrolladores con muchos agentes locales",
+                "Equipos que delegan tareas grandes en un ingeniero IA gestionado"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux es la consola de operación local",
+              "body": "cmux no intenta ser el ingeniero. Le brinda el espacio de trabajo local donde las sesiones del agente, las pruebas, los registros, los servidores de desarrollo, los navegadores, los paneles SSH, los anillos de notificación, Cmd+Shift+U y Cmd+Control+U permanecen visibles y controlables."
+            },
+            {
+              "title": "Trae varios agentes, no una sola plataforma",
+              "body": "Puedes ejecutar Claude Code para una tarea, Codex para otra, OpenCode para una tercera y comandos de shell normales al lado. cmux mantiene la capa de supervisión en tu espacio de trabajo de terminal y navegador, fuera de la app de Devin y del workflow en la nube."
+            },
+            {
+              "title": "El trabajo local se mantiene rápido e inspeccionable",
+              "body": "Para muchas tareas, el bucle más productivo sigue siendo local: editar, ejecutar, inspeccionar, preguntar a otro agente, abrir el navegador y hacer push cuando el diff está listo. cmux mantiene ese bucle en tu Mac en vez de convertir cada tarea en una sesión gestionada de Devin Cloud."
+            },
+            {
+              "title": "Rendimiento nativo de Mac con concurrencia",
+              "body": "El trabajo paralelo con agentes ya consume recursos antes de contar la UI. cmux usa Swift/AppKit y libghostty para que la superficie de terminal se mantenga ligera mientras los procesos locales hacen el trabajo."
+            },
+            {
+              "title": "La programabilidad mantiene los flujos inspeccionables",
+              "body": "La CLI y la API de socket de cmux exponen paneles, workspaces, lecturas de pantalla, capturas, automatización del navegador, hooks y comandos personalizados. Los equipos pueden scriptar el flujo exacto que necesitan alrededor de los agentes locales."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux reemplaza a Devin?",
+          "faqA1": "No. Devin abarca delegación en la nube y asistencia local de agentes. cmux es el espacio de trabajo local de terminal y navegador alrededor de los agentes y herramientas que ejecutas directamente.",
+          "faqQ2": "¿Puedo usar cmux con Devin Desktop o Windsurf?",
+          "faqA2": "Sí. cmux puede vivir junto a cualquier editor o superficie de agente mientras supervisa agentes CLI, shells, tests y navegador.",
+          "faqQ3": "¿Por qué comparar cmux con Devin?",
+          "faqA3": "Ambos tratan el desarrollo multiagente, pero en capas distintas. cmux es un plano de control de terminal y navegador; Devin abarca delegación en la nube, agentes locales y un centro de mando IDE derivado de VS Code."
+        },
+        "cmuxVsIterm2": {
+          "metaTitle": "cmux vs iTerm2 para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux e iTerm2 para flujos de terminal en macOS, agentes de programación con IA, divisiones, navegación con teclado, notificaciones y programabilidad.",
+          "title": "cmux vs iTerm2",
+          "intro": "iTerm2 es un reemplazo maduro de la terminal de macOS. cmux es una terminal nativa de macOS construida sobre libghostty para ejecutar muchos agentes de programación, con workspaces verticales, anillos de notificación, paneles de navegador y una API de socket scriptable.",
+          "summaryTitle": "Terminal general vs terminal de supervisión de agentes",
+          "summaryBody": "Usa iTerm2 cuando quieras un emulador de terminal amplio y configurable. Usa cmux cuando tu terminal se haya convertido en una consola de operaciones de agentes y quieras renderizado libghostty junto con cada sesión, rama, puerto, estado no leído, verificación de navegador, anillo de notificación y atajo de revisión visibles.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "iTerm2"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Supervisar muchos agentes de programación",
+                "Terminal macOS de uso general"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "App nativa de terminal para macOS, no Electron/Tauri"
+              ],
+              [
+                "Visibilidad de agentes",
+                "Workspaces verticales, salida reciente, rama y puertos",
+                "Pestañas, ventanas, divisiones, perfiles, integración con shell y barra de estado"
+              ],
+              [
+                "Motor de renderizado",
+                "Construido sobre libghostty con renderizado moderno acelerado por GPU",
+                "Renderizador de iTerm2"
+              ],
+              [
+                "Modelo de atención",
+                "Anillos de notificación, Cmd+Shift+U, Cmd+Control+U",
+                "Notificaciones OSC, marcas y alertas, notificaciones por triggers y búsqueda de sesión"
+              ],
+              [
+                "Automatización",
+                "CLI, API de socket Unix, automatización de navegador, hooks",
+                "API de Python, AppleScript obsoleto, triggers, perfiles e integración con tmux"
+              ],
+              [
+                "Mejor encaje",
+                "Desarrollo local con muchos agentes",
+                "Usuarios avanzados de terminal general"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux añade estado de agente a la terminal",
+              "body": "Las pestañas de terminal no saben qué agente está bloqueado, qué rama posee o qué servidor arrancó. cmux pone ese contexto en la barra lateral y facilita encontrar paneles en espera."
+            },
+            {
+              "title": "La automatización del navegador forma parte del workflow",
+              "body": "iTerm2 también tiene perfiles de navegador. La diferencia de cmux es que los paneles de navegador se pueden direccionar desde el mismo workflow de CLI y socket que los espacios de trabajo y terminales, con comandos para interacción DOM, capturas, logs de consola y errores, cookies, almacenamiento y evaluación de JavaScript."
+            },
+            {
+              "title": "Los atajos apuntan a la atención",
+              "body": "Cmd+Shift+U salta al último agente no leído. Cmd+Control+U recorre sesiones no leídas manteniéndolas sin leer. iTerm2 es maduro y configurable, pero estos atajos de revisión de agentes son el tipo de detalle que cmux añade porque está diseñado para multitarea intensa."
+            },
+            {
+              "title": "cmux hereda fortalezas de Ghostty",
+              "body": "Al estar construido sobre libghostty, cmux obtiene un motor moderno acelerado por GPU, buen rendimiento, compatibilidad amplia y configuración tipo Ghostty para fuentes, temas, colores y cursor."
+            },
+            {
+              "title": "La programabilidad llega a la app",
+              "body": "Scripts y agentes pueden crear workspaces, dividir paneles, enviar entrada, leer pantallas, capturar screenshots y controlar navegadores. La terminal se vuelve infraestructura controlable."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿Todo usuario de iTerm2 debería cambiarse a cmux?",
+          "faqA1": "No. iTerm2 es excelente como terminal general. cmux está dirigido a desarrolladores cuya terminal está dominada por agentes de programación en paralelo.",
+          "faqQ2": "¿cmux puede ejecutar trabajo normal de shell?",
+          "faqA2": "Sí. cmux sigue siendo una terminal: shells, SSH, scripts, tests, gestores de paquetes y servicios locales corren normalmente.",
+          "faqQ3": "¿Qué añade cmux más allá de pestañas y divisiones?",
+          "faqA3": "cmux añade metadatos de espacio de trabajo de agentes, anillos de notificación, navegación de no leídos, superficies de navegador direccionables por socket y una API de socket diseñada para workflows intensivos con agentes."
+        },
+        "cmuxVsKitty": {
+          "metaTitle": "cmux vs Kitty para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y Kitty para rendimiento GPU de terminal, agentes de programación con IA, anillos de notificación, atajos de no leídos, paneles de navegador y programabilidad.",
+          "title": "cmux vs Kitty",
+          "intro": "Kitty es un emulador de terminal rápido, rico en funciones y basado en GPU. cmux es una terminal nativa de macOS y workspace con navegador construido sobre libghostty para desarrolladores que ejecutan muchos agentes de programación y necesitan workspaces visibles, notificaciones, navegación por no leídos y automatización a nivel de app.",
+          "summaryTitle": "Terminal potente vs workspace multitarea para agentes",
+          "summaryBody": "Usa Kitty cuando quieras una terminal potente y configurable. Usa cmux cuando los agentes de programación hayan convertido tu terminal en una cola multitarea y necesites Cmd+Shift+U, Cmd+Control+U, anillos de notificación, metadatos de workspace, comprobaciones de navegador y control scriptable.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Kitty"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Supervisión y multitarea de agentes",
+                "Emulación de terminal rápida y rica en funciones"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Emulador de terminal renderizado con OpenGL escrito en C, Python y Go, no una app Electron ni Tauri"
+              ],
+              [
+                "Motor de renderizado",
+                "Construido sobre libghostty para renderizado moderno acelerado por GPU",
+                "Renderizador de Kitty y ecosistema de protocolos"
+              ],
+              [
+                "Visibilidad de agentes",
+                "Workspaces verticales, salida reciente, rama y puertos",
+                "Ventanas, pestañas, layouts, sesiones, kittens y scripting de control remoto"
+              ],
+              [
+                "Modelo de atención",
+                "Anillos de notificación, insignias no leídas, Cmd+Shift+U, Cmd+Control+U",
+                "Notificaciones de escritorio OSC 99 y kitten notify, con scripting personalizado para workflows de no leídos"
+              ],
+              [
+                "Flujo de navegador",
+                "Paneles de navegador integrados con automatización",
+                "Abre URL mediante manejadores del sistema/por defecto; sin panel de navegador integrado ni automatización DOM"
+              ],
+              [
+                "Mejor encaje",
+                "Usuarios Mac con muchos agentes locales",
+                "Usuarios que quieren funciones profundas de terminal"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Kitty es una gran primitiva de terminal",
+              "body": "Kitty tiene funciones y rendimiento fuertes. cmux se centra en la capa superior: qué agente corre, cuál te necesita, qué rama posee y qué revisión de navegador le corresponde."
+            },
+            {
+              "title": "cmux obtiene el motor de Ghostty",
+              "body": "cmux usa libghostty para renderizar terminales, así hereda un motor moderno acelerado por GPU, compatibilidad, gráficos de terminal, renderizado sincronizado y configuración visual tipo Ghostty."
+            },
+            {
+              "title": "cmux trata las notificaciones como estado",
+              "body": "Es fácil pasar por alto las notificaciones de escritorio cuando diez agentes terminan. cmux mantiene el estado no leído en la aplicación, hace sonar el panel y le brinda atajos para moverse por la cola sin perder la pista."
+            },
+            {
+              "title": "Los atajos están hechos para multitarea",
+              "body": "Cmd+Shift+U salta al último agente no leído. Cmd+Control+U realiza un ciclo del trabajo no leído mientras lo mantiene sin leer. Esos atajos existen porque cmux es creado por personas que ejecutan muchos agentes a la vez."
+            },
+            {
+              "title": "La programabilidad incluye la app",
+              "body": "La CLI y la API de socket de cmux crean workspaces, dividen paneles, envían entrada, leen pantallas, controlan navegadores y actualizan la barra lateral desde scripts o agentes."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿Kitty puede ejecutar Claude Code, Codex y OpenCode?",
+          "faqA1": "Sí. Kitty es una terminal, por lo que los agentes CLI corren allí. cmux agrega organización del espacio de trabajo consciente del agente y navegación de notificaciones alrededor de esas CLI.",
+          "faqQ2": "¿Por qué usar cmux si Kitty es scriptable?",
+          "faqA2": "cmux expone primitivas de app de más alto nivel: workspaces, paneles, superficies de navegador, capturas, estado no leído, anillos de notificación y metadatos de la barra lateral.",
+          "faqQ3": "¿Cuándo es Kitty la mejor opción?",
+          "faqA3": "Usa Kitty si quieres un emulador configurable y planeas construir tú mismo el flujo de agentes alrededor."
+        },
+        "cmuxVsHerdr": {
+          "metaTitle": "cmux vs Herdr para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y Herdr para ejecutar varios agentes de programación, UX nativa de terminal en macOS, SSH attach, paneles persistentes, notificaciones, automatización de navegador y programabilidad.",
+          "title": "cmux vs Herdr",
+          "intro": "Herdr es un multiplexor open source nativo de terminal que se ejecuta dentro de la terminal que ya usas y puede mantener vivos paneles reales por SSH. cmux es una app nativa de macOS con licencia GPL construida sobre libghostty, con workspaces verticales, anillos de notificación, paneles de navegador y una API de socket para flujos locales con agentes.",
+          "summaryTitle": "App Mac nativa vs multiplexor nativo de terminal",
+          "summaryBody": "Usa Herdr cuando quieras un multiplexor de agentes tipo tmux dentro de cualquier terminal, especialmente por SSH o desde una pantalla pequeña. Usa cmux cuando quieras una app de terminal nativa para Mac con renderizado libghostty, workspaces a nivel de app, automatización de navegador integrada, anillos de notificación, Cmd+Shift+U, Cmd+Control+U y control local programable. Una combinación práctica es ejecutar Herdr en un pane de terminal de cmux, localmente o dentro de una sesión SSH abierta desde cmux.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Herdr"
+            ],
+            "rows": [
+              [
+                "Superficie principal",
+                "App nativa macOS de terminal y navegador",
+                "Multiplexor dentro de una terminal existente"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Binario único en Rust nativo de terminal, no una app GUI de escritorio ni un wrapper Electron"
+              ],
+              [
+                "Modelo de runtime",
+                "Workspaces locales, paneles, navegador, API de socket",
+                "Servidor en segundo plano, PTY persistentes, attach/detach"
+              ],
+              [
+                "Motor de renderizado",
+                "Construido sobre libghostty",
+                "Usa el emulador donde ejecutas Herdr"
+              ],
+              [
+                "Encaje remoto",
+                "Paneles SSH y supervisión local de app",
+                "Attach SSH fuerte y persistencia de terminal"
+              ],
+              [
+                "Estado de agente",
+                "Anillos de panel, estado no leído de la barra lateral, Cmd+Shift+U, Cmd+Control+U",
+                "Estado de agente en un multiplexor de terminal"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratuita y open source",
+                "Open source AGPL con licencia comercial disponible"
+              ],
+              [
+                "Mejor encaje",
+                "Desarrolladores Mac que quieren UX nativa y verificación en navegador",
+                "Usuarios de terminal que quieren multiplexación persistente por SSH"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "Herdr puede ejecutarse dentro de cmux",
+              "body": "Herdr es nativo de terminal, así que puede ejecutarse dentro de un pane normal de terminal de cmux. También funciona bien dentro de sesiones SSH abiertas desde cmux: Herdr mantiene persistentes los panes remotos, mientras cmux aporta la app nativa del lado Mac, panes de navegador, notificaciones y atajos de no leído alrededor del workspace."
+            },
+            {
+              "title": "cmux posee la superficie nativa de escritorio",
+              "body": "cmux está construido como una app macOS Swift/AppKit con renderizado de terminal libghostty. Eso le permite ofrecer pestañas verticales, workspaces a nivel de app, paneles nativos, capturas, superficies de navegador y notificaciones de escritorio sin vivir dentro de otra terminal."
+            },
+            {
+              "title": "Ambos se preocupan por el estado de agentes",
+              "body": "La comparación honesta no es que solo cmux entiende a los agentes. Herdr también rastrea el estado del agente. cmux se diferencia con anillos de panel nativos de Mac, estado no leído de la barra lateral, Cmd+Shift+U, Cmd+Control+U y automatización del navegador junto al terminal."
+            },
+            {
+              "title": "La automatización de navegador forma parte de cmux",
+              "body": "cmux puede dividir un navegador junto a un agente y exponer navegación, snapshots del DOM, clics, escritura, capturas, logs de consola e inspección de red por la misma CLI/API."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿Herdr es open source?",
+          "faqA1": "Sí. Herdr es open source bajo AGPL, con licencia comercial disponible.",
+          "faqQ2": "¿Cuándo encaja mejor Herdr?",
+          "faqA2": "Usa Herdr si quieres un multiplexor nativo de terminal que corre dentro de otra terminal, sobrevive por SSH y funciona bien desde clientes remotos o pantallas pequeñas.",
+          "faqQ3": "¿Cuándo encaja mejor cmux?",
+          "faqA3": "Usa cmux cuando quieras una app nativa para Mac basada en libghostty, con workspaces de terminal, paneles de navegador, anillos de notificación, atajos de no leídos y un plano de control de escritorio programable."
+        },
+        "cmuxVsOpencode": {
+          "metaTitle": "cmux vs OpenCode para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y OpenCode para coding con IA en terminal, un agente de código abierto, trabajo multisesión, supervisión nativa de terminal y workflows programables.",
+          "title": "cmux vs OpenCode",
+          "intro": "OpenCode es un agente de programación open source disponible en terminal, escritorio e IDE. cmux es el workspace nativo de terminal y navegador donde OpenCode y otros agentes CLI pueden correr lado a lado.",
+          "summaryTitle": "Agente vs workspace de agentes",
+          "summaryBody": "Usa OpenCode cuando quieras un agente de código abierto. Usa cmux cuando quieras un espacio de trabajo nativo de macOS que pueda supervisar OpenCode, Claude Code, Codex CLI, Gemini CLI, Aider, Amp, Cursor CLI y workflows normales de shell juntos, junto a flujos separados de la app Codex y extensiones de IDE.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "OpenCode"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Capa de supervisión de terminal y navegador",
+                "Agente de programación open source"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "TUI de terminal más beta de escritorio Electron"
+              ],
+              [
+                "Elección de agente",
+                "Cualquier agente CLI o comando de shell",
+                "OpenCode con proveedores de modelo configurados"
+              ],
+              [
+                "Trabajo paralelo",
+                "Muchos workspaces, paneles, anillos de no leídos y metadatos de rama",
+                "Sesiones y funciones de agente de OpenCode"
+              ],
+              [
+                "Programabilidad",
+                "CLI de cmux, API de socket Unix, navegador",
+                "OpenCode CLI, configuración, SDK y herramientas personalizadas"
+              ],
+              [
+                "Mejor encaje",
+                "Operadores con varios agentes y herramientas",
+                "Desarrolladores que quieren OpenCode como agente"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "OpenCode puede correr dentro de cmux",
+              "body": "OpenCode es un agente. cmux es la superficie de terminal que puede mantener visibles OpenCode, Claude Code, Codex CLI y otros agentes de shell. Los flujos de Codex app y de extensiones de IDE pueden quedarse en sus propias superficies mientras cmux supervisa las terminales de larga ejecución donde viven agentes, tests, servidores y logs."
+            },
+            {
+              "title": "cmux mantiene portable la elección de agente",
+              "body": "Si un modelo o agente encaja mejor con una tarea, ejecútalo en otro workspace. cmux añade organización y seguimiento de atención sin exigir que todo use el mismo agente."
+            },
+            {
+              "title": "La capa que falta es supervisión",
+              "body": "Cuando varias sesiones de agentes duran minutos u horas, lo difícil es saber cuál necesita revisión. cmux usa estado no leído, anillos de notificación, Cmd+Shift+U y Cmd+Control+U para ese bucle."
+            },
+            {
+              "title": "Navegador y terminal comparten superficie",
+              "body": "cmux expone lecturas de pantalla, capturas y automatización de navegador por la API de socket para que los agentes verifiquen cambios web desde el mismo workspace donde ejecutaron comandos."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux es una alternativa a OpenCode?",
+          "faqA1": "No. OpenCode es un agente de programación. cmux es un workspace de terminal y navegador que puede ejecutar OpenCode y otros agentes.",
+          "faqQ2": "¿Puedo ejecutar varias sesiones de OpenCode en cmux?",
+          "faqA2": "Sí. Usa workspaces o paneles separados de cmux para que cada sesión tenga contexto visible, estado no leído y navegación con teclado.",
+          "faqQ3": "¿Por qué usar cmux si OpenCode tiene sus propias superficies?",
+          "faqA3": "cmux es útil cuando OpenCode es parte de un flujo más amplio con otros agentes, herramientas de shell, servidores, SSH y navegador."
+        },
+        "cmuxVsTmux": {
+          "metaTitle": "cmux vs tmux para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y tmux para multiplexación de terminal, agentes de programación con IA, UI nativa de macOS, notificaciones, automatización de navegador y flujos programables.",
+          "title": "cmux vs tmux",
+          "intro": "tmux es el multiplexor de terminal clásico: portable, scriptable y excelente por SSH. cmux es un workspace nativo de terminal para macOS orientado a agentes de programación con IA, que añade organización visual, anillos de notificación, paneles de navegador y una API de socket Unix.",
+          "summaryTitle": "Multiplexor vs consola de operaciones de agentes",
+          "summaryBody": "Usa tmux cuando la prioridad sea la portabilidad, detach/reattach y multiplexación remota de terminal. Usa cmux cuando estés en macOS y quieras una app de terminal nativa basada en libghostty con metadatos visibles de agentes, automatización de navegador, navegación por no leídos y revisión fluida entre muchas sesiones locales.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "tmux"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Supervisión nativa de agentes en macOS",
+                "Multiplexación de terminal"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Multiplexor de terminal que corre dentro de tu terminal"
+              ],
+              [
+                "Plataforma",
+                "App macOS con Swift/AppKit y libghostty",
+                "Corre dentro de terminales en sistemas tipo Unix"
+              ],
+              [
+                "Motor de renderizado",
+                "Construido sobre libghostty",
+                "Usa el renderizador de la terminal exterior"
+              ],
+              [
+                "Organización",
+                "Workspaces, barra lateral vertical, rama y puertos",
+                "Sesiones, ventanas, paneles, línea de estado"
+              ],
+              [
+                "Modelo de atención",
+                "Anillos de notificación, insignias no leídas, Cmd+Shift+U, Cmd+Control+U",
+                "Alertas en la línea de estado para actividad, silencio y campanas, más hooks y personalización de shell"
+              ],
+              [
+                "Mejor encaje",
+                "Control local de agentes IA en Mac",
+                "Shells remotas y multiplexación portable"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "tmux sigue siendo infraestructura excelente",
+              "body": "Para servidores remotos, sesiones persistentes y multiplexación con teclado dentro de cualquier terminal, tmux sigue siendo una opción fuerte. cmux se centra en la capa local de app Mac alrededor de agentes."
+            },
+            {
+              "title": "cmux hace visible el estado del agente",
+              "body": "El trabajo de agentes se beneficia de nombres, ramas, directorios, puertos, salida reciente, estado no leído y comprobaciones de navegador. cmux mantiene ese contexto visible en vez de enterrarlo en títulos de panel o scripts de estado."
+            },
+            {
+              "title": "cmux trae su renderizador basado en Ghostty",
+              "body": "tmux depende del emulador de terminal que lo rodea. cmux es la app de terminal, usa libghostty para renderizado fluido acelerado por GPU y configuración visual al estilo Ghostty."
+            },
+            {
+              "title": "La UI nativa reduce fricción de revisión",
+              "body": "cmux utiliza una barra lateral vertical, paneles divididos, superficies de navegador, capturas de pantalla, anillos de notificación, Cmd+Shift+U y Cmd+Control+U para que el bucle de revisión parezca navegación de aplicaciones en lugar de arqueología de terminal."
+            },
+            {
+              "title": "La API de socket automatiza la app",
+              "body": "tmux es muy programable para multiplexación de terminal. cmux también expone la app alrededor del terminal: espacios de trabajo, paneles de navegador, lectura de pantalla, capturas y metadatos de notificación."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿Puedo usar tmux dentro de cmux?",
+          "faqA1": "Sí. tmux puede correr dentro de un panel de terminal de cmux cuando necesitas su modelo de sesiones o flujo remoto.",
+          "faqQ2": "¿Por qué no gestionar agentes con paneles tmux?",
+          "faqA2": "Puede hacerlo, pero cmux agrega metadatos nativos de la barra lateral, navegación no leída, anillos de notificación, paneles del navegador y una API de socket a nivel de aplicación en torno a esas sesiones.",
+          "faqQ3": "¿Cuándo es tmux la mejor opción?",
+          "faqA3": "Usa tmux para servidores remotos, detach/reattach portable y flujos que deben correr dentro de cualquier terminal."
+        },
+        "cmuxVsVscode": {
+          "metaTitle": "cmux vs VS Code para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y VS Code para agentes de programación con IA, flujos terminal-first, extensiones de editor, notificaciones, verificación de navegador y programabilidad.",
+          "title": "cmux vs VS Code",
+          "intro": "VS Code es un editor de uso general y plataforma de extensiones con flujos de agentes. cmux es un workspace nativo GPL de terminal y navegador para macOS que supervisa agentes de shell junto a cualquier editor, incluido VS Code.",
+          "summaryTitle": "Plataforma de editor vs plano de control de terminal",
+          "summaryBody": "Usa VS Code cuando quieras edición, extensiones, sesiones de agentes integradas y herramientas de agente/navegador dentro de VS Code. Usa cmux cuando quieras Claude Code, Codex, OpenCode, Gemini CLI, servidores de desarrollo, SSH, scripts y comprobaciones de navegador visibles en un espacio de trabajo de terminal basado en libghostty con anillos de notificación y atajos de teclado para trabajo no leído.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "VS Code"
+            ],
+            "rows": [
+              [
+                "Superficie principal",
+                "Terminal, navegador, workspaces, divisiones",
+                "Editor, extensiones, terminales y vistas de agentes"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Editor de escritorio Electron"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratuita y open source",
+                "Code - OSS tiene licencia MIT; Microsoft VS Code es una distribución con personalizaciones específicas de Microsoft bajo la licencia de producto de Microsoft"
+              ],
+              [
+                "Flujo de agentes",
+                "Cualquier agente CLI o shell en workspaces visibles",
+                "Agentes integrados de VS Code, tipos de agentes de Copilot CLI/nube/terceros, herramientas de navegador y extensiones"
+              ],
+              [
+                "Modelo de atención",
+                "Anillos de panel, estado no leído de la barra lateral, Cmd+Shift+U, Cmd+Control+U",
+                "Editor de notificaciones, vistas, pestañas y extensión de interfaz de usuario"
+              ],
+              [
+                "Flujo de navegador",
+                "Paneles de navegador integrados con automatización por socket",
+                "Navegador integrado, Live Preview/vistas previas HTML, depuración de navegador, herramientas de navegador para agentes y flujo con navegador externo"
+              ],
+              [
+                "Mejor encaje",
+                "Supervisar muchos agentes de terminal junto a cualquier editor",
+                "Editar código con un ecosistema amplio de extensiones"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux funciona junto a VS Code",
+              "body": "La configuración práctica suele ser VS Code para editar y cmux para operaciones de agentes. El editor se mantiene enfocado mientras cmux rastrea shells, agentes, servicios locales, navegador y colas de revisión."
+            },
+            {
+              "title": "Los agentes de terminal necesitan estado de terminal",
+              "body": "Claude Code, Codex, OpenCode y CLI similares pasan gran parte del tiempo ejecutando comandos, pruebas y herramientas. cmux mantiene ese trabajo visible con rama, directorio, puerto, texto de la notificación más reciente y metadatos de no leídos en la barra lateral."
+            },
+            {
+              "title": "Las notificaciones están diseñadas para realizar múltiples tareas.",
+              "body": "cmux fue creado por personas que ejecutan muchos agentes a la vez. Los anillos del panel, las insignias no leídas, Cmd+Shift+U y Cmd+Control+U convierten las sesiones de agente completadas o bloqueadas en una cola de revisión."
+            },
+            {
+              "title": "La programabilidad queda fuera del editor",
+              "body": "La CLI y la API de socket permiten crear workspaces, dividir paneles, leer pantallas, enviar entrada, capturar screenshots y controlar navegadores sin depender de un modelo de extensión concreto."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux reemplaza a VS Code?",
+          "faqA1": "No. cmux es un workspace de terminal y navegador. Funciona bien junto a VS Code o cualquier otro editor.",
+          "faqQ2": "¿VS Code es open source?",
+          "faqA2": "El repositorio Code - OSS tiene licencia MIT. Microsoft Visual Studio Code es una distribución de Code - OSS con personalizaciones específicas de Microsoft bajo la licencia de producto de Microsoft.",
+          "faqQ3": "¿Por qué usar cmux con VS Code?",
+          "faqA3": "Usa cmux cuando tu trabajo con agentes cruza terminales, navegadores, scripts, SSH, servicios locales y varios repos, y quieres ese flujo visible fuera del editor."
+        },
+        "cmuxVsWindsurf": {
+          "metaTitle": "cmux vs Windsurf y Devin Desktop - cmux",
+          "metaDescription": "Compara cmux con Devin Desktop, antes Windsurf, para agentes de IDE, supervisión de agentes en terminal, organización multiagente, comprobaciones de navegador y workflows programables.",
+          "title": "cmux vs Windsurf",
+          "intro": "Windsurf ahora es Devin Desktop, construido sobre la base IDE de Windsurf con un Agent Command Center para gestionar agentes. cmux es un espacio de trabajo nativo de terminal y navegador que vive junto a cualquier editor y supervisa los agentes CLI y herramientas que elijas.",
+          "summaryTitle": "Superficie de agentes en IDE vs superficie de agentes en terminal",
+          "summaryBody": "Usa Devin Desktop, antes Windsurf, cuando quieras coding agéntico dentro de una IDE. Usa cmux cuando quieras un plano de control de terminal gratuito y de código abierto para agentes de terminal, shells, pruebas, servidores locales, comprobaciones de navegador, SSH y varios editores.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Devin Desktop (antes Windsurf)"
+            ],
+            "rows": [
+              [
+                "Superficie principal",
+                "Terminal, navegador, workspaces, divisiones",
+                "IDE con centro de mando de agentes"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "IDE Devin Desktop que usa la interfaz de VS Code y extensiones Open VSX"
+              ],
+              [
+                "Dependencia de editor",
+                "Funciona junto a Cursor, Xcode, Neovim, VS Code, JetBrains o cualquier editor",
+                "Flujo centrado en editor"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratuita y open source",
+                "Servicio propietario Devin Desktop con una superficie de editor al estilo VS Code OSS"
+              ],
+              [
+                "Elección de agente",
+                "Cualquier agente CLI o comando shell",
+                "Devin, Cascade y agentes compatibles con ACP dentro de Devin Desktop"
+              ],
+              [
+                "Organización",
+                "Workspaces verticales, anillos de no leídos, metadatos de rama y puertos",
+                "Spaces, vista Kanban, gestión local y en la nube de agentes"
+              ],
+              [
+                "Mejor encaje",
+                "Desarrolladores que supervisan muchos flujos de terminal",
+                "Desarrolladores que quieren agentes integrados en su editor"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux no necesita ser tu editor",
+              "body": "Muchos equipos ya tienen preferencias fuertes de editor. cmux deja que el editor se centre en el código mientras agentes de terminal, navegador, servidores, logs y SSH viven en un workspace consciente de agentes."
+            },
+            {
+              "title": "El trabajo de terminal cruza editores",
+              "body": "La programación con IA suele incluir gestores de paquetes, tests, bases de datos, previews, CLIs de despliegue, navegador y scripts de repo. cmux organiza esas superficies sin mover el proyecto a un IDE."
+            },
+            {
+              "title": "El trabajo multiagente necesita dirigir la atención",
+              "body": "Cuando varios agentes corren a la vez, el cuello de botella es encontrar al que espera a un humano. cmux usa anillos de panel, insignias no leídas, paneles de notificación, Cmd+Shift+U y Cmd+Control+U para ese bucle."
+            },
+            {
+              "title": "La programabilidad mantiene tu flujo",
+              "body": "La CLI y la API de socket de cmux permiten a los equipos crear espacios de trabajo, dividir paneles, enviar entrada, leer pantallas, capturar imágenes y controlar paneles de navegador alrededor de sus herramientas existentes."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux es un IDE?",
+          "faqA1": "No. cmux es un workspace de terminal y navegador. Funciona junto a tu IDE en vez de reemplazarlo.",
+          "faqQ2": "¿Puedo usar cmux con Windsurf o Devin Desktop?",
+          "faqA2": "Sí. Usa el IDE para editar y cmux para agentes de terminal, servidores locales, herramientas shell, navegador y colas de revisión.",
+          "faqQ3": "¿Por qué comparar cmux con un producto de agentes en IDE?",
+          "faqA3": "Los desarrolladores que eligen un entorno de agentes deben decidir si el plano de control vive en el editor o en el workspace de terminal."
+        },
+        "cmuxVsZed": {
+          "metaTitle": "cmux vs Zed para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y Zed para flujos de programación con IA, agentes de terminal, editores open source, rendimiento nativo, notificaciones, paneles de navegador y programabilidad.",
+          "title": "cmux vs Zed",
+          "intro": "Zed es un editor de código rápido y open source con funciones colaborativas y de IA. cmux es un workspace nativo GPL de terminal y navegador para macOS que supervisa agentes de shell junto a Zed o cualquier otro editor.",
+          "summaryTitle": "Editor rápido vs workspace de agentes de terminal",
+          "summaryBody": "Usa Zed cuando quieras un editor rápido de código abierto con colaboración, IA integrada, ACP External Agents y Terminal Threads. Usa cmux cuando quieras Claude Code, Codex, OpenCode, Gemini CLI, ejecutores de pruebas, servidores de desarrollo, SSH y comprobaciones de navegador visibles en una app de terminal basada en libghostty con anillos de notificación, Cmd+Shift+U, Cmd+Control+U y una API de socket programable.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "Zed"
+            ],
+            "rows": [
+              [
+                "Superficie principal",
+                "Terminal, navegador, workspaces, divisiones",
+                "Editor de código con colaboración e IA"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Editor de escritorio Rust/GPUI acelerado por GPU, no Electron/Tauri"
+              ],
+              [
+                "Modelo de código",
+                "App GPL gratuita y open source",
+                "Código abierto; principalmente GPL-3.0-or-later con componentes Apache-2.0 donde se indique"
+              ],
+              [
+                "Flujo de agentes",
+                "Cualquier agente CLI o shell en workspaces visibles",
+                "Zed Agent, ACP External Agents e hilos de agentes respaldados por terminal dentro del editor"
+              ],
+              [
+                "Motor de terminal",
+                "Construido sobre libghostty",
+                "Emulador de terminal integrado que usa Alacritty como backend"
+              ],
+              [
+                "Modelo de atención",
+                "Anillos de panel, estado no leído de la barra lateral, Cmd+Shift+U, Cmd+Control+U",
+                "Pestañas, paneles y notificaciones del editor"
+              ],
+              [
+                "Mejor encaje",
+                "Supervisar muchos agentes de terminal junto a cualquier editor",
+                "Editar código rápido con colaboración"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "cmux y Zed pueden ir juntos",
+              "body": "cmux no necesita ser tu editor. Usa Zed para editar y cmux para agentes de terminal, navegador, servicios locales, logs y colas de revisión."
+            },
+            {
+              "title": "Los agentes de terminal necesitan un plano de control",
+              "body": "Cuando los agentes se ejecutan en shells, el flujo incluye comandos, pruebas, watchers de archivos, puertos, logs, permisos y prompts. cmux hace visibles esas sesiones como workspaces con rama, directorio, salida reciente y estado no leído."
+            },
+            {
+              "title": "Las notificaciones son de primera clase.",
+              "body": "cmux no trata la finalización del agente como una notificación de escritorio desechable. Mantiene el estado no leído en la aplicación, hace sonar el panel y le brinda Cmd+Shift+U y Cmd+Control+U para una navegación de revisión rápida."
+            },
+            {
+              "title": "El workflow es programable",
+              "body": "La CLI y la API de socket permiten a scripts y agentes crear workspaces, dividir paneles, enviar entrada, leer pantallas, capturar screenshots y controlar navegadores alrededor de cualquier editor."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿cmux reemplaza a Zed?",
+          "faqA1": "No. Zed es un editor. cmux es un workspace de terminal y navegador para ejecutar agentes y herramientas junto al editor.",
+          "faqQ2": "¿Zed es open source?",
+          "faqA2": "Sí. Zed es open source, así que la comparación trata de la capa de producto, no de abierto contra cerrado.",
+          "faqQ3": "¿Por qué usar cmux con Zed?",
+          "faqA3": "Usa cmux cuando quieras supervisión de agentes de terminal, anillos de notificación, automatización de navegador y workspaces scriptables fuera del editor."
+        },
+        "cmuxVsWezterm": {
+          "metaTitle": "cmux vs WezTerm para agentes de programación con IA - cmux",
+          "metaDescription": "Compara cmux y WezTerm para multiplexación de terminal, agentes de programación con IA, anillos de notificación, atajos de no leídos, automatización de navegador y flujos programables.",
+          "title": "cmux vs WezTerm",
+          "intro": "WezTerm es un emulador y multiplexor de terminal multiplataforma acelerado por GPU. cmux es una terminal nativa de macOS y workspace con navegador construido sobre libghostty que añade workspaces conscientes de agentes, anillos de notificación, navegación por no leídos y una API de socket Unix.",
+          "summaryTitle": "Multiplexor multiplataforma vs consola Mac para agentes",
+          "summaryBody": "Usa WezTerm cuando quieras un terminal multiplataforma potente, configuración en Lua y automatización de terminal/mux. Usa cmux cuando trabajes localmente en un Mac, ejecutes muchos agentes de código y quieras anillos de notificación, Cmd+Shift+U, Cmd+Control+U, paneles de navegador, metadatos en la barra lateral y control por socket a nivel de app.",
+          "table": {
+            "headers": [
+              "Dimensión",
+              "cmux",
+              "WezTerm"
+            ],
+            "rows": [
+              [
+                "Trabajo principal",
+                "Supervisión nativa de agentes en macOS",
+                "Emulador y multiplexor de terminal multiplataforma"
+              ],
+              [
+                "Stack de escritorio",
+                "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
+                "Emulador y multiplexor de terminal GPU en Rust"
+              ],
+              [
+                "Motor de renderizado",
+                "Construido sobre libghostty para renderizado moderno acelerado por GPU",
+                "Renderizador de terminal acelerado por GPU con mux integrado"
+              ],
+              [
+                "Organización",
+                "Workspaces verticales, metadatos de rama y puertos, estado no leído",
+                "Pestañas, paneles, ventanas y multiplexación"
+              ],
+              [
+                "Modelo de atención",
+                "Anillos de notificación, insignias no leídas, Cmd+Shift+U, Cmd+Control+U",
+                "Notificaciones de terminal y estado personalizado"
+              ],
+              [
+                "Flujo de navegador",
+                "Paneles de navegador integrados con automatización",
+                "Navegador externo para enlaces y comprobaciones web"
+              ],
+              [
+                "Mejor encaje",
+                "Desarrolladores Mac con muchos agentes",
+                "Usuarios que necesitan potencia de terminal multiplataforma"
+              ]
+            ]
+          },
+          "sections": [
+            {
+              "title": "WezTerm es más amplio como terminal",
+              "body": "WezTerm corre en varias plataformas e incluye multiplexación. cmux se centra intencionadamente en el flujo de agentes en macOS y la UI alrededor de sesiones locales."
+            },
+            {
+              "title": "cmux usa el núcleo de terminal de Ghostty",
+              "body": "cmux usa libghostty para renderizar terminales, dando a la app Mac un motor moderno acelerado por GPU, compatibilidad con protocolos, gráficos y configuración visual tipo Ghostty."
+            },
+            {
+              "title": "cmux hace visible la atención de agentes",
+              "body": "Cuando se ejecutan muchos agentes a la vez, el problema más difícil es encontrar el que espera revisión. cmux mantiene visible el estado no leído con anillos de panel e insignias de barra lateral, luego lo hace direccionable por teclado."
+            },
+            {
+              "title": "Los atajos codifican la multitarea",
+              "body": "Cmd+Shift+U salta al último panel no leído. Cmd+Control+U recorre sesiones no leídas sin borrarlas. No son atajos genéricos de terminal; son atajos para revisar agentes."
+            },
+            {
+              "title": "La automatización de navegador vive junto a terminales",
+              "body": "cmux puede dividir paneles de navegador junto a terminales y exponer automatización por la misma API de socket para que los agentes verifiquen apps web locales sin salir del workspace."
+            }
+          ],
+          "faqTitle": "Preguntas frecuentes",
+          "faqQ1": "¿WezTerm puede ejecutar agentes de programación con IA?",
+          "faqA1": "Sí. WezTerm puede ejecutar agentes CLI como cualquier terminal y automatizar paneles de terminal mediante su CLI. cmux añade estado de no leídos específico para agentes, anillos de notificación, metadatos en la barra lateral y automatización de navegador junto a esos terminales.",
+          "faqQ2": "¿Por qué elegir cmux en macOS?",
+          "faqA2": "Elige cmux cuando el cuello de botella sea la multitarea entre muchos agentes locales y quieras que la app de terminal rastree la atención.",
+          "faqQ3": "¿Cuándo es mejor WezTerm?",
+          "faqA3": "Usa WezTerm cuando importan más el comportamiento multiplataforma, la multiplexación y los flujos configurados en Lua que una consola nativa Mac para agentes."
+        }
+      }
+    },
     "cta": {
       "freeOpenSource": "cmux es gratis y open source para macOS.",
       "seeAlso": "Ver también"
@@ -1759,7 +3341,10 @@
       "geminiCli": "Una terminal para Gemini CLI",
       "aider": "Una terminal para Aider",
       "amp": "Una terminal para Amp",
-      "cursorCli": "Una terminal para Cursor CLI"
+      "cursorCli": "Una terminal para Cursor CLI",
+      "keyboardShortcuts": "Atajos de teclado",
+      "browserAutomation": "Automatización del navegador",
+      "compare": "Comparar cmux"
     },
     "agents": {
       "metaTitle": "Una terminal para agentes de programación: cmux",

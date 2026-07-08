@@ -1,0 +1,85 @@
+export type KeyAction =
+  | "cycle-mode"
+  | "cycle-model"
+  | "open-model"
+  | "cycle-thinking"
+  | "toggle-fast"
+  | "toggle-plan"
+  | "interrupt"
+  | "help";
+export type MenuKeyAction = "menu-next" | "menu-prev" | "menu-accept" | "menu-close" | "newline" | "picker-rail-next" | "picker-rail-prev";
+
+export interface KeymapEntry {
+  combo: string;
+  description: string;
+  action: KeyAction;
+}
+export interface MenuKeymapEntry {
+  combo: string;
+  description: string;
+  action: MenuKeyAction;
+  ctrlJMode?: "newline" | "menu";
+}
+
+export const KEYMAP: KeymapEntry[] = [
+  { combo: "Shift+Tab", description: "Cycle mode-like option", action: "cycle-mode" },
+  { combo: "Ctrl+P", description: "Cycle model", action: "cycle-model" },
+  { combo: "Ctrl+Shift+P", description: "Open model selector", action: "open-model" },
+  { combo: "Ctrl+T", description: "Cycle thinking or effort", action: "cycle-thinking" },
+  { combo: "Ctrl+F", description: "Toggle fast mode", action: "toggle-fast" },
+  { combo: "Ctrl+Shift+M", description: "Toggle plan mode", action: "toggle-plan" },
+  { combo: "Esc", description: "Interrupt or close overlay", action: "interrupt" },
+  { combo: "Ctrl+/", description: "Toggle shortcut help", action: "help" },
+  { combo: "?", description: "Toggle shortcut help when input is empty", action: "help" },
+];
+
+export const MENU_KEYMAP: MenuKeymapEntry[] = [
+  { combo: "ArrowDown", description: "Next menu item", action: "menu-next" },
+  { combo: "Ctrl+N", description: "Next menu item", action: "menu-next" },
+  { combo: "Ctrl+J", description: "Next menu item while a menu is open", action: "menu-next", ctrlJMode: "menu" },
+  { combo: "ArrowUp", description: "Previous menu item", action: "menu-prev" },
+  { combo: "Ctrl+P", description: "Previous menu item while a menu is open", action: "menu-prev" },
+  { combo: "Ctrl+K", description: "Previous menu item while a menu is open", action: "menu-prev" },
+  { combo: "Enter", description: "Accept menu item", action: "menu-accept" },
+  { combo: "Tab", description: "Accept menu item or switch picker search/rail", action: "menu-accept" },
+  { combo: "ArrowRight", description: "Next harness in model picker rail", action: "picker-rail-next" },
+  { combo: "ArrowLeft", description: "Previous harness in model picker rail", action: "picker-rail-prev" },
+  { combo: "Esc", description: "Close menu", action: "menu-close" },
+];
+
+export function actionForKey(e: KeyboardEvent): KeyAction | null {
+  if (e.metaKey || e.altKey) return null;
+  return KEYMAP.find((entry) => comboMatches(entry.combo, e))?.action ?? null;
+}
+
+// Entries tagged with ctrlJMode only apply when the caller's configured
+// Ctrl+J mode matches (composer menus pass it; standalone overlay menus that
+// have no newline semantics omit it and keep every binding).
+export function menuActionForKey(
+  e: Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "altKey">,
+  ctrlJ?: "newline" | "menu",
+): MenuKeyAction | null {
+  if (e.metaKey || e.altKey) return null;
+  const entry = MENU_KEYMAP.find((item) =>
+    comboMatches(item.combo, e) && !(item.ctrlJMode && ctrlJ && item.ctrlJMode !== ctrlJ));
+  return entry?.action ?? null;
+}
+
+function comboMatches(combo: string, e: Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "altKey">): boolean {
+  const parts = combo.split("+");
+  const key = parts[parts.length - 1];
+  const wantsCtrl = parts.includes("Ctrl");
+  const wantsShift = parts.includes("Shift");
+  if (e.ctrlKey !== wantsCtrl) return false;
+  if (key !== "?" && e.shiftKey !== wantsShift) return false;
+  if (key === "Esc") return e.key === "Escape";
+  if (key === "Tab") return e.key === "Tab";
+  if (key === "Enter") return e.key === "Enter";
+  if (key === "ArrowDown") return e.key === "ArrowDown";
+  if (key === "ArrowUp") return e.key === "ArrowUp";
+  if (key === "ArrowRight") return e.key === "ArrowRight";
+  if (key === "ArrowLeft") return e.key === "ArrowLeft";
+  if (key === "?") return e.key === "?";
+  if (key === "/") return e.key === "/";
+  return e.key.toLowerCase() === key.toLowerCase();
+}

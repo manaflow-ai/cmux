@@ -55,8 +55,7 @@ private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
         self.timestamp = event.timestamp
         self.windowNumber = event.windowNumber
         self.keyCode = event.keyCode
-        self.modifierFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
+        self.modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
             .rawValue
     }
@@ -710,54 +709,6 @@ enum BrowserInsecureHTTPSettings {
         return host == pattern
     }
 
-}
-
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    defaults: UserDefaults = .standard
-) -> Bool {
-    browserShouldBlockInsecureHTTPURL(
-        url,
-        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
-    )
-}
-
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    rawAllowlist: String?
-) -> Bool {
-    guard url.scheme?.lowercased() == "http" else { return false }
-    guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return true }
-    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
-}
-
-func browserShouldConsumeOneTimeInsecureHTTPBypass(
-    _ url: URL,
-    bypassHostOnce: inout String?
-) -> Bool {
-    guard let bypassHost = bypassHostOnce else { return false }
-    guard url.scheme?.lowercased() == "http",
-          let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-        return false
-    }
-    guard host == bypassHost else { return false }
-    bypassHostOnce = nil
-    return true
-}
-
-func browserShouldPersistInsecureHTTPAllowlistSelection(
-    response: NSApplication.ModalResponse,
-    suppressionEnabled: Bool
-) -> Bool {
-    guard suppressionEnabled else { return false }
-    return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
-}
-
-func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
-    var preparedRequest = request
-    // Match browser behavior for ordinary loads while preserving method/body/headers.
-    preparedRequest.cachePolicy = .useProtocolCachePolicy
-    return preparedRequest
 }
 
 /// Carries the request and one-shot HTTP bypass needed to seed a retargeted tab.
@@ -2778,6 +2729,7 @@ final class BrowserPanel: Panel, ObservableObject {
     """
 
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
 
     /// The workspace ID this panel belongs to
@@ -3619,7 +3571,9 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    private static func makeWebView(
+    // Internal so BrowserPrewarmedWebViewPool builds prewarm webviews with
+    // identical configuration, making adoption a drop-in swap.
+    static func makeWebView(
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> CmuxWebView {
@@ -3996,10 +3950,7 @@ final class BrowserPanel: Panel, ObservableObject {
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
-        let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
-        let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
-            ? requestedProfileID
-            : BrowserProfileStore.shared.builtInDefaultProfileID
+        let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -4010,13 +3961,28 @@ final class BrowserPanel: Panel, ObservableObject {
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
         self.usesTransparentBackground = transparentBackground
-        self.websiteDataStore = isRemoteWorkspace
+        let websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
-        let webView = Self.makeWebView(
+        self.websiteDataStore = websiteDataStore
+        let webView: CmuxWebView
+        var adoptedPrewarmedWebView = false
+        if let prewarmed = Self.claimedPrewarmedWebView(
+            isRemoteWorkspace: isRemoteWorkspace,
+            initialRequest: initialRequest,
+            renderInitialNavigation: renderInitialNavigation,
+            initialURL: initialURL,
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
-        )
+        ) {
+            webView = prewarmed
+            adoptedPrewarmedWebView = true
+        } else {
+            webView = Self.makeWebView(
+                profileID: resolvedProfileID,
+                websiteDataStore: websiteDataStore
+            )
+        }
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
@@ -4213,7 +4179,13 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
-            navigate(to: url)
+            if adoptedPrewarmedWebView {
+                // Already navigated while hidden; record for recovery paths.
+                navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
+                refreshBackgroundAppearance()
+            } else {
+                navigate(to: url)
+            }
         }
     }
 
@@ -4749,7 +4721,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let restoredURL = Self.remappedAppPricingSessionRestoreURL(Self.sanitizedSessionHistoryURL(snapshot.urlString))
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
@@ -4758,7 +4730,7 @@ final class BrowserPanel: Panel, ObservableObject {
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
             forwardHistoryURLStrings: snapshot.forwardHistoryURLStrings ?? [],
-            currentURLString: snapshot.urlString
+            currentURLString: restoredURL?.absoluteString ?? snapshot.urlString
         )
 
         currentURL = restoredURL
@@ -5357,6 +5329,9 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
+        if BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window) {
+            return
+        }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
@@ -5369,27 +5344,24 @@ final class BrowserPanel: Panel, ObservableObject {
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
         unfocus()
+        BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
+        BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: nil)
+        BrowserWindowPortalRegistry.detach(webView: webView)
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
-
-        // Snapshot first: popup close unregisters itself from popupControllers.
-        let popupsToClose = popupControllers
-        popupControllers.removeAll()
-
-        // Close all owned popup windows before tearing down delegates
+        let popupsToClose = popupControllers; popupControllers.removeAll()
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
-
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
+        if let cmuxWebView = webView as? CmuxWebView { cmuxWebView.clearBrowserDownloadCallbacks() }
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
         detachWebViewObservers()
-        faviconTask?.cancel()
-        faviconTask = nil
+        faviconTask?.cancel(); faviconTask = nil
     }
 
     // MARK: - Popup window management
@@ -8475,7 +8447,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     var onDownloadFailed: ((Error, Bool, String?) -> Void)?
     var savePanelParentWindow: (() -> NSWindow?)?
 
-    private static let tempDir: URL = {
+    static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -8518,7 +8490,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         }
     }
 
-    private nonisolated static func moveTemporaryDownloadToDownloads(
+    nonisolated static func moveTemporaryDownloadToDownloads(
         tempURL: URL,
         suggestedFilename: String,
         sourceURL: URL,
@@ -8549,7 +8521,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     }
 
     @MainActor
-    private func presentSavePanel(
+    func presentSavePanel(
         downloadID: String,
         tempURL: URL,
         suggestedFilename: String,
@@ -8688,7 +8660,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - UI Delegate
 
-private class BrowserUIDelegate: NSObject, WKUIDelegate {
+private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?; var recordPDFPrintIntent: ((URLRequest, WKFrameInfo?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
