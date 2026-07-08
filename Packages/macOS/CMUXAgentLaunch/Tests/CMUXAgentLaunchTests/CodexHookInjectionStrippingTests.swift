@@ -13,7 +13,7 @@ struct CodexHookInjectionStrippingTests {
                 launcher: "",
                 fallbackKind: "codex"
             ) == [
-                codexExecutable,
+                "codex",
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--model",
                 "gpt-5.5",
@@ -38,7 +38,7 @@ struct CodexHookInjectionStrippingTests {
                 ],
                 launcher: "",
                 fallbackKind: "codex"
-            ) == [codexExecutable, "--model", "gpt-5.5"]
+            ) == ["codex", "--model", "gpt-5.5"]
         )
     }
 
@@ -59,7 +59,7 @@ struct CodexHookInjectionStrippingTests {
                 ],
                 launcher: "",
                 fallbackKind: "codex"
-            ) == [codexExecutable, "--model", "gpt-5.5"]
+            ) == ["codex", "--model", "gpt-5.5"]
         )
     }
 
@@ -87,7 +87,7 @@ struct CodexHookInjectionStrippingTests {
                 launcher: "",
                 fallbackKind: "codex"
             ) == [
-                codexExecutable,
+                "codex",
                 "--enable",
                 "hooks",
                 "-c",
@@ -137,9 +137,25 @@ struct CodexHookInjectionStrippingTests {
         #expect(!resume.contains("--enable"))
         #expect(!resume.contains("hooks"))
         #expect(!resume.contains { $0.contains("cmux-codex-hook") })
+        #expect(resume.first == "codex")
+        #expect(!resume.contains(codexExecutable))
         #expect(resume.contains("--dangerously-bypass-approvals-and-sandbox"))
         #expect(resume.contains("gpt-5.5"))
         #expect(resume.contains("model_reasoning_effort=xhigh"))
+    }
+
+    @Test("Codex fork preservation routes through wrapper when stripping cmux hooks")
+    func codexForkPreservationRoutesThroughWrapperWhenStrippingCmuxHooks() throws {
+        let fork = try #require(AgentForkArgv().builtInKind(
+            kind: "codex",
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            executablePath: codexExecutable,
+            arguments: realisticCodexHookArgv()
+        ))
+        #expect(!fork.contains("--dangerously-bypass-hook-trust"))
+        #expect(!fork.contains { $0.contains("cmux-codex-hook") })
+        #expect(fork.first == "codex")
+        #expect(!fork.contains(codexExecutable))
     }
 
     @Test("Claude cmux hook settings still sanitize")

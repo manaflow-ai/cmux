@@ -18,6 +18,12 @@ func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {
     return Array(args.dropFirst(injectedPrefixEnd))
 }
 
+extension AgentLaunchSanitizer {
+    static func codexReplayExecutable(capturedExecutable: String, launchTail: [String]) -> String {
+        cmuxInjectedCodexHookArgumentPrefixEnd(launchTail) == nil ? capturedExecutable : "codex"
+    }
+}
+
 public struct JavaScriptRuntimeAgentLaunchUnwrapper {
     private let isKnownAgentExecutableName: (String) -> Bool
 

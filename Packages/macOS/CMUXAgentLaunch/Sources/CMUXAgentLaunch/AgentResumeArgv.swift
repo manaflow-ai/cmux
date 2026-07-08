@@ -315,7 +315,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: parts.tail) else { return nil }
-            return [parts.executable, "resume", sessionId]
+            let replayExecutable = AgentLaunchSanitizer.codexReplayExecutable(
+                capturedExecutable: parts.executable,
+                launchTail: parts.tail
+            )
+            return [replayExecutable, "resume", sessionId]
                 + codexResumeConfigOverrides(preserved: preserved) + preserved
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)

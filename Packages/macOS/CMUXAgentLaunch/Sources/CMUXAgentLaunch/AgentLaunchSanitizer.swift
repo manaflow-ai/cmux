@@ -68,7 +68,8 @@ public enum AgentLaunchSanitizer {
         switch fallbackKind {
         case "codex":
             guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
-            return [executable] + preserved
+            let replayExecutable = codexReplayExecutable(capturedExecutable: executable, launchTail: tail)
+            return [replayExecutable] + preserved
         case "rovodev":
             guard let preserved = preservedArguments(kind: fallbackKind, args: tail) else { return nil }
             return [executable, "rovodev", "run"] + preserved
