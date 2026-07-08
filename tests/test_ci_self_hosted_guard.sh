@@ -294,6 +294,17 @@ check_runtime_regressions_collapsed() {
     exit 1
   fi
 
+  if ! awk '
+    /^run_browser_find_focus\(\) \{/ { in_func=1; next }
+    in_func && /^}/ { in_func=0 }
+    in_func && /persistent_display_id="\$\(tr -d/ { saw_display_id_read=1 }
+    in_func && /CMUX_UI_TEST_TARGET_DISPLAY_ID="\$persistent_display_id"/ { saw_display_env=1 }
+    END { exit !(saw_display_id_read && saw_display_env) }
+  ' "$ROOT_DIR/scripts/ci/run-display-ui-regressions.sh"; then
+    echo "FAIL: browser-find UI regression must target the persistent virtual display"
+    exit 1
+  fi
+
   echo "PASS: runtime display regressions are collapsed into tests-build-and-lag"
 }
 
