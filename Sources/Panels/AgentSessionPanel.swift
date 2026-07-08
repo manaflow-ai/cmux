@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class AgentSessionPanel: Panel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .agentSession
     private(set) var workspaceId: UUID
     let rendererKind: AgentSessionRendererKind

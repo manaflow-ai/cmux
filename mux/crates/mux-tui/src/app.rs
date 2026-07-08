@@ -862,7 +862,13 @@ impl App {
         let layout = self
             .tree
             .active_screen()
-            .map(|screen| layout_screen(&screen.layout, area))
+            .map(|screen| {
+                if let Some(pane) = screen.zoomed_pane {
+                    layout_screen(&mux_core::Node::Leaf(pane), area)
+                } else {
+                    layout_screen(&screen.layout, area)
+                }
+            })
             .unwrap_or_default();
 
         self.pane_areas.clear();
@@ -2814,6 +2820,7 @@ mod tests {
                     name: None,
                     layout: Node::Leaf(2),
                     active_pane: 2,
+                    zoomed_pane: None,
                     panes: vec![PaneView {
                         id: 2,
                         short_id: "000002".to_string(),

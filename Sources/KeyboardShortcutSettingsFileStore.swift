@@ -1897,12 +1897,12 @@ private struct ManagedDefaultBatchSideEffects {
     }
 }
 
-private enum ManagedStringOverride: Equatable {
+enum ManagedStringOverride: Equatable {
     case set(String)
     case clear
 }
 
-private struct ManagedCustomSettings: Equatable {
+struct ManagedCustomSettings: Equatable {
     var socketPassword: ManagedStringOverride?
 
     var isEmpty: Bool {
@@ -1924,7 +1924,7 @@ private struct ManagedCustomSettings: Equatable {
     }
 }
 
-private enum ManagedSettingsValue: Codable, Equatable {
+enum ManagedSettingsValue: Codable, Equatable {
     case bool(Bool)
     case int(Int)
     case double(Double)

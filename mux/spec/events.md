@@ -6,7 +6,7 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `surface-output`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `empty` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `empty` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `detached` |
 
@@ -50,6 +50,28 @@ Example:
 
 ```json
 {"event":"tree-changed"}
+```
+
+### layout-changed
+
+| Field | Value |
+| --- | --- |
+| event | `layout-changed` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"layout-changed",screen:Id}
+```
+
+Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, apply-layout, swap, or zoom. The event is emitted once per settled command and does not include the new layout. Clients should re-fetch `export-layout` or `list-workspaces`.
+
+Example:
+
+```json
+{"event":"layout-changed","screen":3}
 ```
 
 ### surface-output
