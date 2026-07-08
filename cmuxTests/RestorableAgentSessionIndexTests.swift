@@ -775,6 +775,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             }
         )
 
+        let expectedDetectedKeys = Set(zip(restoredWorkspaceIds, panels).map { workspaceId, panelId in
+            RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        })
+        XCTAssertEqual(Set(detectedSnapshots.keys), expectedDetectedKeys)
         let detectedSessionIds = Set(detectedSnapshots.values.map { $0.snapshot.sessionId })
         XCTAssertEqual(detectedSessionIds.count, 1, "Pi latest-file detection is ambiguous for same-cwd workspaces")
 
