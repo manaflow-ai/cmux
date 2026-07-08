@@ -21,7 +21,6 @@ struct MobileSettingsView: View {
     var store: CMUXMobileShellStore?
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     @State private var showingShortcuts = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
@@ -31,10 +30,6 @@ struct MobileSettingsView: View {
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
-    @State private var showingDeleteAccountConfirmation = false
-    @State private var showingDeleteAccountFailure = false
-    @State private var deleteAccountFailureKind = DeleteAccountFailureKind.generic
-    @State private var deletingAccount = false
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -44,49 +39,7 @@ struct MobileSettingsView: View {
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
             Form {
-                Section {
-                    LabeledContent {
-                        Text(accountEmail)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    } label: {
-                        Label(accountDisplayName, systemImage: "person.crop.circle")
-                    }
-                    .accessibilityIdentifier("MobileSettingsAccountRow")
-
-                    if let signOut {
-                        Button(role: .destructive) {
-                            signOut()
-                            dismiss()
-                        } label: {
-                            Label(
-                                L10n.string("mobile.signOut", defaultValue: "Sign Out"),
-                                systemImage: "rectangle.portrait.and.arrow.right"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsSignOut")
-                    }
-
-                    Button(role: .destructive) {
-                        showingDeleteAccountConfirmation = true
-                    } label: {
-                        Label(
-                            deletingAccount
-                                ? L10n.string("mobile.settings.deletingAccount", defaultValue: "Deleting Account...")
-                                : L10n.string("mobile.settings.deleteAccount", defaultValue: "Delete Account"),
-                            systemImage: deletingAccount ? "hourglass" : "trash"
-                        )
-                    }
-                    .disabled(deletingAccount)
-                    .accessibilityIdentifier("MobileSettingsDeleteAccount")
-                } header: {
-                    Text(L10n.string("mobile.settings.account", defaultValue: "Account"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.settings.accountFooter",
-                        defaultValue: "This device must be signed in to the same cmux account as the computer you pair with."
-                    ))
-                }
+                MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
@@ -275,26 +228,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsNotifications")
                 }
 
-                Section(L10n.string("mobile.settings.legalSupport", defaultValue: "Legal & Support")) {
-                    externalLinkRow(
-                        title: L10n.string("mobile.settings.privacyPolicy", defaultValue: "Privacy Policy"),
-                        systemImage: "hand.raised",
-                        url: Self.privacyPolicyURL,
-                        identifier: "MobileSettingsPrivacyPolicy"
-                    )
-                    externalLinkRow(
-                        title: L10n.string("mobile.settings.termsOfService", defaultValue: "Terms of Service"),
-                        systemImage: "doc.text",
-                        url: Self.termsOfServiceURL,
-                        identifier: "MobileSettingsTermsOfService"
-                    )
-                    externalLinkRow(
-                        title: L10n.string("mobile.settings.support", defaultValue: "Support"),
-                        systemImage: "envelope",
-                        url: Self.supportURL,
-                        identifier: "MobileSettingsSupport"
-                    )
-                }
+                MobileSettingsLegalSupportSection()
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
@@ -354,75 +288,8 @@ struct MobileSettingsView: View {
                 // mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
-            .alert(
-                L10n.string("mobile.settings.deleteAccountTitle", defaultValue: "Delete Account?"),
-                isPresented: $showingDeleteAccountConfirmation
-            ) {
-                Button(L10n.string("mobile.settings.deleteAccountCancel", defaultValue: "Cancel"), role: .cancel) {}
-                Button(
-                    L10n.string("mobile.settings.deleteAccountConfirm", defaultValue: "Delete Account"),
-                    role: .destructive
-                ) {
-                    deleteAccount()
-                }
-            } message: {
-                Text(L10n.string(
-                    "mobile.settings.deleteAccountMessage",
-                    defaultValue: "This permanently deletes your cmux account and cmux data. You will be signed out on this device."
-                ))
-            }
-            .alert(
-                L10n.string("mobile.settings.deleteAccountFailedTitle", defaultValue: "Couldn't Delete Account"),
-                isPresented: $showingDeleteAccountFailure
-            ) {
-                Button(L10n.string("mobile.settings.deleteAccountFailureOK", defaultValue: "OK"), role: .cancel) {}
-            } message: {
-                Text(deleteAccountFailureKind.localizedMessage)
-            }
         }
         .accessibilityIdentifier("MobileSettingsView")
-    }
-
-    private static let privacyPolicyURL = URL(string: "https://cmux.com/privacy-policy")!
-    private static let termsOfServiceURL = URL(string: "https://cmux.com/terms-of-service")!
-    private static let supportURL = URL(string: "mailto:feedback@manaflow.com?subject=cmux%20iOS%20support")!
-
-    private func externalLinkRow(
-        title: String,
-        systemImage: String,
-        url: URL,
-        identifier: String
-    ) -> some View {
-        Button {
-            openURL(url)
-        } label: {
-            Label(title, systemImage: systemImage)
-        }
-        .accessibilityIdentifier(identifier)
-    }
-
-    private func deleteAccount() {
-        guard !deletingAccount else { return }
-        deletingAccount = true
-        Task {
-            do {
-                try await authManager.deleteAccount()
-                if let signOut {
-                    signOut()
-                } else {
-                    await authManager.signOut()
-                }
-                dismiss()
-            } catch {
-                if case AccountDeletionRequestError.stackDeleteIncomplete = error {
-                    deleteAccountFailureKind = .stackDeleteIncomplete
-                } else {
-                    deleteAccountFailureKind = .generic
-                }
-                showingDeleteAccountFailure = true
-            }
-            deletingAccount = false
-        }
     }
 
     /// Which setup gate to mark as the user's current blocker. Settings is reached
@@ -455,18 +322,6 @@ struct MobileSettingsView: View {
         )
     }
 
-    private var accountEmail: String {
-        let email = authManager.currentUser?.primaryEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let email, !email.isEmpty { return email }
-        return L10n.string("mobile.settings.notSignedIn", defaultValue: "Not signed in")
-    }
-
-    private var accountDisplayName: String {
-        let name = authManager.currentUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let name, !name.isEmpty { return name }
-        return L10n.string("mobile.settings.account", defaultValue: "Account")
-    }
-
     #if DEBUG
     private func debugLayoutSlider(
         title: String,
@@ -494,26 +349,5 @@ struct MobileSettingsView: View {
         )
     }
     #endif
-
-}
-
-private enum DeleteAccountFailureKind {
-    case generic
-    case stackDeleteIncomplete
-
-    var localizedMessage: String {
-        switch self {
-        case .generic:
-            return L10n.string(
-                "mobile.settings.deleteAccountFailedMessage",
-                defaultValue: "Try again later or contact support."
-            )
-        case .stackDeleteIncomplete:
-            return L10n.string(
-                "mobile.settings.deleteAccountPartialFailureMessage",
-                defaultValue: "Your cmux data was deleted, but account sign-in cleanup did not finish. Try Delete Account again to complete deletion."
-            )
-        }
-    }
 }
 #endif
