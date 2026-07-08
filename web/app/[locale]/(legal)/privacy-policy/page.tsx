@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Link } from "../../../../i18n/navigation";
 
+// Legal pages are intentionally English-only; see `web/app/sitemap.ts`.
 export const metadata: Metadata = {
   title: "Privacy Policy | cmux",
   description: "Privacy policy for cmux",
@@ -213,6 +214,11 @@ export default function PrivacyPolicyPage() {
         You may opt out of iOS product analytics at any time in the iOS app under
         Settings, Privacy, Share Product Analytics. Turning this off stops future
         analytics events and identity calls from being sent.
+      </p>
+      <p>
+        Signed-in iOS users can initiate account deletion in the iOS app under
+        Settings, Account, Delete Account. That link opens the cmux account
+        settings page where deletion can be completed.
       </p>
       <p>
         To exercise any of these rights, please contact us at{" "}

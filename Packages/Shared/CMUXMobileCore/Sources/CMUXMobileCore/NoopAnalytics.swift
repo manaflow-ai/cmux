@@ -19,5 +19,7 @@ public struct NoopAnalytics: AnalyticsEmitting {
 
     public func setSuperProperties(_ properties: [String: AnalyticsValue]) {}
 
+    public func setTelemetryConsentEnabled(_ isEnabled: Bool) {}
+
     public func flush() async {}
 }

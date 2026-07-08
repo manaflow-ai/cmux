@@ -56,6 +56,13 @@ public protocol AnalyticsEmitting: Sendable {
     /// - Parameter properties: The super-properties to merge and persist.
     func setSuperProperties(_ properties: [String: AnalyticsValue])
 
+    /// Records a persisted telemetry consent transition.
+    ///
+    /// Called by the Settings owner after changing the consent store so the emitter
+    /// can clear queued events at the exact opt-out edge while keeping local
+    /// identity state current for a later opt-in.
+    func setTelemetryConsentEnabled(_ isEnabled: Bool)
+
     /// Flushes any buffered events immediately.
     ///
     /// Awaited at app-background so queued events survive suspension. On hot

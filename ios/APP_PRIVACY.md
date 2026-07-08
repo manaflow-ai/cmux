@@ -14,7 +14,7 @@ Privacy Policy URL: `https://cmux.com/privacy-policy`
 
 Privacy Choices URL: `https://cmux.com/privacy-policy`
 
-Reason: iOS users can opt out of product analytics in `Settings > Privacy > Share Product Analytics`; the policy explains account deletion, access, deletion, and contact paths.
+Reason: iOS users can opt out of product analytics in `Settings > Privacy > Share Product Analytics`; signed-in iOS users can initiate account deletion from `Settings > Account > Delete Account`; the policy explains access, deletion, and contact paths.
 
 ## Tracking
 

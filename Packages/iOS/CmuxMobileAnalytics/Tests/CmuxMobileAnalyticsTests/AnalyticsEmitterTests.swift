@@ -170,20 +170,37 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(await uploader.identifyCalls.count == 1)
 
         consent.set(false)
+        emitter.setTelemetryConsentEnabled(false)
         emitter.identify(userId: nil, alias: nil, properties: [:])
         emitter.setSuperProperties(["is_authenticated": .bool(false)])
-        await emitter.flush()
-        #expect(await uploader.identifyCalls.count == 1)
-
         consent.set(true)
+        emitter.setTelemetryConsentEnabled(true)
         emitter.capture("ios_after_opt_in", [:])
         await emitter.flush()
 
+        #expect(await uploader.identifyCalls.count == 1)
         let event = await uploader.uploadedEvents.last
         #expect(event?.distinctID == "anon-9")
         #expect(event?.anonymousID == nil)
         #expect(event?.properties["user_id"] == nil)
         #expect(event?.properties["is_authenticated"] == .bool(false))
+    }
+
+    @Test func consentWithdrawalClearsBufferedEventsEvenIfReenabledBeforeFlush() async {
+        let consent = MutableConsent(enabled: true)
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = makeEmitter(uploader: uploader, consent: consent)
+
+        emitter.capture("ios_before_opt_out", [:])
+        consent.set(false)
+        emitter.setTelemetryConsentEnabled(false)
+        consent.set(true)
+        emitter.setTelemetryConsentEnabled(true)
+        emitter.capture("ios_after_opt_in", [:])
+        await emitter.flush()
+
+        let names = await uploader.uploadedEvents.map(\.name)
+        #expect(names == ["ios_after_opt_in"])
     }
 
     @Test func sustainedRetryBoundsBacklogByDroppingOldest() async {

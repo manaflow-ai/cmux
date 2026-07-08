@@ -14,6 +14,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(\.analytics) private var analytics
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -62,6 +63,17 @@ struct MobileSettingsView: View {
                             )
                         }
                         .accessibilityIdentifier("MobileSettingsSignOut")
+                    }
+
+                    if authManager.currentUser != nil {
+                        Link(destination: Self.accountSettingsURL) {
+                            Label(
+                                L10n.string("mobile.settings.deleteAccount", defaultValue: "Delete Account"),
+                                systemImage: "trash"
+                            )
+                        }
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("MobileSettingsDeleteAccount")
                     }
                 } header: {
                     Text(L10n.string("mobile.settings.account", defaultValue: "Account"))
@@ -358,6 +370,7 @@ struct MobileSettingsView: View {
     }
 
     private static let privacyPolicyURL = URL(string: "https://cmux.com/privacy-policy")!
+    private static let accountSettingsURL = URL(string: "https://cmux.com/handler/account-settings")!
 
     private var productAnalyticsBinding: Binding<Bool> {
         Binding(
@@ -365,6 +378,7 @@ struct MobileSettingsView: View {
             set: { newValue in
                 productAnalyticsEnabled = newValue
                 MobileTelemetryConsentStore(defaults: .standard).setEnabled(newValue)
+                analytics.setTelemetryConsentEnabled(newValue)
             }
         )
     }

@@ -2717,6 +2717,8 @@ private final class RecordingAnalytics: AnalyticsEmitting, @unchecked Sendable {
 
     func setSuperProperties(_ properties: [String: AnalyticsValue]) {}
 
+    func setTelemetryConsentEnabled(_ isEnabled: Bool) {}
+
     func flush() async {}
 
     func eventCount(named name: String) -> Int {

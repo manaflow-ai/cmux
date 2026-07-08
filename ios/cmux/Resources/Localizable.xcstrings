@@ -3962,6 +3962,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除"
+          }
+        }
+      }
+    },
     "mobile.settings.agentChatDemo": {
       "extractionState": "manual",
       "localizations": {

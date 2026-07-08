@@ -41,8 +41,14 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 public actor AnalyticsEmitter: AnalyticsEmitting {
     private enum Item: Sendable {
         case event(name: String, properties: [String: AnalyticsValue], timestamp: Date)
-        case identify(userID: String?, alias: String?, properties: [String: AnalyticsValue])
+        case identify(
+            userID: String?,
+            alias: String?,
+            properties: [String: AnalyticsValue],
+            networkAllowed: Bool
+        )
         case superProperties([String: AnalyticsValue])
+        case consentChanged(isEnabled: Bool)
         case barrier(UUID)
     }
 
@@ -138,11 +144,20 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         alias: String?,
         properties: [String: AnalyticsValue]
     ) {
-        continuation.yield(.identify(userID: userId, alias: alias, properties: properties))
+        continuation.yield(.identify(
+            userID: userId,
+            alias: alias,
+            properties: properties,
+            networkAllowed: consent.isTelemetryEnabled
+        ))
     }
 
     public nonisolated func setSuperProperties(_ properties: [String: AnalyticsValue]) {
         continuation.yield(.superProperties(properties))
+    }
+
+    public nonisolated func setTelemetryConsentEnabled(_ isEnabled: Bool) {
+        continuation.yield(.consentChanged(isEnabled: isEnabled))
     }
 
     public func flush() async {
@@ -177,10 +192,20 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
                 if pending.count >= flushBatchSize && !uploadOutageOpen {
                     await drain()
                 }
-            case let .identify(userID, alias, properties):
-                await applyIdentify(userID: userID, alias: alias, properties: properties)
+            case let .identify(userID, alias, properties, networkAllowed):
+                await applyIdentify(
+                    userID: userID,
+                    alias: alias,
+                    properties: properties,
+                    networkAllowed: networkAllowed
+                )
             case let .superProperties(properties):
                 for (key, value) in properties { superProperties[key] = value }
+            case let .consentChanged(isEnabled):
+                if !isEnabled {
+                    pending.removeAll()
+                    uploadOutageOpen = false
+                }
             case let .barrier(id):
                 await drain()
                 barriers.removeValue(forKey: id)?.resume()
@@ -212,7 +237,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private func applyIdentify(
         userID: String?,
         alias: String?,
-        properties: [String: AnalyticsValue]
+        properties: [String: AnalyticsValue],
+        networkAllowed: Bool
     ) async {
         distinctID = userID ?? anonymousID
         if let userID {
@@ -220,7 +246,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         } else {
             superProperties.removeValue(forKey: "user_id")
         }
-        guard consent.isTelemetryEnabled else { return }
+        guard networkAllowed, consent.isTelemetryEnabled else { return }
         var personProps: [String: any Sendable] = [:]
         for (key, value) in properties { personProps[key] = value.jsonObject }
         let aliasID = alias ?? (anonymousID == userID ? nil : anonymousID)
