@@ -1636,8 +1636,6 @@ struct SessionProjectPanelSnapshot: Codable, Sendable {
 
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
-    /// Restart-stable surface identifier for durable deep links.
-    /// Legacy snapshots leave it nil.
     var stableSurfaceId: UUID? = nil
     var type: PanelType
     var title: String?
@@ -1760,14 +1758,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
     /// legacy or externally-created snapshots can leave it nil.
     var workspaceId: UUID? = nil
-    /// Restart-stable workspace identifier for durable deep links.
-    /// Legacy snapshots leave it nil.
     var stableId: UUID? = nil
     var processTitle: String
     var customTitle: String?
-    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
-    /// persisted before provenance existed decode unchanged; restore treats
-    /// absent provenance as user-set (the conservative choice for auto-naming).
+    /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
