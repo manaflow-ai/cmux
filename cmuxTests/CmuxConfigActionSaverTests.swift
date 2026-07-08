@@ -347,7 +347,7 @@ struct CmuxConfigActionSaverTests {
         // matches "claude", so the cmux-injected settings marker identifies
         // the agent, and the shared sanitizer strips the injected hooks while
         // keeping the user's own settings keys.
-        let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"hooks claude session-start"}]}]},"preferredNotifChannel":"notifications_disabled"}"#
+        let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [
                 "node",
