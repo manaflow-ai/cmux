@@ -251,6 +251,17 @@ function isOffLike(value: string): boolean {
   return /^(off|none)$/i.test(value);
 }
 
+function finishTurn(sess: SessionCtx) {
+  const st = state(sess);
+  if (!st.activeTurn) {
+    sess.setStatus("idle");
+    return;
+  }
+  st.activeTurn = false;
+  sess.emit({ kind: "done" });
+  sess.setStatus("idle");
+}
+
 function handleLine(sess: SessionCtx, line: string) {
   const ev = tryParse(line);
   if (!ev) return;
@@ -325,14 +336,21 @@ function handleLine(sess: SessionCtx, line: string) {
       });
       break;
     case "agent_end":
-      state(sess).activeTurn = false;
-      sess.emit({ kind: "done" });
-      sess.setStatus("idle");
+      finishTurn(sess);
       break;
     case "error":
       sess.emit({ kind: "error", message: truncate(ev.message ?? JSON.stringify(ev), 400) });
+      finishTurn(sess);
       break;
   }
+}
+
+export function piHandleLineForTest(sess: SessionCtx, line: string) {
+  handleLine(sess, line);
+}
+
+export function piNextSendTypeForTest(sess: SessionCtx): "prompt" | "steer" {
+  return state(sess).activeTurn ? "steer" : "prompt";
 }
 
 function normalizeModels(models: any): OptionChoice[] {
