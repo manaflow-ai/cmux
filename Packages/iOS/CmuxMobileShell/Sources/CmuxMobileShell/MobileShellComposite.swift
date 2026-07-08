@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxAgentChat
+import CmuxAgentChat
 internal import CmuxMobileDiagnostics
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC

@@ -4,12 +4,15 @@ import Foundation
 
 actor CountingSlowIgnoringCancellationTransport: CmxByteTransport {
     private var connects = 0
+    private var connectWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
 
     func connect() async throws {
         connects += 1
-        let startedAt = Date()
-        while Date().timeIntervalSince(startedAt) < 0.2 {
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        connectWaiters.forEach { $0.resume() }
+        connectWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            finishWaiters.append(continuation)
         }
         throw MobileShellConnectionError.requestTimedOut
     }
@@ -24,5 +27,17 @@ actor CountingSlowIgnoringCancellationTransport: CmxByteTransport {
 
     func connectCount() -> Int {
         connects
+    }
+
+    func waitForConnect() async {
+        guard connects == 0 else { return }
+        await withCheckedContinuation { continuation in
+            connectWaiters.append(continuation)
+        }
+    }
+
+    func finishConnects() {
+        finishWaiters.forEach { $0.resume() }
+        finishWaiters.removeAll()
     }
 }

@@ -127,7 +127,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private var receiveBuffer: [Data] = []
     private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, any Error>?)?
     private var cancelledOperationIDs: Set<UUID> = []
-    private var connectTimeoutTimer: DispatchSourceTimer?
+    private var connectTimeoutTimer: (any DispatchSourceTimer)?
     private var remoteDidClose = false
 
     /// Creates a transport for an explicit host and port.

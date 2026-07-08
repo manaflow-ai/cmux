@@ -201,7 +201,7 @@ private func runProcess(
     )
 }
 
-private func runGit(
+@discardableResult private func runGit(
     _ arguments: [String],
     in directoryURL: URL,
     file: StaticString = #filePath,

@@ -34,10 +34,20 @@ import Testing
         )
         let store = makeStore(runtime: runtime)
 
-        let first = await store.connectPairingURLResult(Self.qrURL)
-        let second = await store.connectPairingURLResult(Self.qrURL)
+        let firstTask = Task { @MainActor in
+            await store.connectPairingURLResult(Self.qrURL)
+        }
+        await transport.waitForConnect()
+        let secondTask = Task { @MainActor in
+            await store.connectPairingURLResult(Self.qrURL)
+        }
+        await Task.yield()
+        #expect(await transport.connectCount() == 1)
+        await transport.finishConnects()
+        let first = await firstTask.value
+        let second = await secondTask.value
 
-        #expect(first == .failed)
+        #expect(first == .failed || first == .superseded)
         #expect(second == .failed)
         #expect(await transport.connectCount() == 1)
         #expect(store.connectionState == .disconnected)

@@ -270,10 +270,11 @@ final class TerminalNotificationCallerTests: XCTestCase {
         try waitForSocket(at: socketPath)
 
         let command = "notify_target \(workspace.id.uuidString) \(focusedPanelId.uuidString) Sync|Read after write|Body"
+        let targetSocketPath = socketPath
         let responses = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try self.sendCommands([command], to: socketPath))
+                    continuation.resume(returning: try Self.sendCommands([command], to: targetSocketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -318,7 +319,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
     }
 
-    private nonisolated func sendV2Request(
+    private nonisolated static func sendV2Request(
         method: String,
         params: [String: Any],
         to socketPath: String
@@ -326,7 +327,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
         let payload: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": params]
         let data = try JSONSerialization.data(withJSONObject: payload)
         let line = try XCTUnwrap(String(data: data, encoding: .utf8))
-        let responseLine = try sendCommands([line], to: socketPath).first
+        let responseLine = try Self.sendCommands([line], to: socketPath).first
         let responseData = Data(try XCTUnwrap(responseLine).utf8)
         return try XCTUnwrap(
             try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
@@ -342,7 +343,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try self.sendV2Request(method: method, params: params, to: socketPath))
+                    continuation.resume(returning: try Self.sendV2Request(method: method, params: params, to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -350,9 +351,9 @@ final class TerminalNotificationCallerTests: XCTestCase {
         }
     }
 
-    private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
+    private nonisolated static func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw posixError("socket(AF_UNIX)") }
+        guard fd >= 0 else { throw Self.posixError("socket(AF_UNIX)") }
         defer { Darwin.close(fd) }
 
         var addr = sockaddr_un()
@@ -373,41 +374,41 @@ final class TerminalNotificationCallerTests: XCTestCase {
         let connectResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, addrLen) }
         }
-        guard connectResult == 0 else { throw posixError("connect(\(socketPath))") }
+        guard connectResult == 0 else { throw Self.posixError("connect(\(socketPath))") }
 
         var responses: [String] = []
         for command in commands {
-            try writeLine(command, to: fd)
-            responses.append(try readLine(from: fd))
+            try Self.writeLine(command, to: fd)
+            responses.append(try Self.readLine(from: fd))
         }
         return responses
     }
 
-    private nonisolated func writeLine(_ command: String, to fd: Int32) throws {
+    private nonisolated static func writeLine(_ command: String, to fd: Int32) throws {
         let payload = Array((command + "\n").utf8)
         var offset = 0
         while offset < payload.count {
             let wrote = payload.withUnsafeBytes {
                 Darwin.write(fd, $0.baseAddress!.advanced(by: offset), payload.count - offset)
             }
-            guard wrote >= 0 else { throw posixError("write(\(command))") }
+            guard wrote >= 0 else { throw Self.posixError("write(\(command))") }
             offset += wrote
         }
     }
 
-    private nonisolated func readLine(from fd: Int32) throws -> String {
+    private nonisolated static func readLine(from fd: Int32) throws -> String {
         var buffer = [UInt8](repeating: 0, count: 1)
         var data = Data()
         while true {
             let count = Darwin.read(fd, &buffer, 1)
-            guard count >= 0 else { throw posixError("read") }
+            guard count >= 0 else { throw Self.posixError("read") }
             if count == 0 || buffer[0] == 0x0A { break }
             data.append(buffer[0])
         }
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private nonisolated func posixError(_ operation: String) -> NSError {
+    private nonisolated static func posixError(_ operation: String) -> NSError {
         NSError(
             domain: NSPOSIXErrorDomain,
             code: Int(errno),

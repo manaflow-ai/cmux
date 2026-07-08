@@ -68,11 +68,11 @@ final class TerminalNotificationQueueTests: XCTestCase {
 
         let payload = "Async|Queued|Body"
         let command = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) \(payload)"
-        let socketPath = socketPath
+        let targetSocketPath = socketPath
         let responses = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try Self.sendCommands([command], to: socketPath))
+                    continuation.resume(returning: try Self.sendCommands([command], to: targetSocketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -678,7 +678,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
         }
         return line
     }
-
     private nonisolated static func posixError(_ operation: String) -> NSError {
         NSError(
             domain: NSPOSIXErrorDomain,

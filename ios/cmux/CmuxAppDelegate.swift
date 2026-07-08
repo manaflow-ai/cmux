@@ -3,6 +3,16 @@ import UIKit
 import UserNotifications
 import cmuxFeature
 
+nonisolated private struct RemoteNotificationFetchCompletion: @unchecked Sendable {
+    // UIKit's completion callback is thread-safe to invoke once; wrapping it keeps
+    // the non-Sendable Objective-C dictionary out of the Task capture.
+    let handler: (UIBackgroundFetchResult) -> Void
+
+    func callAsFunction(_ result: UIBackgroundFetchResult) {
+        handler(result)
+    }
+}
+
 /// App delegate for APNs: installs the notification-center delegate, forwards
 /// registered device tokens to the injected push coordinator, and routes
 /// foreground presentation + taps. All push policy lives in
@@ -110,11 +120,23 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
     /// defers is healed by the reconcile sweep on the next app open/attach.
     func application(
         _ application: UIApplication,
-        didReceiveRemoteNotification userInfo: [AnyHashable: Any]
-    ) async -> UIBackgroundFetchResult {
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
         let dismissedIds = Self.dismissedIDs(from: userInfo)
-        guard !dismissedIds.isEmpty else { return .noData }
-        return await handleRemoteDismiss(ids: dismissedIds)
+        guard !dismissedIds.isEmpty else {
+            completionHandler(.noData)
+            return
+        }
+        let completion = RemoteNotificationFetchCompletion(handler: completionHandler)
+        Task { @MainActor [weak self] in
+            guard let self else {
+                completion(.failed)
+                return
+            }
+            let result = await handleRemoteDismiss(ids: dismissedIds)
+            completion(result)
+        }
     }
 
     @MainActor
@@ -123,7 +145,7 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         return .newData
     }
 
-    private nonisolated static func dismissedIDs(from userInfo: [AnyHashable: Any]) -> [String] {
+    private static func dismissedIDs(from userInfo: [AnyHashable: Any]) -> [String] {
         guard let cmux = userInfo["cmux"] as? [String: Any],
               let ids = cmux["dismissedIds"] as? [String] else {
             return []

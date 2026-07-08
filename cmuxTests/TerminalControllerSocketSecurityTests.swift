@@ -1145,16 +1145,13 @@ final class TerminalControllerSocketSecurityTests {
         )
         try waitForSocket(at: socketPath)
 
+        let workspaceID = workspace.id.uuidString, targetPanelID = targetPanel.id.uuidString
         let response = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let response = try self.sendV2Request(
                         method: "notification.create",
-                        params: [
-                            "workspace_id": workspace.id.uuidString,
-                            "surface_id": targetPanel.id.uuidString,
-                            "title": "Targeted"
-                        ],
+                        params: ["workspace_id": workspaceID, "surface_id": targetPanelID, "title": "Targeted"],
                         to: socketPath
                     )
                     continuation.resume(returning: response)
@@ -1338,12 +1335,13 @@ final class TerminalControllerSocketSecurityTests {
         )
         try waitForSocket(at: socketPath)
 
+        let pinnedWorkspaceID = pinnedWorkspace.id.uuidString
         let response = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let response = try self.sendV2Request(
                         method: "workspace.close",
-                        params: ["workspace_id": pinnedWorkspace.id.uuidString],
+                        params: ["workspace_id": pinnedWorkspaceID],
                         to: socketPath
                     )
                     continuation.resume(returning: response)

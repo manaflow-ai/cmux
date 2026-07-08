@@ -38,7 +38,7 @@ public struct SystemNetworkInterfaceAddressProvider: NetworkInterfaceAddressProv
             results.append(
                 NetworkInterfaceAddress(
                     interfaceName: String(cString: entry.pointee.ifa_name),
-                    address: String(cString: host)
+                    address: String(decoding: host.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
                 )
             )
         }

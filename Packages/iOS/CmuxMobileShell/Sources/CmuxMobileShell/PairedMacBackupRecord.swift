@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import Foundation
+import Foundation
 
 /// One saved-host backup record on the wire.
 public struct PairedMacBackupRecord: Codable, Sendable, Equatable {

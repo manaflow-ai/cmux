@@ -2,7 +2,6 @@ import Combine
 import enum CmuxWorkspaces.CmuxSurfaceTabBarBuiltInAction
 import struct CmuxWorkspaces.CmuxWorkspaceDefinition
 import XCTest
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
