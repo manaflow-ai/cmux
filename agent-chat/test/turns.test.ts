@@ -2,6 +2,9 @@ import type { Block } from "../src/session";
 import { activityRowLabel, groupTurns, summarizeTurnActivity } from "../src/turns";
 import { scrollCompensationDelta, virtualRange } from "../src/hooks/useVirtualTurns";
 
+(globalThis as any).location ??= { pathname: "/" };
+const { disclosureHeightKeyframes, disclosureShouldRender } = await import("../src/components/Transcript");
+
 const activity: Block[] = [
   { kind: "tool", toolId: "read", name: "cat", detail: "AGENTS.md", status: "ok" },
   { kind: "tool", toolId: "search", name: "rg", detail: "RepositoryPicker", status: "ok" },
@@ -96,6 +99,17 @@ if (estimatedDelta !== -40) {
 const visibleDelta = scrollCompensationDelta(3, 3, 100, 140, 260);
 if (visibleDelta !== 0) {
   throw new Error(`measurement at/after anchor should not compensate, got ${visibleDelta}`);
+}
+if (!disclosureShouldRender(true, false) || !disclosureShouldRender(false, true) || disclosureShouldRender(false, false)) {
+  throw new Error("disclosure presence state should keep children mounted while opening or closing only");
+}
+const interruptedOpen = disclosureHeightKeyframes(true, 42, 180);
+if (interruptedOpen[0].height !== "42px" || interruptedOpen[1].height !== "180px") {
+  throw new Error(`disclosure open should animate from current measured height to target: ${JSON.stringify(interruptedOpen)}`);
+}
+const interruptedClose = disclosureHeightKeyframes(false, 77, 180);
+if (interruptedClose[0].height !== "77px" || interruptedClose[1].height !== "0px") {
+  throw new Error(`disclosure close should animate from current measured height to zero: ${JSON.stringify(interruptedClose)}`);
 }
 
 console.log("turn summary and virtualization: OK");

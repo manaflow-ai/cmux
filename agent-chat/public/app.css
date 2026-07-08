@@ -414,24 +414,17 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .code-copy:hover { color: var(--text); background: var(--bg-hover); }
 
 .disclosure-motion {
-  display: grid;
-  grid-template-rows: 0fr;
+  display: block;
+  height: 0;
   opacity: 0;
   overflow: hidden;
-  transition:
-    grid-template-rows 120ms ease-in,
-    opacity 80ms ease-in;
 }
 .disclosure-motion[data-open="true"] {
-  grid-template-rows: 1fr;
   opacity: 1;
-  transition:
-    grid-template-rows 160ms ease-out,
-    opacity 110ms ease-out 35ms;
 }
 .disclosure-motion-inner {
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .activity-caret-icon {
   display: block;

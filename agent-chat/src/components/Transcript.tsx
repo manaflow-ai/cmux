@@ -1,5 +1,5 @@
 import { Popover } from "@base-ui-components/react/popover";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
 import { activityIndicatorState, activityTailKey } from "../activity";
@@ -13,39 +13,109 @@ import { activityRowLabel, groupTurns, summarizeTurnActivity, type TurnGroup } f
 export type ToolBlockVariant = "card" | "inline" | "rail" | "oneliner" | "terminal";
 export const TOOL_BLOCK_VARIANT: ToolBlockVariant = "inline";
 
+const DISCLOSURE_OPEN_MS = 180;
 const DISCLOSURE_COLLAPSE_MS = 130;
+
+export function disclosureShouldRender(open: boolean, present: boolean): boolean {
+  return open || present;
+}
+
+export function disclosureHeightKeyframes(open: boolean, from: number, measuredHeight: number): Keyframe[] {
+  const to = open ? measuredHeight : 0;
+  return [
+    { height: `${Math.max(0, from)}px`, opacity: from > 0 ? 1 : 0 },
+    { height: `${Math.max(0, to)}px`, opacity: open ? 1 : 0 },
+  ];
+}
 
 function DisclosureMotion({ open, className, children }: { open: boolean; className?: string; children: () => ReactNode }) {
   const [present, setPresent] = useState(open);
   const [animating, setAnimating] = useState(false);
   const nodeRef = useRef<HTMLDivElement>(null);
-  const shouldRender = open || present;
+  const innerRef = useRef<HTMLDivElement>(null);
+  const animationRef = useRef<Animation | null>(null);
+  const mounted = useRef(false);
+  const shouldRender = disclosureShouldRender(open, present);
 
   const requestRemeasure = () => {
     nodeRef.current?.closest(".turn-virtual-row")?.dispatchEvent(new Event("virtual-row-remeasure"));
   };
 
-  useEffect(() => {
-    if (!open && !present) {
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    const inner = innerRef.current;
+    if (!node) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!mounted.current) {
+      mounted.current = true;
+      node.style.height = open ? "auto" : "0px";
+      node.style.opacity = open ? "1" : "0";
       setAnimating(false);
       return;
     }
-    setAnimating(true);
-    if (open) {
+
+    if (open && !present) {
       setPresent(true);
-      const timeout = window.setTimeout(() => {
-        setAnimating(false);
-        requestRemeasure();
-      }, 210);
-      return () => window.clearTimeout(timeout);
+      return;
     }
-    if (!present) return;
-    const timeout = window.setTimeout(() => {
-      setPresent(false);
+    if (!open && !present) {
+      animationRef.current?.cancel();
+      animationRef.current = null;
+      node.style.height = "0px";
+      node.style.opacity = "0";
+      setAnimating(false);
+      return;
+    }
+    if (!inner) return;
+
+    const currentHeight = Number.parseFloat(getComputedStyle(node).height) || node.getBoundingClientRect().height || 0;
+    animationRef.current?.cancel();
+    animationRef.current = null;
+
+    if (reduceMotion) {
+      node.style.height = open ? "auto" : "0px";
+      node.style.opacity = open ? "1" : "0";
+      setAnimating(false);
+      if (!open) setPresent(false);
+      requestRemeasure();
+      return;
+    }
+
+    const measuredHeight = inner.scrollHeight;
+    const keyframes = disclosureHeightKeyframes(open, currentHeight, measuredHeight);
+    const animation = node.animate(keyframes, {
+      duration: open ? DISCLOSURE_OPEN_MS : DISCLOSURE_COLLAPSE_MS,
+      easing: open ? "cubic-bezier(.16, 1, .3, 1)" : "ease-in",
+    });
+    animationRef.current = animation;
+    setAnimating(true);
+    node.style.height = `${currentHeight}px`;
+    node.style.opacity = String(currentHeight > 0 ? 1 : 0);
+
+    animation.onfinish = () => {
+      if (animationRef.current !== animation) return;
+      animationRef.current = null;
+      if (open) {
+        node.style.height = "auto";
+        node.style.opacity = "1";
+      } else {
+        node.style.height = "0px";
+        node.style.opacity = "0";
+        setPresent(false);
+      }
       setAnimating(false);
       requestRemeasure();
-    }, DISCLOSURE_COLLAPSE_MS);
-    return () => window.clearTimeout(timeout);
+    };
+    animation.oncancel = () => {
+      if (animationRef.current === animation) {
+        animationRef.current = null;
+        setAnimating(false);
+      }
+    };
+    return () => {
+      if (animationRef.current === animation) animation.cancel();
+    };
   }, [open, present]);
 
   return (
@@ -55,13 +125,8 @@ function DisclosureMotion({ open, className, children }: { open: boolean; classN
       data-open={open ? "true" : "false"}
       data-disclosure-animating={animating ? "true" : undefined}
       aria-hidden={shouldRender ? undefined : true}
-      onTransitionEnd={(event) => {
-        if (event.target !== event.currentTarget) return;
-        setAnimating(false);
-        requestRemeasure();
-      }}
     >
-      <div className="disclosure-motion-inner">{shouldRender ? children() : null}</div>
+      <div ref={innerRef} className="disclosure-motion-inner">{shouldRender ? children() : null}</div>
     </div>
   );
 }
