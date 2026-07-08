@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CmuxTerminal
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -20,7 +20,8 @@ import XCTest
 /// a replay guard at the dispatch chokepoint the event ping-pongs forever and
 /// overflows the main-thread stack.
 @MainActor
-final class WindowKeyDownReplayGuardTests: XCTestCase {
+@Suite(.serialized)
+struct WindowKeyDownReplayGuardTests {
 
     /// First responder stub that models the re-entrant AppKit behavior: an
     /// unhandled keyDown flows back into `NSWindow.performKeyEquivalent` with
@@ -78,7 +79,7 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
 
         let responder = ReplayingKeyDownView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
         container.addSubview(responder)
-        XCTAssertTrue(window.makeFirstResponder(responder))
+        #expect(window.makeFirstResponder(responder))
         return (window, responder)
     }
 
@@ -94,7 +95,7 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
 
         let terminal = TerminalCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
         container.addSubview(terminal)
-        XCTAssertTrue(window.makeFirstResponder(terminal))
+        #expect(window.makeFirstResponder(terminal))
         return (window, terminal)
     }
 
@@ -114,7 +115,7 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         textView.isEditable = true
         terminal.addSubview(textView)
         container.addSubview(terminal)
-        XCTAssertTrue(window.makeFirstResponder(textView))
+        #expect(window.makeFirstResponder(textView))
         return (window, terminal, textView)
     }
 
@@ -194,20 +195,20 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         )
     }
 
-    func testPrintableOptionTextKeyDownIsForceDispatchedExactlyOncePerEvent() {
+    @Test
+    func printableOptionTextKeyDownIsForceDispatchedExactlyOncePerEvent() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
         let (window, responder) = makeWindowWithReplayingResponder()
         guard let event = makeOptionTextKeyDownEvent(windowNumber: window.windowNumber) else {
-            XCTFail("Failed to construct Option+A key event")
+            Issue.record("Failed to construct Option+A key event")
             return
         }
 
-        XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(
-            responder.keyDownEvents.count,
-            1,
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(
+            responder.keyDownEvents.count == 1,
             "The same in-flight key event must not be force-dispatched into keyDown again " +
             "while the first dispatch is still on the stack; unbounded re-dispatch is the " +
             "infinite key-routing loop from " +
@@ -215,7 +216,8 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         )
     }
 
-    func testDistinctKeyDownEventsAreEachForceDispatched() {
+    @Test
+    func distinctKeyDownEventsAreEachForceDispatched() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -233,18 +235,19 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
                 timestamp: baseTimestamp + 0.05
             )
         else {
-            XCTFail("Failed to construct Option+A key events")
+            Issue.record("Failed to construct Option+A key events")
             return
         }
 
         // Distinct events (key autorepeat, repeat typing) must each be
         // force-dispatched; the replay guard is per-event, not a throttle.
-        XCTAssertTrue(window.performKeyEquivalent(with: first))
-        XCTAssertTrue(window.performKeyEquivalent(with: second))
-        XCTAssertEqual(responder.keyDownEvents.count, 2)
+        #expect(window.performKeyEquivalent(with: first))
+        #expect(window.performKeyEquivalent(with: second))
+        #expect(responder.keyDownEvents.count == 2)
     }
 
-    func testSameEventIsForceDispatchedAgainAfterPriorDispatchUnwinds() {
+    @Test
+    func sameEventIsForceDispatchedAgainAfterPriorDispatchUnwinds() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -252,19 +255,20 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         responder.replaysRemaining = 0
 
         guard let event = makeOptionTextKeyDownEvent(windowNumber: window.windowNumber) else {
-            XCTFail("Failed to construct Option+A key event")
+            Issue.record("Failed to construct Option+A key event")
             return
         }
 
         // WebKit legitimately re-sends an unhandled key event through
         // NSApp.sendEvent after the original dispatch has fully unwound. The
         // guard is stack-scoped, so the same event must dispatch again here.
-        XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(responder.keyDownEvents.count, 2)
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(responder.keyDownEvents.count == 2)
     }
 
-    func testTerminalUndoRedoCommandEquivalentsBypassAppKitUndoMenu() {
+    @Test
+    func terminalUndoRedoCommandEquivalentsBypassAppKitUndoMenu() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -280,27 +284,26 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
 
         for modifiers in [[.command], [.command, .shift]] as [NSEvent.ModifierFlags] {
             guard let event = makeCommandZKeyDownEvent(modifiers: modifiers, windowNumber: window.windowNumber) else {
-                XCTFail("Failed to construct Undo/Redo key event")
+                Issue.record("Failed to construct Undo/Redo key event")
                 return
             }
 
-            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            #expect(window.performKeyEquivalent(with: event))
         }
 
-        XCTAssertEqual(
-            probe.callCount,
-            0,
+        #expect(
+            probe.callCount == 0,
             "Terminal-focused Cmd+Z/Cmd+Shift+Z must not invoke AppKit menu Undo/Redo; " +
             "that path can dispatch a stale NSUndoManager target and crash in _NSUndoStack.popAndInvoke"
         )
-        XCTAssertEqual(
-            terminal.afterMenuMissEvents.map { $0.charactersIgnoringModifiers },
-            ["z", "z"],
+        #expect(
+            terminal.afterMenuMissEvents.map { $0.charactersIgnoringModifiers } == ["z", "z"],
             "Undo/Redo command equivalents should be routed to the terminal shortcut path instead"
         )
     }
 
-    func testTerminalHostedEditableResponderKeepsLocalUndo() {
+    @Test
+    func terminalHostedEditableResponderKeepsLocalUndo() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -314,12 +317,12 @@ final class WindowKeyDownReplayGuardTests: XCTestCase {
         }
 
         guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
-            XCTFail("Failed to construct Undo key event")
+            Issue.record("Failed to construct Undo key event")
             return
         }
 
-        XCTAssertTrue(window.performKeyEquivalent(with: event))
-        XCTAssertEqual(textView.undoCallCount, 1)
-        XCTAssertTrue(terminal.afterMenuMissEvents.isEmpty)
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(textView.undoCallCount == 1)
+        #expect(terminal.afterMenuMissEvents.isEmpty)
     }
 }
