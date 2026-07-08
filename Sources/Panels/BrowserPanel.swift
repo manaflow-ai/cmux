@@ -2795,8 +2795,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
-    private let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
-    private var hasCommittedDocumentSinceWebViewReplacement = false
+    let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
+    var hasCommittedDocumentSinceWebViewReplacement = false
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
@@ -3414,23 +3414,6 @@ final class BrowserPanel: Panel, ObservableObject {
             cachePolicy: cachePolicy
         )
         return true
-    }
-
-    private func noteDiscardedWebViewRestoreNavigationStarted() {
-        hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "navigation")
-        refreshWebViewLifecycleState()
-    }
-
-    private func noteDiscardedWebViewRestoreNavigationCommitted(reason: String = "navigation_commit") {
-        guard hiddenWebViewDiscardManager.noteRestoreNavigationCommitted(reason: reason) else {
-            return
-        }
-        refreshWebViewLifecycleState()
-    }
-
-    private func noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: String) {
-        hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: reason)
-        refreshWebViewLifecycleState()
     }
 
     @discardableResult

@@ -8,6 +8,29 @@ extension BrowserPanel {
         return !Self.isAboutBlankURL(committedURL)
     }
 
+    func noteDiscardedWebViewRestoreNavigationStarted() {
+        if hiddenWebViewDiscardManager.isDiscardedForMemory {
+            // Each restore attempt tracks its own commit. Without this reset, a
+            // previous attempt's error-page commit would satisfy the stall
+            // detector forever and a silently stalled retry could never re-arm.
+            hasCommittedDocumentSinceWebViewReplacement = false
+        }
+        hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "navigation")
+        refreshWebViewLifecycleState()
+    }
+
+    func noteDiscardedWebViewRestoreNavigationCommitted(reason: String = "navigation_commit") {
+        guard hiddenWebViewDiscardManager.noteRestoreNavigationCommitted(reason: reason) else {
+            return
+        }
+        refreshWebViewLifecycleState()
+    }
+
+    func noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: String) {
+        hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: reason)
+        refreshWebViewLifecycleState()
+    }
+
     /// Restore fallback for a discarded pane with no restorable document (nil
     /// or about:blank restore URL): navigating would wait on a commit that
     /// ``shouldTreatCommitAsDiscardedRestoreCommit(from:)`` ignores, leaving the
