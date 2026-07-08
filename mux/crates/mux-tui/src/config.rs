@@ -13,7 +13,10 @@
 //!     "tab_bg": 236,
 //!     "tab_active_bg": null,
 //!     "border_active": "#87afd7",
-//!     "border_inactive": "#444444"
+//!     "border_inactive": "#444444",
+//!     "notification_info": "#87afd7",
+//!     "notification_warning": "#d7af5f",
+//!     "notification_error": "#d75f5f"
 //!   },
 //!   "tabs": {
 //!     "min_width": 7,
@@ -110,6 +113,9 @@ struct RawTheme {
     tab_active_bg: Option<ColorValue>,
     border_active: Option<ColorValue>,
     border_inactive: Option<ColorValue>,
+    notification_info: Option<ColorValue>,
+    notification_warning: Option<ColorValue>,
+    notification_error: Option<ColorValue>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -196,6 +202,9 @@ pub struct Theme {
     pub tab_active_bg: Option<Color>,
     pub border_active: Color,
     pub border_inactive: Color,
+    pub notification_info: Color,
+    pub notification_warning: Color,
+    pub notification_error: Color,
 }
 
 impl Default for Theme {
@@ -211,6 +220,9 @@ impl Default for Theme {
             tab_active_bg: None,
             border_active: Color::Indexed(110),
             border_inactive: Color::Indexed(238),
+            notification_info: Color::Indexed(110),
+            notification_warning: Color::Indexed(179),
+            notification_error: Color::Indexed(167),
         }
     }
 }
@@ -652,6 +664,15 @@ pub fn load() -> Config {
     }
     if let Some(c) = t.border_inactive.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_inactive = c;
+    }
+    if let Some(c) = t.notification_info.as_ref().and_then(ColorValue::to_color) {
+        config.theme.notification_info = c;
+    }
+    if let Some(c) = t.notification_warning.as_ref().and_then(ColorValue::to_color) {
+        config.theme.notification_warning = c;
+    }
+    if let Some(c) = t.notification_error.as_ref().and_then(ColorValue::to_color) {
+        config.theme.notification_error = c;
     }
     if let Some(w) = raw.tabs.min_width {
         config.tabs.min_width = w.clamp(3, 40);

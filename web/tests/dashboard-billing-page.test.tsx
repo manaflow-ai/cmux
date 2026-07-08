@@ -20,8 +20,8 @@ const proUser = {
   isAnonymous: false,
   primaryEmail: "pro@example.com",
   clientReadOnlyMetadata: {},
-  selectedTeam: null as null | { id: string; displayName?: string },
-  listTeams: mock(async () => [] as Array<{ id: string; displayName?: string }>),
+  selectedTeam: null as null | { id: string; displayName?: string; clientReadOnlyMetadata?: unknown },
+  listTeams: mock(async () => [] as Array<{ id: string; displayName?: string; clientReadOnlyMetadata?: unknown }>),
   listProducts: mock(async () =>
     Object.assign(
       stackProductsActive
@@ -90,6 +90,7 @@ describe("dashboard billing page", () => {
     customerRows = [];
     proUser.selectedTeam = null;
     proUser.listTeams.mockClear();
+    mockImplementation(proUser.listTeams, async () => []);
     proUser.listProducts.mockClear();
     proUser.update.mockClear();
   });
@@ -160,6 +161,33 @@ describe("dashboard billing page", () => {
     expect(html).toContain("$35/seat/month");
     expect(html).toContain('name="scope" value="team"');
     expect(html).toContain('href="/api/billing/portal?scope=team"');
+  });
+
+  test("renders active Stripe Team for a paid team when no team is selected", async () => {
+    mockImplementation(proUser.listTeams, async () => [
+      { id: "team-free", displayName: "Team Free", clientReadOnlyMetadata: { cmuxPlan: "free" } },
+      { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
+    ]);
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Team");
+    expect(html).toContain("Team Pro renews on");
+    expect(html).toContain('name="scope" value="team"');
+    expect(html).not.toContain("Upgrade when you need cloud agents or team billing.");
   });
 
   test("renders legacy Stack Pro without Stripe self-serve actions", async () => {
@@ -272,5 +300,14 @@ function interpolate(message: string, values?: Record<string, unknown>) {
   return Object.entries(values).reduce(
     (result, [key, value]) => result.replaceAll(`{${key}}`, String(value)),
     message,
+  );
+}
+
+function mockImplementation(
+  fn: unknown,
+  implementation: (...args: never[]) => unknown,
+) {
+  (fn as { mockImplementation(next: typeof implementation): void }).mockImplementation(
+    implementation,
   );
 }

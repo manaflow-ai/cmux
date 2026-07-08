@@ -119,6 +119,7 @@ pub struct SurfaceMeta {
     pub id: SurfaceId,
     /// User-assigned tab name (rename tab); shared by every surface kind.
     pub(crate) name: Mutex<Option<String>>,
+    pub(crate) selection: Mutex<Option<String>>,
 }
 
 /// A pane tab runtime.
@@ -149,6 +150,9 @@ pub struct PtySurface {
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
+    pid: Option<u32>,
+    command: Vec<String>,
+    cwd: Option<String>,
     dead: AtomicBool,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
@@ -194,13 +198,16 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
-        if let Some(cwd) = opts.cwd.as_deref() {
+        let cwd = opts
+            .cwd
+            .clone()
+            .or_else(|| platform::home_dir().map(|path| path.to_string_lossy().into_owned()));
+        if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
-        } else if let Some(home) = platform::home_dir() {
-            cmd.cwd(home);
         }
 
         let mut child = pty.slave.spawn_command(cmd)?;
+        let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();
         let mut reader = pty.master.try_clone_reader()?;
@@ -238,11 +245,14 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg);
         }
         let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None) },
+            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
+            pid,
+            command: argv,
+            cwd,
             dead: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
@@ -336,7 +346,7 @@ impl Surface {
         }
 
         Ok(Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id, name: Mutex::new(None) },
+            meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
             writer: Mutex::new(Box::new(std::io::sink())),
             master: Mutex::new(Box::new(TestMasterPty {
@@ -348,6 +358,9 @@ impl Surface {
                 }),
             })),
             killer: Mutex::new(Box::new(TestChildKiller)),
+            pid: Some(id as u32),
+            command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
+            cwd: opts.cwd,
             dead: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
@@ -422,6 +435,14 @@ impl Surface {
         self.name.lock().unwrap().clone()
     }
 
+    pub fn set_selection_text(&self, text: Option<String>) {
+        *self.selection.lock().unwrap() = text;
+    }
+
+    pub fn selection_text(&self) -> Option<String> {
+        self.selection.lock().unwrap().clone()
+    }
+
     /// Snapshot the terminal into `rs` (holds the terminal lock only for
     /// the duration of the update).
     pub fn snapshot(&self, rs: &mut RenderState) -> ghostty_vt::Result<()> {
@@ -467,6 +488,18 @@ impl Surface {
 
     pub fn pwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
+    }
+
+    pub fn process_id(&self) -> Option<u32> {
+        self.as_pty().and_then(|pty| pty.pid)
+    }
+
+    pub fn spawn_command(&self) -> Option<String> {
+        self.as_pty().map(|pty| pty.command.join(" "))
+    }
+
+    pub fn spawn_cwd(&self) -> Option<String> {
+        self.as_pty().and_then(|pty| pty.cwd.clone())
     }
 
     pub fn is_dead(&self) -> bool {
