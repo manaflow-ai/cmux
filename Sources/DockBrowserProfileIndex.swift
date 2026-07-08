@@ -1,12 +1,6 @@
 import Foundation
 
 struct DockBrowserProfileIndex {
-    struct Resolution: Equatable, Sendable {
-        let id: UUID
-        let displayName: String
-        let isDefault: Bool
-    }
-
     private let defaultProfileID: UUID
     private let defaultProfileDisplayName: String
     private var displayNamesByID: [UUID: String] = [:]
@@ -23,9 +17,9 @@ struct DockBrowserProfileIndex {
         addReference(slug, id: id)
     }
 
-    func resolve(_ reference: String?) throws -> Resolution {
+    func resolve(_ reference: String?) throws -> DockBrowserProfileResolution {
         guard let reference else {
-            return Resolution(
+            return DockBrowserProfileResolution(
                 id: defaultProfileID,
                 displayName: defaultProfileDisplayName,
                 isDefault: true
@@ -34,7 +28,7 @@ struct DockBrowserProfileIndex {
 
         let normalizedReference = reference.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedReference.isEmpty else {
-            return Resolution(
+            return DockBrowserProfileResolution(
                 id: defaultProfileID,
                 displayName: defaultProfileDisplayName,
                 isDefault: true
@@ -45,7 +39,7 @@ struct DockBrowserProfileIndex {
             guard let displayName = displayNamesByID[uuid] else {
                 throw Self.unknownProfileError(normalizedReference)
             }
-            return Resolution(
+            return DockBrowserProfileResolution(
                 id: uuid,
                 displayName: displayName,
                 isDefault: uuid == defaultProfileID
@@ -55,7 +49,7 @@ struct DockBrowserProfileIndex {
         let ids = idsByReferenceKey[Self.lookupKey(normalizedReference)] ?? []
         guard ids.count != 1 else {
             let id = ids[0]
-            return Resolution(
+            return DockBrowserProfileResolution(
                 id: id,
                 displayName: displayNamesByID[id] ?? normalizedReference,
                 isDefault: id == defaultProfileID

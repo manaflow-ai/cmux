@@ -12,7 +12,7 @@ import SwiftUI
 final class DockSplitStore: BonsplitDelegate {
     typealias ResolvedConfigControl = (
         definition: DockControlDefinition,
-        browserProfile: DockBrowserProfileIndex.Resolution?
+        browserProfile: DockBrowserProfileResolution?
     )
 
     let workspaceId: UUID
@@ -702,7 +702,7 @@ final class DockSplitStore: BonsplitDelegate {
         var resolvedControls: [ResolvedConfigControl] = []
         resolvedControls.reserveCapacity(definitions.count)
         for definition in definitions {
-            let resolvedProfile: DockBrowserProfileIndex.Resolution?
+            let resolvedProfile: DockBrowserProfileResolution?
             if case .browser(_, let profile) = definition.variant,
                let browserProfileIndex {
                 resolvedProfile = try browserProfileIndex.resolve(profile)
@@ -815,7 +815,7 @@ final class DockSplitStore: BonsplitDelegate {
         baseDirectory: String
     ) -> DockTrustControlSummary {
         let control = resolvedControl.definition
-        let detail: DockTrustControlSummary.Detail
+        let detail: DockTrustControlSummaryDetail
         switch control.variant {
         case .command(let command):
             detail = .command(

@@ -1,11 +1,5 @@
 import Foundation
 
-enum DockControlVariant: Equatable, Sendable {
-    case command(String)
-    case terminal
-    case browser(url: String, profile: String?)
-}
-
 /// A single Dock control loaded from `dock.json`.
 struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     let id: String

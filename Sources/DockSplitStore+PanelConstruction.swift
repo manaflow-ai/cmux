@@ -43,7 +43,7 @@ extension DockSplitStore {
     func makePanel(
         for def: DockControlDefinition,
         baseDirectory: String,
-        resolvedBrowserProfile: DockBrowserProfileIndex.Resolution?
+        resolvedBrowserProfile: DockBrowserProfileResolution?
     ) -> (any Panel)? {
         switch def.variant {
         case .command(let command):
