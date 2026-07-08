@@ -3029,7 +3029,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let hostId: ObjectIdentifier
         let paneId: UUID
     }
-    private enum DeveloperToolsPresentation {
+    enum DeveloperToolsPresentation {
         case attached
         case detached
     }
@@ -3125,8 +3125,8 @@ final class BrowserPanel: Panel, ObservableObject {
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-    private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
-    private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
+    var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
+    var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
@@ -3147,25 +3147,25 @@ final class BrowserPanel: Panel, ObservableObject {
     /// CSS owns the background. See `applyWebViewBackground(color:)`.
     private let usesTransparentBackground: Bool
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
-    private var developerToolsDetachedOpenGraceDeadline: Date?
-    private var developerToolsTransitionTargetVisible: Bool?
-    private var pendingDeveloperToolsTransitionTargetVisible: Bool?
-    private var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
+    var developerToolsDetachedOpenGraceDeadline: Date?
+    var developerToolsTransitionTargetVisible: Bool?
+    var pendingDeveloperToolsTransitionTargetVisible: Bool?
+    var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
     private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
-    private let developerToolsTransitionSettleDelay: TimeInterval = 0.15
-    private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
-    private let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
-    private var developerToolsLastAttachedHostAt: Date?
-    private var developerToolsLastKnownVisibleAt: Date?
-    private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
+    let developerToolsTransitionSettleDelay: TimeInterval = 0.15
+    let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
+    let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
+    var developerToolsLastAttachedHostAt: Date?
+    var developerToolsLastKnownVisibleAt: Date?
+    var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
     // One-shot DispatchSourceTimer bridges WebKit's synchronous window-close
     // callback to a bounded redock deadline.
-    private var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
-    private var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
-    private var detachedDeveloperToolsWindowDismissalTasks: [Task<Void, Never>] = []
-    private var developerToolsDockControlNormalizationTask: Task<Void, Never>?
-    private var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
-    private var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
+    var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
+    var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
+    var detachedDeveloperToolsWindowDismissalTasks: [Task<Void, Never>] = []
+    var developerToolsDockControlNormalizationTask: Task<Void, Never>?
+    var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
+    var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
     private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
@@ -3328,7 +3328,7 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.cancel()
     }
 
-    private func reevaluateHiddenWebViewDiscardScheduling(reason: String) {
+    func reevaluateHiddenWebViewDiscardScheduling(reason: String) {
         if isWebViewVisibleInUI {
             cancelHiddenWebViewDiscard()
         } else {
@@ -6484,15 +6484,8 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
     }
 
-    private func detachedDeveloperToolsWindowsForPanel() -> [NSWindow] {
-        NSApp.windows.filter { ($0.isVisible || $0.isMiniaturized) && detachedDeveloperToolsWindowBelongsToPanel($0) }
-    }
 
-    private var hasPendingDetachedDeveloperToolsWindowCloseResolution: Bool {
-        detachedDeveloperToolsWindowCloseResolutionTimer != nil
-    }
-
-    private func hasAttachedDeveloperToolsLayout() -> Bool {
+    func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
         if let frontendWebView = webView.cmuxInspectorFrontendWebView(),
            frontendWebView !== webView,
@@ -6505,7 +6498,7 @@ extension BrowserPanel {
             .contains { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
     }
 
-    private func setPreferredDeveloperToolsPresentation(_ next: DeveloperToolsPresentation) {
+    func setPreferredDeveloperToolsPresentation(_ next: DeveloperToolsPresentation) {
         guard preferredDeveloperToolsPresentation != next else { return }
         preferredDeveloperToolsPresentation = next
         DispatchQueue.main.async { [weak self] in
@@ -6513,12 +6506,12 @@ extension BrowserPanel {
         }
     }
 
-    private func setPreferredDeveloperToolsVisible(_ next: Bool) {
+    func setPreferredDeveloperToolsVisible(_ next: Bool) {
         guard preferredDeveloperToolsVisible != next else { return }
         preferredDeveloperToolsVisible = next
     }
 
-    private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
+    func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
         guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
     }
@@ -6548,305 +6541,6 @@ extension BrowserPanel {
         }
     }
 
-    private func clearDeveloperToolsVisibleIntentForHiddenState() {
-        developerToolsDetachedOpenGraceDeadline = nil
-        developerToolsLastKnownVisibleAt = nil
-        forceDeveloperToolsRefreshOnNextAttach = false
-        developerToolsPreservedVisibleIntentForNextAttach = false
-        setPreferredDeveloperToolsVisible(false)
-        cancelDeveloperToolsRestoreRetry()
-    }
-
-    private func cancelDetachedDeveloperToolsWindowCloseResolution() {
-        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
-        detachedDeveloperToolsWindowCloseResolutionTimer = nil
-        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
-    }
-
-    private func cancelDetachedDeveloperToolsWindowDismissal() {
-        for task in detachedDeveloperToolsWindowDismissalTasks {
-            task.cancel()
-        }
-        detachedDeveloperToolsWindowDismissalTasks.removeAll()
-    }
-
-    private func scheduleDeveloperToolsDockControlNormalization(
-        reason: String,
-        delay: TimeInterval = 0
-    ) {
-        developerToolsDockControlNormalizationTask?.cancel()
-        developerToolsDockControlNormalizationTask = Task { @MainActor [weak self] in
-            if delay > 0 {
-                try? await ContinuousClock().sleep(for: .seconds(delay))
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.developerToolsDockControlNormalizationTask = nil
-            self.normalizeDeveloperToolsDockControls()
-#if DEBUG
-            cmuxDebugLog(
-                "browser.devtools dockControls.normalize panel=\(self.id.uuidString.prefix(5)) " +
-                "reason=\(reason) \(self.debugDeveloperToolsStateSummary()) \(self.debugDeveloperToolsGeometrySummary())"
-            )
-#endif
-        }
-    }
-    private func installDetachedDeveloperToolsWindowCloseObserver() {
-        guard detachedDeveloperToolsWindowCloseObserver == nil else { return }
-        detachedDeveloperToolsWindowCloseObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            guard let self,
-                  let window = notification.object as? NSWindow else { return }
-            guard Thread.isMainThread else { return }
-            let handledDetachedInspector = MainActor.assumeIsolated {
-                return self.handleDetachedDeveloperToolsWindowWillClose(window)
-            }
-            _ = handledDetachedInspector
-        }
-    }
-
-    @discardableResult
-    private func handleDetachedDeveloperToolsWindowWillClose(_ window: NSWindow) -> Bool {
-        guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
-        if detachedDeveloperToolsExplicitUserCloseWindowIds.remove(ObjectIdentifier(window)) != nil {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.devtools detachedClose.userWillClose panel=\(id.uuidString.prefix(5)) " +
-                "window=\(window.windowNumber) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
-            )
-#endif
-            return true
-        }
-        // Explicit user closes are intercepted in AppDelegate before AppKit posts
-        // willClose. A raw willClose can also be WebKit's redock path, where
-        // closing _inspector here tears down the frontend while attach continues.
-        scheduleDetachedDeveloperToolsWindowCloseResolution(source: "willClose")
-#if DEBUG
-        cmuxDebugLog(
-            "browser.devtools detachedClose.defer panel=\(id.uuidString.prefix(5)) " +
-            "window=\(window.windowNumber) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
-        )
-#endif
-        return true
-    }
-
-    @discardableResult
-    func closeDeveloperToolsFromDetachedInspectorWindowUserAction(
-        _ window: NSWindow,
-        source: String
-    ) -> Bool {
-        guard noteDetachedDeveloperToolsWindowClosed(window, source: source) else { return false }
-        detachedDeveloperToolsExplicitUserCloseWindowIds.insert(ObjectIdentifier(window))
-        window.close()
-        scheduleDetachedDeveloperToolsWindowCloseResolution(
-            source: "\(source).reconcile",
-            allowInspectorTeardown: false
-        )
-        return true
-    }
-
-    func ownsDetachedDeveloperToolsWindow(_ window: NSWindow) -> Bool {
-        guard window.isVisible || window.isMiniaturized else { return false }
-        return detachedDeveloperToolsWindowBelongsToPanel(window)
-    }
-
-    @discardableResult
-    private func noteDetachedDeveloperToolsWindowClosed(
-        _ window: NSWindow,
-        source: String
-    ) -> Bool {
-        guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
-        developerToolsTransitionSettleWorkItem?.cancel()
-        developerToolsTransitionSettleWorkItem = nil
-        pendingDeveloperToolsTransitionTargetVisible = nil
-        developerToolsTransitionTargetVisible = nil
-        cancelDetachedDeveloperToolsWindowCloseResolution()
-        clearDeveloperToolsVisibleIntentForHiddenState()
-        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
-#if DEBUG
-        cmuxDebugLog(
-            "browser.devtools detachedClose.\(source) panel=\(id.uuidString.prefix(5)) " +
-            "closed=observed \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
-        )
-#endif
-        return true
-    }
-
-    private func scheduleDetachedDeveloperToolsWindowCloseResolution(
-        source: String,
-        startedAt: Date = Date(),
-        allowInspectorTeardown: Bool = true
-    ) {
-        cancelDetachedDeveloperToolsWindowCloseResolution()
-        let generation = detachedDeveloperToolsWindowCloseResolutionGeneration
-        let delayNanoseconds = Int(developerToolsAttachedManualCloseDetectionDelay * 1_000_000_000)
-        // WebKit exposes no completion callback for re-dock. It closes the
-        // detached window before the attached frontend/layout is observable.
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .nanoseconds(delayNanoseconds))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            guard self.detachedDeveloperToolsWindowCloseResolutionTimer != nil else { return }
-            guard self.detachedDeveloperToolsWindowCloseResolutionGeneration == generation else { return }
-            self.detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
-            self.detachedDeveloperToolsWindowCloseResolutionTimer = nil
-            self.resolveDetachedDeveloperToolsWindowClose(
-                source: source,
-                startedAt: startedAt,
-                allowInspectorTeardown: allowInspectorTeardown
-            )
-        }
-        detachedDeveloperToolsWindowCloseResolutionTimer = timer
-        timer.resume()
-    }
-
-    private func resolveDetachedDeveloperToolsWindowClose(
-        source: String,
-        startedAt: Date,
-        allowInspectorTeardown: Bool
-    ) {
-        guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else {
-            reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
-            return
-        }
-
-        let visible = isDeveloperToolsVisible()
-        let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
-        if hasAttachedLayout {
-            guard allowInspectorTeardown else {
-                clearDeveloperToolsVisibleIntentForHiddenState()
-                reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
-                return
-            }
-            adoptAttachedDeveloperToolsRedock(source: source)
-            return
-        }
-
-        let elapsed = Date().timeIntervalSince(startedAt)
-        // WebKit's attach path is not reflected in cmux's transition flag, so a
-        // no-window/no-layout state remains ambiguous until the bounded deadline.
-        if (preferredDeveloperToolsVisible || visible),
-           elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
-            scheduleDetachedDeveloperToolsWindowCloseResolution(
-                source: "\(source).ambiguous",
-                startedAt: startedAt,
-                allowInspectorTeardown: allowInspectorTeardown
-            )
-            return
-        }
-        let closeReason = visible ? "redockUnsupported" : "manual"
-        if visible, allowInspectorTeardown {
-            _ = WebViewInspectorTeardown.closeInspector(for: webView)
-        }
-
-        clearDeveloperToolsVisibleIntentForHiddenState()
-        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
-#if DEBUG
-        cmuxDebugLog(
-            "browser.devtools detachedClose.\(closeReason) panel=\(id.uuidString.prefix(5)) " +
-            "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
-        )
-#endif
-    }
-
-    private func adoptAttachedDeveloperToolsRedock(source: String) {
-        developerToolsDetachedOpenGraceDeadline = nil
-        forceDeveloperToolsRefreshOnNextAttach = false
-        developerToolsPreservedVisibleIntentForNextAttach = false
-        developerToolsLastKnownVisibleAt = Date()
-        developerToolsLastAttachedHostAt = Date()
-        setPreferredDeveloperToolsPresentation(.attached)
-        setPreferredDeveloperToolsVisible(true)
-        cancelDeveloperToolsRestoreRetry()
-        normalizeDeveloperToolsDockControls()
-        scheduleDeveloperToolsDockControlNormalization(
-            reason: "redockAdopt.\(source)",
-            delay: developerToolsTransitionSettleDelay
-        )
-        BrowserWindowPortalRegistry.refresh(
-            webView: webView,
-            reason: "developerToolsRedockAdopt"
-        )
-        scheduleDeveloperToolsVisibilityLossCheck()
-        reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
-#if DEBUG
-        cmuxDebugLog(
-            "browser.devtools detachedClose.redockAdopt panel=\(id.uuidString.prefix(5)) " +
-            "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
-        )
-#endif
-    }
-
-    private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
-        guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
-              let contentView = window.contentView else {
-            return false
-        }
-        guard isDetachedDeveloperToolsWindowCandidate(window, contentView: contentView) else { return false }
-        guard webView !== contentView, !webView.isDescendant(of: contentView) else { return false }
-        return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
-    }
-
-    private func isDetachedDeveloperToolsWindowCandidate(_ window: NSWindow, contentView: NSView) -> Bool {
-        if let mainWindow = webView.window, window === mainWindow {
-            return false
-        }
-        if window.identifier?.rawValue.hasPrefix("cmux.main.") == true {
-            return false
-        }
-        return !Self.windowContainsBrowserSlotView(contentView)
-    }
-
-    private static func windowContainsBrowserSlotView(_ root: NSView) -> Bool {
-        var stack = [root]
-        while let view = stack.popLast() {
-            if view is WindowBrowserSlotView {
-                return true
-            }
-            stack.append(contentsOf: view.subviews)
-        }
-        return false
-    }
-
-    private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
-        preferredDeveloperToolsPresentation == .attached
-    }
-
-    private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
-        guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
-        let detachedWindows = detachedDeveloperToolsWindowsForPanel()
-        guard !detachedWindows.isEmpty else {
-            return
-        }
-        setPreferredDeveloperToolsPresentation(.detached)
-        normalizeDeveloperToolsDockControls()
-#if DEBUG
-        cmuxDebugLog(
-            "browser.devtools strayWindow.userDetached panel=\(id.uuidString.prefix(5)) " +
-            "count=\(detachedWindows.count) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
-        )
-#endif
-        cancelDetachedDeveloperToolsWindowDismissal()
-    }
-
-    private func scheduleDetachedDeveloperToolsWindowDismissal() {
-        guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        cancelDetachedDeveloperToolsWindowDismissal()
-        for delay in [Duration.zero, .milliseconds(150)] {
-            let task = Task { @MainActor [weak self] in
-                if delay > .zero {
-                    try? await ContinuousClock().sleep(for: delay)
-                }
-                guard !Task.isCancelled else { return }
-                self?.dismissDetachedDeveloperToolsWindowsIfNeeded()
-            }
-            detachedDeveloperToolsWindowDismissalTasks.append(task)
-        }
-    }
 
     @discardableResult
     private func revealDeveloperTools(_ inspector: NSObject) -> Bool {
@@ -8207,12 +7901,12 @@ extension BrowserPanel {
 
 }
 
-private extension BrowserPanel {
-    func applyBrowserThemeModeIfNeeded() {
+extension BrowserPanel {
+    private func applyBrowserThemeModeIfNeeded() {
         BrowserThemeSettings.apply(browserThemeMode, to: webView)
     }
 
-    func scheduleDeveloperToolsRestoreRetry() {
+    private func scheduleDeveloperToolsRestoreRetry() {
         guard preferredDeveloperToolsVisible else { return }
         guard developerToolsRestoreRetryWorkItem == nil else { return }
         guard developerToolsRestoreRetryAttempt < developerToolsRestoreRetryMaxAttempts else { return }
