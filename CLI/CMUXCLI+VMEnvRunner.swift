@@ -63,15 +63,27 @@ extension CMUXCLI {
         }
         // 45KB of source bytes -> ~60KB of base64 per write; well under the
         // conservative ~128KB command-length floor across providers. Every
-        // command is idempotent (`>` truncates, concat re-reads all parts) so
-        // a lost-response retry of any exec cannot corrupt a staged script.
+        // command is idempotent (`rm -f`, `>` truncates, concat re-reads all
+        // parts) so a lost-response retry of any exec cannot corrupt a staged
+        // script.
         let sliceBytes = 45_000
         let maxCommandBytes = 90_000
         var writes: [String] = []
         for file in files {
+            let path = "\(Self.vmEnvDir)/\(file.name)"
+            if file.name.hasSuffix(".sh"), file.name != "runner.sh" {
+                // Restored snapshots carry the previous build's runner state;
+                // scrub this script's exit/pid/log (and stale slices) so the
+                // idempotent `runner.sh start` guard never mistakes an old
+                // run's exit file for this build's result. Staging always
+                // completes before any start, so in-build retry idempotency
+                // is preserved.
+                let id = String(file.name.dropLast(3))
+                writes.append("rm -f \(Self.vmEnvDir)/\(id).exit \(Self.vmEnvDir)/\(id).pid \(Self.vmEnvDir)/\(id).log \(path).slice-*")
+            }
             let data = Data(file.content.utf8)
             if data.count <= sliceBytes {
-                writes.append("printf '%s' '\(data.base64EncodedString())' | base64 -d > \(Self.vmEnvDir)/\(file.name)")
+                writes.append("printf '%s' '\(data.base64EncodedString())' | base64 -d > \(path)")
                 continue
             }
             var offset = 0
@@ -83,7 +95,7 @@ extension CMUXCLI {
                 offset += sliceBytes
                 slice += 1
             }
-            writes.append("cat \(Self.vmEnvDir)/\(file.name).slice-* > \(Self.vmEnvDir)/\(file.name)")
+            writes.append("cat \(path).slice-* > \(path)")
         }
         writes.append("chmod 755 \(Self.vmEnvDir)/runner.sh")
 
