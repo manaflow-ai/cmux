@@ -1,11 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../../db/client";
 import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../../db/schema";
 import { vaultConfig } from "../../../../../services/vault/config";
 import { withAuthedVaultApiRoute } from "../../../../../services/vault/routeHelpers";
 import { buildObjectKey, headObject } from "../../../../../services/vault/storage";
-import { getVaultStoredCompressedBytes } from "../../../../../services/vault/usage";
+import {
+  getVaultStoredCompressedBytes,
+  withVaultUserQuotaLock,
+} from "../../../../../services/vault/usage";
 import { readVaultJsonObject, validateVaultBatch } from "../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../services/vms/routeHelpers";
@@ -39,38 +42,71 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
 
   const config = vaultConfig();
   const db = cloudDb();
-  // Re-check the per-user quota at commit time so previously issued presigned
-  // URLs cannot bypass it. Snapshot dedup (onConflictDoNothing) makes this
-  // projection conservative: it may count a deduped snapshot, never undercount.
-  let projectedUserBytes = await getVaultStoredCompressedBytes(db, userId);
-  const results = [];
-  for (const item of batch.value) {
-    // Per-item so one oversized transcript cannot block the rest of the batch.
-    if (item.compressedSizeBytes > config.maxUploadBytes) {
-      results.push(itemResult(item, "error", "upload_too_large"));
-      continue;
-    }
-    if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
-      results.push(itemResult(item, "error", "quota_exceeded"));
-      continue;
-    }
+  const results = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
+    // Re-check the per-user quota at commit time under the same lock used by
+    // presign. The current grant must still match this commit, so older
+    // presigned URLs cannot outlive a later downsized reservation.
+    let projectedUserBytes = await getVaultStoredCompressedBytes(lockedDb, userId);
+    const lockedResults = [];
+    for (const item of batch.value) {
+      // Per-item so one oversized transcript cannot block the rest of the batch.
+      if (item.compressedSizeBytes > config.maxUploadBytes) {
+        lockedResults.push(itemResult(item, "error", "upload_too_large"));
+        continue;
+      }
 
-    const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
-    const object = await headObject(objectKey);
-    if (!object) {
-      results.push(itemResult(item, "error", "object_missing"));
-      continue;
-    }
-    // Some S3-compatible stores omit Content-Length on HEAD; only enforce the
-    // size check when the store reports one.
-    if (object.contentLength != null && object.contentLength !== item.compressedSizeBytes) {
-      results.push(itemResult(item, "error", "size_mismatch"));
-      continue;
-    }
+      const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
+      const now = new Date();
+      const [grant] = await lockedDb
+        .select({
+          id: vaultUploadGrants.id,
+          compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
+        })
+        .from(vaultUploadGrants)
+        .where(and(
+          eq(vaultUploadGrants.userId, userId),
+          eq(vaultUploadGrants.objectKey, objectKey),
+          gt(vaultUploadGrants.expiresAt, now),
+        ))
+        .limit(1);
+      if (!grant) {
+        const existingCommit = await findCommittedSnapshot(lockedDb, userId, item, objectKey);
+        if (existingCommit) {
+          lockedResults.push({
+            agent: item.agent,
+            agentSessionId: item.agentSessionId,
+            relPath: item.relPath,
+            status: "committed",
+            sessionId: existingCommit.sessionId,
+          });
+          continue;
+        }
+        lockedResults.push(itemResult(item, "error", "upload_grant_missing"));
+        continue;
+      }
+      if (grant.compressedSizeBytes !== item.compressedSizeBytes) {
+        lockedResults.push(itemResult(item, "error", "upload_grant_mismatch"));
+        continue;
+      }
 
-    const now = new Date();
-    const committed = await db.transaction(async (tx) => {
-      const [session] = await tx
+      if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
+        lockedResults.push(itemResult(item, "error", "quota_exceeded"));
+        continue;
+      }
+
+      const object = await headObject(objectKey);
+      if (!object) {
+        lockedResults.push(itemResult(item, "error", "object_missing"));
+        continue;
+      }
+      // Some S3-compatible stores omit Content-Length on HEAD; only enforce the
+      // size check when the store reports one.
+      if (object.contentLength != null && object.contentLength !== item.compressedSizeBytes) {
+        lockedResults.push(itemResult(item, "error", "size_mismatch"));
+        continue;
+      }
+
+      const [session] = await lockedDb
         .insert(vaultSessions)
         .values({
           userId,
@@ -100,7 +136,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         })
         .returning({ id: vaultSessions.id });
 
-      await tx
+      await lockedDb
         .insert(vaultSnapshots)
         .values({
           sessionId: session.id,
@@ -116,26 +152,50 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
 
       // The snapshot now accounts for these bytes, so release the upload
       // grant that reserved them at presign time.
-      await tx.delete(vaultUploadGrants).where(eq(vaultUploadGrants.objectKey, objectKey));
+      await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
 
-      return session;
-    });
-
-    projectedUserBytes += item.compressedSizeBytes;
-    results.push({
-      agent: item.agent,
-      agentSessionId: item.agentSessionId,
-      relPath: item.relPath,
-      status: "committed",
-      sessionId: committed.id,
-    });
-  }
+      projectedUserBytes += item.compressedSizeBytes;
+      lockedResults.push({
+        agent: item.agent,
+        agentSessionId: item.agentSessionId,
+        relPath: item.relPath,
+        status: "committed",
+        sessionId: session.id,
+      });
+    }
+    return lockedResults;
+  });
   setSpanAttributes(span, {
     "cmux.vault.result_count": results.length,
     "cmux.vault.result.committed_count": countResultStatus(results, "committed"),
     "cmux.vault.result.error_count": countResultStatus(results, "error"),
   });
   return jsonResponse({ items: results });
+}
+
+async function findCommittedSnapshot(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  item: {
+    readonly agent: string;
+    readonly agentSessionId: string;
+    readonly sha256: string;
+  },
+  objectKey: string,
+): Promise<{ readonly sessionId: string } | null> {
+  const [existing] = await db
+    .select({ sessionId: vaultSessions.id })
+    .from(vaultSessions)
+    .innerJoin(vaultSnapshots, eq(vaultSnapshots.sessionId, vaultSessions.id))
+    .where(and(
+      eq(vaultSessions.userId, userId),
+      eq(vaultSessions.agent, item.agent),
+      eq(vaultSessions.agentSessionId, item.agentSessionId),
+      eq(vaultSnapshots.sha256, item.sha256),
+      eq(vaultSnapshots.objectKey, objectKey),
+    ))
+    .limit(1);
+  return existing ?? null;
 }
 
 function itemResult(
