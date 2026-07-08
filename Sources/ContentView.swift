@@ -14162,7 +14162,11 @@ struct TabItemView: View, Equatable {
         .onReceive(
             // Session PRESENCE changes (start/stop) land in the shared agent-session
             // index; re-snapshot so the sidebar brand-icon row tracks live sessions.
-            SharedLiveAgentIndex.shared.objectWillChange
+            // Use the post-write `didReload` signal (fired AFTER `index` /
+            // `detectedBuiltInAgentIconsByPanelKey` are stored) rather than
+            // `objectWillChange`, which fires BEFORE those writes land — matching the
+            // `snapshot(...)` / `builtInAgentIcon(...)` reads in `makeWorkspaceSnapshot()`.
+            SharedLiveAgentIndex.shared.didReload
                 .receive(on: RunLoop.main)
         ) { _ in
             refreshWorkspaceSnapshot()
