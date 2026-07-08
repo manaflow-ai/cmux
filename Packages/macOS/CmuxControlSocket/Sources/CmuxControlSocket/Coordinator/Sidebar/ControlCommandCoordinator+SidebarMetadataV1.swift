@@ -325,8 +325,12 @@ extension ControlCommandCoordinator {
         default:
             return "ERROR: Usage: \(usage)"
         }
+        let tabArg = parsed.options["tab"]
+        if let tabArg, tabArg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "ERROR: Invalid --tab; expected a workspace id, ref, or index"
+        }
         guard let result = sidebarContext?.controlSidebarSetWorkspaceLoading(
-            tabArg: parsed.options["tab"],
+            tabArg: tabArg,
             key: key,
             on: on
         ) else {

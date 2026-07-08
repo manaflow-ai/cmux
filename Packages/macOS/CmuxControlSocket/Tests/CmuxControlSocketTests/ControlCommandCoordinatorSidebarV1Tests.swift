@@ -23,4 +23,25 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.workspaceLoadingCall?.key == "manual")
         #expect(context.workspaceLoadingCall?.on == true)
     }
+
+    @Test func workspaceLoadingRejectsExplicitEmptyTabBeforeMutation() {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.workspaceLoadingResult = ControlSidebarWorkspaceLoadingState(before: false, after: true)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let blankForms = [
+            "manual on --tab",
+            "manual on --tab=",
+        ]
+
+        for args in blankForms {
+            let response = coordinator.handleSidebarV1(
+                command: "workspace_loading",
+                args: args
+            )
+
+            #expect(response == "ERROR: Invalid --tab; expected a workspace id, ref, or index")
+            #expect(context.workspaceLoadingCall == nil)
+        }
+    }
 }
