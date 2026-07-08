@@ -1702,6 +1702,7 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
+        var configuredSurfaceTabBarHideMoreButton: Bool?
         let localPath = localConfigPath
         let localParseResult = localPath.map { parseConfig(at: $0) }
         let globalParseResult = parseConfig(at: globalConfigPath)
@@ -1748,6 +1749,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtons = buttons
                 configuredSurfaceTabBarButtonSourcePath = localPath
             }
+            if let hideMoreButton = localConfig.ui?.surfaceTabBar?.hideMoreButton {
+                configuredSurfaceTabBarHideMoreButton = hideMoreButton
+            }
             for command in localConfig.commands {
                 if !seenNames.contains(command.name) {
                     commands.append(command)
@@ -1787,6 +1791,10 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtons = buttons
                 configuredSurfaceTabBarButtonSourcePath = globalConfigPath
             }
+            if configuredSurfaceTabBarHideMoreButton == nil,
+               let hideMoreButton = globalConfig.ui?.surfaceTabBar?.hideMoreButton {
+                configuredSurfaceTabBarHideMoreButton = hideMoreButton
+            }
             for command in globalConfig.commands {
                 if !seenNames.contains(command.name) {
                     commands.append(command)
@@ -1803,8 +1811,16 @@ final class CmuxConfigStore: ObservableObject {
             commandSourcePaths: sourcePaths
         )
         let resolvedActionLookup = Dictionary(uniqueKeysWithValues: resolvedActions.map { ($0.id, $0) })
-        let configuredButtons = configuredSurfaceTabBarButtons ?? CmuxSurfaceTabBarButton.defaults
-        let defaultResolvedButtons = (try? CmuxSurfaceTabBarButton.defaults.map {
+        let hideMoreButton = configuredSurfaceTabBarHideMoreButton == true
+        let configuredButtons = normalizedSurfaceTabBarButtons(
+            configuredSurfaceTabBarButtons ?? CmuxSurfaceTabBarButton.defaults,
+            hideMoreButton: hideMoreButton
+        )
+        let defaultButtons = normalizedSurfaceTabBarButtons(
+            CmuxSurfaceTabBarButton.defaults,
+            hideMoreButton: hideMoreButton
+        )
+        let defaultResolvedButtons = (try? defaultButtons.map {
             try $0.resolved(actions: resolvedActionLookup, codingPath: [])
         }) ?? [
             .builtIn(.newTerminal),
@@ -2090,6 +2106,21 @@ final class CmuxConfigStore: ObservableObject {
             buttons: resolvedButtons,
             terminalCommandSourcePaths: terminalCommandSourcePaths
         )
+    }
+
+    private func normalizedSurfaceTabBarButtons(
+        _ buttons: [CmuxSurfaceTabBarButton],
+        hideMoreButton: Bool
+    ) -> [CmuxSurfaceTabBarButton] {
+        let buttonsWithoutMore = buttons.filter { !$0.action.isBuiltInMoreReference }
+        guard !hideMoreButton else {
+            return buttonsWithoutMore
+        }
+
+        var normalizedButtons = buttonsWithoutMore
+        let moreButton = buttons.last(where: { $0.action.isBuiltInMoreReference }) ?? .more
+        normalizedButtons.append(moreButton)
+        return normalizedButtons
     }
 
     private func resolvedSurfaceTabBarButton(
