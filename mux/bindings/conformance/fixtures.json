@@ -135,6 +135,68 @@
           "timeout_ms": 10000
         }
       ]
+    },
+    {
+      "name": "implemented-verbs-json",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "run", "command": "printf 'cmux-run-marker\\n'; cat", "name": "conf-run", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "wait_contains",
+          "request": { "id": 2, "cmd": "copy", "surface": "$surface0", "mode": "screen" },
+          "path": "data.text",
+          "contains": "cmux-run-marker",
+          "timeout_ms": 10000
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "wait-for", "surface": "$surface0", "pattern": "cmux-run-marker", "timeout_ms": 5000 },
+          "expect": { "id": 3, "ok": true, "data": { "matched": true } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "ids", "kind": "surface" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 5, "cmd": "notify", "title": "Build", "body": "ok", "level": "info", "surface": "$surface0" },
+          "expect": { "id": 5, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 6, "cmd": "report-agent", "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" },
+          "expect": { "id": 6, "ok": true, "data": { "state": "working", "source": "socket", "session": "conf" } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 7, "cmd": "list-agents", "surface": "$surface0", "state": "working" },
+          "expect": { "id": 7, "ok": true, "data": { "agents": [ { "surface": "$surface0", "state": "working", "source": "socket", "session": "conf" } ] } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 8, "cmd": "send-key", "surface": "$surface0", "keys": ["h", "i", "enter"] },
+          "expect": { "id": 8, "ok": true, "data": {} },
+          "match": "partial"
+        },
+        {
+          "type": "wait_contains",
+          "request": { "id": 9, "cmd": "copy", "surface": "$surface0", "mode": "scrollback" },
+          "path": "data.text",
+          "contains": "hi",
+          "timeout_ms": 10000
+        }
+      ]
     }
   ]
 }

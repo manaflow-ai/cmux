@@ -540,6 +540,7 @@ dependencies = [
  "libc",
  "mux-cdp",
  "portable-pty",
+ "regex",
  "serde",
  "serde_json",
  "tungstenite",

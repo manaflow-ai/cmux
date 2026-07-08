@@ -14,6 +14,7 @@ use ratatui::Frame;
 use super::{thumb_geometry, truncate};
 use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{tab_label, Theme};
+use crate::session::TabNotificationView;
 
 /// Border style for a pane box: active gets the accent color, idle
 /// stays dim. Notification flashing will slot in here as another state
@@ -24,6 +25,14 @@ fn border_style(theme: &Theme, focused: bool) -> Style {
         Style::default().fg(theme.border_active)
     } else {
         Style::default().fg(theme.border_inactive)
+    }
+}
+
+fn notification_color(theme: &Theme, notification: TabNotificationView) -> Color {
+    match notification.level {
+        "warning" => theme.notification_warning,
+        "error" => theme.notification_error,
+        _ => theme.notification_info,
     }
 }
 
@@ -58,7 +67,15 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let screen = frame.area();
     let theme = app.config.theme;
     let buf = frame.buffer_mut();
-    let style = border_style(&theme, focused);
+    let notification = app
+        .tree
+        .pane(area.pane)
+        .and_then(|pane| pane.tabs.get(pane.active_tab))
+        .and_then(|tab| tab.notification)
+        .filter(|notification| notification.unread);
+    let style = notification
+        .map(|notification| Style::default().fg(notification_color(&theme, notification)))
+        .unwrap_or_else(|| border_style(&theme, focused));
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     if x1 >= screen.width || y1 >= screen.height {
@@ -89,7 +106,13 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         .tabs
         .iter()
         .enumerate()
-        .map(|(i, t)| tab_label(&tab_cfg, i, &t.title, t.name.as_deref()))
+        .map(|(i, t)| {
+            let mut label = tab_label(&tab_cfg, i, &t.title, t.name.as_deref());
+            if t.notification.is_some_and(|notification| notification.unread) {
+                label.push_str(" •");
+            }
+            label
+        })
         .collect();
     let active_tab = pane.active_tab;
     let pane_id = area.pane;
@@ -204,6 +227,11 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         }
         let is_active = i == active_tab;
         let mut style = if is_active { active_style } else { base };
+        if let Some(notification) =
+            pane.tabs[i].notification.filter(|notification| notification.unread)
+        {
+            style = style.fg(notification_color(&theme, notification));
+        }
         if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);
         }

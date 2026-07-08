@@ -360,6 +360,10 @@ impl RemoteSession {
                     self.emit(MuxEvent::Bell(id));
                 }
             }
+            Some("notification") => {
+                self.tree_stale.store(true, Ordering::Release);
+                self.emit(MuxEvent::TreeChanged);
+            }
             Some("status") => {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
                     self.emit(MuxEvent::Status(message.to_string()));

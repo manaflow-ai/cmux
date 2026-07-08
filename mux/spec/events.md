@@ -6,7 +6,7 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `surface-output`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `empty` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `surface-output`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `empty` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `detached` |
 
@@ -160,6 +160,28 @@ Example:
 
 ```json
 {"event":"bell","surface":1}
+```
+
+### notification
+
+| Field | Value |
+| --- | --- |
+| event | `notification` |
+| status | implemented |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null}
+```
+
+Meaning: A notification was posted. If `surface` is present, clients should mark that surface as unread/attention until the user views it.
+
+Example:
+
+```json
+{"event":"notification","notification":44,"title":"Build failed","body":"api tests failed","level":"error","surface":1}
 ```
 
 ### empty
