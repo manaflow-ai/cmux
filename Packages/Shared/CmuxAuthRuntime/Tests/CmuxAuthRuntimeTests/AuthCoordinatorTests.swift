@@ -446,6 +446,30 @@ import Testing
         }
     }
 
+    // A single transient refresh blip (access nil while the refresh token
+    // survives) must not dead-end the Cloud VM panel: currentTokens retries the
+    // mint and recovers when the next attempt yields an access token. Regression
+    // guard for the "Cloud VM unavailable / could not refresh (Waited 0s)" report.
+    @Test func currentTokensRetriesTransientRefreshThenSucceeds() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "access-initial", refresh: "refresh-1", user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        // After bootstrap, the next currentTokens sees a transient refresh (nil)
+        // that recovers on retry.
+        await client.setAccessTokenSequence([nil, "access-recovered"])
+        let callsBefore = await client.accessTokenCallCount
+
+        let tokens = try await coordinator.currentTokens()
+
+        #expect(tokens.accessToken == "access-recovered")
+        #expect(tokens.refreshToken == "refresh-1")
+        let callsAfter = await client.accessTokenCallCount
+        #expect(callsAfter - callsBefore >= 2)
+    }
+
     @Test func completeExternalSignInPublishesSeededSession() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
