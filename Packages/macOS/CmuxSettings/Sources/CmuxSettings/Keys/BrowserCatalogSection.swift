@@ -116,5 +116,23 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserImportHintDismissed"
     )
 
+    /// Application name or bundle ID to use when opening URLs externally
+    /// instead of routing to the macOS system default browser.
+    ///
+    /// Accepts either a display name (e.g. `"Microsoft Edge"`, `"Firefox"`)
+    /// or a bundle ID (e.g. `"com.microsoft.edgemac"`). Empty string (the
+    /// default) preserves existing behaviour — `NSWorkspace` routes to
+    /// whatever the user has set as their system default browser.
+    ///
+    /// Example `~/.config/cmux/cmux.json`:
+    /// ```json
+    /// { "browser": { "preferredExternalBrowser": "Microsoft Edge" } }
+    /// ```
+    public let preferredExternalBrowser = DefaultsKey<String>(
+        id: "browser.preferredExternalBrowser",
+        defaultValue: "",
+        userDefaultsKey: "browserPreferredExternalBrowser"
+    )
+
     public init() {}
 }
