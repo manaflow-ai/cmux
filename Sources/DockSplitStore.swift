@@ -674,7 +674,7 @@ final class DockSplitStore: BonsplitDelegate {
                 if shouldSeed {
                     seed(
                         resolvedControls: resolvedControls,
-                        baseDirectory: resolution.baseDirectory,
+                        baseDirectory: resolution.baseDirectory
                     )
                 }
                 if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
