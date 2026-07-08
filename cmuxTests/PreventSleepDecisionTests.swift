@@ -35,12 +35,12 @@ struct PreventSleepDecisionTests {
         mobileConnectionCount: Int,
         expected: Bool
     ) {
-        #expect(preventSleepDesired(
+        #expect(PreventSleepDecision(
             agentsSettingEnabled: agentsSettingEnabled,
             mobileSettingEnabled: mobileSettingEnabled,
             runningAgentCount: runningAgentCount,
             mobileConnectionCount: mobileConnectionCount
-        ) == expected)
+        ).isDesired == expected)
     }
 
     @Test @MainActor

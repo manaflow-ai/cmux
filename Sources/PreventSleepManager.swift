@@ -89,12 +89,12 @@ final class PreventSleepManager {
     /// open by unauthenticated peers via the auth-exempt status verb.
     private func reconcileAssertion() {
         let power = SettingCatalog().power
-        let desired = preventSleepDesired(
+        let desired = PreventSleepDecision(
             agentsSettingEnabled: settingValue(power.preventSleepWhileAgentsRunning),
             mobileSettingEnabled: settingValue(power.preventSleepWhileMobileConnected),
             runningAgentCount: runningAgentCountsByModel.values.reduce(0, +),
             mobileConnectionCount: MobileHostService.shared.authenticatedConnectionCount
-        )
+        ).isDesired
         if desired {
             assertion.acquire()
         } else {
