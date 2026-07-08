@@ -59,6 +59,14 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
   readonly cause: unknown;
 }> {}
 
+export class VmEnvProviderUnsupportedError extends Data.TaggedError("VmEnvProviderUnsupportedError")<{
+  readonly provider: ProviderId;
+}> {}
+
+export class VmEnvLayerOwnershipError extends Data.TaggedError("VmEnvLayerOwnershipError")<{
+  readonly snapshotId: string;
+}> {}
+
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
@@ -70,7 +78,9 @@ export type VmWorkflowError =
   | VmImageConfigError
   | VmLimitExceededError
   | VmCreateCreditsInsufficientError
-  | VmBillingError;
+  | VmBillingError
+  | VmEnvProviderUnsupportedError
+  | VmEnvLayerOwnershipError;
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
@@ -108,6 +118,14 @@ export function isVmBillingError(err: unknown): err is VmBillingError {
   return (err as { _tag?: string } | null)?._tag === "VmBillingError";
 }
 
+export function isVmEnvProviderUnsupportedError(err: unknown): err is VmEnvProviderUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmEnvProviderUnsupportedError";
+}
+
+export function isVmEnvLayerOwnershipError(err: unknown): err is VmEnvLayerOwnershipError {
+  return (err as { _tag?: string } | null)?._tag === "VmEnvLayerOwnershipError";
+}
+
 export function isVmDatabaseError(err: unknown): err is VmDatabaseError {
   return (err as { _tag?: string } | null)?._tag === "VmDatabaseError";
 }
@@ -127,6 +145,8 @@ const vmWorkflowErrorTags = new Set([
   "VmLimitExceededError",
   "VmCreateCreditsInsufficientError",
   "VmBillingError",
+  "VmEnvProviderUnsupportedError",
+  "VmEnvLayerOwnershipError",
 ]);
 
 export function vmWorkflowErrorCause(err: unknown): VmWorkflowError | null {

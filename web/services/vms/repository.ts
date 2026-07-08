@@ -8,6 +8,7 @@ import {
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
+  cloudVmEnvLayers,
   cloudVmLeases,
   cloudVmSessions,
   cloudVms,
@@ -17,6 +18,7 @@ import type { ProviderId } from "./drivers";
 import { VmCreateInProgressError, VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
+export type CloudVmEnvLayerRow = typeof cloudVmEnvLayers.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
 export type CloudVmBaseGenerationRow = typeof cloudVmBaseGenerations.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
@@ -206,6 +208,27 @@ export type VmRepositoryShape = {
     readonly imageId?: string;
     readonly metadata?: Record<string, unknown>;
   }[]) => Effect.Effect<void, VmDatabaseError>;
+  readonly findDeepestEnvLayer: (input: {
+    readonly billingTeamId: string;
+    readonly provider: ProviderId;
+    readonly chainHashes: readonly string[];
+  }) => Effect.Effect<CloudVmEnvLayerRow | null, VmDatabaseError>;
+  readonly insertEnvLayer: (input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly provider: ProviderId;
+    readonly baseImageId: string;
+    readonly chainHash: string;
+    readonly stepIndex: number;
+    readonly stepName?: string | null;
+    readonly specDigest: string;
+    readonly snapshotId: string;
+  }) => Effect.Effect<CloudVmEnvLayerRow, VmDatabaseError>;
+  readonly listEnvLayers: (input: {
+    readonly billingTeamId: string;
+    readonly provider?: ProviderId;
+    readonly specDigest?: string;
+  }) => Effect.Effect<CloudVmEnvLayerRow[], VmDatabaseError>;
 };
 
 export class VmRepository extends Context.Tag("cmux/VmRepository")<
@@ -1324,5 +1347,89 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         imageId: input.imageId,
         metadata: input.metadata ?? {},
       })));
+    }),
+
+  findDeepestEnvLayer: (input) =>
+    dbEffect("findDeepestEnvLayer", async () => {
+      if (input.chainHashes.length === 0) return null;
+      const db = cloudDb();
+      const [layer] = await db
+        .select()
+        .from(cloudVmEnvLayers)
+        .where(
+          and(
+            eq(cloudVmEnvLayers.billingTeamId, input.billingTeamId),
+            eq(cloudVmEnvLayers.provider, input.provider),
+            inArray(cloudVmEnvLayers.chainHash, [...input.chainHashes]),
+            isNull(cloudVmEnvLayers.invalidatedAt),
+          ),
+        )
+        .orderBy(desc(cloudVmEnvLayers.stepIndex))
+        .limit(1);
+      if (!layer) return null;
+      await db
+        .update(cloudVmEnvLayers)
+        .set({ lastUsedAt: new Date() })
+        .where(eq(cloudVmEnvLayers.id, layer.id));
+      return layer;
+    }),
+
+  insertEnvLayer: (input) =>
+    dbEffect("insertEnvLayer", async () => {
+      const db = cloudDb();
+      const values = {
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        provider: input.provider,
+        baseImageId: input.baseImageId,
+        chainHash: input.chainHash,
+        stepIndex: input.stepIndex,
+        stepName: input.stepName ?? null,
+        specDigest: input.specDigest,
+        snapshotId: input.snapshotId,
+      };
+      try {
+        const [inserted] = await db.insert(cloudVmEnvLayers).values(values).returning();
+        return inserted;
+      } catch (err) {
+        if (pgErrorCode(err) !== "23505") throw err;
+        // A concurrent build registered this layer first; refresh its snapshot
+        // pointer so the newest snapshot wins and return the surviving row.
+        const [existing] = await db
+          .update(cloudVmEnvLayers)
+          .set({
+            snapshotId: input.snapshotId,
+            specDigest: input.specDigest,
+            stepName: input.stepName ?? null,
+            lastUsedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(cloudVmEnvLayers.billingTeamId, input.billingTeamId),
+              eq(cloudVmEnvLayers.provider, input.provider),
+              eq(cloudVmEnvLayers.chainHash, input.chainHash),
+              isNull(cloudVmEnvLayers.invalidatedAt),
+            ),
+          )
+          .returning();
+        if (!existing) throw err;
+        return existing;
+      }
+    }),
+
+  listEnvLayers: (input) =>
+    dbEffect("listEnvLayers", async () => {
+      const db = cloudDb();
+      const conditions = [
+        eq(cloudVmEnvLayers.billingTeamId, input.billingTeamId),
+        isNull(cloudVmEnvLayers.invalidatedAt),
+      ];
+      if (input.provider) conditions.push(eq(cloudVmEnvLayers.provider, input.provider));
+      if (input.specDigest) conditions.push(eq(cloudVmEnvLayers.specDigest, input.specDigest));
+      return await db
+        .select()
+        .from(cloudVmEnvLayers)
+        .where(and(...conditions))
+        .orderBy(desc(cloudVmEnvLayers.createdAt), asc(cloudVmEnvLayers.stepIndex));
     }),
 });

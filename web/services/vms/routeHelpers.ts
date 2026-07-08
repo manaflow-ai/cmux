@@ -9,6 +9,8 @@ import {
 import {
   isVmBillingError,
   isVmDatabaseError,
+  isVmEnvLayerOwnershipError,
+  isVmEnvProviderUnsupportedError,
   isVmProviderOperationError,
   vmWorkflowErrorCause,
 } from "./errors";
@@ -288,6 +290,26 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
       displayTitle: "Cloud VM state is unavailable",
       displayMessage: "Retrying is safe. The VM state database did not answer this request.",
       details: { operation: workflowError.operation },
+    });
+  }
+
+  if (isVmEnvProviderUnsupportedError(workflowError)) {
+    return vmErrorResponse({
+      error: "env_provider_unsupported",
+      status: 400,
+      message: `Cloud VM env layers are not supported on the ${workflowError.provider} provider yet.`,
+      action: "Use the freestyle provider for `cmux vm env` builds.",
+      details: { provider: workflowError.provider },
+    });
+  }
+
+  if (isVmEnvLayerOwnershipError(workflowError)) {
+    return vmErrorResponse({
+      error: "env_layer_snapshot_not_owned",
+      status: 404,
+      message: "That snapshot does not belong to this account, so it cannot be registered as an env layer.",
+      action: "Re-run `cmux vm env build`; layers must reference snapshots created by this team.",
+      details: { snapshotId: workflowError.snapshotId },
     });
   }
 

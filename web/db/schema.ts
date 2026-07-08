@@ -237,6 +237,39 @@ export const cloudVmBaseEvents = pgTable(
 );
 
 /**
+ * Environment layer cache for `cmux vm env build`. Each row maps a chain hash
+ * (hash of provider + base image + the ordered env-spec steps up to and
+ * including `stepIndex`) to the provider snapshot taken after that step
+ * succeeded. Layers are scoped to the billing team; snapshots can contain
+ * secrets, so rows are never shared across teams.
+ */
+export const cloudVmEnvLayers = pgTable(
+  "cloud_vm_env_layers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    billingTeamId: text("billing_team_id").notNull(),
+    provider: vmProvider("provider").notNull(),
+    baseImageId: text("base_image_id").notNull(),
+    chainHash: text("chain_hash").notNull(),
+    stepIndex: integer("step_index").notNull(),
+    stepName: text("step_name"),
+    specDigest: text("spec_digest").notNull(),
+    snapshotId: text("snapshot_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+    invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_env_layers_team_provider_chain_unique")
+      .on(table.billingTeamId, table.provider, table.chainHash)
+      .where(sql`${table.invalidatedAt} is null`),
+    index("cloud_vm_env_layers_team_spec_idx").on(table.billingTeamId, table.specDigest),
+    index("cloud_vm_env_layers_last_used_idx").on(table.lastUsedAt),
+  ],
+);
+
+/**
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so
  * the mere presence of a row for a user means "this user wants phone pushes".

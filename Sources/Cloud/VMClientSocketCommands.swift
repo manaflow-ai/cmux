@@ -134,6 +134,49 @@ extension TerminalController {
                 let sessions = try await VMClient.shared.listSessions(id: vmId)
                 return ["sessions": sessions.map(Self.socketWorkerCloudSessionPayload)]
             }
+        case "vm.env_resolve_layers":
+            let provider = Self.socketWorkerString(params["provider"])
+            // An empty chain_hashes list is a valid probe: the CLI uses it to learn
+            // the provider + base image id before it can compute any hashes.
+            let chainHashes = Self.socketWorkerStringArray(params["chain_hashes"])
+            return v2VmCall(id: id) {
+                let result = try await VMClient.shared.envResolveLayers(provider: provider, chainHashes: chainHashes)
+                return [
+                    "provider": result.provider,
+                    "base_image_id": result.baseImageID,
+                    "layer": result.layer.map(Self.socketWorkerEnvLayerPayload) ?? NSNull(),
+                ]
+            }
+        case "vm.env_record_layer":
+            let provider = Self.socketWorkerString(params["provider"])
+            guard let baseImageID = Self.socketWorkerString(params["base_image_id"]),
+                  let chainHash = Self.socketWorkerString(params["chain_hash"]),
+                  let specDigest = Self.socketWorkerString(params["spec_digest"]),
+                  let snapshotID = Self.socketWorkerString(params["snapshot_id"]),
+                  let stepIndex = Self.socketWorkerInt(params["step_index"]),
+                  stepIndex >= 0 else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.env_record_layer requires `base_image_id`, `chain_hash`, `spec_digest`, `snapshot_id`, and `step_index`. Use `cmux vm env build` instead of calling the socket method directly.")
+            }
+            let stepName = Self.socketWorkerString(params["step_name"])
+            return v2VmCall(id: id) {
+                let layer = try await VMClient.shared.envRecordLayer(
+                    provider: provider,
+                    baseImageID: baseImageID,
+                    chainHash: chainHash,
+                    stepIndex: stepIndex,
+                    stepName: stepName,
+                    specDigest: specDigest,
+                    snapshotID: snapshotID
+                )
+                return Self.socketWorkerEnvLayerPayload(layer)
+            }
+        case "vm.env_list_layers":
+            let provider = Self.socketWorkerString(params["provider"])
+            let specDigest = Self.socketWorkerString(params["spec_digest"])
+            return v2VmCall(id: id) {
+                let layers = try await VMClient.shared.envListLayers(provider: provider, specDigest: specDigest)
+                return ["layers": layers.map(Self.socketWorkerEnvLayerPayload)]
+            }
         case "vm.session_attach_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.session_attach_info requires `id`. Run `cmux vm ls` to find one.")
@@ -206,6 +249,17 @@ extension TerminalController {
             "tag": remote.tag ?? NSNull(),
             "lastSeen": remote.lastSeen ?? NSNull(),
             "routes": remote.routes.map { ["host": $0.host, "port": $0.port] as [String: Any] },
+        ]
+    }
+
+    private nonisolated static func socketWorkerEnvLayerPayload(_ layer: VMEnvLayer) -> [String: Any] {
+        [
+            "chain_hash": layer.chainHash,
+            "step_index": layer.stepIndex,
+            "step_name": layer.stepName ?? NSNull(),
+            "snapshot_id": layer.snapshotID,
+            "spec_digest": layer.specDigest,
+            "base_image_id": layer.baseImageID,
         ]
     }
 

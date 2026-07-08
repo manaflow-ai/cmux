@@ -29,6 +29,8 @@ db/
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
 - `/api/vm/:id/ssh-endpoint`, authenticated `POST` legacy Freestyle SSH attach.
+- `/api/vm/env/layers/resolve`, authenticated `POST` deepest cached env-layer lookup for a chain of layer hashes; also returns the base image the server would boot so clients hash against the deployed image.
+- `/api/vm/env/layers`, authenticated `POST` register / `GET` list env-layer cache entries.
 
 There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gateway has been removed.
 
@@ -56,6 +58,7 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
 - `cloud_vms` owns VM lifecycle state, provider ids, image ids, billing team/plan ids, and per-user idempotency keys.
 - `cloud_vm_leases` stores hashed PTY/RPC/SSH lease tokens, provider identity handles, session ids, expiry, and revocation timestamps.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
+- `cloud_vm_env_layers` is the env-layer cache behind `cmux vm env build`. Each row maps a chain hash (provider + base image + ordered `.cmux/env.yaml` steps) to the provider snapshot taken after that step succeeded. Rows are billing-team scoped and never shared across teams because snapshots can contain secrets. Registration re-verifies snapshot ownership via `vm.snapshot.created` usage events, and restores of cached layers flow through the existing `restoreVm` ownership + entitlement gates. Freestyle-only for now (`VmEnvProviderUnsupportedError` otherwise); the chain hash is computed client-side and treated as opaque by the server.
 
 Create idempotency is enforced by the partial unique index on `(user_id, idempotency_key)`. A retry with the same key returns the existing VM after provisioning succeeds. A concurrent retry while the first create is still provisioning returns `409` instead of starting a second paid provider VM.
 

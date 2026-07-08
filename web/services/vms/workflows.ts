@@ -21,6 +21,8 @@ import {
   VmBillingError,
   VmCreateFailedError,
   VmCreateInProgressError,
+  VmEnvLayerOwnershipError,
+  VmEnvProviderUnsupportedError,
   VmNotFoundError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
@@ -552,6 +554,101 @@ export function restoreVm(input: {
       bakedFreestyleSignedAdmin: false,
       timing: input.timing,
     });
+  });
+}
+
+/**
+ * Providers whose snapshot/restore semantics support env-layer caching
+ * (near-instant restore of a filesystem snapshot into a fresh VM with the
+ * cmuxd-remote daemon re-injected). E2B/Daytona snapshots are pause-derived or
+ * experimental and are excluded until validated.
+ */
+const ENV_LAYER_PROVIDERS: ReadonlySet<ProviderId> = new Set(["freestyle"]);
+
+function requireEnvLayerProvider(provider: ProviderId) {
+  return ENV_LAYER_PROVIDERS.has(provider)
+    ? Effect.void
+    : Effect.fail(new VmEnvProviderUnsupportedError({ provider }));
+}
+
+export function resolveEnvLayers(input: {
+  readonly billingTeamId: string;
+  readonly provider: ProviderId;
+  readonly chainHashes: readonly string[];
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    yield* requireEnvLayerProvider(input.provider);
+    return yield* repo.findDeepestEnvLayer({
+      billingTeamId: input.billingTeamId,
+      provider: input.provider,
+      chainHashes: input.chainHashes,
+    });
+  });
+}
+
+export function recordEnvLayer(input: {
+  readonly userId: string;
+  readonly billingTeamId: string;
+  readonly billingPlanId?: string | null;
+  readonly provider: ProviderId;
+  readonly baseImageId: string;
+  readonly chainHash: string;
+  readonly stepIndex: number;
+  readonly stepName?: string | null;
+  readonly specDigest: string;
+  readonly snapshotId: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    yield* requireEnvLayerProvider(input.provider);
+    const owned = yield* repo.hasOwnedSnapshot({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      provider: input.provider,
+      snapshotId: input.snapshotId,
+    });
+    if (!owned) {
+      return yield* Effect.fail(new VmEnvLayerOwnershipError({ snapshotId: input.snapshotId }));
+    }
+    const layer = yield* repo.insertEnvLayer({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      provider: input.provider,
+      baseImageId: input.baseImageId,
+      chainHash: input.chainHash,
+      stepIndex: input.stepIndex,
+      stepName: input.stepName,
+      specDigest: input.specDigest,
+      snapshotId: input.snapshotId,
+    });
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId ?? null,
+      eventType: "vm.env.layer.registered",
+      provider: input.provider,
+      imageId: input.baseImageId,
+      metadata: {
+        chainHash: input.chainHash,
+        stepIndex: input.stepIndex,
+        stepName: input.stepName ?? null,
+        specDigest: input.specDigest,
+        snapshotId: input.snapshotId,
+      },
+    });
+    return layer;
+  });
+}
+
+export function listEnvLayers(input: {
+  readonly billingTeamId: string;
+  readonly provider?: ProviderId;
+  readonly specDigest?: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    return yield* repo.listEnvLayers(input);
   });
 }
 
