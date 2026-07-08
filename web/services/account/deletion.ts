@@ -37,6 +37,7 @@ import { accountDeletionAdvisoryLockKey, accountDeletionUserHash } from "./delet
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
 const ACCOUNT_DELETION_JOB_STALE_MS = 60 * 60 * 1000;
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
+const VAULT_ACCOUNT_DELETION_BATCH_SIZE = 100;
 
 type AccountDeletionWorkflow = unknown;
 type AccountDeletionRuntime = {
@@ -280,11 +281,7 @@ export async function deleteCmuxAccountData(
   const anonymizedUserId = deletedAccountId(input.userId);
   await claimProviderlessAccountVms(input.userId, runtime);
   await destroyProviderBackedAccountVms(input.userId, runtime);
-
-  const objectKeys = await accountVaultObjectKeys(input.userId, runtime);
-  for (const key of objectKeys) {
-    await runtime.deleteObject(key);
-  }
+  await deleteAccountVaultObjects(input.userId, runtime);
 
   await cancelStripeAccountBilling(input.userId, anonymizedUserId, runtime);
 
@@ -415,38 +412,86 @@ async function providerBackedAccountVms(
     ));
 }
 
-async function accountVaultObjectKeys(
+async function deleteAccountVaultObjects(
   userId: string,
   runtime: AccountDeletionRuntime,
-): Promise<readonly string[]> {
+): Promise<void> {
+  for (;;) {
+    const deleted =
+      await deleteVaultSnapshotObjectBatch(userId, runtime) +
+      await deleteVaultUploadGrantObjectBatch(userId, runtime) +
+      await deleteVaultUploadTombstoneObjectBatch(userId, runtime);
+    if (deleted === 0) return;
+  }
+}
+
+async function deleteVaultSnapshotObjectBatch(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<number> {
   const db = runtime.cloudDb();
-  const keys = new Set<string>();
-  const snapshotRows = await db
-    .select({ objectKey: vaultSnapshots.objectKey })
+  const rows = await db
+    .select({ id: vaultSnapshots.id, objectKey: vaultSnapshots.objectKey })
     .from(vaultSnapshots)
     .innerJoin(vaultSessions, eq(vaultSnapshots.sessionId, vaultSessions.id))
-    .where(eq(vaultSessions.userId, userId));
-  const grantRows = await db
+    .where(eq(vaultSessions.userId, userId))
+    .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE);
+  if (rows.length === 0) return 0;
+
+  await deleteVaultObjectKeys(rows.map((row) => row.objectKey), runtime);
+  await db.delete(vaultSnapshots).where(inArray(vaultSnapshots.id, rows.map((row) => row.id)));
+  return rows.length;
+}
+
+async function deleteVaultUploadGrantObjectBatch(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<number> {
+  const db = runtime.cloudDb();
+  const rows = await db
     .select({
+      id: vaultUploadGrants.id,
       objectKey: vaultUploadGrants.objectKey,
       uploadObjectKey: vaultUploadGrants.uploadObjectKey,
     })
     .from(vaultUploadGrants)
-    .where(eq(vaultUploadGrants.userId, userId));
-  const tombstoneRows = await db
+    .where(eq(vaultUploadGrants.userId, userId))
+    .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE);
+  if (rows.length === 0) return 0;
+
+  await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
+  await db.delete(vaultUploadGrants).where(inArray(vaultUploadGrants.id, rows.map((row) => row.id)));
+  return rows.length;
+}
+
+async function deleteVaultUploadTombstoneObjectBatch(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<number> {
+  const db = runtime.cloudDb();
+  const rows = await db
     .select({
+      id: vaultUploadTombstones.id,
       objectKey: vaultUploadTombstones.objectKey,
       uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
     })
     .from(vaultUploadTombstones)
-    .where(eq(vaultUploadTombstones.userId, userId));
+    .where(eq(vaultUploadTombstones.userId, userId))
+    .limit(VAULT_ACCOUNT_DELETION_BATCH_SIZE);
+  if (rows.length === 0) return 0;
 
-  for (const row of snapshotRows) keys.add(row.objectKey);
-  for (const row of [...grantRows, ...tombstoneRows]) {
-    keys.add(row.objectKey);
-    keys.add(row.uploadObjectKey);
+  await deleteVaultObjectKeys(rows.flatMap((row) => [row.objectKey, row.uploadObjectKey]), runtime);
+  await db.delete(vaultUploadTombstones).where(inArray(vaultUploadTombstones.id, rows.map((row) => row.id)));
+  return rows.length;
+}
+
+async function deleteVaultObjectKeys(
+  objectKeys: readonly string[],
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  for (const key of new Set(objectKeys)) {
+    await runtime.deleteObject(key);
   }
-  return [...keys];
 }
 
 async function cancelStripeAccountBilling(
@@ -476,16 +521,59 @@ async function cancelStripeAccountBilling(
 
   const stripeClient = stripe();
   for (const customer of customerRows) {
-    await stripeClient.customers.update(customer.id, {
+    await updateStripeCustomerForAccountDeletion(stripeClient, customer.id, anonymizedUserId);
+  }
+  for (const subscription of subscriptionRows) {
+    await cancelStripeSubscriptionForAccountDeletion(stripeClient, subscription.id, anonymizedUserId);
+  }
+}
+
+async function updateStripeCustomerForAccountDeletion(
+  stripeClient: ReturnType<typeof stripe>,
+  customerId: string,
+  anonymizedUserId: string,
+): Promise<void> {
+  try {
+    await stripeClient.customers.update(customerId, {
       email: "",
       metadata: { stackUserId: "", deletedAccountId: anonymizedUserId },
     });
+  } catch (error) {
+    if (isStripeMissingResourceError(error)) return;
+    throw error;
   }
-  for (const subscription of subscriptionRows) {
-    await stripeClient.subscriptions.update(subscription.id, {
-      metadata: { stackUserId: "", deletedAccountId: anonymizedUserId },
-    });
-    await stripeClient.subscriptions.cancel(subscription.id);
+}
+
+async function cancelStripeSubscriptionForAccountDeletion(
+  stripeClient: ReturnType<typeof stripe>,
+  subscriptionId: string,
+  anonymizedUserId: string,
+): Promise<void> {
+  const subscription = await retrieveStripeSubscriptionForAccountDeletion(stripeClient, subscriptionId);
+  if (!subscription || subscription.status === "canceled") return;
+
+  await stripeClient.subscriptions.update(subscriptionId, {
+    metadata: { stackUserId: "", deletedAccountId: anonymizedUserId },
+  });
+
+  try {
+    await stripeClient.subscriptions.cancel(subscriptionId);
+  } catch (error) {
+    if (isStripeSubscriptionAlreadyCanceledError(error) || isStripeMissingResourceError(error)) return;
+    throw error;
+  }
+}
+
+async function retrieveStripeSubscriptionForAccountDeletion(
+  stripeClient: ReturnType<typeof stripe>,
+  subscriptionId: string,
+): Promise<{ readonly status: string } | null> {
+  try {
+    const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
+    return { status: subscription.status };
+  } catch (error) {
+    if (isStripeMissingResourceError(error)) return null;
+    throw error;
   }
 }
 
@@ -497,6 +585,32 @@ function accountDeletionErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message.slice(0, 500);
   if (typeof error === "string") return error.slice(0, 500);
   return "Account deletion failed";
+}
+
+function isStripeMissingResourceError(error: unknown): boolean {
+  return stripeErrorCode(error) === "resource_missing" ||
+    stripeErrorMessage(error).toLowerCase().includes("no such");
+}
+
+function isStripeSubscriptionAlreadyCanceledError(error: unknown): boolean {
+  return stripeErrorMessage(error).toLowerCase().includes("already canceled");
+}
+
+function stripeErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string") return code;
+  return stripeErrorCode((error as { cause?: unknown }).cause);
+}
+
+function stripeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return "";
 }
 
 function stackJsonObject(value: unknown): StackJsonObject {

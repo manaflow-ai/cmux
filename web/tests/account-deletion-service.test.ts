@@ -170,7 +170,12 @@ function selectBuilder(rows: () => unknown[]) {
   const builder = {
     from: () => builder,
     innerJoin: () => builder,
-    where: async () => rows(),
+    where: () => builder,
+    limit: async () => rows(),
+    then: (
+      resolve: (value: unknown[]) => unknown,
+      reject: (reason: unknown) => unknown,
+    ) => Promise.resolve(rows()).then(resolve, reject),
   };
   return builder;
 }
