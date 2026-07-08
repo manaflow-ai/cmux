@@ -4,7 +4,11 @@ import Testing
 
 @Suite struct MobileTaskTemplateTests {
     @Test func seedDefaultsUseExpectedNamesIconsAndCommands() {
-        let seeds = MobileTaskTemplate.seedDefaults
+        let seeds = MobileTaskTemplate.seedDefaults(
+            claudeName: "Claude",
+            codexName: "Codex",
+            shellName: "Shell"
+        )
 
         #expect(seeds.map(\.name) == ["Claude", "Codex", "Shell"])
         #expect(seeds.map(\.icon) == ["brain.head.profile", "sparkles", "terminal"])

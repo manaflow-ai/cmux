@@ -35,9 +35,21 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// Default templates written once into the device-local template store.
-    public static let seedDefaults: [MobileTaskTemplate] = [
-        MobileTaskTemplate(name: "Claude", icon: "brain.head.profile", command: "claude"),
-        MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex"),
-        MobileTaskTemplate(name: "Shell", icon: "terminal", command: ""),
-    ]
+    /// Display names are passed in: they are user-facing, and localization
+    /// lives at the store/UI boundary, not in this model package.
+    /// - Parameters:
+    ///   - claudeName: Localized name for the Claude template.
+    ///   - codexName: Localized name for the Codex template.
+    ///   - shellName: Localized name for the plain-shell template.
+    public static func seedDefaults(
+        claudeName: String,
+        codexName: String,
+        shellName: String
+    ) -> [MobileTaskTemplate] {
+        [
+            MobileTaskTemplate(name: claudeName, icon: "brain.head.profile", command: "claude"),
+            MobileTaskTemplate(name: codexName, icon: "sparkles", command: "codex"),
+            MobileTaskTemplate(name: shellName, icon: "terminal", command: ""),
+        ]
+    }
 }

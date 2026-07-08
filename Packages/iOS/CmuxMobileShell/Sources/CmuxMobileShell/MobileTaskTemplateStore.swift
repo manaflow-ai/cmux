@@ -1,4 +1,5 @@
 public import CmuxMobileShellModel
+internal import CmuxMobileSupport
 public import Foundation
 
 /// `UserDefaults`-backed mobile task template store. Not `@Observable`: it has
@@ -87,7 +88,11 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
 
     private func seedIfNeeded() {
         guard !defaults.bool(forKey: Self.seededKey) else { return }
-        saveTemplates(MobileTaskTemplate.seedDefaults)
+        saveTemplates(MobileTaskTemplate.seedDefaults(
+            claudeName: L10n.string("mobile.taskComposer.template.seed.claude", defaultValue: "Claude"),
+            codexName: L10n.string("mobile.taskComposer.template.seed.codex", defaultValue: "Codex"),
+            shellName: L10n.string("mobile.taskComposer.template.seed.shell", defaultValue: "Shell")
+        ))
         defaults.set(true, forKey: Self.seededKey)
     }
 
