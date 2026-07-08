@@ -2,23 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { billingEmailClaims, stripeCustomers, stripeSubscriptions } from "../db/schema";
 
-mock.module("../app/lib/stack", () => ({
-  stackServerApp: null,
-}));
-mock.module("../db/client", () => ({
-  cloudDb: () => {
-    throw new Error("test must inject a billing DB");
-  },
-}));
-mock.module("../services/asc/client", () => ({
-  isAscConfigured: () => false,
-}));
-mock.module("../services/asc/testflight", () => ({
-  removeTester: async () => {},
-}));
-mock.module("../services/errors", () => ({
-  captureAscError: () => {},
-}));
+process.env.RESEND_API_KEY ??= "test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
+process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "test-stack-project";
+process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 
 const { applySubscriptionUpdate, recordCheckoutCompletion } = await import(
   "../services/billing/purchase"
