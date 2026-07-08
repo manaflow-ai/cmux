@@ -5577,6 +5577,7 @@ extension TabManager {
             hasher.combine(workspace.isPinned)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
+            workspace.hashPanelScopedAgentStatus(into: &hasher)
             hasher.combine(workspace.metadataBlocks.count)
             hasher.combine(workspace.logEntries.count)
             hasher.combine(workspace.panelDirectories.count)
@@ -5591,7 +5592,6 @@ extension TabManager {
                 into: &hasher
             )
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
-            hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)
                 hasher.combine(workspace.panelDirectories[panelId] ?? "")

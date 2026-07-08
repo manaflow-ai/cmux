@@ -270,6 +270,25 @@ extension Workspace {
         }
     }
 
+    /// Feeds the panel-scoped agent status content into the session autosave
+    /// fingerprint. Counts are not enough: a value-only change to a
+    /// panel-scoped entry (same entry count) must dirty the autosave, or the
+    /// persisted per-agent row text goes stale until an unrelated change
+    /// happens to land. Timestamps are excluded on purpose: identical repeated
+    /// reports are dropped before storage, so content is the real signal.
+    func hashPanelScopedAgentStatus(into hasher: inout Hasher) {
+        for (panelId, entries) in statusEntriesByPanelId.sorted(by: { $0.key.uuidString < $1.key.uuidString }) {
+            hasher.combine(panelId)
+            for (key, entry) in entries.sorted(by: { $0.key < $1.key }) {
+                hasher.combine(key)
+                hasher.combine(entry.value)
+                hasher.combine(entry.icon)
+                hasher.combine(entry.color)
+            }
+        }
+        hasher.combine(agentLifecycleStatesByPanelId)
+    }
+
     /// Panel-scoped structured status reports for the session snapshot, so a
     /// restored pane keeps its own sidebar row (and stays click-navigable)
     /// instead of degrading to the ambiguous workspace-level slot.
