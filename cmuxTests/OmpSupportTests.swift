@@ -19,6 +19,13 @@ struct OmpSupportTests {
         #expect(TextBoxAgentDetection.boundedLaunchCommandContext(from: "omp --model anthropic/claude-sonnet-4-5") == "pi")
     }
 
+    @Test func sleepyAgentCensusBucketsOmpWithPi() {
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "omp") == .pi)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "pi") == .pi)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "claude") == .claude)
+        #expect(SleepyAgentCensus.bucket(forStatusKey: "unknown-agent") == .other)
+    }
+
     @Test func ompRegistriesUsePiIconAsset() throws {
         let taskManagerDefinition = try #require(
             CmuxTaskManagerCodingAgentDefinition.builtIns.first { $0.id == "omp" }
