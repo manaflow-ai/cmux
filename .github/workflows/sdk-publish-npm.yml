@@ -145,6 +145,13 @@ jobs:
           node-version: "22.14.0"
           registry-url: https://registry.npmjs.org
 
+      - name: Upgrade npm for OIDC trusted publishing
+        # Node 22 bundles npm 10, which signs provenance but cannot
+        # authenticate the publish via OIDC trusted publishing (the PUT is
+        # unauthenticated and 404s). npm >= 11.5.1 performs the OIDC token
+        # exchange for the publish itself.
+        run: npm install -g npm@^11.5.1
+
       - name: Build package
         working-directory: mux/bindings/typescript
         run: |
