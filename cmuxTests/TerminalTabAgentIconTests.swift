@@ -160,6 +160,53 @@ struct TerminalTabAgentIconTests {
         #expect(asset == nil)
     }
 
+    @Test(arguments: [
+        ("claude", "claude"),
+        ("codex --yolo", "codex"),
+        ("opencode", "opencode"),
+        ("pi", "pi"),
+        ("omp", "omp"),
+        ("claude --resume", "claude"),
+    ])
+    func terminalTitleClassifierRecognizesFirstExecutableToken(title: String, expectedStatusKey: String) {
+        let statusKey = TerminalTabAgentIconResolver().titleDerivedStatusKey(title: title)
+
+        #expect(statusKey == expectedStatusKey)
+    }
+
+    @Test(arguments: [
+        "vim claude-notes.md",
+        "~/fun/claude",
+        "lawrence@host:~/fun",
+        "/usr/bin/codex",
+        "",
+    ])
+    func terminalTitleClassifierRejectsNonExecutableTitles(title: String) {
+        let statusKey = TerminalTabAgentIconResolver().titleDerivedStatusKey(title: title)
+
+        #expect(statusKey == nil)
+    }
+
+    @Test func hookDerivedLiveAgentWinsOverTitleDerivedAgent() {
+        let asset = TerminalTabAgentIconResolver().assetName(
+            liveAgents: [liveAgent("opencode")],
+            titleDerivedStatusKey: "codex",
+            restoredAgent: .init(kind: "grok", registrationIconAssetName: nil)
+        )
+
+        #expect(asset == "AgentIcons/OpenCode")
+    }
+
+    @Test func titleDerivedAgentWinsOverRestoredAgent() {
+        let asset = TerminalTabAgentIconResolver().assetName(
+            liveAgents: [],
+            titleDerivedStatusKey: "codex",
+            restoredAgent: .init(kind: "grok", registrationIconAssetName: nil)
+        )
+
+        #expect(asset == "AgentIcons/Codex")
+    }
+
     @Test func liveRegisteredAgentResolvesThroughRegistrationLookup() {
         var lookedUpKeys: [String] = []
         let asset = TerminalTabAgentIconResolver().assetName(

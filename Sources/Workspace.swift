@@ -2200,6 +2200,7 @@ final class Workspace: Identifiable, ObservableObject {
         set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
     }
     @Published var panelTitles: [UUID: String] = [:]
+    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
@@ -5053,6 +5054,7 @@ final class Workspace: Identifiable, ObservableObject {
         var didMutate = false
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
+        var didMutateTitleDerivedAgent = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
@@ -5060,15 +5062,28 @@ final class Workspace: Identifiable, ObservableObject {
             didMutatePanelTitle = true
         }
 
-        // Update bonsplit tab title only when this panel's title changed.
-        if didMutate,
+        if panels[panelId] is TerminalPanel,
+           updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
+            didMutate = true
+            didMutateTitleDerivedAgent = true
+        }
+
+        // Update bonsplit tab title only when this panel's title changed, and
+        // update the icon when the title-derived agent fallback changes.
+        if (didMutatePanelTitle || didMutateTitleDerivedAgent),
            let tabId = surfaceIdFromPanelId(panelId),
-           let panel = panels[panelId] {
+           let panel = panels[panelId],
+           let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
+                ? .some(terminalTabAgentIconAsset(forPanelId: panelId))
+                : nil
             bonsplitController.updateTab(
                 tabId,
-                title: resolvedTitle,
+                title: titleUpdate,
+                iconAsset: iconAssetUpdate,
                 hasCustomTitle: panelCustomTitles[panelId] != nil
             )
         }
@@ -5107,6 +5122,9 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
+        titleDerivedAgentStatusKeysByPanelId = titleDerivedAgentStatusKeysByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -9549,6 +9567,12 @@ final class Workspace: Identifiable, ObservableObject {
         if let cachedTitle = detached.cachedTitle {
             panelTitles[detached.panelId] = cachedTitle
         }
+        if detached.panel is TerminalPanel {
+            _ = updateTitleDerivedTerminalAgentStatusKey(
+                forPanelId: detached.panelId,
+                title: detached.cachedTitle ?? detached.panel.displayTitle
+            )
+        }
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
             panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
@@ -9578,6 +9602,7 @@ final class Workspace: Identifiable, ObservableObject {
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
             iconImageData: detached.iconImageData,
+            iconAsset: terminalTabAgentIconAsset(forPanelId: detached.panelId),
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
@@ -9593,6 +9618,7 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
+            titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)

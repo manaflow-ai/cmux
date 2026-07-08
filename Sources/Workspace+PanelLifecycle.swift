@@ -460,6 +460,7 @@ extension Workspace {
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
+        titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)

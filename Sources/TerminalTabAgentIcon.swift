@@ -34,6 +34,7 @@ nonisolated struct TerminalTabAgentIconResolver {
     ///   `CmuxVaultAgentRegistry` override semantics and the restored path.
     func assetName(
         liveAgents: [LiveAgent],
+        titleDerivedStatusKey: String? = nil,
         restoredAgent: RestoredAgent?,
         registrationIconAssetName: (String) -> String? = { _ in nil }
     ) -> String? {
@@ -44,6 +45,11 @@ nonisolated struct TerminalTabAgentIconResolver {
         }
         if let newest = recognized.min(by: { Self.isOrderedByRecency($0.agent, $1.agent) }) {
             return newest.asset
+        }
+        if let titleDerivedStatusKey,
+           let titleDerivedAsset = registrationIconAssetName(titleDerivedStatusKey)
+            ?? builtInAssetName(statusKey: titleDerivedStatusKey) {
+            return titleDerivedAsset
         }
         guard let restoredAgent else { return nil }
         return restoredAgent.registrationIconAssetName ?? builtInAssetName(statusKey: restoredAgent.kind)
@@ -59,6 +65,7 @@ nonisolated struct TerminalTabAgentIconResolver {
         agentPIDKeys: Set<String>,
         processIdentities: [String: AgentPIDProcessIdentity] = [:],
         knownStatusKeys: Set<String> = [],
+        titleDerivedStatusKey: String? = nil,
         restoredAgent: RestoredAgent?,
         registrationIconAssetName: (String) -> String? = { _ in nil }
     ) -> String? {
@@ -69,9 +76,34 @@ nonisolated struct TerminalTabAgentIconResolver {
                     processStart: processIdentities[key]
                 )
             },
+            titleDerivedStatusKey: titleDerivedStatusKey,
             restoredAgent: restoredAgent,
             registrationIconAssetName: registrationIconAssetName
         )
+    }
+
+    func titleDerivedStatusKey(title: String) -> String? {
+        guard let token = title.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
+        let executable = String(token)
+        guard !executable.contains("/") else { return nil }
+        return Self.titleExecutableStatusKeys[executable]
+    }
+
+    func updateTitleDerivedStatusKey(
+        forPanelId panelId: UUID,
+        title: String,
+        in statusKeysByPanelId: inout [UUID: String]
+    ) -> Bool {
+        let statusKey = titleDerivedStatusKey(title: title)
+        if statusKeysByPanelId[panelId] == statusKey {
+            return false
+        }
+        if let statusKey {
+            statusKeysByPanelId[panelId] = statusKey
+        } else {
+            statusKeysByPanelId.removeValue(forKey: panelId)
+        }
+        return true
     }
 
     /// Newest process start first; agents with a recorded start identity rank
@@ -101,27 +133,29 @@ nonisolated struct TerminalTabAgentIconResolver {
     }
 
     private func builtInAssetName(statusKey: String) -> String? {
-        switch statusKey {
-        case "claude", "claude_code":
-            return "AgentIcons/Claude"
-        case "codex":
-            return "AgentIcons/Codex"
-        case "opencode":
-            return "AgentIcons/OpenCode"
-        case "pi", "omp":
-            return "AgentIcons/Pi"
-        case "grok":
-            return "AgentIcons/Grok"
-        case "rovodev":
-            return "AgentIcons/RovoDev"
-        case "antigravity":
-            return "AgentIcons/Antigravity"
-        case "hermes-agent":
-            return "AgentIcons/HermesAgent"
-        default:
-            return nil
-        }
+        Self.builtInAssetNamesByStatusKey[statusKey]
     }
+
+    private static let titleExecutableStatusKeys: [String: String] = [
+        "claude": "claude",
+        "codex": "codex",
+        "opencode": "opencode",
+        "pi": "pi",
+        "omp": "omp",
+    ]
+
+    private static let builtInAssetNamesByStatusKey: [String: String] = [
+        "claude": "AgentIcons/Claude",
+        "claude_code": "AgentIcons/Claude",
+        "codex": "AgentIcons/Codex",
+        "opencode": "AgentIcons/OpenCode",
+        "pi": "AgentIcons/Pi",
+        "omp": "AgentIcons/Pi",
+        "grok": "AgentIcons/Grok",
+        "rovodev": "AgentIcons/RovoDev",
+        "antigravity": "AgentIcons/Antigravity",
+        "hermes-agent": "AgentIcons/HermesAgent",
+    ]
 }
 
 extension TerminalTabAgentIconResolver.RestoredAgent {
@@ -134,6 +168,14 @@ extension TerminalTabAgentIconResolver.RestoredAgent {
 }
 
 extension Workspace {
+    func updateTitleDerivedTerminalAgentStatusKey(forPanelId panelId: UUID, title: String) -> Bool {
+        TerminalTabAgentIconResolver().updateTitleDerivedStatusKey(
+            forPanelId: panelId,
+            title: title,
+            in: &titleDerivedAgentStatusKeysByPanelId
+        )
+    }
+
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         let liveAgents = (agentPIDKeysByPanelId[panelId] ?? []).map { key in
             TerminalTabAgentIconResolver.LiveAgent(
@@ -153,6 +195,7 @@ extension Workspace {
         let registration = snapshot?.registration
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
+            titleDerivedStatusKey: titleDerivedAgentStatusKeysByPanelId[panelId],
             restoredAgent: snapshot.map(TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)),
             registrationIconAssetName: { statusKey in
                 registration?.id == statusKey ? registration?.iconAssetName : nil
@@ -187,18 +230,27 @@ extension Workspace {
 }
 
 extension DockSplitStore {
+    func updateTitleDerivedTerminalAgentStatusKey(forPanelId panelId: UUID, title: String) -> Bool {
+        TerminalTabAgentIconResolver().updateTitleDerivedStatusKey(
+            forPanelId: panelId,
+            title: title,
+            in: &titleDerivedAgentStatusKeysByPanelId
+        )
+    }
+
     /// Dock tabs resolve from the detached transfer snapshot: the Dock
     /// receives no agent lifecycle updates by design (same contract as the
     /// transfer's resume metadata), and `detachSurface` re-reconciles agent
     /// state, dropping proven-exited agents, when the surface leaves the Dock.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
-        guard let transfer = detachedSurfaceTransfersByPanelId[panelId] else { return nil }
-        let registration = transfer.restorableAgent?.registration
+        let transfer = detachedSurfaceTransfersByPanelId[panelId]
+        let registration = transfer?.restorableAgent?.registration
         return TerminalTabAgentIconResolver().assetName(
-            agentPIDKeys: transfer.agentRuntime?.agentPIDKeys ?? [],
-            processIdentities: transfer.agentRuntime?.agentPIDProcessIdentities ?? [:],
-            knownStatusKeys: transfer.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
-            restoredAgent: transfer.restorableAgent.map(
+            agentPIDKeys: transfer?.agentRuntime?.agentPIDKeys ?? [],
+            processIdentities: transfer?.agentRuntime?.agentPIDProcessIdentities ?? [:],
+            knownStatusKeys: transfer?.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
+            titleDerivedStatusKey: titleDerivedAgentStatusKeysByPanelId[panelId],
+            restoredAgent: transfer?.restorableAgent.map(
                 TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
             ),
             registrationIconAssetName: { statusKey in
