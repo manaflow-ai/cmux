@@ -157,6 +157,8 @@
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 		A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindWebViewEvaluator.swift */; };
 		7B5F1A2E9C0D4B6A8E217302 /* BrowserFixtureInteractionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */; };
+		B42450060000000000000001 /* BrowserHiddenWebViewDiscardEventCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450050000000000000001 /* BrowserHiddenWebViewDiscardEventCenter.swift */; };
+		B6585004B6585004B6585004 /* BrowserHiddenWebViewDiscardEventCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585003B6585003B6585003 /* BrowserHiddenWebViewDiscardEventCenterTests.swift */; };
 		B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */; };
 		B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */; };
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
@@ -1701,6 +1703,8 @@
 		A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 		A5008372 /* BrowserFindWebViewEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindWebViewEvaluator.swift; sourceTree = "<group>"; };
 		7B5F1A2E9C0D4B6A8E217301 /* BrowserFixtureInteractionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFixtureInteractionUITests.swift; sourceTree = "<group>"; };
+		B42450050000000000000001 /* BrowserHiddenWebViewDiscardEventCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardEventCenter.swift; sourceTree = "<group>"; };
+		B6585003B6585003B6585003 /* BrowserHiddenWebViewDiscardEventCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHiddenWebViewDiscardEventCenterTests.swift; sourceTree = "<group>"; };
 		B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardManager.swift; sourceTree = "<group>"; };
 		B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHiddenWebViewDiscardMemoryPressureTests.swift; sourceTree = "<group>"; };
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
@@ -3749,6 +3753,7 @@
 				C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */,
 				C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
+				B42450050000000000000001 /* BrowserHiddenWebViewDiscardEventCenter.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */,
 				B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */,
@@ -4306,6 +4311,7 @@
 				D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */,
 				D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */,
 				B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */,
+				B6585003B6585003B6585003 /* BrowserHiddenWebViewDiscardEventCenterTests.swift */,
 				B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */,
 				B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */,
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
@@ -5082,6 +5088,7 @@
 				C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */,
 				C2035A0C000000000000001 /* BrowserErrorPageRetry.swift in Sources */,
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
+				B42450060000000000000001 /* BrowserHiddenWebViewDiscardEventCenter.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
 				7490C0017490C0017490C001 /* BrowserHiddenWebViewMemoryPressureResponder.swift in Sources */,
@@ -6059,6 +6066,7 @@
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
 				C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */,
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
+				B6585004B6585004B6585004 /* BrowserHiddenWebViewDiscardEventCenterTests.swift in Sources */,
 				B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */,
 				4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */,
 				BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */,
