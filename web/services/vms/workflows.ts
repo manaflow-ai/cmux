@@ -1464,7 +1464,7 @@ function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRo
   const billingTeamId = vm.billingTeamId?.trim();
   if (!billingTeamId) return true;
   if (billingTeamId === input.userId) return true;
-  if (!input.teamIds) return !input.billingTeamId?.trim();
+  if (!input.teamIds) return false;
   return new Set(input.teamIds).has(billingTeamId);
 }
 
