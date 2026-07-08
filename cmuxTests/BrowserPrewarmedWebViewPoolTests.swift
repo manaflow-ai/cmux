@@ -113,6 +113,10 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(claimed?.window == nil)
         #expect(claimed?.superview == nil)
         #expect(claimed?.navigationDelegate == nil)
+        // The portal's first-attach refresh only fires the WebKit reattach
+        // selectors for webviews marked hidden; without this the adopted view
+        // keeps the prewarm-sized layer tree (#7554 dogfood round 1).
+        #expect(claimed?.browserPortalRequiresRenderingStateReattach == true)
         #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
     }
 

@@ -121,6 +121,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         let webView = entry.webView
         webView.navigationDelegate = nil
         webView.removeFromSuperview()
+        webView.browserPortalPrepareForHiddenHostAdoption()
         entry.hostWindow.close()
         self.entry = nil
         expiryTask?.cancel()
@@ -161,9 +162,16 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     }
 
     /// Offscreen, non-activating host so WebKit treats the webview as
-    /// window-backed and completes rendering work while hidden.
+    /// window-backed and completes rendering work while hidden. Sized to the
+    /// main window's content area so the page lays out close to the pane the
+    /// adopting panel will render into.
     private static func makeHiddenHostWindow(for webView: WKWebView) -> NSWindow {
-        let frame = NSRect(x: -10_000, y: -10_000, width: 1080, height: 760)
+        var size = NSSize(width: 1080, height: 760)
+        if let contentSize = NSApp.mainWindow?.contentView?.bounds.size,
+           contentSize.width >= 320, contentSize.height >= 240 {
+            size = contentSize
+        }
+        let frame = NSRect(x: -10_000, y: -10_000, width: size.width, height: size.height)
         let window = NSWindow(
             contentRect: frame,
             styleMask: [.borderless],

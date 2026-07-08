@@ -75,6 +75,17 @@ private extension NSWindow {
     }
 }
 
+extension WKWebView {
+    /// A pool-prewarmed webview loads inside an alpha-0 offscreen window, so
+    /// WebKit treats it as hidden. Adoption into a visible pane needs the same
+    /// rendering-state reattach as a portal-hidden webview, otherwise the
+    /// first paint keeps the prewarm-sized layer tree (undersized content and
+    /// a short scrollbar) until an unrelated relayout.
+    func browserPortalPrepareForHiddenHostAdoption() {
+        browserPortalNotifyHidden(reason: "prewarmAdoption")
+    }
+}
+
 private extension WKWebView {
     private var browserPortalNeedsRenderingStateReattach: Bool {
         get {
