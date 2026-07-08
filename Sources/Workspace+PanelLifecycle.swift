@@ -240,7 +240,7 @@ extension Workspace {
             // instead of waiting for the liveness sweep.
             let synthesizedKey = Self.synthesizedDisplacedPIDKey(statusKey: statusKey, panelId: panelId)
             if agentPIDPanelIdsByKey[synthesizedKey] == panelId,
-               clearAgentPID(key: synthesizedKey, panelId: panelId, clearStatus: clearStatus, refreshPorts: false) {
+               clearAgentPID(key: synthesizedKey, panelId: panelId, clearStatus: clearStatus, refreshPorts: refreshPorts) {
                 didChange = true
             }
             return didChange

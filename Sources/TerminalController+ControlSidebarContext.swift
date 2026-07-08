@@ -84,7 +84,10 @@ extension TerminalController: ControlSidebarContext {
         controlSidebarScheduleMutation(target: target) { _, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
             _ = tab.clearPanelStatusEntries(statusKey: key)
-            tab.clearAgentPID(key: key)
+            // Bare shared keys can have been displaced onto synthesized
+            // panel-scoped keys; the workspace-scoped clear must reap those
+            // runtimes and lifecycles too, not just the exact bare key.
+            tab.clearAgentRuntimes(forStatusKey: key)
         }
     }
 

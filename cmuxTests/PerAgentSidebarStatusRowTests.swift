@@ -453,4 +453,34 @@ struct PerAgentSidebarStatusRowTests {
         #expect(workspace.statusEntriesByPanelId[firstPanelId]?["claude_code"]?.value == "Running")
         #expect(workspace.sidebarAgentStatusRows().count == 2)
     }
+
+    @Test
+    func testWorkspaceScopedStatusClearReapsDisplacedRuntimes() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.recordAgentPID(key: "claude_code", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: firstPanelId, lifecycle: .running)
+        workspace.recordAgentPID(key: "claude_code", pid: 222, panelId: secondPanelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: secondPanelId, lifecycle: .running)
+        #expect(workspace.sidebarAgentStatusRows().count == 2)
+
+        // The `clear_status <key>` contract: remove the key from the WHOLE
+        // workspace. The displaced pane's synthesized runtime and both panes'
+        // lifecycles must go too, or its row reappears with lifecycle text.
+        _ = workspace.statusEntries.removeValue(forKey: "claude_code")
+        _ = workspace.clearPanelStatusEntries(statusKey: "claude_code")
+        workspace.clearAgentRuntimes(forStatusKey: "claude_code", refreshPorts: false)
+
+        #expect(workspace.sidebarAgentStatusRows().isEmpty)
+        let synthesizedKey = Workspace.synthesizedDisplacedPIDKey(statusKey: "claude_code", panelId: firstPanelId)
+        #expect(workspace.agentPIDs[synthesizedKey] == nil)
+        #expect(workspace.agentPIDs["claude_code"] == nil)
+        #expect(workspace.agentPIDPanelIdsByKey.isEmpty)
+        #expect(workspace.agentPIDKeysByPanelId.isEmpty)
+        #expect(workspace.agentLifecycleStatesByPanelId[firstPanelId]?["claude_code"] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[secondPanelId]?["claude_code"] == nil)
+    }
 }

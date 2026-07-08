@@ -60,6 +60,34 @@ extension Workspace {
         "\(statusKey).pane-\(panelId.uuidString)"
     }
 
+    /// Workspace-scoped removal of every runtime tracked for a status key:
+    /// the bare shared key, every synthesized displacement key, and every
+    /// pane's lifecycle for the key. This backs the `clear_status <key>`
+    /// contract ("removes the key from the whole workspace"). The liveness
+    /// sweep must NOT use this: it judges each pid key's process separately,
+    /// and a dead bare-key owner does not imply displaced siblings are dead.
+    func clearAgentRuntimes(forStatusKey statusKey: String, refreshPorts: Bool = true) {
+        var keysToClear = Set<String>()
+        for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            keysToClear.insert(key)
+        }
+        for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            keysToClear.insert(key)
+        }
+        var didChange = false
+        for key in keysToClear {
+            if clearAgentPID(key: key, clearStatus: false, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if clearAgentLifecycle(key: statusKey) {
+            didChange = true
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+    }
+
     @discardableResult
     func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
