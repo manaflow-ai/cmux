@@ -97,23 +97,39 @@ public struct MobileBrowserView: UIViewRepresentable {
         func attach(webView: WKWebView) {
             self.webView = webView
             observe(webView)
+            // A fresh web view starts idle, but the surface may still carry
+            // `isLoading` from a navigation that was in flight when the old
+            // web view was torn down. Mirror the new web view's state so the
+            // progress line does not persist; the loads below drive it again
+            // through the navigation delegate.
+            state.isLoading = webView.isLoading
+            state.estimatedProgress = webView.estimatedProgress
+
+            // An explicit pending load (first mount's initial URL, or a load
+            // queued while unmounted) wins outright. A command queued before
+            // the remount targeted the old web view's history and would cancel
+            // or no-op against this fresh load, so drop it.
+            if let url = state.consumeLoadRequest() {
+                webView.load(URLRequest(url: url))
+                _ = state.consumeCommand()
+                return
+            }
+
             // A surface can be re-attached to a fresh WKWebView when SwiftUI
             // remounts the representable (switching workspaces, hiding/showing
             // the browser). The surface state survives, but the web view does
-            // not, so restore the saved WebKit interaction state on re-attach
-            // to preserve the page and back/forward stack. If WebKit cannot
-            // restore that state, fall back to the last committed URL. First
-            // mount already has a pending initial-URL load, so guard against a
-            // double-load.
-            let hadPendingLoad = state.loadRequest != nil
-            applyPendingWork()
-            if !hadPendingLoad, webView.url == nil {
-                if restoreInteractionState(on: webView) {
-                    return
-                }
-                if let restore = state.currentURL {
-                    webView.load(URLRequest(url: restore))
-                }
+            // not, so restore the saved WebKit interaction state to preserve
+            // the page and back/forward stack. If WebKit rejects that state,
+            // fall back to the last committed URL.
+            if !restoreInteractionState(on: webView), let restore = state.currentURL {
+                webView.load(URLRequest(url: restore))
+            }
+
+            // Apply a command queued while no web view was attached (e.g. the
+            // desktop-site toggle's reload) after the session is restored so
+            // it acts on the restored page, not an empty web view.
+            if let command = state.consumeCommand() {
+                run(command, on: webView)
             }
         }
 
@@ -130,13 +146,16 @@ public struct MobileBrowserView: UIViewRepresentable {
         }
 
         private func run(_ command: BrowserSurfaceState.NavigationCommand, on webView: WKWebView) {
+            // No interaction-state capture here: right after `goBack()`/
+            // `goForward()` the snapshot still reflects the previous history
+            // position. `didFinish` captures the committed result, and
+            // `detach()` captures whatever WebKit has if the pane is torn
+            // down mid-navigation.
             switch command {
             case .goBack:
                 webView.goBack()
-                captureInteractionState(from: webView)
             case .goForward:
                 webView.goForward()
-                captureInteractionState(from: webView)
             case .reload:
                 webView.reload()
             case .stopLoading:
@@ -197,7 +216,12 @@ public struct MobileBrowserView: UIViewRepresentable {
         private func restoreInteractionState(on webView: WKWebView) -> Bool {
             guard let savedInteractionState = state.savedInteractionState else { return false }
             webView.interactionState = savedInteractionState
-            return webView.url != nil
+            // WebKit populates the back/forward list synchronously when it
+            // accepts a snapshot but may commit the page load asynchronously,
+            // so `webView.url` alone can still be nil for a successful
+            // restore. Only report failure (triggering the `currentURL`
+            // fallback) when WebKit rejected the snapshot outright.
+            return webView.url != nil || webView.backForwardList.currentItem != nil
         }
 
         private func captureInteractionState(from webView: WKWebView) {
