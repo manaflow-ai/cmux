@@ -100,6 +100,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         continue;
       }
 
+      const legacyFinalKeyGrant = grant.uploadObjectKey === objectKey;
       const object = await headObject(grant.uploadObjectKey);
       if (!object) {
         lockedResults.push(itemResult(item, "error", "object_missing"));
@@ -112,7 +113,9 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         continue;
       }
 
-      await copyObject(grant.uploadObjectKey, objectKey);
+      if (!legacyFinalKeyGrant) {
+        await copyObject(grant.uploadObjectKey, objectKey);
+      }
 
       const [session] = await lockedDb
         .insert(vaultSessions)
@@ -158,14 +161,18 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
           target: [vaultSnapshots.sessionId, vaultSnapshots.sha256],
         });
 
-      // The snapshot now accounts for these bytes. Delete the staging object
-      // before releasing the grant so a transient storage cleanup failure keeps
-      // a retryable GC record.
-      const stagingDeleted = await deleteObject(grant.uploadObjectKey)
-        .then(() => true)
-        .catch(() => false);
-      if (stagingDeleted) {
+      if (legacyFinalKeyGrant) {
         await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
+      } else {
+        // The snapshot now accounts for these bytes. Delete the staging object
+        // before releasing the grant so a transient storage cleanup failure
+        // keeps a retryable GC record.
+        const stagingDeleted = await deleteObject(grant.uploadObjectKey)
+          .then(() => true)
+          .catch(() => false);
+        if (stagingDeleted) {
+          await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
+        }
       }
 
       projectedUserBytes += item.compressedSizeBytes;

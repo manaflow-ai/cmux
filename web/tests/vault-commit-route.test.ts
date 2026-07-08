@@ -145,15 +145,44 @@ describe("Vault commit route", () => {
       .where(eq(vaultSnapshots.objectKey, objectKey));
     expect(snapshots).toHaveLength(1);
   });
+
+  dbTest("commits legacy final-key grants without deleting the committed object", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    await insertGrant(objectKey, 456, objectKey);
+
+    const response = await POST(commitRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).items[0].status).toBe("committed");
+    expect(headObject).toHaveBeenCalledTimes(1);
+    expect(headedKeys).toEqual([objectKey]);
+    expect(copyObject).not.toHaveBeenCalled();
+    expect(deleteObject).not.toHaveBeenCalled();
+    const grants = await db
+      .select({ id: vaultUploadGrants.id })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(grants).toHaveLength(0);
+    const snapshots = await db
+      .select({ objectKey: vaultSnapshots.objectKey })
+      .from(vaultSnapshots)
+      .where(eq(vaultSnapshots.objectKey, objectKey));
+    expect(snapshots).toHaveLength(1);
+  });
 });
 
-async function insertGrant(objectKey: string, compressedSizeBytes: number): Promise<void> {
+async function insertGrant(
+  objectKey: string,
+  compressedSizeBytes: number,
+  uploadObjectKey = `${objectKey}.upload`,
+): Promise<void> {
   await cloudDb()
     .insert(vaultUploadGrants)
     .values({
       userId,
       objectKey,
-      uploadObjectKey: `${objectKey}.upload`,
+      uploadObjectKey,
       compressedSizeBytes,
       createdAt: new Date("2030-01-01T00:00:00.000Z"),
       expiresAt: new Date("2030-01-02T00:00:00.000Z"),
