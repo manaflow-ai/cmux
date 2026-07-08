@@ -20,7 +20,7 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
-    @Test("Preserves Campfire config roots and drops its self-managed package dir")
+    @Test("Preserves Campfire config roots and drops Pi-managed env")
     func preservesCampfireConfigRootsAndDropsManagedPackageDir() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: [
@@ -32,6 +32,10 @@ struct AgentLaunchEnvironmentPolicyTests {
                 // boot; replaying a captured path would pin a resumed session
                 // to the previous binary's cache after an upgrade.
                 "PI_PACKAGE_DIR": "/tmp/stale-pi-cache",
+                // A user's Pi session root must not leak into a Campfire
+                // resume: the embedded Pi runtime would resolve session state
+                // there while cmux's scanner reads the Campfire root.
+                "PI_CODING_AGENT_SESSION_DIR": "/tmp/pi-sessions",
             ],
             kind: "campfire"
         )
@@ -41,6 +45,15 @@ struct AgentLaunchEnvironmentPolicyTests {
             "CAMPFIRE_CODING_AGENT_SESSION_DIR": "/tmp/campfire-sessions",
             "CAMPFIRE_RELAY_URL": "wss://relay.example/ws",
         ])
+    }
+
+    @Test("Keeps PI_CODING_AGENT_SESSION_DIR for pi resumes")
+    func keepsPiSessionDirForPi() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["PI_CODING_AGENT_SESSION_DIR": "/tmp/pi-sessions"],
+            kind: "pi"
+        )
+        #expect(selected["PI_CODING_AGENT_SESSION_DIR"] == "/tmp/pi-sessions")
     }
 
     @Test("Keeps PI_PACKAGE_DIR for pi and omp resumes")

@@ -40,12 +40,18 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "HERMES_CODEX_BASE_URL",
     ]
 
-    /// Keys campfire computes itself on every boot. Replaying a captured
-    /// PI_PACKAGE_DIR would pin a resumed campfire to the previous binary's
-    /// extracted asset cache (version+fingerprint keyed) after an upgrade, so
-    /// it is dropped for campfire resumes specifically; pi/omp keep it (Nix
-    /// installs rely on it).
+    /// Keys campfire manages itself and must not inherit from a captured Pi
+    /// environment. Replaying a captured PI_PACKAGE_DIR would pin a resumed
+    /// campfire to the previous binary's extracted asset cache
+    /// (version+fingerprint keyed) after an upgrade, and replaying
+    /// PI_CODING_AGENT_SESSION_DIR would let the embedded Pi runtime resolve
+    /// session state under the user's Pi session root instead of the Campfire
+    /// root that cmux's scanner uses (`CAMPFIRE_CODING_AGENT_SESSION_DIR` /
+    /// `CAMPFIRE_CODING_AGENT_DIR`). Both are dropped for campfire resumes
+    /// specifically; pi/omp keep them (Nix installs and custom Pi session
+    /// roots rely on them).
     private let campfireManagedEnvironmentKeys: Set<String> = [
+        "PI_CODING_AGENT_SESSION_DIR",
         "PI_PACKAGE_DIR",
     ]
 
