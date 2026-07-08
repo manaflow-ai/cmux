@@ -1,4 +1,8 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  checkRateLimit,
+  installVercelFirewallMock,
+} from "./vercel-firewall-mock";
 
 const originalSkipEnvValidation = process.env.SKIP_ENV_VALIDATION;
 const originalPostHogProjectKey = process.env.POSTHOG_PROJECT_KEY;
@@ -8,11 +12,7 @@ process.env.POSTHOG_PROJECT_KEY = "test-project-key";
 process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
 
 const originalVercel = process.env.VERCEL;
-const checkRateLimit = mock(async () => ({ rateLimited: false, error: null }));
-
-mock.module("@vercel/firewall", () => ({
-  checkRateLimit,
-}));
+installVercelFirewallMock();
 
 const {
   normalizePostHogFlagsResponse,

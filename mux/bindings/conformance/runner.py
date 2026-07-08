@@ -20,7 +20,7 @@ FIXTURES = Path(__file__).resolve().with_name("fixtures.json")
 
 sys.path.insert(0, str(PYTHON_BINDING))
 
-from cmux_mux_client import CommandError, MuxClient, TimeoutError as MuxTimeoutError  # noqa: E402
+from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
 
 
 class FixtureFailure(Exception):
@@ -118,7 +118,7 @@ def run_fixture(fixture: Dict[str, Any], defaults: Dict[str, Any], socket_path: 
     variables: Dict[str, Any] = {}
     streams: Dict[str, Any] = {}
     timeout_ms = int(fixture.get("timeout_ms", defaults.get("timeout_ms", 5000)))
-    with MuxClient(socket_path=socket_path, timeout=max(timeout_ms / 1000.0, 1.0)) as client:
+    with CmuxClient(socket_path=socket_path, timeout=max(timeout_ms / 1000.0, 1.0)) as client:
         try:
             for step in fixture.get("steps", []):
                 step_timeout = int(step.get("timeout_ms", timeout_ms))
@@ -129,7 +129,7 @@ def run_fixture(fixture: Dict[str, Any], defaults: Dict[str, Any], socket_path: 
 
 
 def run_step(
-    client: MuxClient,
+    client: CmuxClient,
     step: Dict[str, Any],
     variables: Dict[str, Any],
     streams: Dict[str, Any],
@@ -160,7 +160,7 @@ def run_step(
         raise FixtureFailure(f"unknown step type {step_type}")
 
 
-def execute_command(client: MuxClient, request: Dict[str, Any]) -> Dict[str, Any]:
+def execute_command(client: CmuxClient, request: Dict[str, Any]) -> Dict[str, Any]:
     cmd = request["cmd"]
     params = {k: v for k, v in request.items() if k not in ("id", "cmd")}
     try:
@@ -176,7 +176,7 @@ def check_requires(fixture: Dict[str, Any], socket_path: str) -> None:
     if not commands:
         return
     unsupported: List[str] = []
-    with MuxClient(socket_path=socket_path, timeout=3.0) as client:
+    with CmuxClient(socket_path=socket_path, timeout=3.0) as client:
         for command in commands:
             response = client.request(command)
             error = str(response.get("error", ""))
@@ -186,10 +186,16 @@ def check_requires(fixture: Dict[str, Any], socket_path: str) -> None:
         raise FixtureSkipped(f"server lacks required command(s): {', '.join(unsupported)}")
 
 
-def dispatch(client: MuxClient, cmd: str, params: Dict[str, Any]) -> Any:
+def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
     mapping = {
         "identify": client.identify,
+        "ping": client.ping,
+        "reload-config": client.reload_config,
+        "set-window-title": client.set_window_title,
+        "clear-window-title": lambda **kw: client.clear_window_title(),
         "list-workspaces": client.list_workspaces,
+        "export-layout": client.export_layout,
+        "apply-layout": client.apply_layout,
         "send": lambda **kw: client.send(kw["surface"], text=kw.get("text"), bytes_data=kw.get("bytes")),
         "read-screen": client.read_screen,
         "vt-state": client.vt_state,
@@ -199,6 +205,11 @@ def dispatch(client: MuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "new-screen": client.new_screen,
         "split": client.split,
         "set-ratio": client.set_ratio,
+        "pane-neighbor": client.pane_neighbor,
+        "focus-direction": client.focus_direction,
+        "swap-pane": client.swap_pane,
+        "zoom-pane": client.zoom_pane,
+        "process-info": client.process_info,
         "set-default-colors": client.set_default_colors,
         "close-surface": client.close_surface,
         "close-pane": client.close_pane,
@@ -216,6 +227,14 @@ def dispatch(client: MuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "move-tab": client.move_tab,
         "move-workspace": client.move_workspace,
         "scroll-surface": client.scroll_surface,
+        "wait-for": lambda **kw: client._request("wait-for", **kw),
+        "run": lambda **kw: client._request("run", **kw),
+        "send-key": lambda **kw: client._request("send-key", **kw),
+        "copy": lambda **kw: client._request("copy", **kw),
+        "ids": lambda **kw: client._request("ids", **kw),
+        "notify": lambda **kw: client._request("notify", **kw),
+        "list-agents": lambda **kw: client._request("list-agents", **kw),
+        "report-agent": lambda **kw: client._request("report-agent", **kw),
     }
     if cmd not in mapping:
         raise FixtureFailure(f"unsupported fixture command {cmd}")
@@ -280,7 +299,7 @@ def expect_events(stream: Any, expected: List[Dict[str, Any]], timeout: float) -
         try:
             try:
                 event = next(stream).raw
-            except MuxTimeoutError:
+            except CmuxTimeoutError:
                 break
         finally:
             stream._conn.sock.settimeout(old_timeout)
@@ -290,7 +309,7 @@ def expect_events(stream: Any, expected: List[Dict[str, Any]], timeout: float) -
         raise FixtureFailure(f"expected event not observed before timeout: {expected[index]}")
 
 
-def wait_contains(client: MuxClient, request: Dict[str, Any], path: str, needle: str, timeout: float) -> None:
+def wait_contains(client: CmuxClient, request: Dict[str, Any], path: str, needle: str, timeout: float) -> None:
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:

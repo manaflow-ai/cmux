@@ -288,6 +288,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unique identifier for this panel
     var id: UUID { get }
 
+    /// Box that owns this panel's restart-stable surface identity.
+    var stableSurfaceIdentity: PanelStableSurfaceIdentity { get }
+
     /// The type of panel
     var panelType: PanelType { get }
 
@@ -385,6 +388,7 @@ final class CloudVMLoadingPanel: Panel {
 
     let id: UUID
     let workspaceId: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cloudVMLoading
     @Published var startedAt: Date
     @Published var phase: Phase = .loading

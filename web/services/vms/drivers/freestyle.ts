@@ -18,6 +18,7 @@ import {
   setSpanAttributes,
   withVmSpan,
 } from "../telemetry";
+import { isProviderIdentityNotFoundError } from "../providerErrors";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
@@ -625,9 +626,9 @@ export class FreestyleProvider implements VMProvider {
         try {
           await client().identities.delete({ identityId: identityHandle });
         } catch (err) {
-          // Best effort: identity may already be gone (e.g. VM was destroyed by the provider
-          // itself). Don't let cleanup failures cascade into the caller, but keep it visible.
+          if (isProviderIdentityNotFoundError(err)) return;
           recordSpanError(span, err);
+          throw new ProviderError("freestyle", `revokeSSHIdentity(${identityHandle})`, err);
         }
       },
     );
@@ -792,10 +793,13 @@ async function ensureFreestyleWebSocketHealthyOrRepair(
   }
 
   if (!healthError && canRepair) {
-    const state = await readFreestyleCloudShellState(vm).catch((err: unknown) => ({
-      ok: false,
-      reason: errorMessage(err),
-    }));
+    const state = await readFreestyleCloudShellState(vm).catch(() => null);
+    if (!state) {
+      // The daemon/admin websocket is the attach control plane. Freestyle exec
+      // can be temporarily unavailable on otherwise attachable VMs, so do not
+      // block lease installation on this shell-integration probe.
+      return;
+    }
     if (!state.ok) {
       await repairFreestyleWebSocketService(vm, adminToken, signedAdmin).catch((repairErr: unknown) => {
         throw new Error(

@@ -741,7 +741,7 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("beta") {
             logInvalid("sidebar.beta", sourcePath: sourcePath)
         }
-
+        parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
@@ -1809,11 +1809,11 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func logInvalid(_ path: String, sourcePath: String) {
+    func logInvalid(_ path: String, sourcePath: String) {
         cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
     }
 
-    private func jsonString(_ rawValue: Any?) -> String? {
+    func jsonString(_ rawValue: Any?) -> String? {
         rawValue as? String
     }
 
@@ -1852,7 +1852,7 @@ final class CmuxSettingsFileStore {
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
-private struct ResolvedSettingsSnapshot {
+struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
@@ -1923,12 +1923,12 @@ private struct ManagedDefaultBatchSideEffects {
     }
 }
 
-private enum ManagedStringOverride: Equatable {
+enum ManagedStringOverride: Equatable {
     case set(String)
     case clear
 }
 
-private struct ManagedCustomSettings: Equatable {
+struct ManagedCustomSettings: Equatable {
     var socketPassword: ManagedStringOverride?
 
     var isEmpty: Bool {
@@ -1950,7 +1950,7 @@ private struct ManagedCustomSettings: Equatable {
     }
 }
 
-private enum ManagedSettingsValue: Codable, Equatable {
+enum ManagedSettingsValue: Codable, Equatable {
     case bool(Bool)
     case int(Int)
     case double(Double)

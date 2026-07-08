@@ -140,6 +140,7 @@ final class MobileWorkspaceListObserver {
         for tabs: [Workspace],
         notificationStore: TerminalNotificationStore?
     ) -> [UUID: Int] {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-preview-signatures", "workspaces=\(tabs.count) hasStore=\(notificationStore != nil)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let notificationStore else { return [:] }
         var signatures: [UUID: Int] = [:]
         for workspace in tabs {
@@ -209,6 +210,7 @@ final class MobileWorkspaceListObserver {
     }
 
     private func emitIfNeeded(force: Bool) {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
         let hash = Self.summaryHash(
             for: tabManager.tabs,
@@ -251,6 +253,7 @@ final class MobileWorkspaceListObserver {
         selectedTabID: UUID?,
         previewSignatures: [UUID: Int]
     ) -> Int {
+        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         var hasher = Hasher()
         hasher.combine(tabs.count)
         hasher.combine(selectedTabID)

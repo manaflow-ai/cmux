@@ -22,16 +22,20 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use base64::Engine;
+use ghostty_vt::{key_input_from_chord, KeyEncoder};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
 use crate::{
-    assign_short_ids, AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId,
-    SplitDir, SurfaceId, SurfaceKind, WorkspaceId,
+    assign_short_ids, AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction,
+    LayoutLeafSpec, LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId,
+    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode,
 };
 
 pub const PROTOCOL_VERSION: u32 = 6;
@@ -52,7 +56,24 @@ struct Request {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    Ping,
+    ReloadConfig,
+    SetWindowTitle {
+        title: String,
+    },
+    ClearWindowTitle,
     ListWorkspaces,
+    ExportLayout {
+        #[serde(default)]
+        screen: Option<ScreenId>,
+    },
+    ApplyLayout {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        name: Option<String>,
+        layout: LayoutRequest,
+    },
     Send {
         surface: SurfaceId,
         #[serde(default)]
@@ -63,6 +84,63 @@ enum Command {
     },
     ReadScreen {
         surface: SurfaceId,
+    },
+    WaitFor {
+        surface: SurfaceId,
+        pattern: String,
+        #[serde(alias = "timeout_ms")]
+        timeout_ms: u64,
+    },
+    Run {
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        new_workspace: bool,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    SendKey {
+        surface: SurfaceId,
+        keys: Vec<String>,
+    },
+    Copy {
+        surface: SurfaceId,
+        mode: String,
+    },
+    Ids {
+        #[serde(default)]
+        kind: Option<String>,
+    },
+    Notify {
+        title: String,
+        body: String,
+        #[serde(default)]
+        level: Option<String>,
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    ListAgents {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        state: Option<String>,
+    },
+    ReportAgent {
+        surface: SurfaceId,
+        state: String,
+        source: String,
+        #[serde(default)]
+        session: Option<String>,
     },
     /// One-shot VT replay of the surface's current state (base64).
     VtState {
@@ -180,6 +258,31 @@ enum Command {
         dir: String,
         ratio: f32,
     },
+    PaneNeighbor {
+        pane: PaneId,
+        dir: String,
+    },
+    FocusDirection {
+        #[serde(default)]
+        pane: Option<PaneId>,
+        dir: String,
+    },
+    SwapPane {
+        pane: PaneId,
+        #[serde(default)]
+        dir: Option<String>,
+        #[serde(default)]
+        target: Option<PaneId>,
+    },
+    ZoomPane {
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        mode: Option<String>,
+    },
+    ProcessInfo {
+        surface: SurfaceId,
+    },
     MoveTab {
         surface: SurfaceId,
         pane: PaneId,
@@ -271,6 +374,23 @@ enum Command {
     },
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+enum LayoutRequest {
+    Leaf {
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        command: Option<Vec<String>>,
+    },
+    Split {
+        dir: String,
+        ratio: f32,
+        a: Box<LayoutRequest>,
+        b: Box<LayoutRequest>,
+    },
+}
+
 #[derive(Serialize)]
 struct Response {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -326,6 +446,21 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+pub fn window_title_osc(title: &str) -> Vec<u8> {
+    let title = sanitize_window_title(title);
+    format!("\x1b]0;{title}\x07\x1b]2;{title}\x07").into_bytes()
+}
+
+fn sanitize_window_title(title: &str) -> String {
+    title
+        .chars()
+        .map(|ch| match ch {
+            '\u{00}'..='\u{1f}' | '\u{7f}' => ' ',
+            _ => ch,
+        })
+        .collect()
+}
+
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let Ok(write_half) = stream.try_clone_box() else { return };
     let writer = LineWriter(Arc::new(Mutex::new(write_half)));
@@ -370,7 +505,82 @@ fn node_json(node: &Node) -> Value {
     }
 }
 
-fn pane_json(state: &State, id: PaneId, short_ids: &HashMap<u64, String>) -> Value {
+fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
+    match layout {
+        LayoutRequest::Leaf { cwd, command } => {
+            Ok(LayoutSpec::Leaf(LayoutLeafSpec { cwd, command }))
+        }
+        LayoutRequest::Split { dir, ratio, a, b } => Ok(LayoutSpec::Split {
+            dir: parse_split_dir(&dir)?,
+            ratio,
+            a: Box::new(layout_request_to_spec(*a)?),
+            b: Box::new(layout_request_to_spec(*b)?),
+        }),
+    }
+}
+
+fn parse_split_dir(dir: &str) -> anyhow::Result<SplitDir> {
+    match dir {
+        "right" => Ok(SplitDir::Right),
+        "down" => Ok(SplitDir::Down),
+        other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
+    }
+}
+
+fn parse_direction(dir: &str) -> anyhow::Result<Direction> {
+    match dir {
+        "left" => Ok(Direction::Left),
+        "right" => Ok(Direction::Right),
+        "up" => Ok(Direction::Up),
+        "down" => Ok(Direction::Down),
+        other => anyhow::bail!("bad dir {other:?} (want \"left\", \"right\", \"up\", or \"down\")"),
+    }
+}
+
+fn parse_zoom_mode(mode: Option<String>) -> anyhow::Result<ZoomMode> {
+    match mode.as_deref().unwrap_or("toggle") {
+        "toggle" => Ok(ZoomMode::Toggle),
+        "on" => Ok(ZoomMode::On),
+        "off" => Ok(ZoomMode::Off),
+        other => anyhow::bail!("bad mode {other:?} (want \"toggle\", \"on\", or \"off\")"),
+    }
+}
+
+fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Result<Value> {
+    let screen = match screen_id {
+        Some(id) => state
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.screens.iter())
+            .find(|screen| screen.id == id)
+            .ok_or_else(|| anyhow::anyhow!("unknown screen {id}"))?,
+        None => state
+            .workspaces
+            .get(state.active_workspace)
+            .and_then(|ws| ws.active_screen_ref())
+            .ok_or_else(|| anyhow::anyhow!("no active screen"))?,
+    };
+    let mut pane_ids = Vec::new();
+    screen.root.pane_ids(&mut pane_ids);
+    Ok(json!({
+        "layout": node_json(&screen.root),
+        "panes": pane_ids.iter().map(|pane_id| {
+            let surfaces = state
+                .panes
+                .get(pane_id)
+                .map(|pane| pane.tabs.clone())
+                .unwrap_or_default();
+            json!({ "pane": pane_id, "surfaces": surfaces })
+        }).collect::<Vec<_>>(),
+    }))
+}
+
+fn pane_json(
+    state: &State,
+    id: PaneId,
+    short_ids: &HashMap<u64, String>,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+) -> Value {
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
     };
@@ -389,6 +599,13 @@ fn pane_json(state: &State, id: PaneId, short_ids: &HashMap<u64, String>) -> Val
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
+                "notification": notifications.get(sid).copied().map(|n| {
+                    json!({
+                        "notification": n.notification,
+                        "unread": n.unread,
+                        "level": n.level.as_str(),
+                    })
+                }),
                 "name": surface.and_then(|s| s.name()),
                 "title": surface.map(|s| s.title()).unwrap_or_default(),
                 "size": surface.map(|s| {
@@ -406,6 +623,7 @@ fn screen_json(
     screen: &Screen,
     active: bool,
     short_ids: &HashMap<u64, String>,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
@@ -415,12 +633,16 @@ fn screen_json(
         "name": screen.name,
         "active": active,
         "active_pane": screen.active_pane,
+        "zoomed_pane": screen.zoomed_pane,
         "layout": node_json(&screen.root),
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids)).collect::<Vec<_>>(),
+        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     })
 }
 
-fn workspaces_json(state: &State) -> Value {
+fn workspaces_json(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+) -> Value {
     let ids = state
         .workspaces
         .iter()
@@ -442,11 +664,45 @@ fn workspaces_json(state: &State) -> Value {
                 "name": ws.name,
                 "active": i == state.active_workspace,
                 "screens": ws.screens.iter().enumerate().map(|(s, screen)| {
-                    screen_json(state, screen, s == ws.active_screen, &short_ids)
+                    screen_json(state, screen, s == ws.active_screen, &short_ids, notifications)
                 }).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
     })
+}
+
+fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
+    let allowed = ["workspace", "screen", "pane", "surface"];
+    if let Some(kind) = kind {
+        if !allowed.contains(&kind) {
+            anyhow::bail!("bad kind {kind}");
+        }
+    }
+    let mut raw = Vec::new();
+    for ws in &state.workspaces {
+        raw.push(("workspace", ws.id));
+        for screen in &ws.screens {
+            raw.push(("screen", screen.id));
+            let mut panes = Vec::new();
+            screen.root.pane_ids(&mut panes);
+            for pane in panes {
+                raw.push(("pane", pane));
+            }
+        }
+    }
+    raw.extend(state.surfaces.keys().copied().map(|id| ("surface", id)));
+    let short_ids = assign_short_ids(raw.iter().map(|(_, id)| *id));
+    Ok(json!({
+        "ids": raw
+            .into_iter()
+            .filter(|(item_kind, _)| kind.is_none_or(|kind| kind == *item_kind))
+            .map(|(kind, id)| json!({
+                "kind": kind,
+                "id": id,
+                "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
+            }))
+            .collect::<Vec<_>>()
+    }))
 }
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
@@ -467,6 +723,44 @@ fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
+}
+
+fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
+    match level {
+        "info" => Ok(NotificationLevel::Info),
+        "warning" => Ok(NotificationLevel::Warning),
+        "error" => Ok(NotificationLevel::Error),
+        other => anyhow::bail!("bad level {other}"),
+    }
+}
+
+fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
+    match state {
+        "working" => Ok(AgentState::Working),
+        "blocked" => Ok(AgentState::Blocked),
+        "idle" => Ok(AgentState::Idle),
+        "done" => Ok(AgentState::Done),
+        "unknown" => Ok(AgentState::Unknown),
+        other => anyhow::bail!("bad state {other}"),
+    }
+}
+
+fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
+    match source {
+        "socket" => Ok(AgentSource::Socket),
+        "hook" => Ok(AgentSource::Hook),
+        other => anyhow::bail!("bad source {other}"),
+    }
+}
+
+fn agent_json(record: &AgentRecord) -> Value {
+    json!({
+        "surface": record.surface,
+        "state": record.state.as_str(),
+        "source": record.source.as_str(),
+        "session": record.session,
+        "updated_at_ms": record.updated_at_ms,
+    })
 }
 
 fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
@@ -518,6 +812,49 @@ fn browser_state_json(
     value
 }
 
+fn spawn_attach_notification_stream(
+    mux: Arc<Mux>,
+    surface_id: SurfaceId,
+    writer: LineWriter,
+) -> std::io::Result<()> {
+    let events = mux.subscribe();
+    std::thread::Builder::new()
+        .name("mux-attach-notifications".into())
+        .spawn(move || {
+            while let Ok(event) = events.recv() {
+                let value = match event {
+                    MuxEvent::Notification(notification)
+                        if notification.surface == Some(surface_id) =>
+                    {
+                        json!({
+                            "event": "notification",
+                            "notification": notification.notification,
+                            "title": notification.title,
+                            "body": notification.body,
+                            "level": notification.level.as_str(),
+                            "surface": notification.surface,
+                        })
+                    }
+                    MuxEvent::ScrollChanged { surface, offset, at_bottom }
+                        if surface == surface_id =>
+                    {
+                        json!({
+                            "event": "scroll-changed",
+                            "surface": surface,
+                            "offset": offset,
+                            "at_bottom": at_bottom,
+                        })
+                    }
+                    _ => continue,
+                };
+                if writer.send(&value).is_err() {
+                    break;
+                }
+            }
+        })
+        .map(|_| ())
+}
+
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
@@ -527,7 +864,43 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             "session": mux.session,
             "pid": std::process::id(),
         })),
-        Command::ListWorkspaces => Ok(mux.with_state(workspaces_json)),
+        Command::Ping => Ok(json!({
+            "ok": true,
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocol": PROTOCOL_VERSION,
+        })),
+        Command::ReloadConfig => {
+            mux.emit(MuxEvent::ConfigReloadRequested);
+            Ok(json!({
+                "reloaded": true,
+                "path": platform::config_path().map(|path| path.display().to_string()),
+            }))
+        }
+        Command::SetWindowTitle { title } => {
+            mux.emit(MuxEvent::WindowTitleRequested(title));
+            Ok(json!({}))
+        }
+        Command::ClearWindowTitle => {
+            mux.emit(MuxEvent::WindowTitleRequested(String::new()));
+            Ok(json!({}))
+        }
+        Command::ListWorkspaces => {
+            let notifications = mux.surface_notifications();
+            Ok(mux.with_state(|state| workspaces_json(state, &notifications)))
+        }
+        Command::ExportLayout { screen } => {
+            mux.with_state(|state| export_layout_json(state, screen))
+        }
+        Command::ApplyLayout { workspace, name, layout } => {
+            let layout = layout_request_to_spec(layout)?;
+            let applied = mux.apply_layout(workspace, name, &layout)?;
+            Ok(json!({
+                "screen": applied.screen,
+                "panes": applied.panes.iter().map(|pane| {
+                    json!({ "pane": pane.pane, "surface": pane.surface })
+                }).collect::<Vec<_>>(),
+            }))
+        }
         Command::Send { surface, text, bytes } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -545,6 +918,153 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             require_pty(&surface)?;
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
+        }
+        Command::WaitFor { surface, pattern, timeout_ms } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
+            let start = Instant::now();
+            let check = || -> anyhow::Result<Option<String>> {
+                let text = surface.try_with_terminal(|t| t.viewport_text())??;
+                Ok(regex.is_match(&text).then_some(text))
+            };
+            if timeout_ms == 0 {
+                if let Some(text) = check()? {
+                    return Ok(json!({
+                        "matched": true,
+                        "text": text,
+                        "elapsed_ms": start.elapsed().as_millis() as u64,
+                    }));
+                }
+                anyhow::bail!("timeout waiting for pattern");
+            }
+            let deadline = start + std::time::Duration::from_millis(timeout_ms);
+            let attach = surface.attach_stream()?;
+            if let Some(text) = check()? {
+                return Ok(json!({
+                    "matched": true,
+                    "text": text,
+                    "elapsed_ms": start.elapsed().as_millis() as u64,
+                }));
+            }
+            loop {
+                let now = Instant::now();
+                if now >= deadline {
+                    anyhow::bail!("timeout waiting for pattern");
+                }
+                let remaining = deadline.saturating_duration_since(now);
+                match attach.stream.recv_timeout(remaining) {
+                    Ok(_) => {
+                        if let Some(text) = check()? {
+                            return Ok(json!({
+                                "matched": true,
+                                "text": text,
+                                "elapsed_ms": start.elapsed().as_millis() as u64,
+                            }));
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        anyhow::bail!("timeout waiting for pattern");
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        anyhow::bail!("timeout waiting for pattern");
+                    }
+                }
+            }
+        }
+        Command::Run { argv, command, cwd, pane, new_workspace, name, cols, rows } => {
+            if argv.is_some() && command.is_some() {
+                anyhow::bail!("argv and command are mutually exclusive");
+            }
+            let argv = match (argv, command) {
+                (Some(argv), None) if !argv.is_empty() => argv,
+                (None, Some(command)) if !command.is_empty() => {
+                    vec![platform::default_shell(), "-lc".to_string(), command]
+                }
+                _ => anyhow::bail!("argv or command is required"),
+            };
+            if new_workspace && pane.is_some() {
+                anyhow::bail!("pane and new_workspace are mutually exclusive");
+            }
+            let placement =
+                mux.run_command_surface(argv, pane, new_workspace, cwd, name, cols.zip(rows))?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::SendKey { surface, keys } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)
+                .map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
+            if keys.is_empty() {
+                anyhow::bail!("bad request: keys must be non-empty");
+            }
+            let mut encoder = KeyEncoder::new()?;
+            let mut encoded = Vec::new();
+            surface.scroll_to_bottom()?;
+            surface.try_with_terminal(|term| {
+                encoder.sync_from_terminal(term);
+                for key in &keys {
+                    let Some(input) = key_input_from_chord(key) else {
+                        return Err(anyhow::anyhow!("unknown key {key}"));
+                    };
+                    encoder.encode(&input, &mut encoded).map_err(anyhow::Error::from)?;
+                }
+                Ok::<(), anyhow::Error>(())
+            })??;
+            surface.write_bytes(&encoded)?;
+            Ok(json!({}))
+        }
+        Command::Copy { surface, mode } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let text = match mode.as_str() {
+                "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+                "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
+                "selection" => {
+                    surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?
+                }
+                other => anyhow::bail!("bad mode {other}"),
+            };
+            Ok(json!({ "text": text, "mode": mode }))
+        }
+        Command::Ids { kind } => mux.with_state(|state| ids_json(state, kind.as_deref())),
+        Command::Notify { title, body, level, surface } => {
+            if title.is_empty() {
+                anyhow::bail!("title is required");
+            }
+            let level = parse_notification_level(level.as_deref().unwrap_or("info"))?;
+            if let Some(surface) = surface {
+                get_surface(mux, surface)?;
+            }
+            let notification = mux.post_notification(title, body, level, surface);
+            Ok(json!({ "notification": notification }))
+        }
+        Command::ListAgents { surface, state } => {
+            if let Some(surface) = surface {
+                get_surface(mux, surface)?;
+            }
+            let state = match state {
+                Some(state) => Some(parse_agent_state(&state)?),
+                None => None,
+            };
+            let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
+            Ok(json!({ "agents": agents }))
+        }
+        Command::ReportAgent { surface, state, source, session } => {
+            get_surface(mux, surface)?;
+            let state = parse_agent_state(&state)?;
+            let source = parse_agent_source(&source)?;
+            let record = mux.report_agent(surface, state, source, session);
+            Ok(json!({
+                "surface": record.surface,
+                "state": record.state.as_str(),
+                "source": record.source.as_str(),
+                "session": record.session,
+            }))
         }
         Command::VtState { surface } => {
             let surface = get_surface(mux, surface)?;
@@ -659,24 +1179,59 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             Ok(json!({ "surface": surface.id }))
         }
         Command::Split { pane, dir, cols, rows } => {
-            let dir = match dir.as_str() {
-                "right" => SplitDir::Right,
-                "down" => SplitDir::Down,
-                other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
-            };
+            let dir = parse_split_dir(&dir)?;
             let surface = mux.split(pane, dir, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::SetRatio { pane, dir, ratio } => {
-            let dir = match dir.as_str() {
-                "right" => SplitDir::Right,
-                "down" => SplitDir::Down,
-                other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
-            };
+            let dir = parse_split_dir(&dir)?;
             if !mux.set_ratio(pane, dir, ratio) {
                 anyhow::bail!("unknown pane/split {pane}");
             }
             Ok(json!({}))
+        }
+        Command::PaneNeighbor { pane, dir } => {
+            let dir = parse_direction(&dir)?;
+            let pane = mux.pane_neighbor(pane, dir)?;
+            Ok(json!({ "pane": pane }))
+        }
+        Command::FocusDirection { pane, dir } => {
+            let dir = parse_direction(&dir)?;
+            let pane = mux.focus_direction(pane, dir)?;
+            Ok(json!({ "pane": pane }))
+        }
+        Command::SwapPane { pane, dir, target } => {
+            let target = match (dir, target) {
+                (Some(_), Some(_)) => anyhow::bail!("use only one of dir or target"),
+                (Some(dir), None) => {
+                    let dir = parse_direction(&dir)?;
+                    mux.pane_neighbor(pane, dir)?.ok_or_else(|| anyhow::anyhow!("no neighbor"))?
+                }
+                (None, Some(target)) => target,
+                (None, None) => anyhow::bail!("one of dir or target is required"),
+            };
+            if !mux.swap_panes(pane, target) {
+                anyhow::bail!("unknown pane/target");
+            }
+            Ok(json!({}))
+        }
+        Command::ZoomPane { pane, mode } => {
+            let mode = parse_zoom_mode(mode)?;
+            let state = mux.zoom_pane(pane, mode)?;
+            Ok(json!({
+                "pane": state.pane,
+                "zoomed": state.zoomed,
+                "zoomed_pane": state.zoomed_pane,
+            }))
+        }
+        Command::ProcessInfo { surface } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            Ok(json!({
+                "pid": surface.process_id(),
+                "command": surface.spawn_command(),
+                "cwd": surface.pwd().or_else(|| surface.spawn_cwd()),
+            }))
         }
         Command::MoveTab { surface, pane, index } => {
             let valid = mux.with_state(|state| {
@@ -785,7 +1340,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            surface.try_with_terminal(|t| t.scroll_delta(delta))?;
+            surface.scroll_delta(delta)?;
             Ok(json!({}))
         }
         Command::Subscribe => {
@@ -812,10 +1367,33 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                             json!({"event": "title-changed", "surface": id})
                         }
                         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+                        MuxEvent::Notification(notification) => json!({
+                            "event": "notification",
+                            "notification": notification.notification,
+                            "title": notification.title,
+                            "body": notification.body,
+                            "level": notification.level.as_str(),
+                            "surface": notification.surface,
+                        }),
                         MuxEvent::Status(message) => {
                             json!({"event": "status", "message": message})
                         }
+                        MuxEvent::ConfigReloadRequested => {
+                            json!({"event": "config-reload-requested"})
+                        }
+                        MuxEvent::WindowTitleRequested(title) => {
+                            json!({"event": "window-title-requested", "title": title})
+                        }
+                        MuxEvent::ScrollChanged { surface, offset, at_bottom } => json!({
+                            "event": "scroll-changed",
+                            "surface": surface,
+                            "offset": offset,
+                            "at_bottom": at_bottom,
+                        }),
                         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
+                        MuxEvent::LayoutChanged(screen) => {
+                            json!({"event": "layout-changed", "screen": screen})
+                        }
                         MuxEvent::Empty => json!({"event": "empty"}),
                     };
                     if writer.send(&value).is_err() {
@@ -827,6 +1405,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::AttachSurface { surface: surface_id } => {
             let surface = get_surface(mux, surface_id)?;
+            spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
             if surface.kind() == SurfaceKind::Browser {
                 let (state, frames) = surface.attach_frames()?;
                 writer.send(&browser_state_json(surface_id, &state, true))?;
@@ -898,4 +1477,138 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SurfaceOptions;
+    use std::io::{Read, Write};
+    use std::sync::mpsc::TryRecvError;
+    use std::time::Duration;
+
+    struct NullStream;
+
+    impl Read for NullStream {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+    }
+
+    impl Write for NullStream {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for NullStream {
+        fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
+            Ok(Box::new(NullStream))
+        }
+
+        fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_mux() -> Arc<Mux> {
+        Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    fn test_writer() -> LineWriter {
+        LineWriter(Arc::new(Mutex::new(Box::new(NullStream) as Box<dyn transport::Stream>)))
+    }
+
+    #[test]
+    fn ping_returns_version_and_protocol() {
+        let mux = test_mux();
+        let data = handle_command(&mux, Command::Ping, &test_writer()).unwrap();
+        assert_eq!(data["ok"].as_bool(), Some(true));
+        assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+    }
+
+    #[test]
+    fn reload_config_returns_path_and_emits_request() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let data = handle_command(&mux, Command::ReloadConfig, &test_writer()).unwrap();
+        assert_eq!(data["reloaded"].as_bool(), Some(true));
+        assert!(data.get("path").is_some());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ConfigReloadRequested)
+        ));
+    }
+
+    #[test]
+    fn window_title_commands_emit_requests() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+
+        let data = handle_command(
+            &mux,
+            Command::SetWindowTitle { title: "hello".to_string() },
+            &test_writer(),
+        )
+        .unwrap();
+        assert_eq!(data, json!({}));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::WindowTitleRequested(title)) if title == "hello"
+        ));
+
+        handle_command(&mux, Command::ClearWindowTitle, &test_writer()).unwrap();
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()
+        ));
+    }
+
+    #[test]
+    fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
+        assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
+        assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
+    }
+
+    #[test]
+    fn scroll_surface_emits_one_scroll_changed_event() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        surface
+            .try_with_terminal(|term| {
+                for i in 0..20 {
+                    term.vt_write(format!("line{i}\r\n").as_bytes());
+                }
+            })
+            .unwrap();
+        let events = mux.subscribe();
+
+        handle_command(
+            &mux,
+            Command::ScrollSurface { surface: surface.id, delta: -5 },
+            &test_writer(),
+        )
+        .unwrap();
+
+        let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            event,
+            MuxEvent::ScrollChanged { surface: id, offset, at_bottom: false }
+                if id == surface.id && offset > 0
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+        handle_command(
+            &mux,
+            Command::ScrollSurface { surface: surface.id, delta: 0 },
+            &test_writer(),
+        )
+        .unwrap();
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
 }
