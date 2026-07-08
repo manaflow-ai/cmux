@@ -175,19 +175,28 @@ struct TerminalTabAgentIconTests {
         #expect(lookedUpKeys == ["my-custom-agent"])
     }
 
-    @Test func registrationLookupIsNotConsultedForBuiltInAgents() {
-        var lookedUpKeys: [String] = []
+    @Test func liveRegistrationIconOverridesBuiltInBrand() {
+        // Registry semantics: config registrations can override built-in
+        // agents, so the registration icon wins over the hard-coded switch.
         let asset = TerminalTabAgentIconResolver().assetName(
-            liveAgents: [liveAgent("codex")],
+            liveAgents: [liveAgent("pi")],
             restoredAgent: nil,
             registrationIconAssetName: { key in
-                lookedUpKeys.append(key)
-                return nil
+                key == "pi" ? "AgentIcons/Grok" : nil
             }
         )
 
+        #expect(asset == "AgentIcons/Grok")
+    }
+
+    @Test func builtInBrandStillResolvesWhenRegistrationLookupMisses() {
+        let asset = TerminalTabAgentIconResolver().assetName(
+            liveAgents: [liveAgent("codex")],
+            restoredAgent: nil,
+            registrationIconAssetName: { _ in nil }
+        )
+
         #expect(asset == "AgentIcons/Codex")
-        #expect(lookedUpKeys.isEmpty)
     }
 
     @Test func restoredRegisteredAgentPrefersRegistrationIconOverBuiltInSwitch() {

@@ -26,18 +26,20 @@ nonisolated struct TerminalTabAgentIconResolver {
         let registrationIconAssetName: String?
     }
 
-    /// - Parameter registrationIconAssetName: Lazy lookup for live status keys
-    ///   that are not built-in agents (registered/vault agents). Only consulted
-    ///   for keys the built-in switch does not recognize, so callers can back
-    ///   it with a registry load without paying that cost on common paths.
+    /// - Parameter registrationIconAssetName: In-memory lookup for registered
+    ///   agent ids (callers back it with the panel's restorable-agent
+    ///   registration; it must never do I/O — icon sync runs on the agent
+    ///   PID/status mutation path). Consulted before the built-in switch so
+    ///   config registrations can override built-in agents, matching
+    ///   `CmuxVaultAgentRegistry` override semantics and the restored path.
     func assetName(
         liveAgents: [LiveAgent],
         restoredAgent: RestoredAgent?,
         registrationIconAssetName: (String) -> String? = { _ in nil }
     ) -> String? {
         let recognized = liveAgents.compactMap { agent -> (agent: LiveAgent, asset: String)? in
-            let asset = builtInAssetName(statusKey: agent.statusKey)
-                ?? registrationIconAssetName(agent.statusKey)
+            let asset = registrationIconAssetName(agent.statusKey)
+                ?? builtInAssetName(statusKey: agent.statusKey)
             return asset.map { (agent: agent, asset: $0) }
         }
         if let newest = recognized.min(by: { Self.isOrderedByRecency($0.agent, $1.agent) }) {
@@ -139,23 +141,17 @@ extension Workspace {
                 processStart: agentPIDProcessIdentitiesByKey[key]
             )
         }
-        // Loaded at most once per resolution, and only when a live key is not
-        // a built-in agent (mirrors the lifecycle-key validation path, which
-        // already loads the registry per accepted registered-agent event).
-        var loadedRegistry: CmuxVaultAgentRegistry?
+        // Registered-agent icons resolve from the panel's restorable-agent
+        // registration, which is already in memory. Icon sync runs on the
+        // agent PID/status mutation path, so it must never load the Vault
+        // registry (directory walk + config reads) itself.
+        let snapshot = restoredAgentSnapshotsByPanelId[panelId]
+        let registration = snapshot?.registration
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
-            restoredAgent: restoredAgentSnapshotsByPanelId[panelId].map(
-                TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
-            ),
+            restoredAgent: snapshot.map(TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)),
             registrationIconAssetName: { statusKey in
-                guard CmuxVaultAgentRegistration.isValidID(statusKey) else { return nil }
-                if loadedRegistry == nil {
-                    loadedRegistry = CmuxVaultAgentRegistry.load(
-                        workingDirectory: effectivePanelDirectory(panelId: panelId)
-                    )
-                }
-                return loadedRegistry?.registration(id: statusKey)?.iconAssetName
+                registration?.id == statusKey ? registration?.iconAssetName : nil
             }
         )
     }
@@ -193,13 +189,17 @@ extension DockSplitStore {
     /// state, dropping proven-exited agents, when the surface leaves the Dock.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         guard let transfer = detachedSurfaceTransfersByPanelId[panelId] else { return nil }
+        let registration = transfer.restorableAgent?.registration
         return TerminalTabAgentIconResolver().assetName(
             agentPIDKeys: transfer.agentRuntime?.agentPIDKeys ?? [],
             processIdentities: transfer.agentRuntime?.agentPIDProcessIdentities ?? [:],
             knownStatusKeys: transfer.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
             restoredAgent: transfer.restorableAgent.map(
                 TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
-            )
+            ),
+            registrationIconAssetName: { statusKey in
+                registration?.id == statusKey ? registration?.iconAssetName : nil
+            }
         )
     }
 }
