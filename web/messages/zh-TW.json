@@ -836,7 +836,7 @@
       "managingTitle": "管理群組",
       "managingIntro": "群組建立後，可以透過其標題的右鍵選單以及標題上的 + 按鈕來管理群組並向其中新增工作區。這兩者都不會建立新群組。",
       "headerMenuTitle": "透過群組標頭情境選單",
-      "headerMenuDesc": "對現有的群組標題列按右鍵，可使用 Rename Group…、Pin Group / Unpin Group、Edit Group Config…（會開啟 ~/.config/cmux/cmux.json）、Open Workspace Groups Docs、Delete Group 以及 Delete Group and Close Workspaces…。Delete Group 會保留工作區，僅移除容器；Delete Group and Close Workspaces 是破壞性操作並會提示確認。",
+      "headerMenuDesc": "對現有的群組標題列按右鍵，可使用 Rename Group…、Pin Group / Unpin Group、Edit Group Config…（會開啟 ~/.config/cmux/cmux.json）、Open Workspace Groups Docs、Ungroup 以及 Delete Group。Ungroup 會保留工作區，僅移除群組容器。Delete Group 會關閉群組標題工作區以及群組內的所有工作區；如果群組包含子工作區，會先提示確認。",
       "plusButtonTitle": "透過群組標頭上的 + 按鈕",
       "plusButtonDesc": "將滑鼠移到群組標題列上，即可顯示尾端的 + 按鈕。點按它即可在該群組中、於錨點工作目錄下建立新的工作區。對它按右鍵則可使用 New Workspace in Group、Edit Group Config… 以及 Open Workspace Groups Docs。",
       "plusButtonNote": "當目前作用中的工作區是某個群組的錨點或成員時，按下 {shortcut} 也會在該群組內建立新工作區。預設放置方式為 After current：從一般的群組成員出發時，新工作區會落在作用中成員的正後方；從錨點或標頭出發時，則會落在群組的頂端。",

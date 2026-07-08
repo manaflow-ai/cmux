@@ -36,12 +36,14 @@ struct WorkspaceGroupDeletionConfirmationTests {
         let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
         #expect(confirmation.groupId == groupId)
         #expect(confirmation.groupName == "G")
-        #expect(confirmation.memberWorkspaceIds.isEmpty)
-        #expect(confirmation.memberCount == 0)
+        #expect(confirmation.memberWorkspaceIds == [anchorId])
+        #expect(confirmation.memberCount == 1)
+        #expect(confirmation.containedWorkspaceCount == 0)
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
-        #expect(closed == 0)
+        #expect(closed == 1)
+        #expect(host.closedWorkspaceIds == [anchorId])
         #expect(!model.workspaceGroups.contains { $0.id == groupId })
         #expect(host.orderChanges.last == [anchorId])
     }
@@ -59,6 +61,30 @@ struct WorkspaceGroupDeletionConfirmationTests {
         groups.ungroupWorkspaceGroup(groupId: groupId)
 
         #expect(groups.deletionConfirmation(groupId: groupId) == nil)
+        #expect(!model.workspaceGroups.contains { $0.id == groupId })
+    }
+
+    @Test
+    func confirmedDeleteClosesOnlyConfirmedMembershipWhenGroupChangesDuringPrompt() throws {
+        let (model, host, groups) = makeWorld()
+        let first = CoordinatorStubTab()
+        let second = CoordinatorStubTab()
+        let lateJoiner = CoordinatorStubTab()
+        model.tabs = [first, second, lateJoiner]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let confirmation = try #require(groups.deletionConfirmation(groupId: groupId))
+        #expect(confirmation.containedWorkspaceCount == 2)
+
+        model.assignGroup(workspaceId: lateJoiner.id, groupId: groupId)
+        let liveMembershipAfterPrompt = Set(model.tabs.filter { $0.groupId == groupId }.map(\.id))
+        #expect(liveMembershipAfterPrompt.contains(lateJoiner.id))
+
+        let closed = groups.deleteWorkspaceGroup(confirmed: confirmation)
+
+        #expect(closed == confirmation.memberCount)
+        #expect(Set(host.closedWorkspaceIds) == Set(confirmation.memberWorkspaceIds))
+        #expect(model.tabs.contains { $0.id == lateJoiner.id })
+        #expect(model.tabs.first(where: { $0.id == lateJoiner.id })?.groupId == nil)
         #expect(!model.workspaceGroups.contains { $0.id == groupId })
     }
 }

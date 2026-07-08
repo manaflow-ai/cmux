@@ -81,8 +81,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onClearLatestNotifications: () -> Void
     let onMarkAllRead: () -> Void
     let onMarkAllUnread: () -> Void
-    let onDeleteGroup: () -> Void
-    let onDeleteGroupAndCloseWorkspaces: () -> Void
+    let onUngroup: () -> Void
+    let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
 
@@ -407,19 +407,19 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             Divider()
             Button(
                 String(
-                    localized: "workspaceGroup.contextMenu.delete",
-                    defaultValue: "Delete Group"
+                    localized: "workspaceGroup.contextMenu.ungroup",
+                    defaultValue: "Ungroup"
                 ),
-                action: onDeleteGroup
+                action: onUngroup
             )
             Button(
                 role: .destructive,
-                action: onDeleteGroupAndCloseWorkspaces
+                action: onDelete
             ) {
                 Text(
                     String(
-                        localized: "workspaceGroup.contextMenu.deleteAndCloseWorkspaces",
-                        defaultValue: "Delete Group and Close Workspaces..."
+                        localized: "workspaceGroup.contextMenu.delete",
+                        defaultValue: "Delete Group"
                     )
                 )
             }

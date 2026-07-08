@@ -14,7 +14,7 @@ private let workspaceGroupLogger = Logger(subsystem: "com.cmuxterm.app", categor
 @MainActor
 public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     let model: WorkspacesModel<Tab>
-    private weak var host: (any WorkspaceGroupHosting<Tab>)?
+    weak var host: (any WorkspaceGroupHosting<Tab>)?
 
     /// Creates the coordinator over the window's workspace model.
     public init(model: WorkspacesModel<Tab>) {
@@ -304,29 +304,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// out of the prompt cleanly.
     @discardableResult
     public func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
-        guard let host else { return 0 }
-        guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return 0 }
-        let members = model.tabs.filter { $0.groupId == groupId }
-        let affectedWorkspaceIds = members.isEmpty
-            ? model.tabs.contains(where: { $0.id == group.anchorWorkspaceId }) ? [group.anchorWorkspaceId] : []
-            : members.map(\.id)
-        var closed = 0
-        for tab in members {
-            // closeWorkspace short-circuits when tabs.count <= 1, so clear the
-            // final holdout's membership instead of leaving a stale groupId.
-            if model.tabs.count <= 1 {
-                model.assignGroup(workspaceId: tab.id, groupId: nil)
-                continue
-            }
-            let countBefore = model.tabs.count
-            host.closeWorkspaceForGroupDeletion(tab, recordHistory: recordHistory)
-            if model.tabs.count < countBefore { closed += 1 }
-        }
-        // closeWorkspace may already dissolve the group if the anchor closed;
-        // cleanup still covers stale/empty and non-anchor-only membership.
-        model.workspaceGroups.removeAll { $0.id == groupId }
-        host.workspaceOrderDidChange(movedWorkspaceIds: affectedWorkspaceIds)
-        return closed
+        guard let confirmation = deletionConfirmation(groupId: groupId) else { return 0 }
+        return deleteWorkspaceGroup(confirmed: confirmation, recordHistory: recordHistory)
     }
 
     // MARK: - Group properties
