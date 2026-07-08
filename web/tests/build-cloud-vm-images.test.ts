@@ -1,4 +1,13 @@
 import { describe, expect, test } from "bun:test";
+
+/** Expand `printf '%s' '<b64>' | base64 -d | sh` RUN payloads back to plaintext
+ * so assertions can see (and forbid) content inside collapsed multi-line commands. */
+function decodeDockerfileRunPayloads(dockerfile: string): string {
+  return dockerfile.replace(
+    /printf '%s' '([A-Za-z0-9+/=]+)' \| base64 -d \| sh/g,
+    (_match, encoded: string) => Buffer.from(encoded, "base64").toString("utf8"),
+  );
+}
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -173,7 +182,9 @@ describe("Cloud VM image build helpers", () => {
   });
 
   test("Freestyle systemd service inherits toolchain runtime environment", () => {
-    const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+    const dockerfile = decodeDockerfileRunPayloads(
+      freestyleBaseDockerfileContent("https://example.com/cmuxd-remote"),
+    );
     const systemdEnv = systemdEnvironmentLines(cloudImageRuntimeEnvironment());
 
     for (const line of systemdEnv) {
@@ -182,6 +193,18 @@ describe("Cloud VM image build helpers", () => {
     expect(dockerfile).toContain("Environment=PATH=/usr/local/share/mise/shims:/opt/cargo/bin");
     expect(dockerfile).toContain("Environment=RUSTUP_HOME=/opt/rustup");
     expect(dockerfile).not.toContain("Environment=CARGO_HOME=");
+  });
+
+  test("Freestyle Dockerfile has no shell leaking outside RUN instructions", () => {
+    // Regression for the 2026-07 image-rebuild failure: multi-line commands with
+    // inner heredocs were emitted as raw `RUN <multi-line>`, so everything after
+    // the heredoc terminator parsed as an unknown Dockerfile instruction
+    // ("unknown instruction: chmod"). Every line must start with a real
+    // instruction; multi-line payloads must be collapsed (base64 | sh).
+    const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+    for (const line of dockerfile.split("\n")) {
+      expect(line).toMatch(/^(FROM|ENV|RUN|COPY|ADD|ARG|LABEL|WORKDIR|USER|EXPOSE|CMD|ENTRYPOINT) /);
+    }
   });
 
   test("image smoke checks exercise the cmux browser entrypoint without a daemon", () => {
@@ -214,7 +237,11 @@ describe("Cloud VM image build helpers", () => {
     try {
       process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = "LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=";
       process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = "private-seed-must-not-be-baked";
-      const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+      // Assert on the decoded view: base64-wrapped RUN payloads would otherwise
+      // hide both the expected public key and an accidentally-baked private seed.
+      const dockerfile = decodeDockerfileRunPayloads(
+        freestyleBaseDockerfileContent("https://example.com/cmuxd-remote"),
+      );
       expect(dockerfile).toContain(
         "CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=",
       );

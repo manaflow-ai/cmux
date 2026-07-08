@@ -745,15 +745,19 @@ export function freestyleBaseDockerfileContent(daemonURL: string): string {
     "FROM ubuntu:24.04",
     dockerEnvLine(cloudImageRuntimeEnvironment()),
     `RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${CLOUD_SHELL_PACKAGES.join(" ")} && rm -rf /var/lib/apt/lists/*`,
-    ...freestylePythonOpenSSLCommands().map((command) => `RUN ${command}`),
+    // Multi-line commands (inner heredocs like the cmux-cloud-shell writer and
+    // the systemd unit) must be collapsed to one line: a Dockerfile RUN ends at
+    // the heredoc terminator, so trailing shell leaks out as an unknown
+    // instruction and the build fails ("unknown instruction: chmod").
+    ...freestylePythonOpenSSLCommands().map((command) => `RUN ${toDockerfileRunCommand(command)}`),
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
-    ...cloudToolInstallCommands().map((command) => `RUN ${command}`),
-    ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
-    ...cloudShellProfileCommands().map((command) => `RUN ${command}`),
-    ...freestyleSignedAdminServiceCommands().map((command) => `RUN ${command}`),
-    ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
+    ...cloudToolInstallCommands().map((command) => `RUN ${toDockerfileRunCommand(command)}`),
+    ...cloudRootSetupCommands().map((command) => `RUN ${toDockerfileRunCommand(command)}`),
+    ...cloudShellProfileCommands().map((command) => `RUN ${toDockerfileRunCommand(command)}`),
+    ...freestyleSignedAdminServiceCommands().map((command) => `RUN ${toDockerfileRunCommand(command)}`),
+    ...cloudImageSmokeTestCommands().map((command) => `RUN ${toDockerfileRunCommand(command)}`),
     "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",
-    `RUN ${freestyleSystemdServiceCommand()}`,
+    `RUN ${toDockerfileRunCommand(freestyleSystemdServiceCommand())}`,
     "RUN ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
   ].join("\n");
 }
