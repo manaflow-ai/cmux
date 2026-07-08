@@ -35,6 +35,132 @@ impl std::ops::BitOr for Mods {
     }
 }
 
+fn physical_key_for_char(c: char) -> sys::GhosttyKey {
+    match c.to_ascii_lowercase() {
+        'a' => sys::GHOSTTY_KEY_A,
+        'b' => sys::GHOSTTY_KEY_B,
+        'c' => sys::GHOSTTY_KEY_C,
+        'd' => sys::GHOSTTY_KEY_D,
+        'e' => sys::GHOSTTY_KEY_E,
+        'f' => sys::GHOSTTY_KEY_F,
+        'g' => sys::GHOSTTY_KEY_G,
+        'h' => sys::GHOSTTY_KEY_H,
+        'i' => sys::GHOSTTY_KEY_I,
+        'j' => sys::GHOSTTY_KEY_J,
+        'k' => sys::GHOSTTY_KEY_K,
+        'l' => sys::GHOSTTY_KEY_L,
+        'm' => sys::GHOSTTY_KEY_M,
+        'n' => sys::GHOSTTY_KEY_N,
+        'o' => sys::GHOSTTY_KEY_O,
+        'p' => sys::GHOSTTY_KEY_P,
+        'q' => sys::GHOSTTY_KEY_Q,
+        'r' => sys::GHOSTTY_KEY_R,
+        's' => sys::GHOSTTY_KEY_S,
+        't' => sys::GHOSTTY_KEY_T,
+        'u' => sys::GHOSTTY_KEY_U,
+        'v' => sys::GHOSTTY_KEY_V,
+        'w' => sys::GHOSTTY_KEY_W,
+        'x' => sys::GHOSTTY_KEY_X,
+        'y' => sys::GHOSTTY_KEY_Y,
+        'z' => sys::GHOSTTY_KEY_Z,
+        '0' => sys::GHOSTTY_KEY_DIGIT_0,
+        '1' => sys::GHOSTTY_KEY_DIGIT_1,
+        '2' => sys::GHOSTTY_KEY_DIGIT_2,
+        '3' => sys::GHOSTTY_KEY_DIGIT_3,
+        '4' => sys::GHOSTTY_KEY_DIGIT_4,
+        '5' => sys::GHOSTTY_KEY_DIGIT_5,
+        '6' => sys::GHOSTTY_KEY_DIGIT_6,
+        '7' => sys::GHOSTTY_KEY_DIGIT_7,
+        '8' => sys::GHOSTTY_KEY_DIGIT_8,
+        '9' => sys::GHOSTTY_KEY_DIGIT_9,
+        ' ' => sys::GHOSTTY_KEY_SPACE,
+        '`' => sys::GHOSTTY_KEY_BACKQUOTE,
+        '\\' => sys::GHOSTTY_KEY_BACKSLASH,
+        '[' => sys::GHOSTTY_KEY_BRACKET_LEFT,
+        ']' => sys::GHOSTTY_KEY_BRACKET_RIGHT,
+        ',' => sys::GHOSTTY_KEY_COMMA,
+        '=' => sys::GHOSTTY_KEY_EQUAL,
+        '-' => sys::GHOSTTY_KEY_MINUS,
+        '.' => sys::GHOSTTY_KEY_PERIOD,
+        '\'' => sys::GHOSTTY_KEY_QUOTE,
+        ';' => sys::GHOSTTY_KEY_SEMICOLON,
+        '/' => sys::GHOSTTY_KEY_SLASH,
+        _ => sys::GHOSTTY_KEY_UNIDENTIFIED,
+    }
+}
+
+/// Parse a lower-case socket/CLI key chord into a Ghostty encoder input.
+pub fn key_input_from_chord(chord: &str) -> Option<KeyInput> {
+    let mut mods = Mods::default();
+    let mut key_name = None;
+    for part in chord.split('+') {
+        match part {
+            "ctrl" | "control" => mods = mods | Mods::CTRL,
+            "alt" | "option" => mods = mods | Mods::ALT,
+            "shift" => mods = mods | Mods::SHIFT,
+            "" => return None,
+            other => {
+                if key_name.is_some() {
+                    return None;
+                }
+                key_name = Some(other);
+            }
+        }
+    }
+    let key_name = key_name?;
+    let mut input = KeyInput { mods, action: Some(KeyAction::Press), ..Default::default() };
+    match key_name {
+        "enter" | "return" => input.key = sys::GHOSTTY_KEY_ENTER,
+        "tab" => input.key = sys::GHOSTTY_KEY_TAB,
+        "backtab" => {
+            input.key = sys::GHOSTTY_KEY_TAB;
+            input.mods = input.mods | Mods::SHIFT;
+        }
+        "escape" | "esc" => input.key = sys::GHOSTTY_KEY_ESCAPE,
+        "backspace" => input.key = sys::GHOSTTY_KEY_BACKSPACE,
+        "delete" => input.key = sys::GHOSTTY_KEY_DELETE,
+        "insert" => input.key = sys::GHOSTTY_KEY_INSERT,
+        "up" => input.key = sys::GHOSTTY_KEY_ARROW_UP,
+        "down" => input.key = sys::GHOSTTY_KEY_ARROW_DOWN,
+        "left" => input.key = sys::GHOSTTY_KEY_ARROW_LEFT,
+        "right" => input.key = sys::GHOSTTY_KEY_ARROW_RIGHT,
+        "home" => input.key = sys::GHOSTTY_KEY_HOME,
+        "end" => input.key = sys::GHOSTTY_KEY_END,
+        "pageup" => input.key = sys::GHOSTTY_KEY_PAGE_UP,
+        "pagedown" => input.key = sys::GHOSTTY_KEY_PAGE_DOWN,
+        "space" => {
+            input.key = sys::GHOSTTY_KEY_SPACE;
+            input.unshifted_codepoint = ' ' as u32;
+            if !mods.contains(Mods::CTRL) {
+                input.utf8 = " ".to_string();
+            }
+        }
+        name if name.len() == 1 => {
+            let c = name.chars().next()?;
+            input.key = physical_key_for_char(c);
+            if input.key == sys::GHOSTTY_KEY_UNIDENTIFIED {
+                return None;
+            }
+            input.unshifted_codepoint = c.to_ascii_lowercase() as u32;
+            if !mods.contains(Mods::CTRL) {
+                input.utf8 = c.to_string();
+                if mods.contains(Mods::SHIFT) {
+                    input.consumed_mods = Mods::SHIFT;
+                }
+            }
+        }
+        name if name.starts_with('f') => {
+            let n = name[1..].parse::<u32>().ok()?;
+            if !(1..=24).contains(&n) {
+                return None;
+            }
+            input.key = sys::GHOSTTY_KEY_F1 + (n as sys::GhosttyKey - 1);
+        }
+        _ => return None,
+    }
+    Some(input)
+}
+
 /// A single key event to encode.
 #[derive(Debug, Clone, Default)]
 pub struct KeyInput {
@@ -151,7 +277,28 @@ impl Drop for KeyEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Callbacks;
+    use crate::{Callbacks, Terminal};
+
+    #[test]
+    fn chord_parser_encodes_common_keys() {
+        let term = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        let mut encoder = KeyEncoder::new().unwrap();
+        encoder.sync_from_terminal(&term);
+
+        let mut out = Vec::new();
+        encoder.encode(&key_input_from_chord("ctrl+c").unwrap(), &mut out).unwrap();
+        assert_eq!(out, vec![0x03]);
+
+        out.clear();
+        encoder.encode(&key_input_from_chord("enter").unwrap(), &mut out).unwrap();
+        assert_eq!(out, b"\r");
+
+        out.clear();
+        encoder.encode(&key_input_from_chord("up").unwrap(), &mut out).unwrap();
+        assert!(!out.is_empty());
+
+        assert!(key_input_from_chord("not-a-key").is_none());
+    }
 
     #[test]
     fn encodes_ctrl_c() {

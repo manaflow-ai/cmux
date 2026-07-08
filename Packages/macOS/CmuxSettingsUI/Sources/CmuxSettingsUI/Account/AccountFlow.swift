@@ -59,6 +59,11 @@ public protocol AccountFlow: AnyObject {
     /// point at a local web server.
     func openProUpgrade()
 
+    /// Hover hint that ``openProUpgrade()`` is likely next: the host can
+    /// start loading the pricing destination so the click opens instantly.
+    /// Must be safe to call repeatedly. Defaults to a no-op.
+    func prefetchProUpgrade()
+
     /// Re-fetches the billing plan state used by the Pro account row.
     func refreshBillingPlan() async
 
@@ -76,4 +81,8 @@ public protocol AccountFlow: AnyObject {
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
+}
+
+extension AccountFlow {
+    public func prefetchProUpgrade() {}
 }

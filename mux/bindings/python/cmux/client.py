@@ -305,6 +305,17 @@ class CmuxClient:
     def list_workspaces(self) -> Tree:
         return _parse_tree(self._request("list-workspaces"))
 
+    def export_layout(self, screen: Optional[int] = None) -> Dict[str, Any]:
+        return self._request("export-layout", screen=screen)
+
+    def apply_layout(
+        self,
+        layout: Dict[str, Any],
+        workspace: Optional[int] = None,
+        name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return self._request("apply-layout", workspace=workspace, name=name, layout=layout)
+
     def send(
         self,
         surface: int,
@@ -373,6 +384,27 @@ class CmuxClient:
     def set_ratio(self, pane: int, dir: str, ratio: float) -> EmptyResult:
         self._request("set-ratio", pane=pane, dir=dir, ratio=ratio)
         return EmptyResult()
+
+    def pane_neighbor(self, pane: int, dir: str) -> Dict[str, Any]:
+        return self._request("pane-neighbor", pane=pane, dir=dir)
+
+    def focus_direction(self, dir: str, pane: Optional[int] = None) -> Dict[str, Any]:
+        return self._request("focus-direction", pane=pane, dir=dir)
+
+    def swap_pane(
+        self,
+        pane: int,
+        dir: Optional[str] = None,
+        target: Optional[int] = None,
+    ) -> EmptyResult:
+        self._request("swap-pane", pane=pane, dir=dir, target=target)
+        return EmptyResult()
+
+    def zoom_pane(self, pane: Optional[int] = None, mode: Optional[str] = None) -> Dict[str, Any]:
+        return self._request("zoom-pane", pane=pane, mode=mode)
+
+    def process_info(self, surface: int) -> Dict[str, Any]:
+        return self._request("process-info", surface=surface)
 
     def set_default_colors(self, fg: Optional[str] = None, bg: Optional[str] = None) -> EmptyResult:
         self._request("set-default-colors", fg=fg, bg=bg)

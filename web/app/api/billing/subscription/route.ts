@@ -15,6 +15,10 @@ import {
   isStripeBillingConfigured,
   stripe,
 } from "../../../../services/billing/stripe";
+import {
+  resolveBillingTeam,
+  type BillingTeamUserLike,
+} from "../../../../services/billing/teamResolution";
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
 
@@ -101,7 +105,7 @@ function billingScope(formData: FormData): BillingScope {
 }
 
 async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise<string> {
-  const team = await billingTeamForUser(user as BillingTeamUserLike);
+  const team = await resolveBillingTeam(user as BillingTeamUserLike);
   const clientTeamId = formData.get("teamId");
   if (
     typeof clientTeamId === "string" &&
@@ -162,27 +166,6 @@ async function updateSubscriptionSnapshot(
       updatedAt: sql`now()`,
     })
     .where(eq(stripeSubscriptions.id, subscriptionId));
-}
-
-type BillingTeamLike = { readonly id?: string };
-type BillingTeamUserLike = {
-  readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
-};
-
-async function billingTeamForUser(user: BillingTeamUserLike): Promise<BillingTeamLike | null> {
-  const selected = teamFromUnknown(user.selectedTeam);
-  if (selected) return selected;
-  const teams = typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeamLike => !!team)
-    : [];
-  return teams.length === 1 ? teams[0] : null;
-}
-
-function teamFromUnknown(value: unknown): BillingTeamLike | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  return typeof id === "string" && id ? { id } : null;
 }
 
 function billingRedirect(
