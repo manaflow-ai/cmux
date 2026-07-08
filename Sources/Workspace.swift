@@ -230,6 +230,15 @@ extension Workspace {
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
+        // Panel-scoped agent status is restorable UI state, unlike PIDs: the
+        // rows re-bind to the restored panes so the sidebar stays informative
+        // and click-navigable across relaunch. Seed AFTER the ephemeral-state
+        // clears above, which would otherwise wipe the seeds (restorePane runs
+        // earlier).
+        for (oldPanelId, newPanelId) in oldToNewPanelIds {
+            guard let terminal = panelSnapshotsById[oldPanelId]?.terminal else { continue }
+            restorePanelScopedAgentStatus(terminal: terminal, panelId: newPanelId)
+        }
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,
@@ -1498,7 +1507,6 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            restorePanelScopedAgentStatus(terminal: snapshot.terminal, panelId: terminalPanel.id)
             // A terminal whose startup command cds itself (agent resume, tmux
             // attach, agent-hook) is spawned without a working directory, so its
             // shell starts in the default directory and shell integration reports
