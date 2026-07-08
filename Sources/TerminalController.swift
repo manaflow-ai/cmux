@@ -395,6 +395,25 @@ class TerminalController {
             }
         }
     }
+
+#if DEBUG
+    static func makeForTesting(
+        passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
+        transport: SocketTransport = SocketTransport(),
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
+            tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
+        )
+    ) -> TerminalController {
+        TerminalController(
+            passwordStore: passwordStore,
+            transport: transport,
+            listenerPolicy: listenerPolicy,
+            remoteProxyBroker: remoteProxyBroker
+        )
+    }
+#endif
+
     nonisolated func currentSocketPathForRemoteRestore() -> String? {
         socketServer.currentSocketPathForRemoteRestore()
     }
@@ -836,6 +855,10 @@ class TerminalController {
             accessMode: accessMode,
             preserveAcceptFailureStreak: preserveAcceptFailureStreak
         )
+    }
+
+    nonisolated func configuredSocketPasswordForSelfConnection() -> String? {
+        passwordStore.configuredPassword(allowLazyKeychainFallback: true)
     }
 
     /// Invoked synchronously inside the server's `start()` on the main

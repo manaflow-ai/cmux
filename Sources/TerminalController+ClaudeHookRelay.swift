@@ -28,7 +28,8 @@ extension TerminalController {
         return runClaudeHookRelay(
             commandArgs: arguments,
             payload: payload,
-            socketPath: socketServer.currentSocketPath
+            socketPath: socketServer.currentSocketPath,
+            socketPassword: configuredSocketPasswordForSelfConnection()
         )
     }
 
@@ -51,11 +52,14 @@ extension TerminalController {
             processEnv: ProcessInfo.processInfo.environment
         )
         do {
+            try client.connect()
+            defer { client.close() }
             try cli.authenticateClientIfNeeded(
                 client,
                 explicitPassword: socketPassword,
                 socketPath: socketPath
             )
+            var stdout = ""
             try cli.runClaudeHookCore(
                 subcommand: subcommand,
                 hookArgs: hookArgs,
@@ -67,9 +71,16 @@ extension TerminalController {
                 surfaceArg: hookSurfaceFlag,
                 hookWorkspaceFlagIsExplicit: hookWsFlag != nil,
                 hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil,
-                preferCallerTTYRouting: hookWsFlag == nil && hookSurfaceFlag == nil
+                preferCallerTTYRouting: hookWsFlag == nil && hookSurfaceFlag == nil,
+                stdout: { line in
+                    stdout += line
+                    stdout += "\n"
+                }
             )
-            return .ok([:])
+            if stdout.isEmpty {
+                return .ok([:])
+            }
+            return .ok(["stdout": stdout])
         } catch {
             return .err(
                 code: "hook_failed",

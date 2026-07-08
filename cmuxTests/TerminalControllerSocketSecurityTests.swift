@@ -1,8 +1,10 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxCore
 import Darwin
 import Foundation
 import Testing
+import CmuxSettings
 import CmuxTerminal
 import struct CmuxSettings.IntegrationsCatalogSection
 #if canImport(cmux_DEV)
@@ -1415,64 +1417,71 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
     }
 
-    @Test func testClaudeHookRelayInvokesSharedHookCoreWithExplicitContextAndPayload() throws {
+    @Test func testClaudeHookSocketDispatchAuthenticatesSelfConnectionAndReturnsHookStdout() async throws {
         let socketPath = makeSocketPath("claude-hook-relay")
-        let listenerFD = try bindUnixSocket(at: socketPath)
+        let password = "relay-password-\(UUID().uuidString)"
+        let passwordFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-relay-password-\(UUID().uuidString)")
+        try password.write(to: passwordFile, atomically: true, encoding: .utf8)
         defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
+            try? FileManager.default.removeItem(at: passwordFile)
         }
-        let capture = ClaudeHookRelayRequestCapture()
-        startDetachedJSONSocketServer(listenerFD: listenerFD, connectionCount: 4) { request in
-            capture.append(request)
-            let id = request["id"] as? String ?? "missing"
-            switch request["method"] as? String {
-            case "surface.list":
-                return Self.v2Response(id: id, ok: true, result: [
-                    "surfaces": [[
-                        "id": "surface-1",
-                        "workspace_id": "workspace-1",
-                    ]]
-                ])
-            case "feed.push":
-                capture.signalFeedSeen()
-                return Self.v2Response(id: id, ok: true, result: [:])
-            default:
-                return Self.v2Response(
-                    id: id,
-                    ok: false,
-                    error: ["code": "unexpected_method", "message": request["method"] as? String ?? ""]
-                )
-            }
-        }
-
-        let result = TerminalController.shared.runClaudeHookRelay(
-            commandArgs: [
-                "cron-create-guard",
-                "--workspace",
-                "workspace-1",
-                "--surface",
-                "surface-1",
-            ],
-            payload: #"{"hook_event_name":"PreToolUse","session_id":"remote-session","tool_name":"CronCreate","tool_input":{"command":"echo ok"}}"#,
-            socketPath: socketPath
+        let controller = TerminalController.makeForTesting(
+            passwordStore: SocketControlPasswordStore(environment: [:], fileURL: passwordFile)
         )
-
-        guard case .ok = result else {
-            Issue.record("Expected ok result")
-            return
+        let manager = TabManager()
+        FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        controller.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .password
+        )
+        defer {
+            controller.stop()
         }
-        XCTAssertEqual(capture.waitForFeed(timeout: 5), .success)
+        try waitForSocket(at: socketPath)
 
-        let feedRequest = capture.lastRequest(method: "feed.push")
-        let feedParams = try XCTUnwrap(feedRequest?["params"] as? [String: Any])
-        XCTAssertEqual(feedParams["source"] as? String, "claude")
-        XCTAssertEqual(feedParams["subcommand"] as? String, "cron-create-guard")
-        XCTAssertEqual(feedParams["workspace_id"] as? String, "workspace-1")
-        let event = try XCTUnwrap(feedParams["event"] as? [String: Any])
-        XCTAssertEqual(event["session_id"] as? String, "remote-session")
-        XCTAssertEqual(event["hook_event_name"] as? String, "PreToolUse")
-        XCTAssertEqual(event["tool_name"] as? String, "CronCreate")
+        let unauthenticated = try await sendV2RequestAsync(
+            method: "claude.hook",
+            params: [
+                "event": "cron-create-guard",
+                "payload": #"{"hook_event_name":"PreToolUse","session_id":"remote-session","tool_name":"CronCreate","tool_input":{"durable":true}}"#
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(unauthenticated["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(unauthenticated)")
+        let authError = try XCTUnwrap(unauthenticated["error"] as? [String: Any])
+        XCTAssertEqual(authError["code"] as? String, "auth_required")
+
+        let authenticated = try await sendV2RequestsAsync(
+            [
+                ("auth.login", ["password": password]),
+                (
+                    "claude.hook",
+                    [
+                        "event": "cron-create-guard",
+                        "payload": #"{"hook_event_name":"PreToolUse","session_id":"remote-session","tool_name":"CronCreate","tool_input":{"durable":true}}"#
+                    ]
+                ),
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(authenticated.count, 2)
+        XCTAssertEqual(authenticated[0]["ok"] as? Bool, true, "Unexpected auth response: \(authenticated[0])")
+        XCTAssertEqual(authenticated[1]["ok"] as? Bool, true, "Unexpected hook response: \(authenticated[1])")
+        let result = try XCTUnwrap(authenticated[1]["result"] as? [String: Any])
+        let stdout = try XCTUnwrap(result["stdout"] as? String)
+        let stdoutData = try XCTUnwrap(stdout.data(using: .utf8))
+        let hookOutput = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: stdoutData) as? [String: Any],
+            "Expected hook stdout JSON, got \(stdout)"
+        )
+        let hookSpecificOutput = try XCTUnwrap(hookOutput["hookSpecificOutput"] as? [String: Any])
+        XCTAssertEqual(hookSpecificOutput["hookEventName"] as? String, "PreToolUse")
+        XCTAssertEqual(hookSpecificOutput["permissionDecision"] as? String, "deny")
+        XCTAssertTrue(
+            (hookSpecificOutput["permissionDecisionReason"] as? String)?.contains("durable Claude Code cron jobs") == true
+        )
     }
 
     @Test func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
@@ -1877,6 +1886,40 @@ final class TerminalControllerSocketSecurityTests {
         )
     }
 
+    private nonisolated func sendV2Requests(
+        _ requests: [(method: String, params: [String: Any])],
+        to socketPath: String
+    ) throws -> [[String: Any]] {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+
+        var responses: [[String: Any]] = []
+        for (index, request) in requests.enumerated() {
+            let payload: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": index + 1,
+                "method": request.method,
+                "params": request.params
+            ]
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            guard let line = String(data: data, encoding: .utf8) else {
+                throw NSError(domain: NSCocoaErrorDomain, code: 0, userInfo: [
+                    NSLocalizedDescriptionKey: "Failed to encode JSON-RPC request"
+                ])
+            }
+            try writeLine(line, to: fd)
+
+            let responseLine = try readLine(from: fd)
+            let responseData = Data(responseLine.utf8)
+            let response = try XCTUnwrap(
+                try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                "Expected JSON-RPC response object"
+            )
+            responses.append(response)
+        }
+        return responses
+    }
+
     private func sendV2RequestAsync(
         method: String,
         params: [String: Any],
@@ -1891,6 +1934,21 @@ final class TerminalControllerSocketSecurityTests {
                         to: socketPath
                     )
                     continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func sendV2RequestsAsync(
+        _ requests: [(method: String, params: [String: Any])],
+        to socketPath: String
+    ) async throws -> [[String: Any]] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try self.sendV2Requests(requests, to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
