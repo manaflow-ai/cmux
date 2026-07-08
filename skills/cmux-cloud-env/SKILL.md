@@ -18,7 +18,7 @@ Goal: a committed `.cmux/env.yaml` whose `cmux vm env build` passes verify. Afte
 
 ## Report contract (`--json`)
 
-Single JSON object on stdout: `ok`, `specPath`, `specDigest`, `provider`, `baseImageId`, `vmId`, `cache{deepestCachedStepIndex, restoredSnapshotId, restoreMs}`, `steps[{index, name, status: cached|ok|failed|timeout|lost|skipped|pending, exitCode, durationMs, snapshotId, chainHash, logTail}]`, `verify[{index, status, exitCode, durationMs, logTail}]`, `failingStepIndex` (step indices continue into verify: `steps.count + verifyIndex`), `error`, `hint`.
+Single JSON object on stdout: `ok`, `specPath`, `specDigest`, `provider`, `baseImageId`, `vmId`, `cache{deepestCachedStepIndex, restoredSnapshotId, restoreMs}`, `steps[{index, name, status: cached|ok|failed|timeout|lost|skipped|pending, exitCode, durationMs, snapshotId, chainHash, logTail}]`, `verify[{index, status, exitCode, durationMs, logTail}]`, `failingStepIndex` (step indices continue into verify: `steps.count + verifyIndex`), `error`, `finalLayerRegistered` (false means `cmux vm env up` will refuse even when `ok` is true), `hint`.
 
 ## Spec rules
 

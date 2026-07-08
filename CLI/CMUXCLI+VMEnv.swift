@@ -370,6 +370,9 @@ extension CMUXCLI {
         }
 
         let ok = failingStepIndex == nil
+        // True once the final layer is registered (or refreshed) for the
+        // current spec digest; `cmux vm env up` refuses the spec otherwise.
+        var finalLayerRegistered = false
         if ok {
             let finalIndex = spec.steps.count - 1
             if finalStepRanOK {
@@ -391,6 +394,7 @@ extension CMUXCLI {
                         specDigest: loaded.digest,
                         snapshotId: snapshotId
                     )
+                    finalLayerRegistered = true
                     if !jsonOutput { print("final layer registered") }
                 } else if !jsonOutput {
                     print("final snapshot returned no id; layer NOT cached, `cmux vm env up` will refuse until a re-build caches it")
@@ -408,6 +412,7 @@ extension CMUXCLI {
                     specDigest: loaded.digest,
                     snapshotId: restoredSnapshotId
                 )
+                finalLayerRegistered = true
             }
         }
         let report: [String: Any] = [
@@ -426,15 +431,18 @@ extension CMUXCLI {
             "verify": verifyReports,
             "failingStepIndex": failingStepIndex ?? NSNull(),
             "error": failureKind ?? NSNull(),
+            "finalLayerRegistered": finalLayerRegistered,
             "hint": ok
-                ? "All layers cached. `cmux vm env up` now boots this environment in seconds."
+                ? finalLayerRegistered
+                    ? "All layers cached. `cmux vm env up` now boots this environment in seconds."
+                    : "Build succeeded but the final layer could not be cached (snapshot returned no id), so `cmux vm env up` will refuse this spec until a re-build caches it. VM \(vmId) is usable directly via `cmux vm shell \(vmId)`."
                 : failureKind == "verify_failed"
                     ? "Verify failed, so the final layer was not registered and `cmux vm env up` will refuse this spec. Fix `verify` (or the steps) and re-run `cmux vm env build`; cached layers will not re-run. Inspect with `cmux vm exec \(vmId) -- <cmd>`."
                     : "Fix the failing step in the spec and re-run `cmux vm env build`; cached layers before it will not re-run. Inspect with `cmux vm env logs \(vmId) --step \(failingStepIndex ?? 0)` or `cmux vm exec \(vmId) -- <cmd>`.",
         ]
         if jsonOutput {
             print(jsonString(report))
-        } else if ok {
+        } else if ok, finalLayerRegistered {
             print("OK env build complete (\(spec.steps.count) layers cached). VM \(vmId) left running.")
             print("Next: cmux vm env up")
         }
