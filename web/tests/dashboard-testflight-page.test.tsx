@@ -16,6 +16,7 @@ const getUser = mock(async () => currentUser);
 const isTestflightEligible = mock(async (user: unknown) =>
   testflightUserEligibility(user) ?? false,
 );
+const billingProModule = await import("../services/billing/pro");
 const ascFetch = mock(async (path: unknown) => {
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
@@ -82,6 +83,7 @@ mock.module("../services/errors", () => ({
 }));
 
 mock.module("@/services/billing/pro", () => ({
+  ...billingProModule,
   isTestflightEligible,
 }));
 
