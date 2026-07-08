@@ -1,8 +1,9 @@
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { cloudDb } from "../../../db/client";
 import {
+  billingEmailClaims,
   cloudVmBaseEvents,
   cloudVmBases,
   cloudVmLeases,
@@ -14,11 +15,17 @@ import {
   deviceTokens,
   devices,
   notificationSendEvents,
+  stripeCustomers,
+  stripeSubscriptions,
   vaultCliAuthRequests,
   vaultSessions,
+  vaultSnapshots,
   vaultUploadGrants,
   vaultUploadTombstones,
 } from "../../../db/schema";
+import { ACTIVE_STRIPE_PRO_STATUSES } from "../../../services/billing/pro";
+import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
+import { deleteObject } from "../../../services/vault/storage";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { destroyVm, listUserVms, runVmWorkflow } from "../../../services/vms/workflows";
@@ -40,6 +47,8 @@ export async function DELETE(request: Request): Promise<Response> {
 
   try {
     const destroyedVms = await destroyPersonalCloudVms(user.id);
+    await deleteVaultObjectsForAccount(user.id);
+    await resolveUserBillingForAccountDeletion(user.id);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -88,11 +97,104 @@ async function destroyPersonalCloudVms(userId: string): Promise<number> {
   return vms.length;
 }
 
+async function deleteVaultObjectsForAccount(userId: string): Promise<void> {
+  const db = cloudDb();
+  const objectKeys = new Set<string>();
+
+  const sessions = await db
+    .select({ latestObjectKey: vaultSessions.latestObjectKey })
+    .from(vaultSessions)
+    .where(eq(vaultSessions.userId, userId));
+  for (const session of sessions) objectKeys.add(session.latestObjectKey);
+
+  const snapshots = await db
+    .select({ objectKey: vaultSnapshots.objectKey })
+    .from(vaultSnapshots)
+    .innerJoin(vaultSessions, eq(vaultSnapshots.sessionId, vaultSessions.id))
+    .where(eq(vaultSessions.userId, userId));
+  for (const snapshot of snapshots) objectKeys.add(snapshot.objectKey);
+
+  const grants = await db
+    .select({
+      objectKey: vaultUploadGrants.objectKey,
+      uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+    })
+    .from(vaultUploadGrants)
+    .where(eq(vaultUploadGrants.userId, userId));
+  for (const grant of grants) {
+    objectKeys.add(grant.objectKey);
+    objectKeys.add(grant.uploadObjectKey);
+  }
+
+  const tombstones = await db
+    .select({
+      objectKey: vaultUploadTombstones.objectKey,
+      uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+    })
+    .from(vaultUploadTombstones)
+    .where(eq(vaultUploadTombstones.userId, userId));
+  for (const tombstone of tombstones) {
+    objectKeys.add(tombstone.objectKey);
+    objectKeys.add(tombstone.uploadObjectKey);
+  }
+
+  for (const objectKey of objectKeys) {
+    await deleteObject(objectKey);
+  }
+}
+
+async function resolveUserBillingForAccountDeletion(userId: string): Promise<void> {
+  const db = cloudDb();
+  const activeSubscriptions = await db
+    .select({ id: stripeSubscriptions.id })
+    .from(stripeSubscriptions)
+    .where(and(
+      eq(stripeSubscriptions.stackUserId, userId),
+      eq(stripeSubscriptions.scope, "user"),
+      isNull(stripeSubscriptions.stackTeamId),
+      inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+    ));
+  const customers = await db
+    .select({ id: stripeCustomers.id })
+    .from(stripeCustomers)
+    .where(and(
+      eq(stripeCustomers.stackUserId, userId),
+      isNull(stripeCustomers.stackTeamId),
+    ));
+
+  if (activeSubscriptions.length === 0 && customers.length === 0) return;
+  if (!isStripeBillingConfigured()) {
+    throw new Error("Stripe billing cleanup is not configured");
+  }
+
+  const client = stripe();
+  for (const subscription of activeSubscriptions) {
+    await client.subscriptions.cancel(subscription.id);
+  }
+  for (const customer of customers) {
+    await client.customers.del(customer.id);
+  }
+}
+
 async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
   const db = cloudDb();
   await db.transaction(async (tx) => {
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
+
+    await tx.delete(billingEmailClaims).where(or(
+      eq(billingEmailClaims.stackUserId, userId),
+      eq(billingEmailClaims.claimedByUserId, userId),
+    ));
+    await tx.delete(stripeSubscriptions).where(and(
+      eq(stripeSubscriptions.stackUserId, userId),
+      eq(stripeSubscriptions.scope, "user"),
+      isNull(stripeSubscriptions.stackTeamId),
+    ));
+    await tx.delete(stripeCustomers).where(and(
+      eq(stripeCustomers.stackUserId, userId),
+      isNull(stripeCustomers.stackTeamId),
+    ));
 
     await tx.delete(cloudVmNotificationDeliveries).where(eq(cloudVmNotificationDeliveries.userId, userId));
     await tx.delete(cloudVmNotificationEvents).where(eq(cloudVmNotificationEvents.userId, userId));

@@ -31,11 +31,30 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
   }
   return undefined;
 });
+const deleteObject = mock(async (...args: unknown[]) => {
+  const [objectKey] = args as [string];
+  deletedVaultObjects.push(objectKey);
+  if (vaultDeleteError) throw vaultDeleteError;
+});
+const cancelSubscription = mock(async (...args: unknown[]) => {
+  const [subscriptionId] = args as [string];
+  cancelledStripeSubscriptions.push(subscriptionId);
+});
+const deleteCustomer = mock(async (...args: unknown[]) => {
+  const [customerId] = args as [string];
+  deletedStripeCustomers.push(customerId);
+});
 
 let deletedTableCount = 0;
 let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
+let selectResults: unknown[][] = [];
+let deletedVaultObjects: string[] = [];
+let vaultDeleteError: unknown = null;
+let stripeConfigured = true;
+let cancelledStripeSubscriptions: string[] = [];
+let deletedStripeCustomers: string[] = [];
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
@@ -54,6 +73,22 @@ const mockTransaction: MockTransaction = {
   },
 };
 
+function nextSelectResult(): unknown[] {
+  return selectResults.shift() ?? [];
+}
+
+const mockDb = {
+  select: mock(() => ({
+    from: () => ({
+      where: async () => nextSelectResult(),
+      innerJoin: () => ({
+        where: async () => nextSelectResult(),
+      }),
+    }),
+  })),
+  transaction,
+};
+
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
@@ -61,8 +96,20 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../db/client", () => ({
-  cloudDb: () => ({ transaction }),
+  cloudDb: () => mockDb,
   closeCloudDbForTests: async () => {},
+}));
+
+mock.module("../services/vault/storage", () => ({
+  deleteObject,
+}));
+
+mock.module("../services/billing/stripe", () => ({
+  isStripeBillingConfigured: () => stripeConfigured,
+  stripe: () => ({
+    subscriptions: { cancel: cancelSubscription },
+    customers: { del: deleteCustomer },
+  }),
 }));
 
 mock.module("../services/vms/workflows", () => ({
@@ -79,13 +126,23 @@ beforeEach(() => {
   deleteStackUser.mockClear();
   getUser.mockClear();
   transaction.mockClear();
+  mockDb.select.mockClear();
   listUserVms.mockClear();
   destroyVm.mockClear();
   runVmWorkflow.mockClear();
+  deleteObject.mockClear();
+  cancelSubscription.mockClear();
+  deleteCustomer.mockClear();
   deletedTableCount = 0;
   routeEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
+  selectResults = [[], [], [], [], [], []];
+  deletedVaultObjects = [];
+  vaultDeleteError = null;
+  stripeConfigured = true;
+  cancelledStripeSubscriptions = [];
+  deletedStripeCustomers = [];
 });
 
 afterEach(() => {
@@ -102,6 +159,15 @@ describe("account deletion route", () => {
   });
 
   test("destroys personal VMs, deletes cmux rows, then deletes the Stack user", async () => {
+    selectResults = [
+      [{ latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
+      [{ objectKey: "vault/u/account-user-1/snapshot.jsonl.zst" }],
+      [{ objectKey: "vault/u/account-user-1/grant.jsonl.zst", uploadObjectKey: "vault/uploads/grant" }],
+      [{ objectKey: "vault/u/account-user-1/tombstone.jsonl.zst", uploadObjectKey: "vault/uploads/tombstone" }],
+      [{ id: "sub_user_active" }],
+      [{ id: "cus_user" }],
+    ];
+
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
@@ -112,8 +178,57 @@ describe("account deletion route", () => {
     expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deletedTableCount).toBeGreaterThan(10);
+    expect(deletedVaultObjects).toEqual([
+      "vault/u/account-user-1/latest.jsonl.zst",
+      "vault/u/account-user-1/snapshot.jsonl.zst",
+      "vault/u/account-user-1/grant.jsonl.zst",
+      "vault/uploads/grant",
+      "vault/u/account-user-1/tombstone.jsonl.zst",
+      "vault/uploads/tombstone",
+    ]);
+    expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
+    expect(deletedStripeCustomers).toEqual(["cus_user"]);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(routeEvents).toEqual(["transaction", "stack-delete"]);
+  });
+
+  test("does not delete rows or Stack user when vault object cleanup fails", async () => {
+    selectResults = [
+      [{ latestObjectKey: "vault/u/account-user-1/latest.jsonl.zst" }],
+      [],
+      [],
+      [],
+      [],
+      [],
+    ];
+    vaultDeleteError = new Error("vault unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("does not delete rows or Stack user when active billing cleanup cannot run", async () => {
+    selectResults = [
+      [],
+      [],
+      [],
+      [],
+      [{ id: "sub_user_active" }],
+      [],
+    ];
+    stripeConfigured = false;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
   test("returns a retryable partial-failure response when Stack deletion fails after cmux data deletion", async () => {
