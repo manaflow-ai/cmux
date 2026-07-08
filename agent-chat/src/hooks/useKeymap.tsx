@@ -63,7 +63,7 @@ export function useKeymap({
 }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const dispatch = keyDispatchFor(e, { editable: isEditableTarget(e.target), popupOpen });
+      const dispatch = keyDispatchFor(e, { editable: isEditableTarget(e.target), popupOpen, ctrlJ });
       if (!dispatch) return;
       if (dispatch.kind === "menu") return;
       const action = dispatch.action;

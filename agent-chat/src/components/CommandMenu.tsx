@@ -61,7 +61,7 @@ export function useCommandMenu(
   setText: (v: string) => void,
   groups: CommandGroup[],
   ref: RefObject<HTMLTextAreaElement | null>,
-  _ctrlJ: CtrlJMode,
+  ctrlJ: CtrlJMode,
 ) {
   const [selected, setSelected] = useState(0);
   const [caret, setCaret] = useState(text.length);
@@ -110,7 +110,7 @@ export function useCommandMenu(
   }, [ctx, ref, setText, text]);
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open) return false;
-    const action = menuActionForKey(e.nativeEvent);
+    const action = menuActionForKey(e.nativeEvent, ctrlJ);
     if (action === "menu-next") {
       e.preventDefault();
       e.stopPropagation();
@@ -137,7 +137,7 @@ export function useCommandMenu(
       return true;
     }
     return false;
-  }, [close, insert, items, open, selected]);
+  }, [close, ctrlJ, insert, items, open, selected]);
   const menu = open ? (
     <div className="command-menu" data-agent-popup="true">
       <CmdkMenu

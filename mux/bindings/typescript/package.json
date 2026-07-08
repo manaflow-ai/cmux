@@ -1,5 +1,5 @@
 {
-  "name": "cmux-mux-client",
+  "name": "cmux",
   "version": "0.1.0",
   "description": "Node.js client for the cmux-mux JSON-lines protocol",
   "main": "dist/src/index.js",

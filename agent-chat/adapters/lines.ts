@@ -19,6 +19,7 @@ export async function readLines(
   } catch {
     // stream torn down with the process; fall through to onClose
   }
+  buf += decoder.decode(); // flush any buffered trailing multi-byte sequence
   if (buf.trim()) onLine(buf.trim());
   onClose?.();
 }

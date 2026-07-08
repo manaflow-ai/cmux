@@ -40,7 +40,7 @@ export const KEYMAP: KeymapEntry[] = [
 export const MENU_KEYMAP: MenuKeymapEntry[] = [
   { combo: "ArrowDown", description: "Next menu item", action: "menu-next" },
   { combo: "Ctrl+N", description: "Next menu item", action: "menu-next" },
-  { combo: "Ctrl+J", description: "Next menu item while a menu is open", action: "menu-next" },
+  { combo: "Ctrl+J", description: "Next menu item while a menu is open", action: "menu-next", ctrlJMode: "menu" },
   { combo: "ArrowUp", description: "Previous menu item", action: "menu-prev" },
   { combo: "Ctrl+P", description: "Previous menu item while a menu is open", action: "menu-prev" },
   { combo: "Ctrl+K", description: "Previous menu item while a menu is open", action: "menu-prev" },
@@ -56,14 +56,18 @@ export function actionForKey(e: KeyEventLike): KeyAction | null {
   return KEYMAP.find((entry) => comboMatches(entry.combo, e))?.action ?? null;
 }
 
-export function menuActionForKey(e: KeyEventLike): MenuKeyAction | null {
+// Entries tagged with ctrlJMode only apply when the caller's configured
+// Ctrl+J mode matches (composer menus pass it; standalone overlay menus that
+// have no newline semantics omit it and keep every binding).
+export function menuActionForKey(e: KeyEventLike, ctrlJ?: "newline" | "menu"): MenuKeyAction | null {
   if (e.metaKey || e.altKey) return null;
-  const entry = MENU_KEYMAP.find((item) => comboMatches(item.combo, e));
+  const entry = MENU_KEYMAP.find((item) =>
+    comboMatches(item.combo, e) && !(item.ctrlJMode && ctrlJ && item.ctrlJMode !== ctrlJ));
   return entry?.action ?? null;
 }
 
-export function keyDispatchFor(e: KeyEventLike, ctx: { editable: boolean; popupOpen: boolean }): KeyDispatch | null {
-  const menuAction = menuActionForKey(e);
+export function keyDispatchFor(e: KeyEventLike, ctx: { editable: boolean; popupOpen: boolean; ctrlJ?: "newline" | "menu" }): KeyDispatch | null {
+  const menuAction = menuActionForKey(e, ctx.ctrlJ);
   if (ctx.popupOpen && menuAction) return { kind: "menu", action: menuAction };
   if (ctx.editable && !ctx.popupOpen && isPlainCtrlLetter(e)) return null;
   const action = actionForKey(e);

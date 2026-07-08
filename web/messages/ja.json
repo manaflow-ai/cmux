@@ -82,7 +82,12 @@
       },
       "free": {
         "name": "Free",
-        "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。"
+        "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
+        "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
+        "testflightTitle": "cmux iOSアプリを入手",
+        "testflightBody": "iOSベータは、有効なProユーザーとTeamメンバーがTestFlightで利用できます。",
+        "testflightCta": "iOSベータに参加"
       },
       "pro": {
         "name": "cmux Pro",
@@ -1521,7 +1526,7 @@
       "managingTitle": "グループの管理",
       "managingIntro": "グループが作成された後は、ヘッダーのコンテキストメニューとヘッダーの + ボタンを使って、グループの管理やワークスペースの追加ができます。どちらも新しいグループは作成しません。",
       "headerMenuTitle": "グループヘッダーのコンテキストメニューから",
-      "headerMenuDesc": "既存のグループヘッダーを右クリックすると、「グループ名を変更…」、「グループをピン留め」／「グループのピン留めを解除」、「グループ設定を編集…」（~/.config/cmux/cmux.json を開きます）、「ワークスペースグループのドキュメントを開く」、「グループ解除（ワークスペースは残す）」、および「グループを削除（ワークスペースを閉じる）」が表示されます。削除は破壊的な操作で確認を求められます。グループ解除はワークスペースを残し、コンテナを取り除くだけです。",
+      "headerMenuDesc": "既存のグループヘッダーを右クリックすると、「グループ名を変更…」、「グループをピン留め」／「グループのピン留めを解除」、「グループ設定を編集…」（~/.config/cmux/cmux.json を開きます）、「ワークスペースグループのドキュメントを開く」、「ワークスペースのグループ解除」、および「グループを削除」が表示されます。「ワークスペースのグループ解除」はワークスペースを残し、グループコンテナだけを取り除きます。「グループを削除」はグループヘッダーのワークスペースとグループ内のすべてのワークスペースを閉じます。子ワークスペースがある場合は、先に確認を求めます。",
       "plusButtonTitle": "グループヘッダーの + ボタンから",
       "plusButtonDesc": "グループヘッダーにカーソルを合わせると、末尾に + ボタンが表示されます。それをクリックすると、アンカーの作業ディレクトリでグループ内に新しいワークスペースを作成します。右クリックすると、「グループに新しいワークスペース」、「グループ設定を編集…」、および「ワークスペースグループのドキュメントを開く」が表示されます。",
       "plusButtonNote": "アクティブなワークスペースがグループのアンカーまたはメンバーのときに {shortcut} を押しても、新しいワークスペースがそのグループ内に作成されます。デフォルトの配置は After current です。通常のグループメンバーからはアクティブなメンバーの直後に、アンカーまたはヘッダーからはグループの先頭に新しいワークスペースが配置されます。",
@@ -2270,6 +2275,32 @@
       "envTmuxPane": "現在のcmuxペインにマッピングされた偽のtmuxペイン識別子",
       "envSocket": "shimが接続するcmuxコントロールソケットのパス"
     },
+    "ohMyPi": {
+      "title": "oh-my-pi",
+      "metaTitle": "oh-my-pi - cmux",
+      "metaDescription": "oh-my-pi（omp）をcmuxに接続し、フックによるステータス、通知、セッション復元、自動命名、タスクマネージャのプロセス識別を有効にします。",
+      "intro": "oh-my-piは、Piをコーディング用途中心に作り直したフォークです。バイナリ名はompで、cmuxはompフック拡張を通じて連携します。",
+      "setupUsage": "セットアップと使い方",
+      "setupUsageDesc": "ompをインストールしてから、cmuxフック拡張をインストールします。拡張は~/.omp/agent/extensions/cmux-omp-session.tsに書き込まれ、cmuxに含まれる版が変わるとその場でアップグレードされます。",
+      "whatYouGet": "機能",
+      "whatYouGetDesc": "フック拡張により、ompはライフサイクルとセッション情報をcmuxへ報告できます：",
+      "whatYouGet1": "ompのターン境界にもとづくワークスペースの実行中・アイドル状態",
+      "whatYouGet2": "cmux内のターン終了通知",
+      "whatYouGet3": "閉じたペインをセッションインデックスからomp --session SESSION_IDで再開でき、フォーク時は--forkを追加できるセッション追跡",
+      "whatYouGet4": "ompを要約モデルとして使えるワークスペース自動命名",
+      "whatYouGet5": "ompプロセスのタスクマネージャ識別",
+      "directories": "ディレクトリ",
+      "directoriesDesc": "cmuxはエージェントディレクトリからompデータを読み取ります。PI_CODING_AGENT_DIRまたはPI_CONFIG_DIRでそのディレクトリを上書きできます。",
+      "dirPath": "パス",
+      "dirPurpose": "目的",
+      "dirExtension": "cmuxがインストールし、アップグレードするcmuxフック拡張",
+      "dirSessions": "復元とフォークのワークフローのためにcmuxが読み取るompセッションファイル",
+      "envVars": "環境変数",
+      "envVarName": "変数",
+      "envVarPurpose": "目的",
+      "envHooksDisabled": "cmuxのompフック拡張を無効化",
+      "envCmuxBin": "フック拡張が呼び出すcmuxバイナリを上書き"
+    },
     "ohMyClaudeCode": {
       "title": "oh-my-claudecode",
       "metaTitle": "oh-my-claudecode - cmux",
@@ -2321,6 +2352,7 @@
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
       "ohMyCodex": "oh-my-codex",
+      "ohMyPi": "oh-my-pi",
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "変更履歴",
       "dock": "Dock",
@@ -2641,9 +2673,32 @@
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
     "emailLabel": "購入メールアドレス",
+    "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",
     "manageBilling": "請求を管理",
-    "manageSignInMethods": "サインイン方法を管理"
+    "manageSignInMethods": "サインイン方法を管理",
+    "features": {
+      "cloudAgents": {
+        "title": "Cloud VM 上のクラウドエージェント",
+        "body": "隔離されたリモートサンドボックスでエージェントを実行できます。",
+        "action": "cmux を開く"
+      },
+      "modelGateway": {
+        "title": "モデルゲートウェイ",
+        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングし、毎月 20 コンピュート時間を利用できます。",
+        "action": "モデルゲートウェイを開く"
+      },
+      "aiAccounts": {
+        "title": "AI アカウントを接続",
+        "body": "プロバイダーアカウントを追加して、cmux が作業をルーティングできるようにします。",
+        "action": "プロバイダーを接続"
+      },
+      "iosApp": {
+        "title": "cmux iOS アプリ",
+        "body": "スマートフォンで cmux を使用できます。",
+        "action": "iOS ベータに参加"
+      }
+    }
   },
   "landing": {
     "bestTerminal": {

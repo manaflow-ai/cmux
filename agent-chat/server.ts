@@ -23,6 +23,28 @@ import { basename as pathBasename, extname, isAbsolute, join, relative, resolve 
 
 const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 
+// The sidecar binds loopback only, but browsers can still reach loopback from
+// arbitrary web origins (CSRF against the WS control plane) and DNS rebinding
+// can defeat a bind-address check alone. Require a loopback Host header and,
+// for browser-originated requests, a same-origin Origin header. Requests
+// without an Origin header (CLI curl, Bun's WebSocket client) are trusted.
+const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+
+function hasTrustedHost(req: Request): boolean {
+  return ALLOWED_HOSTS.has(req.headers.get("host") ?? "");
+}
+
+function hasTrustedOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (origin === null) return true;
+  try {
+    const u = new URL(origin);
+    return u.protocol === "http:" && ALLOWED_HOSTS.has(u.host);
+  } catch {
+    return false;
+  }
+}
+
 // Under launchd the PATH is minimal; make sure the agent CLIs resolve.
 {
   const home = process.env.HOME ?? "";
@@ -36,6 +58,7 @@ const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
 const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
+const MAX_SESSION_EVENTS = 5_000;
 const GEMINI_MODELS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
@@ -92,6 +115,26 @@ const commandCatalog = new Map<string, {
   refreshing?: Promise<{ trigger: CommandTrigger; commands: CommandEntry[] }[]>;
 }>();
 const fileCatalog = new Map<string, { files: string[]; fetchedAt: number; refreshing?: Promise<string[]> }>();
+
+// The cwd-keyed catalogs grow one entry per directory ever chatted in; in the
+// long-lived launchd sidecar that is unbounded. Evict the stalest settled
+// entries beyond a small cap (in-flight refreshes are skipped).
+const MAX_CWD_CATALOG_ENTRIES = 64;
+function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Promise<unknown> }>) {
+  while (map.size > MAX_CWD_CATALOG_ENTRIES) {
+    let oldestKey: string | null = null;
+    let oldestAt = Infinity;
+    for (const [key, entry] of map) {
+      if (entry.refreshing) continue;
+      if (entry.fetchedAt < oldestAt) {
+        oldestAt = entry.fetchedAt;
+        oldestKey = key;
+      }
+    }
+    if (oldestKey === null) return;
+    map.delete(oldestKey);
+  }
+}
 const keyConfig = await readKeyConfig();
 const uiConfig = await readUiConfig();
 
@@ -162,6 +205,14 @@ function createSession(
     createdAt: Date.now(),
     emit(evt: AgentEvent) {
       sess.events.push(evt);
+      // Long agent streams accumulate thousands of retained events in this
+      // long-lived process; cap the replayable transcript per session.
+      if (sess.events.length > MAX_SESSION_EVENTS) {
+        sess.events.splice(0, sess.events.length - MAX_SESSION_EVENTS);
+        if (sess.events[0]?.kind !== "status" || !sess.events[0].text.startsWith("(transcript truncated")) {
+          sess.events.unshift({ kind: "status", text: "(transcript truncated: older events dropped)" });
+        }
+      }
       const payload = JSON.stringify({ kind: "event", sessionId: id, evt });
       for (const ws of sess.sockets) ws.send(payload);
       if (evt.kind === "done") emitFilesChanged(sess).catch(() => {});
@@ -183,6 +234,9 @@ function sendPrompt(sess: Session, prompt: string) {
   sess.emit({ kind: "user", text: prompt });
   Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
     sess.emit({ kind: "error", message: String(err) });
+    // The UI treats "done" as the turn boundary; without it a failed send
+    // leaves an open streaming block with no footer.
+    sess.emit({ kind: "done" });
     sess.setStatus("idle");
   });
 }
@@ -334,6 +388,7 @@ async function cachedCommands(provider: string, cwd: string): Promise<{ trigger:
   const refreshing = Promise.resolve(adapter.listCommands?.(cwd) ?? [])
     .then((groups) => {
       commandCatalog.set(key, { groups, fetchedAt: Date.now() });
+      pruneCwdCatalog(commandCatalog);
       return groups;
     })
     .catch((err) => {
@@ -400,6 +455,7 @@ async function cachedFiles(cwd: string): Promise<string[]> {
       const refreshing = loadFiles(key)
         .then((files) => {
           fileCatalog.set(key, { files, fetchedAt: Date.now() });
+          pruneCwdCatalog(fileCatalog);
           return files;
         })
         .catch((err) => {
@@ -412,6 +468,7 @@ async function cachedFiles(cwd: string): Promise<string[]> {
   }
   const refreshing = loadFiles(key).then((files) => {
     fileCatalog.set(key, { files, fetchedAt: Date.now() });
+    pruneCwdCatalog(fileCatalog);
     return files;
   });
   fileCatalog.set(key, { files: [], fetchedAt: 0, refreshing });
@@ -743,9 +800,12 @@ function assetResponse(req: Request, asset: StaticAsset): Response {
 
 const server = Bun.serve<WsData>({
   port: PORT,
+  hostname: "127.0.0.1",
   async fetch(req, srv) {
     const url = new URL(req.url);
+    if (!hasTrustedHost(req)) return new Response("forbidden", { status: 403 });
     if (url.pathname === "/ws") {
+      if (!hasTrustedOrigin(req)) return new Response("forbidden", { status: 403 });
       return srv.upgrade(req, { data: { subscribed: null } })
         ? undefined
         : new Response("upgrade failed", { status: 400 });
@@ -771,6 +831,7 @@ const server = Bun.serve<WsData>({
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
     if (url.pathname === "/api/sessions" && req.method === "POST") {
+      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       const body = await req.json().catch(() => ({}));
       const provider = String(body.provider ?? "claude");
       const prompt = String(body.prompt ?? "").trim();
