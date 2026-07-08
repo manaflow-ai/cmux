@@ -66,7 +66,16 @@ struct PerAgentSidebarStatusPersistenceTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         workspace.recordPanelStatusEntry(
-            makeEntry(key: "codex", value: "Reviewing PR", timestamp: Date(timeIntervalSince1970: 500)),
+            SidebarStatusEntry(
+                key: "codex",
+                value: "**Reviewing** PR",
+                icon: "bolt.fill",
+                color: "#4C8DFF",
+                url: URL(string: "https://github.com/manaflow-ai/cmux/pull/7559"),
+                priority: 7,
+                format: .markdown,
+                timestamp: Date(timeIntervalSince1970: 500)
+            ),
             panelId: panelId
         )
         workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
@@ -83,8 +92,14 @@ struct PerAgentSidebarStatusPersistenceTests {
         let row = try #require(restored.sidebarAgentStatusRows().first)
         #expect(row.panelId == restoredPanelId)
         #expect(row.statusKey == "codex")
-        #expect(row.value == "Reviewing PR")
+        #expect(row.value == "**Reviewing** PR")
         #expect(row.lifecycle == .needsInput)
+        // Behavior fields survive the round-trip: a markdown/clickable/
+        // high-priority row must not degrade to plain/unclickable/default
+        // sort order after relaunch.
+        #expect(row.url == URL(string: "https://github.com/manaflow-ai/cmux/pull/7559"))
+        #expect(row.priority == 7)
+        #expect(row.format == .markdown)
     }
 
     @Test
