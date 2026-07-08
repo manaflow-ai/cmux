@@ -24,6 +24,40 @@ export const dynamic = "force-dynamic";
 const UPLOAD_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 const GRANT_GC_BATCH = 10;
 
+type VaultUploadItemBase = {
+  readonly agent: string;
+  readonly agentSessionId: string;
+  readonly relPath: string;
+};
+
+type ReservedUploadResult =
+  | (VaultUploadItemBase & {
+    readonly status: "error";
+    readonly error: string;
+  })
+  | (VaultUploadItemBase & {
+    readonly status: "unchanged";
+  })
+  | (VaultUploadItemBase & {
+    readonly status: "upload";
+    readonly objectKey: string;
+    readonly compressedSizeBytes: number;
+  });
+
+type VaultUploadResponseItem =
+  | (VaultUploadItemBase & {
+    readonly status: "error";
+    readonly error: string;
+  })
+  | (VaultUploadItemBase & {
+    readonly status: "unchanged";
+  })
+  | (VaultUploadItemBase & {
+    readonly status: "upload";
+    readonly objectKey: string;
+    readonly putUrl: string;
+  });
+
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVaultApiRoute(
     request,
@@ -56,7 +90,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
 
   await gcExpiredGrants(db, now);
 
-  const results = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
+  const reservedResults = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
     // Per-user storage quota covers committed snapshots plus unexpired upload
     // grants, so minting URLs and never committing still consumes quota (the
     // presigned ContentLength is signed, bounding each upload to its declared
@@ -69,7 +103,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
     let projectedUserBytes =
       (await getVaultStoredCompressedBytes(lockedDb, userId)) +
       (await getVaultPendingGrantBytes(lockedDb, userId, now, batchObjectKeys));
-    const lockedResults = [];
+    const lockedResults: ReservedUploadResult[] = [];
     for (const item of batch.value) {
       // Per-item so one oversized transcript cannot block the rest of the batch.
       if (item.compressedSizeBytes > config.maxUploadBytes) {
@@ -153,11 +187,12 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         relPath: item.relPath,
         status: "upload",
         objectKey,
-        putUrl: await presignPut(objectKey, item.compressedSizeBytes),
+        compressedSizeBytes: item.compressedSizeBytes,
       });
     }
     return lockedResults;
   });
+  const results = await presignReservedUploads(db, reservedResults);
   setSpanAttributes(span, {
     "cmux.vault.result_count": results.length,
     "cmux.vault.result.upload_count": countResultStatus(results, "upload"),
@@ -165,6 +200,42 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
     "cmux.vault.result.error_count": countResultStatus(results, "error"),
   });
   return jsonResponse({ items: results });
+}
+
+async function presignReservedUploads(
+  db: ReturnType<typeof cloudDb>,
+  items: readonly ReservedUploadResult[],
+): Promise<VaultUploadResponseItem[]> {
+  const results: VaultUploadResponseItem[] = [];
+  for (const item of items) {
+    if (item.status !== "upload") {
+      results.push(item);
+      continue;
+    }
+    try {
+      results.push({
+        agent: item.agent,
+        agentSessionId: item.agentSessionId,
+        relPath: item.relPath,
+        status: "upload",
+        objectKey: item.objectKey,
+        putUrl: await presignPut(item.objectKey, item.compressedSizeBytes),
+      });
+    } catch {
+      await db
+        .delete(vaultUploadGrants)
+        .where(eq(vaultUploadGrants.objectKey, item.objectKey))
+        .catch(() => undefined);
+      results.push({
+        agent: item.agent,
+        agentSessionId: item.agentSessionId,
+        relPath: item.relPath,
+        status: "error",
+        error: "upload_presign_failed",
+      });
+    }
+  }
+  return results;
 }
 
 /**

@@ -132,6 +132,27 @@ describe("Vault route helper", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  test("allows same-origin cookie-authenticated mutation requests", async () => {
+    const handler = mock(async () => Response.json({ ok: true }));
+
+    const response = await withAuthedVaultApiRoute(
+      new Request("https://cmux.test/api/vault/test", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+      }),
+      "/api/vault/test",
+      { "cmux.vault.operation": "test" },
+      "/api/vault/test failed",
+      {},
+      handler,
+      async () => testUser,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   test("allows bearer-authenticated mutation requests without an origin", async () => {
     const handler = mock(async () => Response.json({ ok: true }));
 

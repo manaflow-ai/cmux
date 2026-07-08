@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { jsonResponse } from "@/services/vms/routeHelpers";
 import { revokeExpiredIdentityLeases, runVmWorkflow } from "@/services/vms/workflows";
 
@@ -19,8 +20,14 @@ async function handle(request: Request): Promise<Response> {
     return jsonResponse({ error: "service_unavailable" }, 503);
   }
 
-  const authorization = request.headers.get("authorization")?.trim();
-  if (authorization !== `Bearer ${secret}`) {
+  const authorization = request.headers.get("authorization")?.trim() ?? "";
+  const token = authorization.toLowerCase().startsWith("bearer ")
+    ? authorization.slice("bearer ".length).trim()
+    : "";
+  const tokenMatches =
+    token.length === secret.length &&
+    timingSafeEqual(Buffer.from(token), Buffer.from(secret));
+  if (!tokenMatches) {
     return jsonResponse({ error: "unauthorized" }, 401);
   }
 

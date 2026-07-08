@@ -1243,7 +1243,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             isNotNull(cloudVmLeases.providerIdentityHandle),
             isNull(cloudVmLeases.revokedAt),
             lt(cloudVmLeases.expiresAt, input.now),
-            ne(cloudVms.status, "destroyed"),
           ),
         )
         .limit(input.limit);

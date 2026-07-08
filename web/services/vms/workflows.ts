@@ -1185,8 +1185,8 @@ export function destroyVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     const vm = yield* requireUserVm(input);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
 
     yield* revokeActiveIdentities(vm);
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
@@ -1227,7 +1227,7 @@ export function revokeExpiredIdentityLeases(input: {
       if (!identityHandle) continue;
       const revoked = yield* providers.revokeSSHIdentity(lease.provider, identityHandle).pipe(
         Effect.as(true),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catchAll((err) => Effect.succeed(isProviderNotFoundError(err.cause))),
       );
       if (revoked) revokedIds.push(lease.id);
     }
@@ -1247,8 +1247,8 @@ export function execVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     const vm = yield* requireUserVm(input);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1331,8 +1331,8 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     const vm = yield* requireUserVm(input);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the
@@ -1401,8 +1401,8 @@ export function openSshEndpoint(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     const vm = yield* requireUserVm(input);
+    yield* revokeExpiredIdentityLeases().pipe(Effect.catchAll(() => Effect.void));
     // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
     // grants an identity), which would hand out an endpoint while Postgres
     // still says paused. Preflight-resume first — and before revoking the

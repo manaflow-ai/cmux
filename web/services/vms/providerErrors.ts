@@ -1,5 +1,5 @@
 const providerSubjectPattern =
-  "(?:vm|virtual machine|sandbox|sandboxes|instance|container|machine|environment|resource)";
+  "(?:vm|virtual machine|sandbox|sandboxes|instance|container|machine|environment|resource|identity)";
 const providerMissingPattern =
   "(?:not found|does not exist|already deleted|has been deleted|was deleted|marked as deleted|no such)";
 

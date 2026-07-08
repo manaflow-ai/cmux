@@ -25,7 +25,7 @@ describe("vault usage quota locking", () => {
 
     expect(result).toBe("reserved");
     expect(db.transaction).toHaveBeenCalledTimes(1);
-    expect(tx.execute).toHaveBeenCalledTimes(1);
+    expect(tx.execute).toHaveBeenCalledTimes(2);
     expect(run).toHaveBeenCalledTimes(1);
   });
 });

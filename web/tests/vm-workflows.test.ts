@@ -15,6 +15,7 @@ import {
   FAILED_CREATE_RETRY_WINDOW_MS,
   VmRepository,
   VmRepositoryLive,
+  type CloudVmIdentityLeaseRow,
   type CloudVmSessionRow,
   type CloudVmRow,
   type VmRepositoryShape,
@@ -37,6 +38,7 @@ import {
   openBaseVm,
   openAttachEndpoint,
   openSshEndpoint,
+  revokeExpiredIdentityLeases,
   resetBaseVm,
   restoreVm,
   reconcileVmProviderStatuses,
@@ -295,6 +297,83 @@ describe("VM Effect workflows", () => {
     expect(execCalls).toBe(0);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
+  });
+
+  test("does not sweep expired identity leases before VM authorization", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000116",
+      userId: "user-workflow-cleanup-owner",
+      providerVmId: "provider-vm-cleanup-owner",
+      status: "running",
+    });
+    let sweepCalls = 0;
+    const repo = testWorkflowRepo({
+      vm,
+      expiredIdentityLeases: () =>
+        Effect.sync(() => {
+          sweepCalls += 1;
+          return [];
+        }),
+    });
+    const provider = unusedProviderGateway();
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-cleanup-attacker",
+        providerVmId: "provider-vm-cleanup-owner",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmNotFoundError);
+    expect(sweepCalls).toBe(0);
+  });
+
+  test("marks expired identity leases revoked when the provider identity is already gone", async () => {
+    const now = new Date();
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000117",
+      userId: "user-workflow-expired-identity",
+      providerVmId: "provider-vm-expired-identity",
+      status: "running",
+    });
+    const lease: CloudVmIdentityLeaseRow = {
+      id: "lease-expired-identity",
+      vmId: vm.id,
+      userId: vm.userId,
+      kind: "ssh",
+      tokenHash: "expired-token-hash",
+      providerIdentityHandle: "identity-already-gone",
+      sessionId: null,
+      transport: "ssh",
+      metadata: {},
+      expiresAt: new Date(now.getTime() - 1000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: new Date(now.getTime() - 2000),
+      provider: "freestyle",
+    };
+    const revokedLeaseIds: string[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      expiredIdentityLeases: () => Effect.succeed([lease]),
+      revokedLeaseIds,
+    });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: () =>
+        Effect.fail(providerOperationError("revokeSSHIdentity", "identity not found")),
+    };
+
+    const revoked = await Effect.runPromise(
+      revokeExpiredIdentityLeases({ now, limit: 1 }).pipe(
+        Effect.provide(workflowLayer(repo, provider)),
+      ),
+    );
+
+    expect(revoked).toBe(1);
+    expect(revokedLeaseIds).toEqual(["lease-expired-identity"]);
   });
 
   test("exec failure without gateway getStatus propagates the original error", async () => {
@@ -3533,6 +3612,8 @@ function testWorkflowRepo(input: {
   readonly vm: CloudVmRow;
   readonly usageEvents?: RecordedUsageEvent[];
   readonly leases?: RecordedLease[];
+  readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
+  readonly revokedLeaseIds?: string[];
   readonly observedStatuses?: ObservedStatusUpdate[];
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
@@ -3576,6 +3657,7 @@ function testWorkflowRepo(input: {
       Effect.sync(() => {
         input.leases?.push(lease);
       }),
+    expiredIdentityLeases: input.expiredIdentityLeases,
     listVmSessions: () => Effect.succeed([]),
     upsertVmSession: (session) =>
       Effect.sync(() => {
@@ -3603,7 +3685,10 @@ function testWorkflowRepo(input: {
         } satisfies CloudVmSessionRow;
       }),
     activeIdentityLeases: () => Effect.succeed([]),
-    markLeasesRevoked: () => Effect.void,
+    markLeasesRevoked: (leaseIds) =>
+      Effect.sync(() => {
+        input.revokedLeaseIds?.push(...leaseIds);
+      }),
     recordUsageEvent: (event) =>
       Effect.sync(() => {
         input.usageEvents?.push(event);

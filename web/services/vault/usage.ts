@@ -11,6 +11,7 @@ export async function withVaultUserQuotaLock<T>(
   run: (db: VaultDb) => Promise<T>,
 ): Promise<T> {
   return await db.transaction(async (tx) => {
+    await tx.execute(sql`set local lock_timeout = '5s'`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 2))`);
     return await run(tx as unknown as VaultDb);
   });
