@@ -347,6 +347,40 @@ import Testing
 }
 
 @MainActor
+@Test func resetWithStillActiveBarrierDoesNotClaimStallRecovery() async throws {
+    let clock = TestClock()
+    let analytics = RecordingFreezeAnalytics()
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+        analytics: analytics
+    )
+
+    let surfaceID = "live-terminal"
+    let iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    _ = iterator
+    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    #expect(!store.deliverTerminalBytes(Data("drop-1".utf8), surfaceID: surfaceID))
+    clock.advance(by: 6)
+    #expect(!store.deliverTerminalBytes(Data("drop-2".utf8), surfaceID: surfaceID))
+    #expect(analytics.events(named: "ios_terminal_render_stall").count == 1)
+
+    // A render-pipeline reset while the barrier still gates output (the
+    // stream token never carried a barrier ack) must not close the episode:
+    // the terminal is still frozen behind the same barrier.
+    let streamToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: streamToken)
+
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == barrierToken)
+    #expect(analytics.events(named: "ios_terminal_render_stall_recovered").isEmpty)
+}
+
+@MainActor
 @Test func cancelledViewportReportCapturesBarrierOutcomeAnalytics() async throws {
     let analytics = RecordingFreezeAnalytics()
     let store = MobileShellComposite(
