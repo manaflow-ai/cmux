@@ -123,4 +123,27 @@ describe("app session handoff", () => {
     expect(nested.headers.get("location")).toBe("https://cmux.test/");
     expect(getUser).not.toHaveBeenCalled();
   });
+
+  test("never redirects off-origin for dot-segment / protocol-relative vectors", async () => {
+    // "/..//evil.com" normalizes to pathname "//evil.com", which is
+    // protocol-relative and would 302 to https://evil.com/ if returned as-is.
+    // Sanitization must reject it so the redirect stays on the app origin.
+    for (const after of [
+      "/..//evil.com",
+      "/a/..//evil.com",
+      "/%2f%2fevil.com",
+      "/\\evil.com",
+      "/\\\\evil.com",
+    ]) {
+      const response = await POST(handoffRequest({
+        refresh_token: "native-refresh",
+        after,
+      }));
+      expect(response.status).toBe(302);
+      // The only security-critical property: the redirect never leaves the
+      // app origin (a same-origin literal path like /%2f%2fevil.com is fine).
+      expect(new URL(response.headers.get("location")!).origin).toBe("https://cmux.test");
+    }
+    expect(getUser).not.toHaveBeenCalled();
+  });
 });

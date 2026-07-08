@@ -5787,15 +5787,35 @@ final class BrowserPanel: Panel, ObservableObject {
             abandonRestoredSessionHistoryIfNeeded()
         }
         if BrowserAppSessionBridge.shared.beginHandoffNavigationIfNeeded(
-            panelID: id, destinationURL: originalURL, request: request,
-            websiteDataStore: webView.configuration.websiteDataStore
-        ) { [weak self] handoffRequest in
-            guard let self else { return }
-            self.navigationDelegate?.recordAttemptedRequest(URLRequest(url: originalURL), displayURL: originalURL)
-            self.refreshBackgroundAppearance()
-            self.shouldRenderWebView = true
-            browserLoadRequest(handoffRequest, in: self.webView)
-        } { return }
+            panelID: id,
+            destinationURL: originalURL,
+            request: request,
+            websiteDataStore: webView.configuration.websiteDataStore,
+            navigate: { [weak self] navigationRequest in
+                // Route the session-priming handoff (or the fallback original
+                // request when no session is available) through the same
+                // bookkeeping and remote-proxy rewrite as a normal navigation.
+                self?.finishNavigation(
+                    request: navigationRequest,
+                    originalURL: originalURL,
+                    recordTypedNavigation: recordTypedNavigation
+                )
+            }
+        ) {
+            return
+        }
+        finishNavigation(
+            request: request,
+            originalURL: originalURL,
+            recordTypedNavigation: recordTypedNavigation
+        )
+    }
+
+    private func finishNavigation(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool
+    ) {
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)

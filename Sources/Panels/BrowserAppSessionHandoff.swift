@@ -35,7 +35,7 @@ struct BrowserAppSessionHandoff {
         // every value with a set that excludes "+", "&", "=", and "%".
         let pairs: [(String, String)] = [
             ("refresh_token", tokens.refreshToken),
-            ("access_token", tokens.accessToken),
+            ("access_token", tokens.accessToken ?? ""),
             ("after", relativePath(destinationURL)),
         ].filter { !$0.1.isEmpty }
         let body = pairs
