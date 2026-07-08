@@ -1467,6 +1467,204 @@ mod ffi_seam_tests {
         cmux_iroh_endpoint_close(endpoint);
     }
 
+    /// Proves an iroh session can run entirely over the RELAY, never the local
+    /// network. The dialer binds relay-only (`clear_ip_transports`), so it has
+    /// no IP transport at all and physically cannot open a direct LAN/loopback
+    /// path; the only way bytes can flow is through the relay. A successful
+    /// roundtrip plus `cmux_iroh_connection_type == 1` (relay) is irrefutable
+    /// proof of "iroh, not local network". `#[ignore]` because it dials the
+    /// public n0/cmux relay fleet (network); run with
+    /// `cargo test relay_only_roundtrip_reports_relay_path -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "network: dials the public relay fleet"]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one deliberate end-to-end scenario over the relay"
+    )]
+    fn relay_only_roundtrip_reports_relay_path() {
+        const PAYLOAD: &[u8] = b"cmux iroh relay-only roundtrip proof";
+
+        let listener_key = generate_key();
+        let dialer_key = generate_key();
+
+        // Listener: relay ENABLED (default n0/cmux fleet), accept on.
+        let mut err = ErrOut::new();
+        let listener = unsafe {
+            cmux_iroh_endpoint_bind(
+                listener_key.as_ptr(),
+                listener_key.len(),
+                true,
+                ptr::null(),
+                true,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(!listener.is_null(), "listener bind: {}", err.message());
+
+        // Wait for the listener to reach its home relay before publishing.
+        let mut err = ErrOut::new();
+        let online = unsafe {
+            cmux_iroh_endpoint_online(
+                listener,
+                15_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert_eq!(online, 0, "listener should reach relay: {}", err.message());
+
+        let listener_id = take_string(cmux_iroh_endpoint_id(listener));
+        let route = take_string(cmux_iroh_endpoint_route_json(listener));
+        let parsed: serde_json::Value = serde_json::from_str(&route).expect("route JSON parses");
+        let relay_url = parsed["endpoint"]["relay_url"]
+            .as_str()
+            .expect("relay-enabled listener must publish a relay_url")
+            .to_owned();
+
+        // Dialer: relay-ONLY bind (no IP transports at all).
+        let mut err = ErrOut::new();
+        let dialer = unsafe {
+            cmux_iroh_endpoint_bind_relay_only(
+                dialer_key.as_ptr(),
+                dialer_key.len(),
+                true,
+                ptr::null(),
+                false,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(!dialer.is_null(), "relay-only dialer bind: {}", err.message());
+
+        let listener_ptr = ListenerPtr(listener);
+        let accept_thread = std::thread::spawn(move || {
+            let listener = listener_ptr;
+            let mut err = ErrOut::new();
+            let connection = unsafe {
+                cmux_iroh_endpoint_accept(
+                    listener.0,
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert!(!connection.is_null(), "accept: {}", err.message());
+            let mut echoed_total = 0usize;
+            while echoed_total < PAYLOAD.len() {
+                let mut buf = [0u8; 64];
+                let mut err = ErrOut::new();
+                let read = unsafe {
+                    cmux_iroh_connection_recv(
+                        connection,
+                        buf.as_mut_ptr(),
+                        buf.len(),
+                        30_000,
+                        &raw mut err.kind,
+                        err.buf.as_mut_ptr(),
+                        ERR_CAP,
+                    )
+                };
+                assert!(read > 0, "listener recv: {}", err.message());
+                let read = usize::try_from(read).expect("positive read fits usize");
+                let mut err = ErrOut::new();
+                let rc = unsafe {
+                    cmux_iroh_connection_send(
+                        connection,
+                        buf.as_ptr(),
+                        read,
+                        30_000,
+                        &raw mut err.kind,
+                        err.buf.as_mut_ptr(),
+                        ERR_CAP,
+                    )
+                };
+                assert_eq!(rc, 0, "listener echo: {}", err.message());
+                echoed_total += read;
+            }
+            cmux_iroh_connection_close(connection);
+        });
+
+        let id_cstr = CString::new(listener_id).expect("cstring");
+        let relay_cstr = CString::new(relay_url).expect("cstring");
+        let no_direct: [*const c_char; 0] = [];
+        let mut err = ErrOut::new();
+        let connection = unsafe {
+            cmux_iroh_endpoint_connect_relay_only(
+                dialer,
+                id_cstr.as_ptr(),
+                relay_cstr.as_ptr(),
+                no_direct.as_ptr(),
+                no_direct.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(
+            !connection.is_null(),
+            "relay-only connect must succeed over the relay: kind {} message {:?}",
+            err.kind(),
+            err.message()
+        );
+
+        let mut err = ErrOut::new();
+        let rc = unsafe {
+            cmux_iroh_connection_send(
+                connection,
+                PAYLOAD.as_ptr(),
+                PAYLOAD.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert_eq!(rc, 0, "dialer send: {}", err.message());
+
+        let mut echoed = Vec::new();
+        while echoed.len() < PAYLOAD.len() {
+            let mut buf = [0u8; 64];
+            let mut err = ErrOut::new();
+            let read = unsafe {
+                cmux_iroh_connection_recv(
+                    connection,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert!(read > 0, "dialer recv echo: {}", err.message());
+            let read = usize::try_from(read).expect("positive read fits usize");
+            echoed.extend_from_slice(&buf[..read]);
+        }
+        assert_eq!(echoed, PAYLOAD, "echoed bytes must match over the relay");
+
+        let mut err = ErrOut::new();
+        let path_type = unsafe {
+            cmux_iroh_connection_type(connection, &raw mut err.kind, err.buf.as_mut_ptr(), ERR_CAP)
+        };
+        assert_eq!(
+            path_type, 1,
+            "relay-only dialer (no IP transports) must report the RELAY path, not local network (kind {}, message {:?})",
+            err.kind(),
+            err.message()
+        );
+
+        cmux_iroh_connection_close(connection);
+        accept_thread.join().expect("accept thread joins cleanly");
+        cmux_iroh_endpoint_close(dialer);
+        cmux_iroh_endpoint_close(listener);
+    }
+
     #[test]
     #[allow(
         clippy::too_many_lines,
