@@ -94,6 +94,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var renderInFlight: Bool = false
     private var renderInFlightSince: CFTimeInterval?
     private var needsAnotherRender: Bool = false
+    private let surfaceFreeDrainWatchdog = SurfaceFreeDrainWatchdog()
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on `outputQueue` and acquires a
     /// swap-chain frame slot from libghostty; if the app is backgrounded while
@@ -136,6 +137,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var outputQueue = GhosttySurfaceWorkQueue(generation: 0)
     private var outputQueueGeneration: UInt64 = 0
     private var pendingSurfaceFreeCount = 0
+    #if DEBUG
+    var recoveryStressFreeDrainObserver: (@MainActor @Sendable (RecoveryStressSnapshot) -> Void)?
+    #endif
     private var renderPipelineRecoveryPaused = false
     private var lastRecoveryPausedDropLogTime: CFTimeInterval = 0
     private static let renderPipelineStallDeadline: CFTimeInterval = 2.0
@@ -362,6 +366,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardHeightAnimationID = 0
 
     #if DEBUG
+    struct RecoveryStressSnapshot: Equatable, Sendable {
+        let generation: UInt64
+        let pendingSurfaceFreeCount: Int
+        let hasSurface: Bool
+        let recoveryPaused: Bool
+    }
+
     struct DebugGeometrySnapshot {
         let boundsSize: CGSize
         let renderRect: CGRect
@@ -412,6 +423,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             liveFontSize: liveFontSize,
             baseFontSize: userBaseFontSize
         )
+    }
+
+    func recoveryStressSnapshot() -> RecoveryStressSnapshot {
+        RecoveryStressSnapshot(
+            generation: surfaceGeneration,
+            pendingSurfaceFreeCount: pendingSurfaceFreeCount,
+            hasSurface: surface != nil,
+            recoveryPaused: renderPipelineRecoveryPaused
+        )
+    }
+
+    @discardableResult
+    func forceRecoveryForStress() -> RecoveryStressSnapshot {
+        _ = recoverRenderPipeline(
+            reason: "recovery_stress",
+            stalledMs: 0,
+            replay: .delegateWhenNoCaller
+        )
+        return recoveryStressSnapshot()
+    }
+
+    func setFocusForRecoveryStress(_ focused: Bool) {
+        setFocus(focused)
     }
 
     func setKeyboardHeightForTesting(_ height: CGFloat) {
@@ -2366,6 +2400,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func disposeSurface() {
         stopDisplayLink()
         guard let surface else { return }
+        let generation = surfaceGeneration
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
         let currentBridge = bridge
@@ -2381,21 +2416,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // work from being enqueued once `surface` is nil, so only the bounded
         // backlog drains before the free. (Retain the bridge across the hop; it
         // owns the userdata libghostty still references until the free.)
-        enqueueSurfaceFree(surface, bridge: currentBridge, on: currentQueue)
+        enqueueSurfaceFree(surface, bridge: currentBridge, generation: generation, on: currentQueue)
     }
 
     private func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
         bridge: GhosttySurfaceBridge,
+        generation: UInt64,
         on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         let retainedBridge = Unmanaged.passRetained(bridge)
-        queue.async {
+        surfaceFreeDrainWatchdog.start(
+            generation: generation,
+            pendingFrees: { [weak self] in self?.pendingSurfaceFreeCount ?? 0 },
+            onStuck: { generation, pendingFrees in
+                let message = "surface.free.STUCK generation=\(generation) pendingFrees=\(pendingFrees)"
+                MobileDebugLog.anchormux(message)
+                log.fault("surface.free.STUCK generation=\(generation, privacy: .public) pendingFrees=\(pendingFrees, privacy: .public)")
+            }
+        )
+        // weak: a wedged free must not keep the whole view alive with it.
+        queue.async { [weak self] in
             ghostty_surface_free(surface)
             retainedBridge.release()
-            if let completion {
-                Task { @MainActor in completion() }
+            Task { @MainActor in
+                self?.surfaceFreeDrainWatchdog.cancel(generation: generation)
+                completion?()
             }
         }
     }
@@ -2470,15 +2517,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let oldQueue = outputQueue
         oldBridge.detach()
         if let oldSurface {
+            let oldGeneration = surfaceGeneration
             GhosttySurfaceView.unregister(surface: oldSurface)
             pendingSurfaceFreeCount += 1
-            enqueueSurfaceFree(oldSurface, bridge: oldBridge, on: oldQueue) { [weak self] in
+            enqueueSurfaceFree(oldSurface, bridge: oldBridge, generation: oldGeneration, on: oldQueue) { [weak self] in
                 guard let self else { return }
                 self.pendingSurfaceFreeCount = max(0, self.pendingSurfaceFreeCount - 1)
                 MobileDebugLog.anchormux(
                     "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
                 )
                 self.resumePausedRenderPipelineRecoveryIfPossible()
+                #if DEBUG
+                self.recoveryStressFreeDrainObserver?(self.recoveryStressSnapshot())
+                #endif
             }
         }
 
