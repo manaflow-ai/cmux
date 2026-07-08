@@ -113,7 +113,7 @@
 905	Sources/CmuxSSHURLRequest.swift
 901	Sources/Panels/MarkdownWebRenderer.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
-882	Sources/DockSplitStore.swift
+898	Sources/DockSplitStore.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
@@ -257,6 +257,7 @@
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 508	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/GhosttySurfaceRepresentable.swift
 507	Sources/TerminalControllerTopSupport.swift
+507	Sources/Workspace+PanelLifecycle.swift
 506	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift
 506	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 506	Sources/App/MainWindowVisibilityController.swift

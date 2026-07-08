@@ -1431,6 +1431,8 @@
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
 		D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */; };
 		C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */; };
+		A91C0D0E0000000000000002 /* TerminalTabAgentIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D0E0000000000000001 /* TerminalTabAgentIcon.swift */; };
+		A91C0D0E0000000000000004 /* TerminalTabAgentIconTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D0E0000000000000003 /* TerminalTabAgentIconTests.swift */; };
 		EC010A01 /* TerminalUploadCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010A02 /* TerminalUploadCommand.swift */; };
 		EC010C01 /* TerminalUploadCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010C02 /* TerminalUploadCommandTests.swift */; };
 		5154BEAB50364B86A9E36E4B /* TerminalViewportUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */; };
@@ -3036,6 +3038,8 @@
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
 		D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceResizePolicyTests.swift; sourceTree = "<group>"; };
 		C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceRuntimeWiring.swift; sourceTree = "<group>"; };
+		A91C0D0E0000000000000001 /* TerminalTabAgentIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabAgentIcon.swift; sourceTree = "<group>"; };
+		A91C0D0E0000000000000003 /* TerminalTabAgentIconTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabAgentIconTests.swift; sourceTree = "<group>"; };
 		EC010A02 /* TerminalUploadCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUploadCommand.swift; sourceTree = "<group>"; };
 		EC010C02 /* TerminalUploadCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUploadCommandTests.swift; sourceTree = "<group>"; };
 		31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalViewportUITestRecorder.swift; sourceTree = "<group>"; };
@@ -3768,6 +3772,7 @@
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
+				A91C0D0E0000000000000001 /* TerminalTabAgentIcon.swift */,
 				C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */,
 				5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */,
 				5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */,
@@ -4715,6 +4720,7 @@
 				71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */,
 				6342F0C20000000000000001 /* WorkspaceTerminalFocusRecoveryTests.swift */,
 				6047C0DE6047C0DE60470002 /* WorkspaceTerminalTabWorkingDirectoryTests.swift */,
+				A91C0D0E0000000000000003 /* TerminalTabAgentIconTests.swift */,
 				EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */,
 				E241BE1D74A7459C8D9C16BC /* WorkspaceTitleProvenanceTests.swift */,
 				F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */,
@@ -6253,6 +6259,7 @@
 				C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */,
+				A91C0D0E0000000000000002 /* TerminalTabAgentIcon.swift in Sources */,
 				EC010A01 /* TerminalUploadCommand.swift in Sources */,
 				5154BEAB50364B86A9E36E4B /* TerminalViewportUITestRecorder.swift in Sources */,
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
@@ -6874,6 +6881,7 @@
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
 				D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */,
+				A91C0D0E0000000000000004 /* TerminalTabAgentIconTests.swift in Sources */,
 				EC010C01 /* TerminalUploadCommandTests.swift in Sources */,
 				B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
