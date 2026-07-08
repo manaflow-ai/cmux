@@ -336,7 +336,7 @@ describe("VM Effect workflows", () => {
     expect(sweepCalls).toBe(0);
   });
 
-  test("destroyVm bounds best-effort active identity cleanup before destroying", async () => {
+  test("destroyVm fails closed when active identity cleanup fails", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000130",
       userId: "user-workflow-destroy-cleanup-bound",
@@ -373,15 +373,67 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    await Effect.runPromise(
-      destroyVm({
-        userId: "user-workflow-destroy-cleanup-bound",
-        providerVmId: "provider-vm-destroy-cleanup-bound",
-      }).pipe(Effect.provide(workflowLayer(repo, provider))),
-    );
+    await expect(
+      Effect.runPromise(
+        destroyVm({
+          userId: "user-workflow-destroy-cleanup-bound",
+          providerVmId: "provider-vm-destroy-cleanup-bound",
+        }).pipe(Effect.provide(workflowLayer(repo, provider))),
+      ),
+    ).rejects.toThrow();
 
-    expect(revokeCalls).toBe(5);
-    expect(destroyCalls).toBe(1);
+    expect(revokeCalls).toBe(1);
+    expect(destroyCalls).toBe(0);
+  });
+
+  test("destroyVm fails closed when active identity cleanup exceeds the hot-path cap", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000132",
+      userId: "user-workflow-destroy-cleanup-cap",
+      providerVmId: "provider-vm-destroy-cleanup-cap",
+      status: "running",
+    });
+    const activeIdentityLeases: CloudVmLeaseRow[] = Array.from({ length: 9 }, (_, index) => ({
+      id: `lease-destroy-cleanup-cap-${index}`,
+      vmId: vm.id,
+      userId: vm.userId,
+      kind: "ssh",
+      tokenHash: `destroy-cleanup-cap-${index}`,
+      providerIdentityHandle: `identity-destroy-cleanup-cap-${index}`,
+      sessionId: null,
+      transport: "ssh",
+      metadata: {},
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: new Date(Date.now() + index),
+    }));
+    const repo = testWorkflowRepo({ vm, activeIdentityLeases });
+    let revokeCalls = 0;
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      revokeSSHIdentity: () =>
+        Effect.sync(() => {
+          revokeCalls += 1;
+        }),
+      destroy: () =>
+        Effect.sync(() => {
+          destroyCalls += 1;
+        }),
+    };
+
+    await expect(
+      Effect.runPromise(
+        destroyVm({
+          userId: "user-workflow-destroy-cleanup-cap",
+          providerVmId: "provider-vm-destroy-cleanup-cap",
+        }).pipe(Effect.provide(workflowLayer(repo, provider))),
+      ),
+    ).rejects.toThrow();
+
+    expect(revokeCalls).toBe(0);
+    expect(destroyCalls).toBe(0);
   });
 
   test("revokeExpiredIdentityLeases uses a small default cron batch", async () => {

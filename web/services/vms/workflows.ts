@@ -72,7 +72,6 @@ const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
 const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
 const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
-const ACTIVE_IDENTITY_DESTROY_CLEANUP_LIMIT = 5;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 
 type ExistingVmAccessInput = {
@@ -1215,7 +1214,7 @@ export function destroyVm(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
 
-    yield* revokeActiveIdentities(vm, { limit: ACTIVE_IDENTITY_DESTROY_CLEANUP_LIMIT });
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
       Effect.catchAll((err) => {
         if (isProviderNotFoundError(err.cause)) return Effect.void;
