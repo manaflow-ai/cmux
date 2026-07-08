@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+const accountDeletionModule = await import("../services/account/deletion");
+const realIsStackAccountDeletionInProgress = accountDeletionModule.isStackAccountDeletionInProgress;
 const calls: string[] = [];
 let cleanupError: Error | null = null;
 let postHogPreflightError: Error | null = null;
@@ -42,7 +44,7 @@ mock.module("../app/lib/stack", () => ({
 
 mock.module("../services/account/deletion", () => ({
   deleteCmuxAccountData,
-  isStackAccountDeletionInProgress: () => false,
+  isStackAccountDeletionInProgress: realIsStackAccountDeletionInProgress,
   markStackUserDeletionInProgress,
 }));
 
