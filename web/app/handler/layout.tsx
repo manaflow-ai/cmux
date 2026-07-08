@@ -1,21 +1,21 @@
 import { Suspense } from "react";
 import { StackProvider, StackTheme } from "@stackframe/stack";
-import { getStackHandlerApp, isStackHandlerConfigured } from "../lib/stack";
+import { getStackServerApp, isStackConfigured } from "../lib/stack";
 
 export default function HandlerLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  if (!isStackHandlerConfigured()) {
+  if (!isStackConfigured()) {
     return children;
   }
 
-  const stackHandlerApp = getStackHandlerApp();
+  const stackServerApp = getStackServerApp();
   return (
     <Suspense>
-      {stackHandlerApp ? (
-        <StackProvider app={stackHandlerApp}>
+      {stackServerApp ? (
+        <StackProvider app={stackServerApp}>
           <StackTheme>{children}</StackTheme>
         </StackProvider>
       ) : (
