@@ -10,8 +10,6 @@ import SwiftUI
 /// sidebar list snapshot-boundary rule.
 struct SidebarAgentStatusRows: View {
     let rows: [SidebarAgentStatusRow]
-    let isActive: Bool
-    let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
     let onFocusPanel: (UUID) -> Void
@@ -35,8 +33,6 @@ struct SidebarAgentStatusRows: View {
         ForEach(rows) { row in
             SidebarAgentStatusEntryRow(
                 row: row,
-                isActive: isActive,
-                activeForegroundColor: activeForegroundColor,
                 fontScale: fontScale,
                 onFocusPanel: onFocusPanel
             )
@@ -58,7 +54,7 @@ struct SidebarAgentStatusRows: View {
                     weight: .semibold
                 )
                 .foregroundColor(headerSecondaryColor)
-                if isCollapsed, let accent = summary.accentColorHex, let color = Color(hex: accent), !isActive {
+                if isCollapsed, let accent = summary.accentColorHex, let color = Color(hex: accent) {
                     Circle()
                         .fill(color)
                         .frame(width: 5 * fontScale, height: 5 * fontScale)
@@ -78,20 +74,20 @@ struct SidebarAgentStatusRows: View {
     }
 
     private var headerForegroundColor: Color {
-        isActive ? activeForegroundColor : .secondary
+        .secondary
     }
 
     private var headerSecondaryColor: Color {
-        isActive ? activeForegroundColor.opacity(0.65) : .secondary.opacity(0.8)
+        .secondary.opacity(0.8)
     }
 }
 
 private struct SidebarAgentStatusEntryRow: View {
     let row: SidebarAgentStatusRow
-    let isActive: Bool
-    let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocusPanel: (UUID) -> Void
+
+    @State private var isHovering = false
 
     var body: some View {
         Group {
@@ -105,12 +101,20 @@ private struct SidebarAgentStatusEntryRow: View {
                 .buttonStyle(.plain)
                 .safeHelp(url.absoluteString)
             } else {
-                rowContent(underlined: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onFocusPanel(row.panelId) }
-                    .safeHelp(helpText)
+                Button {
+                    onFocusPanel(row.panelId)
+                } label: {
+                    rowContent(underlined: false)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(helpText)
             }
         }
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color.primary.opacity(isHovering ? 0.07 : 0))
+        )
+        .onHover { isHovering = $0 }
     }
 
     @ViewBuilder
@@ -135,14 +139,17 @@ private struct SidebarAgentStatusEntryRow: View {
                 .truncationMode(.tail)
             if let paneLabel = row.paneLabel {
                 Text(paneLabel)
-                    .foregroundColor(isActive ? activeForegroundColor.opacity(0.6) : .secondary.opacity(0.8))
+                    .foregroundColor(.secondary.opacity(0.8))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
         }
         .cmuxFont(size: 10 * fontScale)
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     /// Mirrors `SidebarMetadataEntryRow.metadataText`: a markdown-formatted
@@ -272,9 +279,6 @@ private struct SidebarAgentStatusEntryRow: View {
     }
 
     private var foregroundColor: Color {
-        if isActive {
-            return activeForegroundColor
-        }
         if let raw = effectiveColorHex, let explicit = Color(hex: raw) {
             return explicit
         }

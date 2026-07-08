@@ -13801,20 +13801,6 @@ struct TabItemView: View, Equatable {
             if detailVisibility.showsMetadata {
                 let metadataEntries = workspaceSnapshot.metadataEntries
                 let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !workspaceSnapshot.agentStatusRows.isEmpty {
-                    SidebarAgentStatusRows(
-                        rows: workspaceSnapshot.agentStatusRows,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() },
-                        onFocusPanel: { panelId in
-                            updateSelection()
-                            tab.focusPanel(panelId)
-                        }
-                    )
-                    .transition(.opacity)
-                }
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
@@ -14198,7 +14184,27 @@ struct TabItemView: View, Equatable {
                 }
         }
         let _ = SidebarProfilingSignposts.end(signpost)
-        rowView
+        // Agent rows live BELOW the workspace card, not inside it: the card's
+        // whole-row tap gesture selects the workspace, so embedded rows could
+        // not be clicked independently. Out here each agent is its own
+        // full-width click target.
+        VStack(alignment: .leading, spacing: 2) {
+            rowView
+            if detailVisibility.showsMetadata, !workspaceSnapshot.agentStatusRows.isEmpty {
+                SidebarAgentStatusRows(
+                    rows: workspaceSnapshot.agentStatusRows,
+                    fontScale: fontScale,
+                    onFocus: { updateSelection() },
+                    onFocusPanel: { panelId in
+                        updateSelection()
+                        tab.focusPanel(panelId)
+                    }
+                )
+                .padding(.leading, 14)
+                .padding(.trailing, 6)
+                .transition(.opacity)
+            }
+        }
     }
     private func beginInlineRename() {
         updateSelection()
