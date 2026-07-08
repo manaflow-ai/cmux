@@ -936,7 +936,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     }
 
-    enum ProcessDetectedSessionIDSource: Sendable {
+    enum ProcessDetectedSessionIDSource: Equatable, Sendable {
         case explicit
         case inferredLatestSessionFile
         case forkParentFallback
@@ -1207,9 +1207,9 @@ struct RestorableAgentSessionIndex: Sendable {
                ) {
                 resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .forkParentFallback,
-                      Self.forkParentFallbackMustYield(toExisting: resolved[key]) {
-                // A nested claude fork process inside another agent's pane must not
-                // displace that pane's hook-backed identity.
+                      Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
+                // A nested fork process inside another agent's pane must not displace
+                // that pane's hook-backed identity.
                 continue
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
@@ -2163,11 +2163,8 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
 
-        return CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(
-            kind: kind,
-            liveExecutable: liveExecutable,
-            arguments: arguments
-        )
+        return CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
+            || CachedAgentProcessIdentityValidator.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {

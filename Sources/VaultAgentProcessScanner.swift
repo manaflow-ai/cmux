@@ -53,7 +53,7 @@ extension RestorableAgentSessionIndex {
         }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
-        // the OpenCode, claude-fork-fallback, and registry passes read each pid once.
+        // the OpenCode, fork-parent-fallback, and registry passes read each pid once.
         // updateValue (not subscript) so a nil miss is unambiguously stored, not removed.
         var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
         func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
@@ -71,7 +71,7 @@ extension RestorableAgentSessionIndex {
             scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
             processArgumentsProvider: cachedProcessArguments
         )
-        resolved.merge(processDetectedClaudeForkFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
+        resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
@@ -878,7 +878,7 @@ private extension CmuxVaultAgentSessionIDSource {
         switch self {
         case .argvOption(let option):
             guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
         case .piSessionFile:
             if let session = process.piCompatibleSessionID {
                 let sessionId = PiSessionLocator.resolvedSessionPath(
@@ -887,7 +887,7 @@ private extension CmuxVaultAgentSessionIDSource {
                     registration: registration,
                     fileManager: fileManager
                 ) ?? session
-                return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+                return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
             }
             guard let sessionId = PiSessionLocator.latestSessionPath(
                 for: process,

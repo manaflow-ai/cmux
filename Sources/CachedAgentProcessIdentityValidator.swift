@@ -68,11 +68,8 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         if kind == .opencode, arguments.contains(where: argumentLooksLikeOpenCode) {
             return true
         }
-        return Self.liveClaudeProcessExecutableMatches(
-            kind: kind,
-            liveExecutable: liveExecutable,
-            arguments: arguments
-        )
+        return Self.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
+            || Self.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
     }
 
     static func liveClaudeProcessExecutableMatches(
@@ -88,6 +85,22 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             return executableBasename(argument).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame
                 || lowered.contains("/.claude/")
                 || lowered.contains("/claude/versions/")
+        }
+    }
+
+    static func liveCodexProcessExecutableMatches(
+        kind: RestorableAgentKind,
+        liveExecutable: String,
+        arguments: [String]
+    ) -> Bool {
+        guard kind == .codex else { return false }
+        let liveBase = liveExecutable.lowercased()
+        guard liveBase == "node" || liveBase == "bun" else { return false }
+        return arguments.dropFirst().contains { argument in
+            let lowered = argument.lowercased()
+            return executableBasename(argument).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame
+                || lowered.contains("@openai/codex")
+                || lowered.contains("oh-my-codex")
         }
     }
 

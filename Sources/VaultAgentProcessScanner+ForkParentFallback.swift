@@ -1,11 +1,16 @@
 import Foundation
 import CMUXAgentLaunch
+extension CmuxVaultAgentRegistration {
+    func processArgumentsCarryForkParentFlag(_ arguments: [String]) -> Bool {
+        forkCommand?.split(whereSeparator: \.isWhitespace).contains("--fork") == true && arguments.contains("--fork")
+    }
+}
 
 extension RestorableAgentSessionIndex {
     /// Fallback identity only: the caller merges these with `{ existing, _ in existing }`
-    /// so a claude fork process never displaces an explicit same-pane detection
-    /// (e.g. an OpenCode pane hosting a nested claude fork process).
-    static func processDetectedClaudeForkFallbackSnapshots(
+    /// so a fork process never displaces an explicit same-pane detection
+    /// (e.g. an OpenCode pane hosting a nested claude/codex fork process).
+    static func processDetectedForkParentFallbackSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
@@ -22,32 +27,25 @@ extension RestorableAgentSessionIndex {
 
             let environment = processArguments.environment
             let arguments = processArguments.arguments
-            guard processLooksLikeClaude(
+            guard let fallback = forkParentFallback(
                 processName: process.name,
                 processPath: process.path,
                 arguments: arguments,
                 environment: environment
-            ),
-                  let parentSessionId = arguments.claudeForkFallbackParentSessionId,
-                  let launchCommand = claudeForkFallbackLaunchCommand(
-                      processName: process.name,
-                      processPath: process.path,
-                      arguments: arguments,
-                      environment: environment
-                  ) else {
+            ) else {
                 continue
             }
 
             let cwd = normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             let snapshot = SessionRestorableAgentSnapshot(
-                kind: .claude,
-                sessionId: parentSessionId,
+                kind: fallback.kind,
+                sessionId: fallback.parentSessionId,
                 workingDirectory: cwd,
                 launchCommand: AgentLaunchCommandSnapshot(
-                    processDetectedLauncher: "claude",
-                    executablePath: launchCommand.executablePath,
-                    arguments: launchCommand.arguments,
+                    processDetectedLauncher: fallback.launcher,
+                    executablePath: fallback.launchCommand.executablePath,
+                    arguments: fallback.launchCommand.arguments,
                     workingDirectory: cwd,
                     environment: environment
                 )
@@ -62,6 +60,50 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
+    }
+
+    private static func forkParentFallback(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) -> (
+        kind: RestorableAgentKind,
+        parentSessionId: String,
+        launcher: String,
+        launchCommand: (executablePath: String, arguments: [String])
+    )? {
+        if processLooksLikeClaude(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment
+        ),
+           let parentSessionId = arguments.claudeForkFallbackParentSessionId,
+           let launchCommand = claudeForkFallbackLaunchCommand(
+                processName: processName,
+                processPath: processPath,
+                arguments: arguments,
+                environment: environment
+           ) {
+            return (.claude, parentSessionId, "claude", launchCommand)
+        }
+        if processLooksLikeCodex(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment
+        ),
+           let parentSessionId = arguments.codexForkFallbackParentSessionId,
+           let launchCommand = codexForkFallbackLaunchCommand(
+                processName: processName,
+                processPath: processPath,
+                arguments: arguments,
+                environment: environment
+           ) {
+            return (.codex, parentSessionId, "codex", launchCommand)
+        }
+        return nil
     }
 
     private static func processLooksLikeClaude(
@@ -211,6 +253,133 @@ extension RestorableAgentSessionIndex {
             || lowered.contains("/claude/versions/")
     }
 
+    private static func processLooksLikeCodex(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) -> Bool {
+        let executableCandidates = [arguments.first, processPath, processName].compactMap(normalized)
+        if executableCandidates.contains(where: { executableBasename($0).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame }) {
+            return true
+        }
+        if executableCandidates.contains(where: { executable in
+            CachedAgentProcessIdentityValidator.liveCodexProcessExecutableMatches(
+                kind: .codex,
+                liveExecutable: executableBasename(executable),
+                arguments: arguments
+            )
+        }) {
+            return true
+        }
+        guard normalized(environment["CMUX_AGENT_LAUNCH_KIND"])?.compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame,
+              let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) else {
+            return false
+        }
+        let launchBasename = executableBasename(launchExecutable)
+        let launchCandidates = executableCandidates + [arguments.dropFirst().first].compactMap(normalized)
+        return launchCandidates.contains { candidate in
+            executableBasename(candidate).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame
+        }
+    }
+
+    private static func codexForkFallbackLaunchCommand(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) -> (executablePath: String, arguments: [String])? {
+        let executablePath = codexExecutablePath(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment
+        )
+        let launchTail = codexLaunchTail(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment
+        )
+        guard let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
+            [executablePath] + launchTail,
+            launcher: "codex",
+            fallbackKind: "codex-fork-replay"
+        ) else {
+            return nil
+        }
+        return (executablePath: executablePath, arguments: sanitized)
+    }
+
+    private static func codexExecutablePath(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) -> String {
+        if let argumentExecutable = normalized(arguments.first),
+           executableBasename(argumentExecutable).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return argumentExecutable
+        }
+        if let processPath = normalized(processPath),
+           executableBasename(processPath).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return processPath
+        }
+        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]),
+           executableBasename(launchExecutable).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return launchExecutable
+        }
+        if executableBasename(processName).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return normalized(arguments.first) ?? processName
+        }
+        if let nestedCodex = arguments.dropFirst().first(where: argumentLooksLikeNestedCodexEntrypoint) {
+            return executableBasename(nestedCodex).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame
+                ? nestedCodex
+                : "codex"
+        }
+        return "codex"
+    }
+
+    private static func codexLaunchTail(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String]
+    ) -> [String] {
+        guard !arguments.isEmpty else { return [] }
+        if executableBasename(arguments[0]).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return Array(arguments.dropFirst())
+        }
+        if let processPath = normalized(processPath),
+           executableBasename(processPath).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
+        }
+        if executableBasename(processName).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame {
+            return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
+        }
+        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) {
+            let launchBasename = executableBasename(launchExecutable)
+            if executableBasename(arguments[0]).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame {
+                return Array(arguments.dropFirst())
+            }
+            if let processPath = normalized(processPath),
+               executableBasename(processPath).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame {
+                return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
+            }
+        }
+        guard let entrypointIndex = arguments.dropFirst().firstIndex(where: argumentLooksLikeNestedCodexEntrypoint) else {
+            return []
+        }
+        return Array(arguments.dropFirst(entrypointIndex + 1))
+    }
+
+    private static func argumentLooksLikeNestedCodexEntrypoint(_ argument: String) -> Bool {
+        let lowered = argument.lowercased()
+        return executableBasename(argument).compare("codex", options: [.caseInsensitive, .literal]) == .orderedSame
+            || lowered.contains("@openai/codex")
+            || lowered.contains("oh-my-codex")
+    }
+
     private static func executableBasename(_ value: String) -> String {
         (value as NSString).lastPathComponent
     }
@@ -242,14 +411,13 @@ extension RestorableAgentSessionIndex {
         return candidate.updatedAt >= earliestStart
     }
 
-    /// A `.forkParentFallback` detection is claude-kind identity inferred from a live
+    /// A `.forkParentFallback` detection is agent-kind identity inferred from a live
     /// process, so it may fill an empty pane or refine a claude pane, but it must never
     /// displace a hook-backed entry of another agent kind (a nested
-    /// `claude --resume <id> --fork-session` child inside a codex/opencode/custom pane
-    /// inherits that pane's cmux scope).
-    static func forkParentFallbackMustYield(toExisting existing: Entry?) -> Bool {
+    /// child process inside another agent pane inherits that pane's cmux scope).
+    static func forkParentFallbackMustYield(kind: RestorableAgentKind, toExisting existing: Entry?) -> Bool {
         guard let existing else { return false }
-        return existing.snapshot.kind != .claude
+        return existing.snapshot.kind != kind
     }
 }
 
@@ -301,6 +469,25 @@ private extension Array where Element == String {
     }
 
     private func normalizedNonOptionValue(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("-"),
+              UUID(uuidString: trimmed) != nil else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
+private extension Array where Element == String {
+    var codexForkFallbackParentSessionId: String? {
+        guard let forkIndex = firstIndex(where: { $0 == "fork" }) else { return nil }
+        let sessionIndex = index(after: forkIndex)
+        guard sessionIndex < endIndex else { return nil }
+        return uuidValue(self[sessionIndex])
+    }
+
+    private func uuidValue(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               !trimmed.hasPrefix("-"),
