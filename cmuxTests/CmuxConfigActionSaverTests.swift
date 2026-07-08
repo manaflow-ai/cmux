@@ -335,6 +335,26 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
+    @Test func commandLineUnwrapsNodeCodexAndStripsCmuxHooks() {
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv()) ==
+                "codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.5 -c model_reasoning_effort=xhigh"
+        )
+    }
+
+    @Test func commandLineKeepsClaudeDirectBinaryBehavior() {
+        #expect(
+            TerminalForegroundCommandCapture.commandLine(fromArgv: [
+                "/Users/u/.local/bin/claude",
+                "--dangerously-skip-permissions",
+                "--model",
+                "claude-fable-5",
+                "--effort",
+                "high",
+            ]) == "/Users/u/.local/bin/claude --dangerously-skip-permissions --model claude-fable-5 --effort high"
+        )
+    }
+
     @Test func knownAgentKindCoversAliasesAndArchSuffixedBuilds() {
         #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "claude") == "claude")
         #expect(TerminalForegroundCommandCapture.knownAgentKind(forExecutableName: "agy") == "antigravity")
@@ -379,5 +399,32 @@ struct CmuxConfigActionSaverTests {
         #expect(plain.capturedCommands == [])
         #expect(plain.capturedURLs == [])
         #expect(plain.capturedEnvironmentKeys == [])
+    }
+
+    private func nodeWrappedCodexHookArgv() -> [String] {
+        [
+            "node",
+            "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex",
+            "--enable",
+            "hooks",
+            "--dangerously-bypass-hook-trust",
+            "-c",
+            "hooks.SessionStart=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-session-start.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-user-prompt-submit.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.PreToolUse=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-pre-tool-use.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.PostToolUse=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-post-tool-use.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.Notification=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=10000}]}]",
+            "-c",
+            "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model",
+            "gpt-5.5",
+            "-c",
+            "model_reasoning_effort=xhigh",
+        ]
     }
 }
