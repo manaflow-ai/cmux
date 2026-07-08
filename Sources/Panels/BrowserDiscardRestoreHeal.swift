@@ -1,14 +1,14 @@
 import Foundation
 
 extension BrowserPanel {
-    static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
+    nonisolated static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
         guard let date else { return NSNull() }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.string(from: date)
     }
 
-    static func webViewHiddenDurationMilliseconds(
+    nonisolated static func webViewHiddenDurationMilliseconds(
         hiddenAt: Date?,
         visible: Bool,
         now: Date
