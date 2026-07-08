@@ -658,7 +658,7 @@ final class DockSplitStore: BonsplitDelegate {
             activeConfigURL = resolution.sourceURL
             resolvedBaseDirectory = resolution.baseDirectory
             do {
-                let profileIndex = browserProfileIndex()
+                let profileIndex = isBrowserPanelAvailable() ? browserProfileIndex() : nil
                 let resolvedControls = try Self.resolvedControls(
                     for: resolution.controls,
                     browserProfileIndex: profileIndex
@@ -697,13 +697,14 @@ final class DockSplitStore: BonsplitDelegate {
 
     private static func resolvedControls(
         for definitions: [DockControlDefinition],
-        browserProfileIndex: DockBrowserProfileIndex
+        browserProfileIndex: DockBrowserProfileIndex?
     ) throws -> [ResolvedConfigControl] {
         var resolvedControls: [ResolvedConfigControl] = []
         resolvedControls.reserveCapacity(definitions.count)
         for definition in definitions {
             let resolvedProfile: DockBrowserProfileIndex.Resolution?
-            if case .browser(_, let profile) = definition.variant {
+            if case .browser(_, let profile) = definition.variant,
+               let browserProfileIndex {
                 resolvedProfile = try browserProfileIndex.resolve(profile)
             } else {
                 resolvedProfile = nil

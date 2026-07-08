@@ -128,6 +128,43 @@ struct DockPrimitiveControlTests {
         #expect(browserPanel is BrowserPanel)
     }
 
+    @Test("Unavailable browser controls skip profile lookup while seeding terminals")
+    @MainActor
+    func unavailableBrowserControlsSkipProfileLookupWhileSeedingTerminals() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { false }
+        )
+        defer { store.closeAllPanels() }
+
+        let resolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(id: "git", title: "Git", variant: .command("lazygit"), cwd: "."),
+                DockControlDefinition(
+                    id: "docs",
+                    title: "Docs",
+                    variant: .browser(url: "https://docs.cmux.dev", profile: "missing-\(UUID().uuidString)")
+                ),
+                DockControlDefinition(id: "shell", title: "Shell", variant: .terminal, cwd: ".")
+            ],
+            sourceURL: nil,
+            baseDirectory: root.path,
+            isProjectSource: false
+        )
+
+        let generation = store.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
+        store.applyConfigurationLoadResult(.resolved(resolution), generation: generation, replacingPanels: true)
+
+        #expect(store.errorMessage == nil)
+        #expect(store.panels.count == 2)
+        _ = try #require(try panel(in: store, titled: "Git") as? TerminalPanel)
+        _ = try #require(try panel(in: store, titled: "Shell") as? TerminalPanel)
+    }
+
     @Test("Browser profile references use stable IDs and fail closed on ambiguous names")
     @MainActor
     func browserProfileReferencesUseStableIDsAndFailClosed() throws {
