@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
+import CmuxMobileSupport
 import SwiftUI
 
 struct MobileSettingsAccountSection: View {
