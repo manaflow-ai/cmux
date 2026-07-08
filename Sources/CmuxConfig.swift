@@ -13,6 +13,7 @@ struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
     var ui: CmuxConfigUIDefinition?
     var notifications: CmuxNotificationConfigDefinition?
+    var agentChat: CmuxAgentChatConfigDefinition?
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
@@ -20,13 +21,14 @@ struct CmuxConfigFile: Codable, Sendable {
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
     init(
         actions: [String: CmuxConfigActionDefinition] = [:],
         ui: CmuxConfigUIDefinition? = nil,
         notifications: CmuxNotificationConfigDefinition? = nil,
+        agentChat: CmuxAgentChatConfigDefinition? = nil,
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
@@ -36,6 +38,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.actions = actions
         self.ui = ui
         self.notifications = notifications
+        self.agentChat = agentChat
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
@@ -55,6 +58,7 @@ struct CmuxConfigFile: Codable, Sendable {
         )
         ui = try container.decodeIfPresent(CmuxConfigUIDefinition.self, forKey: .ui)
         notifications = try container.decodeIfPresent(CmuxNotificationConfigDefinition.self, forKey: .notifications)
+        agentChat = try container.decodeIfPresent(CmuxAgentChatConfigDefinition.self, forKey: .agentChat)
 
         if let rawNewWorkspaceCommand = try container.decodeIfPresent(String.self, forKey: .newWorkspaceCommand) {
             let trimmed = rawNewWorkspaceCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -322,6 +326,97 @@ struct CmuxResolvedNotificationHook: Sendable, Hashable {
         hasher.combine(sourcePath)
         hasher.combine(cwd)
         hasher.combine(trustDescriptor?.fingerprint)
+    }
+}
+
+struct CmuxAgentChatConfigDefinition: Codable, Sendable, Hashable {
+    var url: String?
+    var startCommand: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case url
+        case startCommand
+    }
+
+    init(url: String? = nil, startCommand: String? = nil) {
+        self.url = url
+        self.startCommand = startCommand
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let decodedURL = try Self.trimmedString(forKey: .url, in: container) {
+            guard Self.isValidServerURL(decodedURL) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .url,
+                    in: container,
+                    debugDescription: "agentChat.url must be an absolute http or https URL"
+                )
+            }
+            url = decodedURL
+        } else {
+            url = nil
+        }
+        startCommand = try Self.trimmedString(forKey: .startCommand, in: container)
+    }
+
+    private static func trimmedString(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> String? {
+        guard container.contains(key) else { return nil }
+        let value = try container.decode(String.self, forKey: key)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "agentChat.\(key.stringValue) must not be blank"
+            )
+        }
+        return value
+    }
+
+    private static func isValidServerURL(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host?.isEmpty == false,
+              URL(string: value) != nil else {
+            return false
+        }
+        return true
+    }
+}
+
+struct CmuxAgentChatConfiguration: Sendable, Hashable {
+    static let defaultURLString = "http://127.0.0.1:7739"
+    static let `default` = CmuxAgentChatConfiguration(
+        url: URL(string: defaultURLString)!,
+        startCommand: nil
+    )
+
+    var url: URL
+    var startCommand: String?
+
+    var healthURL: URL {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let basePath = components?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
+        components?.path = basePath.isEmpty ? "/healthz" : "/\(basePath)/healthz"
+        components?.query = nil
+        components?.fragment = nil
+        return components?.url ?? url.appendingPathComponent("healthz")
+    }
+
+    static func resolved(
+        local: CmuxAgentChatConfigDefinition?,
+        global: CmuxAgentChatConfigDefinition?
+    ) -> CmuxAgentChatConfiguration {
+        let rawURL = local?.url ?? global?.url ?? Self.defaultURLString
+        return CmuxAgentChatConfiguration(
+            url: URL(string: rawURL) ?? Self.default.url,
+            startCommand: local?.startCommand ?? global?.startCommand
+        )
     }
 }
 
@@ -1389,6 +1484,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newWorkspace:
             title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
             keywords = ["create", "new", "workspace"]
+        case .newAgentChat:
+            title = String(localized: "command.newAgentChat.title", defaultValue: "New agent chat")
+            keywords = ["create", "new", "agent", "chat", "browser", "codex", "claude"]
         case .cloudVM:
             title = String(localized: "command.cloudVM.title", defaultValue: "Open Base")
             keywords = ["base", "cloud", "vm", "virtual", "machine", "remote"]
@@ -1733,6 +1831,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
+    @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
     /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
@@ -2150,6 +2249,10 @@ final class CmuxConfigStore: ObservableObject {
                 entry.result.config.map { (path: entry.path, config: $0) }
             }
         )
+        let resolvedAgentChat = CmuxAgentChatConfiguration.resolved(
+            local: localConfig?.agentChat,
+            global: globalConfig?.agentChat
+        )
 
         loadedCommands = commands
         loadedActions = resolvedActions
@@ -2160,6 +2263,7 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
+        agentChat = resolvedAgentChat
         let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(
             localConfig: localConfig,
             globalConfig: globalConfig,

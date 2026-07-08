@@ -6059,6 +6059,8 @@ struct ContentView: View {
             return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
         case "palette.newBrowserTab":
             return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
+        case "palette.newAgentChat":
+            return CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
         case "palette.terminalSplitRight":
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":
@@ -6342,6 +6344,15 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace")),
                 subtitle: constant(String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace")),
                 keywords: ["create", "new", "browser", "workspace", "web"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newAgentChat",
+                title: constant(String(localized: "command.newAgentChat.title", defaultValue: "New agent chat")),
+                subtitle: constant(String(localized: "command.newAgentChat.subtitle", defaultValue: "Agent Chat")),
+                keywords: ["create", "new", "agent", "chat", "browser", "codex", "claude"],
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
@@ -7571,6 +7582,19 @@ struct ContentView: View {
                     tabManager: tabManager,
                     debugSource: "palette.newBrowserWorkspace"
                 )
+            }
+        }
+        registry.register(commandId: "palette.newAgentChat") {
+            guard let appDelegate = AppDelegate.shared else {
+                NSSound.beep()
+                return
+            }
+            if !appDelegate.executeConfiguredCmuxAction(
+                id: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID,
+                tabManager: tabManager,
+                preferredWindow: appDelegate.mainWindow(for: windowId)
+            ) {
+                NSSound.beep()
             }
         }
         registry.register(commandId: "palette.openFolder") {

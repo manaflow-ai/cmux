@@ -65,6 +65,29 @@
         "additionalProperties": true
       }
     },
+    "agentChat": {
+      "title": "agentChat",
+      "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probing /healthz first and optionally starting the server with startCommand.",
+      "descriptionKey": "schemaDescriptions.agentChat.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "default": "http://127.0.0.1:7739",
+          "description": "Base URL for the machine-local Agent Chat GUI server. cmux probes <url>/healthz before opening the workspace.",
+          "descriptionKey": "schemaDescriptions.agentChat.url"
+        },
+        "startCommand": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional shell command to start the Agent Chat server when <url>/healthz is unreachable. cmux runs it detached with the user's SHELL, polls healthz for a short bounded window, then opens the workspace either way.",
+          "descriptionKey": "schemaDescriptions.agentChat.startCommand"
+        }
+      }
+    },
     "vault": {
       "title": "vault",
       "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",
