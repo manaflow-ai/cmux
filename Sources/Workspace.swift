@@ -582,6 +582,7 @@ extension Workspace {
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
                 transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
+                isRemoteScoped: remoteScopedBrowserPanelIds.contains(panelId) ? true : nil,
                 diffViewerToken: diffViewerComponents?.token,
                 diffViewerRequestPath: diffViewerComponents?.requestPath
             )
@@ -1449,6 +1450,7 @@ extension Workspace {
                 startupEnvironment: replayEnvironment,
                 runtimeSpawnPolicy: .pacedSessionRestore,
                 remotePTYSessionID: restoredRemotePTYSessionID,
+                remoteInheritance: .always,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId
             ) else {
@@ -1585,7 +1587,10 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: snapshot.browser?.transparentBackground ?? false,
+                remoteInheritance: (remoteConfiguration?.scope == .pane && snapshot.browser?.isRemoteScoped != true)
+                    ? .never
+                    : .always
             ) else {
                 return nil
             }
@@ -2276,21 +2281,24 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.surfaceTTYNames }
         set { surfaceRegistry.surfaceTTYNames = newValue }
     }
-    private var remoteSessionController: RemoteSessionCoordinator?
+    var remoteSessionController: RemoteSessionCoordinator?
     private var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
-    private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    /// Browser panels that inherited a pane-scoped remote connection.
+    /// Workspace-scoped remotes do not populate this set.
+    var remoteScopedBrowserPanelIds: Set<UUID> = []
     private(set) var remoteDirectoryTrustRequiredPanelIds: Set<UUID> = []
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
-    private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
+    var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
     private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
-    private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
+    var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
 
     private struct PendingRemoteDisconnectReplacement {
@@ -3039,6 +3047,11 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
         }
+        bonsplitController.tabContextDisconnectRemoteAvailabilityProvider = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
+            return self.canDisconnectRemoteSurface(panelId: panelId)
+        }
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
             switch source {
             case .closeButton:
@@ -3766,25 +3779,10 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionPanelCallbackIds.remove(panelId)
     }
 
-    func discardBrowserPanelSubscription(panelId _: UUID, panel: (any Panel)?) {
+    func discardBrowserPanelSubscription(panelId: UUID, panel: (any Panel)?) {
+        remoteScopedBrowserPanelIds.remove(panelId)
         guard let browserPanel = panel as? BrowserPanel else { return }
         browserPanel.onMediaActivityChanged = nil
-    }
-
-    private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
-        guard let target = remoteDisplayTarget else { return nil }
-        return BrowserRemoteWorkspaceStatus(
-            target: target,
-            connectionState: remoteConnectionState,
-            heartbeatCount: remoteHeartbeatCount,
-            lastHeartbeatAt: remoteLastHeartbeatAt
-        )
-    }
-
-    private func applyBrowserRemoteWorkspaceStatusToPanels() {
-        let snapshot = browserRemoteWorkspaceStatusSnapshot()
-        for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
-        _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
     }
 
     // MARK: - Panel Access
@@ -5512,7 +5510,11 @@ final class Workspace: Identifiable, ObservableObject {
         return payload
     }
 
-    func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+    func configureRemoteConnection(
+        _ configuration: WorkspaceRemoteConfiguration,
+        autoConnect: Bool = true,
+        seedPanelId: UUID? = nil
+    ) {
         let configuration = configuration.scopedToOwnerWorkspace(id)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
@@ -5535,7 +5537,13 @@ final class Workspace: Identifiable, ObservableObject {
         })
         remoteDirectoryTrustRequiredPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         remoteDirectoryReportPanelIds.removeAll()
-        seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        if configuration.scope == .pane {
+            if let seedPanelId, terminalPanel(for: seedPanelId) != nil {
+                trackRemoteTerminalSurface(seedPanelId)
+            }
+        } else {
+            seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        }
         for panelId in remoteDirectoryTrustRequiredPanelIds {
             clearPanelGitBranch(panelId: panelId)
         }
@@ -5719,8 +5727,12 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController = nil
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
+        let previouslyTrackedRemoteTerminalSurfaceIds = activeRemoteTerminalSurfaceIds
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
+        for panelId in previouslyTrackedRemoteTerminalSurfaceIds {
+            syncRemoteTabIndicator(panelId: panelId)
+        }
         let remoteDirectoryPanelIdsToClear = clearConfiguration ? remoteDirectoryTrustRequiredPanelIds.union(remoteDirectoryReportPanelIds) : []
         let clearedRemoteDirectoryTrust = !remoteDirectoryReportPanelIds.isEmpty ||
             (clearConfiguration && !remoteDirectoryTrustRequiredPanelIds.isEmpty)
@@ -5754,6 +5766,7 @@ final class Workspace: Identifiable, ObservableObject {
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
             remoteConfiguration = nil
+            remoteScopedBrowserPanelIds.removeAll()
             pendingRemoteDisconnectReplacement = nil
             remoteDisconnectPlaceholderPanelIds.removeAll()
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
@@ -5777,26 +5790,7 @@ final class Workspace: Identifiable, ObservableObject {
         disconnectRemoteConnection(clearConfiguration: true)
     }
 
-    private func seedInitialRemoteTerminalSessionIfNeeded(configuration: WorkspaceRemoteConfiguration) {
-        guard configuration.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            return
-        }
-        guard activeRemoteTerminalSurfaceIds.isEmpty else { return }
-        let terminalIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel && !remoteDisconnectPlaceholderPanelIds.contains(panelId)
-                ? panelId
-                : nil
-        }
-        if terminalIds.count == 1, let initialPanelId = terminalIds.first {
-            trackRemoteTerminalSurface(initialPanelId)
-            return
-        }
-        if let focusedPanelId, terminalIds.contains(focusedPanelId) {
-            trackRemoteTerminalSurface(focusedPanelId)
-        }
-    }
-
-    private func trackRemoteTerminalSurface(_ panelId: UUID, preserveTrustedRemoteDirectory: Bool = false) {
+    func trackRemoteTerminalSurface(_ panelId: UUID, preserveTrustedRemoteDirectory: Bool = false) {
         let previousPresentedDirectory = presentedCurrentDirectory
         let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let removedTrustedDirectory: Bool
@@ -5820,6 +5814,7 @@ final class Workspace: Identifiable, ObservableObject {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
         }
+        syncRemoteTabIndicator(panelId: panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         if suppressesProxyOnlySidebarErrorWhileSSHTerminalIsAlive {
             clearProxyOnlyRemoteSidebarArtifacts()
@@ -5837,6 +5832,7 @@ final class Workspace: Identifiable, ObservableObject {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
         }
+        syncRemoteTabIndicator(panelId: panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
         guard !isDetachingCloseTransaction else { return }
@@ -5914,7 +5910,7 @@ final class Workspace: Identifiable, ObservableObject {
         return environment
     }
 
-    private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
+    func normalizedRemotePTYSessionID(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
@@ -5986,7 +5982,7 @@ final class Workspace: Identifiable, ObservableObject {
         syncRemoteRelayIDAliasesToController()
     }
 
-    private func removeRemoteRelaySurfaceAliases(targeting panelId: UUID) {
+    func removeRemoteRelaySurfaceAliases(targeting panelId: UUID) {
         let nextAliases = remoteRelaySurfaceIDAliases.filter { $0.value != panelId }
         guard nextAliases != remoteRelaySurfaceIDAliases else { return }
         remoteRelaySurfaceIDAliases = nextAliases
@@ -6290,7 +6286,7 @@ final class Workspace: Identifiable, ObservableObject {
         return "/bin/sh -c \(Self.shellQuote(lines.joined(separator: "\n")))"
     }
 
-    private static func shellQuote(_ value: String) -> String {
+    static func shellQuote(_ value: String) -> String {
         let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
         if value.range(of: safePattern, options: .regularExpression) != nil {
             return value
@@ -6298,7 +6294,7 @@ final class Workspace: Identifiable, ObservableObject {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
+    func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
         guard let configuration else { return nil }
         if let vmID = defaultFreestyleSSHDVMID(from: configuration) {
             let command = configuration.terminalStartupCommand?
@@ -6387,30 +6383,13 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceTTYNames.removeValue(forKey: surfaceId)
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: surfaceId) }
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
+            syncRemoteTabIndicator(panelId: surfaceId)
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
         syncRemotePortScanTTYs()
         disconnectRemoteConnectionAfterTerminalExit()
         applyBrowserRemoteWorkspaceStatusToPanels()
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
-    }
-
-    private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
-        guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
-        if remoteConfiguration?.preserveAfterTerminalExit == true {
-            return
-        }
-        let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
-        if !hasBrowserPanels {
-            if remoteConnectionState == .error ||
-                remoteDaemonStatus.state == .error ||
-                remoteConnectionState == .connecting ||
-                remoteConnectionState == .reconnecting ||
-                remoteConnectionState == .suspended {
-                return
-            }
-            disconnectRemoteConnection(clearConfiguration: true)
-        }
     }
 
     @MainActor
@@ -6586,6 +6565,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
         let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil; if removedTrustedDirectory { clearPanelGitBranch(panelId: surfaceId) }
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
+            syncRemoteTabIndicator(panelId: surfaceId)
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
@@ -6812,15 +6792,6 @@ final class Workspace: Identifiable, ObservableObject {
             level: .error,
             source: "remote-daemon"
         )
-    }
-
-    func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
-        remoteProxyEndpoint = endpoint
-        for panel in panels.values {
-            (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
-        }
-        _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
-        applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
     func applyRemoteHeartbeatUpdate(count: Int, lastSeenAt: Date?) {
@@ -7333,7 +7304,9 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
+        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand
+            ? nil
+            : remoteTerminalStartupCommand(inheritance: .fromSourcePane(panelId))
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let newPanelID = UUID()
@@ -7422,7 +7395,8 @@ final class Workspace: Identifiable, ObservableObject {
             icon: newPanel.displayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
-            isPinned: false
+            isPinned: false,
+            showsRemoteIndicator: tracksRemoteTerminalSurface && remoteConfiguration?.scope == .pane
         )
         bindSurface(newTab.id, toPanelId: newPanel.id)
         let previousFocusedPanelId = focusedPanelId
@@ -7508,6 +7482,7 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
+        remoteInheritance: WorkspaceRemoteInheritance? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
@@ -7526,6 +7501,7 @@ final class Workspace: Identifiable, ObservableObject {
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
+            remoteInheritance: remoteInheritance,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
@@ -7549,6 +7525,7 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
+        remoteInheritance: WorkspaceRemoteInheritance? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
@@ -7596,6 +7573,7 @@ final class Workspace: Identifiable, ObservableObject {
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
+            remoteInheritance: remoteInheritance,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
@@ -7617,6 +7595,7 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool,
         preserveFocusWhenUnfocused: Bool,
         remotePTYSessionID: String?,
+        remoteInheritance: WorkspaceRemoteInheritance?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
         inheritWorkingDirectoryFallback: Bool,
@@ -7630,7 +7609,11 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
+        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand
+            ? nil
+            : remoteTerminalStartupCommand(
+                inheritance: remoteInheritance ?? .fromSourcePane(effectiveSelectedPanelId(inPane: paneId))
+            )
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let newPanelID = restoredSurfaceId ?? UUID()
@@ -7704,6 +7687,7 @@ final class Workspace: Identifiable, ObservableObject {
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false,
+            showsRemoteIndicator: tracksRemoteTerminalSurface && remoteConfiguration?.scope == .pane,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: newPanel.id)
@@ -8103,17 +8087,6 @@ final class Workspace: Identifiable, ObservableObject {
         return replacementPanel
     }
 
-    private func remoteTerminalStartupCommand() -> String? {
-        guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
-            return nil
-        }
-        guard let command = effectiveRemoteTerminalStartupCommand(from: remoteConfiguration),
-              !command.isEmpty else {
-            return nil
-        }
-        return command
-    }
-
     /// Create a new browser panel split
     @discardableResult
     func newBrowserSplit(
@@ -8152,6 +8125,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
+        let inheritsRemoteConnection =
+            remoteConfiguration == nil || remoteInheritanceAllows(.fromSourcePane(panelId))
 
         // Create browser panel
         let browserPanel = BrowserPanel(
@@ -8165,14 +8140,17 @@ final class Workspace: Identifiable, ObservableObject {
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
             transparentBackground: transparentBackground,
-            proxyEndpoint: remoteProxyEndpoint,
+            proxyEndpoint: inheritsRemoteConnection ? remoteProxyEndpoint : nil,
             bypassRemoteProxy: bypassRemoteProxy,
-            isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            isRemoteWorkspace: isRemoteWorkspace && inheritsRemoteConnection,
+            remoteWebsiteDataStoreIdentifier: (isRemoteWorkspace && inheritsRemoteConnection && !bypassRemoteProxy) ? id : nil
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
+        if remoteConfiguration?.scope == .pane, inheritsRemoteConnection {
+            remoteScopedBrowserPanelIds.insert(browserPanel.id)
+        }
 
         // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
         let newTab = Bonsplit.Tab(
@@ -8196,6 +8174,7 @@ final class Workspace: Identifiable, ObservableObject {
             removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
+            remoteScopedBrowserPanelIds.remove(browserPanel.id)
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -8219,7 +8198,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installBrowserPanelSubscription(browserPanel)
-        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+        browserPanel.setRemoteWorkspaceStatus(inheritsRemoteConnection ? browserRemoteWorkspaceStatusSnapshot() : nil)
 
         return browserPanel
     }
@@ -8241,7 +8220,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        remoteInheritance: WorkspaceRemoteInheritance? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
@@ -8258,6 +8238,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
+        let inheritsRemoteConnection =
+            remoteConfiguration == nil ||
+            remoteInheritanceAllows(remoteInheritance ?? .fromSourcePane(sourcePanelId))
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
@@ -8274,14 +8257,17 @@ final class Workspace: Identifiable, ObservableObject {
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             omnibarVisible: omnibarVisible,
             transparentBackground: transparentBackground,
-            proxyEndpoint: remoteProxyEndpoint,
+            proxyEndpoint: inheritsRemoteConnection ? remoteProxyEndpoint : nil,
             bypassRemoteProxy: bypassRemoteProxy,
-            isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            isRemoteWorkspace: isRemoteWorkspace && inheritsRemoteConnection,
+            remoteWebsiteDataStoreIdentifier: (isRemoteWorkspace && inheritsRemoteConnection && !bypassRemoteProxy) ? id : nil
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
+        if remoteConfiguration?.scope == .pane, inheritsRemoteConnection {
+            remoteScopedBrowserPanelIds.insert(browserPanel.id)
+        }
 
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
@@ -8296,6 +8282,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
+            remoteScopedBrowserPanelIds.remove(browserPanel.id)
             return nil
         }
 
@@ -8327,7 +8314,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installBrowserPanelSubscription(browserPanel)
-        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+        browserPanel.setRemoteWorkspaceStatus(inheritsRemoteConnection ? browserRemoteWorkspaceStatusSnapshot() : nil)
 
         return browserPanel
     }
@@ -9620,13 +9607,17 @@ final class Workspace: Identifiable, ObservableObject {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
         } else if let browserPanel = detached.panel as? BrowserPanel {
+            let joinsRemote = isRemoteWorkspace && remoteConfiguration?.scope != .pane
             browserPanel.reattachToWorkspace(
                 id,
-                isRemoteWorkspace: isRemoteWorkspace,
-                remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !browserPanel.bypassesRemoteWorkspaceProxyForTabDuplication ? id : nil,
-                proxyEndpoint: remoteProxyEndpoint,
-                remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+                isRemoteWorkspace: joinsRemote,
+                remoteWebsiteDataStoreIdentifier: joinsRemote && !browserPanel.bypassesRemoteWorkspaceProxyForTabDuplication ? id : nil,
+                proxyEndpoint: joinsRemote ? remoteProxyEndpoint : nil,
+                remoteStatus: joinsRemote ? browserRemoteWorkspaceStatusSnapshot() : nil
             )
+            if !joinsRemote {
+                remoteScopedBrowserPanelIds.remove(detached.panelId)
+            }
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
@@ -11414,7 +11405,8 @@ final class Workspace: Identifiable, ObservableObject {
             icon: newPanel.displayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
-            isPinned: false
+            isPinned: false,
+            showsRemoteIndicator: startupCommand != nil && remoteConfiguration?.scope == .pane
         )
         bindSurface(newTab.id, toPanelId: newPanel.id)
 
@@ -11613,12 +11605,14 @@ final class Workspace: Identifiable, ObservableObject {
         guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
         let forkedSSHOptions = remoteConfiguration
             .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.sshOptions) }
-        return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
+        let snapshotConfiguration = remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false,
             preserveSSHOptions: true,
             agentSocketPath: remoteConfiguration?.agentSocketPath
-        ) ?? remoteConfiguration
+        )
+        // A forked agent workspace is dedicated to the remote host, so it is always workspace-scoped.
+        return (snapshotConfiguration ?? remoteConfiguration)?.withScope(.workspace)
     }
 
     private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
@@ -13184,6 +13178,9 @@ extension Workspace: BonsplitDelegate {
              .forkConversationNewTab,
              .forkConversationNewWorkspace:
             handleForkConversationContextAction(action, for: tab, inPane: pane)
+        case .disconnectRemote:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            disconnectRemoteSurface(panelId: panelId)
         @unknown default:
             break
         }

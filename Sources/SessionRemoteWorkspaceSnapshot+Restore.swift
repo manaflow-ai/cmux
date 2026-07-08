@@ -95,6 +95,7 @@ extension SessionRemoteWorkspaceSnapshot {
             destination: normalizedDestination,
             port: normalizedPort,
             identityFile: Self.normalizedIdentityPath(identityFile),
+            scope: scope ?? .workspace,
             sshOptions: restoredSSHOptions,
             localProxyPort: nil,
             relayPort: preservePTYSession ? normalizedRelayPort : nil,

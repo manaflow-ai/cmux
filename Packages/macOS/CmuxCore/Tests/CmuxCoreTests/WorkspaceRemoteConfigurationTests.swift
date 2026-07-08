@@ -90,6 +90,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         destination: String = "user@host",
         port: Int? = nil,
         identityFile: String? = nil,
+        scope: WorkspaceRemoteScope = .workspace,
         sshOptions: [String] = [],
         relayPort: Int? = nil,
         preserveAfterTerminalExit: Bool = false,
@@ -103,6 +104,7 @@ struct WorkspaceRemoteConfigurationValueTests {
             destination: destination,
             port: port,
             identityFile: identityFile,
+            scope: scope,
             sshOptions: sshOptions,
             localProxyPort: nil,
             relayPort: relayPort,
@@ -135,6 +137,44 @@ struct WorkspaceRemoteConfigurationValueTests {
     func displayTarget() {
         #expect(makeConfiguration().displayTarget == "user@host")
         #expect(makeConfiguration(port: 2222).displayTarget == "user@host:2222")
+    }
+
+    @Test("pane-scope target matching ignores invocation-only fields")
+    func paneScopeTargetMatchingIgnoresInvocationOnlyFields() {
+        let base = WorkspaceRemoteConfiguration(
+            destination: " user@host ",
+            port: 2222,
+            identityFile: "~/id_ed25519",
+            scope: .pane,
+            sshOptions: ["ForwardAgent=yes"],
+            localProxyPort: nil,
+            relayPort: 7000,
+            relayID: "relay-a",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/a.sock",
+            terminalStartupCommand: "ssh startup a",
+            foregroundAuthToken: "token-a"
+        )
+        let sameTarget = WorkspaceRemoteConfiguration(
+            destination: "user@host",
+            port: 2222,
+            identityFile: ("~/id_ed25519" as NSString).expandingTildeInPath,
+            scope: .pane,
+            sshOptions: ["StrictHostKeyChecking=no"],
+            localProxyPort: nil,
+            relayPort: 7001,
+            relayID: "relay-b",
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/b.sock",
+            terminalStartupCommand: "ssh startup b",
+            foregroundAuthToken: "token-b"
+        )
+
+        #expect(base.hasSamePaneScopeTarget(as: sameTarget))
+        #expect(!base.hasSamePaneScopeTarget(as: makeConfiguration(destination: "user@other", port: 2222, identityFile: "~/id_ed25519", scope: .pane)))
+        #expect(!base.hasSamePaneScopeTarget(as: makeConfiguration(port: 2200, identityFile: "~/id_ed25519", scope: .pane)))
+        #expect(!base.hasSamePaneScopeTarget(as: makeConfiguration(port: 2222, identityFile: "~/other", scope: .pane)))
+        #expect(!base.hasSamePaneScopeTarget(as: makeConfiguration(transport: .websocket, port: 2222, identityFile: "~/id_ed25519", scope: .pane)))
     }
 
     @Test("displayTarget hides the provider hostname for the managed Cloud VM")
