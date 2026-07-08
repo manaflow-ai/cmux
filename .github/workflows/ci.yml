@@ -225,6 +225,10 @@ jobs:
             python3 scripts/swift_file_length_budget.py \
               --budget .github/swift-file-length-budget.tsv \
               --base-ref "$BEFORE_SHA"
+          elif git rev-parse --verify --quiet origin/main >/dev/null; then
+            python3 scripts/swift_file_length_budget.py \
+              --budget .github/swift-file-length-budget.tsv \
+              --base-ref origin/main
           else
             python3 scripts/swift_file_length_budget.py \
               --budget .github/swift-file-length-budget.tsv
