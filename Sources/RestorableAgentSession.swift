@@ -1221,8 +1221,11 @@ struct RestorableAgentSessionIndex: Sendable {
             let sameKindPanelIDCandidate = hookCandidatesByPanelIdAndKind[
                 PanelIDKindKey(panelId: key.panelId, kind: detected.snapshot.kind)
             ]
-            // Panel-only restore is safe only when this surface/kind maps back to one old workspace.
-            // Stale hook stores can otherwise reuse a surface id and make the fallback ambiguous.
+            // Panel-only restore is safe only when this surface/kind maps back to exactly one
+            // old workspace/session pair. Stale hook stores can otherwise reuse a surface id
+            // across old workspaces, or record multiple sessions for the same old workspace and
+            // surface after an agent restart. In either case, shouldReplaceHookEntry would pick
+            // one session by recency, so the panel-only fallback must stay ambiguous.
             let sameKindStablePanelCandidate = sameKindPanelCandidate ?? (
                 sameKindPanelIDCandidate?.isAmbiguous == false ? sameKindPanelIDCandidate?.entry : nil
             )
