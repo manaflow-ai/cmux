@@ -211,46 +211,6 @@ import Testing
 }
 
 @MainActor
-@Test func resyncTriggerWaitsForActualGateClearAndAttributesRecovery() async throws {
-    let router = LivenessHostRouter()
-    let box = TransportBox()
-    let clock = TestClock()
-    let analytics = RecordingFreezeAnalytics()
-    let diagnosticLog = DiagnosticLog(capacity: 64)
-    let store = try await makeConnectedFreezeDiagnosticsStore(
-        router: router,
-        box: box,
-        clock: clock,
-        analytics: analytics,
-        diagnosticLog: diagnosticLog
-    )
-
-    let surfaceID = "live-terminal"
-    let outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-    _ = outputIterator
-    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
-    #expect(!store.deliverTerminalBytes(Data("drop-1".utf8), surfaceID: surfaceID))
-    clock.advance(by: 6)
-    #expect(!store.deliverTerminalBytes(Data("drop-2".utf8), surfaceID: surfaceID))
-
-    store.resyncTerminalOutput(reason: "liveness", restartEventStream: false, surfaceIDs: [surfaceID])
-
-    #expect(analytics.events(named: "ios_terminal_resync").last?["trigger"] == .string("liveness"))
-    #expect(analytics.events(named: "ios_terminal_render_stall_recovered").isEmpty)
-
-    #expect(store.clearTerminalReplayBarrierIfCurrent(
-        surfaceID: surfaceID,
-        token: barrierToken,
-        reason: "empty"
-    ))
-
-    let recoveredEvents = analytics.events(named: "ios_terminal_render_stall_recovered")
-    #expect(recoveredEvents.count == 1)
-    #expect(recoveredEvents.first?["gate"] == .string("replay_barrier"))
-    #expect(recoveredEvents.first?["recovery"] == .string("resync"))
-}
-
-@MainActor
 @Test func appliedFrameDoesNotResolveStillArmedReplayBarrier() async throws {
     let clock = TestClock()
     let analytics = RecordingFreezeAnalytics()
@@ -424,7 +384,7 @@ private func waitForDiagnosticEvents(_ log: DiagnosticLog, atLeast count: Int) a
 }
 
 @MainActor
-private func makeConnectedFreezeDiagnosticsStore(
+func makeConnectedFreezeDiagnosticsStore(
     router: LivenessHostRouter,
     box: TransportBox,
     clock: TestClock,

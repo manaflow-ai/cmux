@@ -92,7 +92,16 @@ final class MobileTerminalSyncDiagnostics {
     }
 
     func replayRequested(surface: UInt32, trigger: ReplayTrigger) {
-        replayStartedAtBySurface[surface] = now()
+        let timestamp = now()
+        replayStartedAtBySurface[surface] = timestamp
+        // Resync attribution is marked here, at the point a replay request has
+        // passed every guard and is actually being sent, so a resync whose
+        // per-surface request was suppressed (viewport ack owns the barrier,
+        // replay already in flight, workspace missing) can never label a later
+        // unrelated recovery as resync.
+        if trigger == .resync {
+            stallMonitor.noteResyncTriggered(surface: surface, now: timestamp)
+        }
         diagnosticLog?.record(DiagnosticEvent(
             .replayRequested,
             surface: surface,
@@ -252,13 +261,6 @@ final class MobileTerminalSyncDiagnostics {
             "restarted_stream": .bool(restartedStream),
             "surface_count": .int(surfaceCount),
         ])
-    }
-
-    func resyncReplayRequested(surfaces: [UInt32]) {
-        let timestamp = now()
-        for surface in Set(surfaces) {
-            stallMonitor.noteResyncTriggered(surface: surface, now: timestamp)
-        }
     }
 
     func manualRecoverySnapshot(
