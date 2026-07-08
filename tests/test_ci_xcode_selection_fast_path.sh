@@ -107,6 +107,36 @@ if ! grep -Fq "required major is 26" <<< "$wrong_sdk_output"; then
   exit 1
 fi
 
+: > "$env_file"
+: > "$xcode_select_log"
+
+scan_output="$(
+  PATH="$bin_dir:/usr/bin:/bin" \
+    GITHUB_ENV="$env_file" \
+    CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
+    CMUX_XCODE_APPLICATIONS_DIR="$tmp_dir" \
+    CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 \
+    "$SCRIPT"
+)"
+
+if ! grep -Fq "Selected Xcode (DEVELOPER_DIR): $old_developer (macOS SDK 15.5)" <<< "$scan_output"; then
+  echo "FAIL: unpinned required-SDK scan did not select the matching SDK 15 Xcode"
+  printf '%s\n' "$scan_output" >&2
+  exit 1
+fi
+
+if ! grep -Fq "Skipping $pinned_app -> macOS SDK 26.2; required major is 15" <<< "$scan_output"; then
+  echo "FAIL: unpinned required-SDK scan did not report skipping the non-matching SDK 26 Xcode"
+  printf '%s\n' "$scan_output" >&2
+  exit 1
+fi
+
+if [[ "$(cat "$env_file")" != "DEVELOPER_DIR=$old_developer" ]]; then
+  echo "FAIL: unpinned required-SDK scan did not export the matching developer dir"
+  cat "$env_file" >&2
+  exit 1
+fi
+
 missing_output="$(
   PATH="$bin_dir:/usr/bin:/bin" \
     GITHUB_ENV="$env_file" \

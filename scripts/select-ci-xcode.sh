@@ -97,6 +97,14 @@ if [ -n "$PINNED_DEVELOPER_DIR" ]; then
   exit 0
 fi
 
+if [ -n "$REQUIRED_SDK_MAJOR" ]; then
+  case "$REQUIRED_SDK_MAJOR" in ''|*[!0-9]*)
+    echo "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR must be numeric, got: $REQUIRED_SDK_MAJOR" >&2
+    exit 1
+    ;;
+  esac
+fi
+
 # Rank by macOS SDK as maj*1000+min so 26.2 (26002) outranks 15.5 (15005).
 sdk_rank() {
   local v="$1" maj min
@@ -121,6 +129,16 @@ while IFS= read -r app; do
   [ -d "$dev" ] || continue
   sdk_ver="$(DEVELOPER_DIR="$dev" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   [ -n "$sdk_ver" ] || continue
+  if [ -n "$REQUIRED_SDK_MAJOR" ]; then
+    if ! actual_major="$(sdk_major "$sdk_ver")"; then
+      echo "Ignoring $app with unparsable macOS SDK version: $sdk_ver" >&2
+      continue
+    fi
+    if [ "$actual_major" != "$REQUIRED_SDK_MAJOR" ]; then
+      echo "Skipping $app -> macOS SDK $sdk_ver; required major is $REQUIRED_SDK_MAJOR"
+      continue
+    fi
+  fi
   if ! rank="$(sdk_rank "$sdk_ver")"; then
     echo "Ignoring $app with unparsable macOS SDK version: $sdk_ver" >&2
     continue
@@ -157,6 +175,10 @@ if [ -z "$BEST_DIR" ] && [ -n "$BETA_DIR" ]; then
 fi
 
 if [ -z "$BEST_DIR" ]; then
+  if [ -n "$REQUIRED_SDK_MAJOR" ]; then
+    echo "No Xcode.app found under $APPLICATIONS_DIR with macOS SDK major $REQUIRED_SDK_MAJOR" >&2
+    exit 1
+  fi
   echo "No Xcode.app found under $APPLICATIONS_DIR" >&2
   exit 1
 fi
