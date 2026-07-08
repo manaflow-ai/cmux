@@ -129,6 +129,19 @@ final class SystemAppearanceObserver {
     }
 }
 
+/// Launch-seam starter for the appearance observers armed in
+/// `applicationDidFinishLaunching`. `SystemAppearanceObserver` keeps app chrome
+/// following live OS appearance switches (Shortcuts/scheduled Auto) while in
+/// system mode; it must start here, past the App.init() effectiveAppearance
+/// crash window (#6385).
+@MainActor
+enum AppearanceObservers {
+    static func startAtLaunch() {
+        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
+        SystemAppearanceObserver.shared.startObserving()
+    }
+}
+
 enum GhosttyAppearanceSync {
     /// Resolves the terminal color-scheme preference for an appearance-sync pass.
     ///
@@ -144,7 +157,6 @@ enum GhosttyAppearanceSync {
     /// and a `nil` appearance (as passed by `AppearanceSettings.applyLiveMode`
     /// when steady-state in system mode) falls back to the existing
     /// defaults-based resolution unchanged.
-    @MainActor
     static func resolveColorSchemePreference(
         passedAppearance: NSAppearance?
     ) -> (preference: GhosttyConfig.ColorSchemePreference, usedPassedAppearance: Bool) {

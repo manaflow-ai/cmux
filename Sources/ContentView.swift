@@ -1939,7 +1939,7 @@ struct ContentView: View {
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
-        let snapshot = windowChrome.appearanceSnapshot(
+        return windowChrome.appearanceSnapshot(
             settings: WindowAppearanceUserSettingsSnapshot(
                 unifySurfaceBackdrops: sidebarMatchTerminalBackground,
                 colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme),
@@ -1957,7 +1957,6 @@ struct ContentView: View {
                 bgGlassTintOpacity: bgGlassTintOpacity
             )
         )
-        return snapshot
     }
 
     private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {
@@ -2645,11 +2644,7 @@ struct ContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
-            scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged")
-        })
+        }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs

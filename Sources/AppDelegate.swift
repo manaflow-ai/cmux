@@ -1279,11 +1279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
-        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
-        // Keep app chrome following live OS appearance switches (Shortcuts/scheduled
-        // Auto) while in system mode; safe here, past the App.init() effectiveAppearance
-        // crash window (#6385).
-        SystemAppearanceObserver.shared.startObserving()
+        AppearanceObservers.startAtLaunch()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
