@@ -1,6 +1,5 @@
 import XCTest
 import CmuxCore
-import CmuxWorkspaces
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
