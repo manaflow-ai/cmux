@@ -20,9 +20,9 @@ enum SessionPersistencePolicy {
     // minimum width. The titlebar title tracks the sidebar's actual width only
     // when it is wider than the minimum, so a default above the minimum would make
     // the folder/title shift when toggling the sidebar at the default width.
-    static let defaultSidebarWidth: Double = 216
-    static let defaultMinimumSidebarWidth: Double = 216
-    static let minimumSidebarWidth: Double = 216
+    static let defaultSidebarWidth: Double = 240
+    static let defaultMinimumSidebarWidth: Double = 240
+    static let minimumSidebarWidth: Double = 240
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
@@ -1645,11 +1645,11 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var type: PanelType
     var title: String?
     var customTitle: String?
-    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
-    /// persisted before provenance existed decode unchanged; restore treats
-    /// absent provenance as user-set (the conservative choice for auto-naming).
+    /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
+    var directoryIsTrustedRemoteReport: Bool? = nil
+    var directoryRequiresRemoteTrust: Bool? = nil
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
@@ -1696,6 +1696,7 @@ enum SessionSplitOrientation: String, Codable, Sendable {
 struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var panelIds: [UUID]
     var selectedPanelId: UUID?
+    var isFullWidthTabMode: Bool? = nil
 }
 
 struct SessionSplitLayoutSnapshot: Codable, Sendable {

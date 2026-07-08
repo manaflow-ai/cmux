@@ -568,57 +568,66 @@ class GhosttyApp {
                     target: target
                 )
 
-                TerminalImageTransferPlanner.execute(
+                let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
                     plan: plan,
                     operation: operation,
-                    uploadWorkspaceRemote: { fileURLs, operation, finish in
-                        guard let workspace = MainActor.assumeIsolated({
-                            callbackContext.terminalSurface?.owningWorkspace()
-                        }) else {
-                            finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
-                            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            return
-                        }
-                        workspace.uploadDroppedFilesForRemoteTerminal(
-                            fileURLs,
-                            operation: operation,
-                            completion: { result in
-                                finish(result)
-                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            }
-                        )
-                    },
-                    uploadDetectedSSH: { session, fileURLs, operation, finish in
-                        session.uploadDroppedFiles(
-                            fileURLs,
-                            operation: operation,
-                            completion: { result in
-                                finish(result)
-                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
-                            }
-                        )
-                    },
-                    insertText: { text in
-                        MainActor.assumeIsolated {
-                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                for: operation
-                            )
-                        }
-                        completeClipboardRequest(with: text)
-                    },
-                    onFailure: { _ in
-                        MainActor.assumeIsolated {
-                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                for: operation
-                            )
-                        }
-                        NSSound.beep()
-#if DEBUG
-                        cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
-#endif
-                        completeClipboardRequest(with: "")
-                    }
+                    callbackContext: callbackContext,
+                    completeClipboardRequest: completeClipboardRequest
                 )
+
+                if !handledByCustomUpload {
+                    TerminalImageTransferPlanner.execute(
+                        plan: plan,
+                        operation: operation,
+                        uploadWorkspaceRemote: { fileURLs, operation, finish in
+                            guard let workspace = MainActor.assumeIsolated({
+                                callbackContext.terminalSurface?.owningWorkspace()
+                            }) else {
+                                finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
+                                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                return
+                            }
+                            workspace.uploadDroppedFilesForRemoteTerminal(
+                                fileURLs,
+                                operation: operation,
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
+                            )
+                        },
+                        uploadDetectedSSH: { session, fileURLs, operation, finish in
+                            session.uploadDroppedFiles(
+                                fileURLs,
+                                operation: operation,
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
+                            )
+                        },
+                        insertText: { text in
+                            MainActor.assumeIsolated {
+                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                    for: operation
+                                )
+                            }
+                            completeClipboardRequest(with: text)
+                        },
+                        onFailure: { _ in
+                            MainActor.assumeIsolated {
+                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                    for: operation
+                                )
+                            }
+                            NSSound.beep()
+#if DEBUG
+                            cmuxDebugLog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
+#endif
+                            completeClipboardRequest(with: "")
+                        }
+                    )
+                }
             }
         }
 
@@ -2818,6 +2827,17 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RENDER:
             return false
+        case GHOSTTY_ACTION_MOUSE_SHAPE:
+            let shape = action.action.mouse_shape
+            DispatchQueue.main.async {
+                surfaceView.updateGhosttyMouseShape(shape)
+            }
+            return true
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            let url = GhosttySurfaceScrollView.linkHoverURL(from: action.action.mouse_over_link)
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }; terminalSurface?.hostedView.setLinkHoverURL(url) }
+            return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
@@ -2892,7 +2912,7 @@ class GhosttyApp {
                   let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
             DispatchQueue.main.async {
-                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateSurfaceDirectory(
+                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     directory: pwd
@@ -3024,13 +3044,8 @@ class GhosttyApp {
             cmuxDebugLog("link.openURL raw=\(urlString)")
             #endif
 
-            // Try file-path resolution before URL classification.
-            // Ghostty's link detection can match file paths that contain
-            // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
-            // Attempt to resolve the raw string as a local file first
-            // (with trailing-punctuation trimming via TerminalPathResolver's quicklook resolution).
-            // If the file exists and cmux can handle it, route through the
-            // file viewer instead of the browser.
+            // Try file-path resolution before URL classification. Ghostty's link detection can
+            // match path-like text as URLs; route existing local files through cmux first.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
             var normalizedOpenURLString = urlString
             if !trimmedUrlString.isEmpty {
@@ -3415,11 +3430,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
         return { retention.release() }
+    }
+
+    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+        switch shape {
+        case GHOSTTY_MOUSE_SHAPE_DEFAULT:
+            return .arrow
+        case GHOSTTY_MOUSE_SHAPE_TEXT:
+            return .iBeam
+        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
+            return .iBeamCursorForVerticalLayout
+        case GHOSTTY_MOUSE_SHAPE_POINTER:
+            return .pointingHand
+        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+             GHOSTTY_MOUSE_SHAPE_CELL:
+            return .crosshair
+        case GHOSTTY_MOUSE_SHAPE_GRAB:
+            return .openHand
+        case GHOSTTY_MOUSE_SHAPE_GRABBING,
+             GHOSTTY_MOUSE_SHAPE_MOVE:
+            return .closedHand
+        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED,
+             GHOSTTY_MOUSE_SHAPE_NO_DROP:
+            return .operationNotAllowed
+        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+            return .contextualMenu
+        case GHOSTTY_MOUSE_SHAPE_COPY:
+            return .dragCopy
+        case GHOSTTY_MOUSE_SHAPE_ALIAS:
+            return .dragLink
+        case GHOSTTY_MOUSE_SHAPE_W_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_E_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_EW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_COL_RESIZE:
+            return .resizeLeftRight
+        case GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_NS_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_ROW_RESIZE:
+            return .resizeUpDown
+        default:
+            return .arrow
+        }
+    }
+
+    fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
+        guard ghosttyMouseShape != shape else { return }
+        ghosttyMouseShape = shape
+        window?.invalidateCursorRects(for: self)
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -3794,6 +3858,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
             appliedColorScheme = nil
+            // Reset any OSC 22 mouse shape carried over from the previous surface.
+            updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -3918,6 +3984,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         super.viewDidEndLiveResize()
         updateSurfaceSize(bypassLiveResizeCoalescing: true)
         invalidateTextInputCoordinates()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: Self.ghosttyMouseCursor(for: ghosttyMouseShape))
     }
 
     override var isOpaque: Bool { false }
@@ -6396,9 +6467,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
-        // Split reparent/layout churn can suppress the later `becomeFirstResponder -> onFocus`
-        // callback. Treat pointer-down as explicit focus intent so clicking a ghost pane still
-        // repairs workspace/pane active state before key routing runs.
+        let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
+        // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         if let terminalSurface {
             if terminalSurface.focusPlacement == .rightSidebarDock {
                 AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
@@ -6419,6 +6489,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surfaceId: terminalSurface.id
             )
         }
+        guard shouldForwardTerminalActivation else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -7206,6 +7277,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
+        appendReconnectRemotePaneMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())
             let identifiersItem = menu.addItem(
@@ -7272,7 +7344,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @objc private func resetTerminal(_ sender: Any?) {
         _ = performBindingAction("reset")
     }
-
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
@@ -7355,6 +7426,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        // Forward right-button drags so mouse-reporting apps receive pointer
+        // motion while the right button is held. Without this, tmux's
+        // right-click context menu (press to open, drag to highlight, release
+        // to select) never sees the drag and cannot track hover state. Mirrors
+        // mouseDragged and matches upstream Ghostty, which funnels every drag
+        // variant to the same position-forwarding path.
+        mouseDragged(with: event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        // Only the middle button (buttonNumber 2) is forwarded to Ghostty, to
+        // stay consistent with otherMouseDown/otherMouseUp above.
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        mouseDragged(with: event)
     }
 
 #if DEBUG
@@ -7575,6 +7666,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
+        if let operation, handleCustomDropUploadIfMatched(plan: plan, operation: operation) {
+            return true
+        }
+
         TerminalImageTransferPlanner.execute(
             plan: plan,
             operation: operation,
@@ -7610,20 +7705,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let operation {
                         self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                     }
-                    guard let surface = self?.terminalSurface else { return }
-                    // Mirror panes need tmux paste-buffer so dropped image paths
-                    // arrive as a real bracketed paste in the remote pane.
-                    let handledByMirror = MainActor.assumeIsolated {
-                        AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
-                            surfaceId: surface.id,
-                            text: text
-                        ) ?? false
-                    }
-                    if handledByMirror { return }
-                    // Use the text/paste path (ghostty_surface_text) instead of the key event
-                    // path (ghostty_surface_key) so bracketed paste mode is triggered and the
-                    // insertion is instant, matching upstream Ghostty behaviour.
-                    surface.sendText(text)
+                    self?.deliverUploadResultText(text)
                 }
                 if Thread.isMainThread {
                     send()
@@ -7803,6 +7885,9 @@ extension Notification.Name {
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
     static let browserSearchFocus = Notification.Name("browserSearchFocus")
+    static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
+        "cmux.workspaceRemoteConnectionPresentationDidChange"
+    )
 }
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
@@ -7898,6 +7983,137 @@ private final class TerminalViewportBorderOverlayView: NSView {
     }
 }
 
+private final class CloudTerminalReconnectOverlayView: NSView {
+    var onReconnect: (() -> Void)?
+
+    private let cardView = NSVisualEffectView(frame: .zero)
+    private let iconView = NSImageView(frame: .zero)
+    private let spinner = NSProgressIndicator(frame: .zero)
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
+    private let reconnectButton = NSButton(frame: .zero)
+    private var currentPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.12).cgColor
+        autoresizingMask = [.width, .height]
+
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.material = .hudWindow
+        cardView.blendingMode = .withinWindow
+        cardView.state = .active
+        cardView.wantsLayer = true
+        cardView.layer?.cornerRadius = 12
+        cardView.layer?.masksToBounds = true
+        cardView.layer?.borderWidth = 1
+        cardView.layer?.borderColor = NSColor.white.withAlphaComponent(0.11).cgColor
+        addSubview(cardView)
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+        iconView.contentTintColor = NSColor.secondaryLabelColor
+
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.style = .spinning
+        spinner.controlSize = .regular
+        spinner.isDisplayedWhenStopped = false
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.alignment = .center
+        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.textColor = .labelColor
+
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+        detailLabel.alignment = .center
+        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.maximumNumberOfLines = 3
+
+        reconnectButton.translatesAutoresizingMaskIntoConstraints = false
+        reconnectButton.title = String(localized: "cloud.overlay.reconnect.button", defaultValue: "Reconnect")
+        reconnectButton.image = NSImage(
+            systemSymbolName: "arrow.clockwise",
+            accessibilityDescription: nil
+        )
+        reconnectButton.imagePosition = .imageLeading
+        reconnectButton.bezelStyle = .rounded
+        reconnectButton.controlSize = .regular
+        reconnectButton.target = self
+        reconnectButton.action = #selector(handleReconnect)
+
+        let stack = NSStackView(views: [iconView, spinner, titleLabel, detailLabel, reconnectButton])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 10
+        cardView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            cardView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            cardView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            cardView.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
+            stack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 22),
+            stack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -22),
+            stack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
+            iconView.widthAnchor.constraint(equalToConstant: 28),
+            iconView.heightAnchor.constraint(equalToConstant: 28),
+            spinner.widthAnchor.constraint(equalToConstant: 24),
+            spinner.heightAnchor.constraint(equalToConstant: 24),
+            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 300),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0 else { return nil }
+        if let buttonHit = reconnectButton.hitTest(convert(point, to: reconnectButton)) {
+            return buttonHit
+        }
+        if cardView.frame.contains(point) {
+            return self
+        }
+        return nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let pointInButton = reconnectButton.convert(event.locationInWindow, from: nil)
+        if reconnectButton.isHidden == false,
+           reconnectButton.bounds.contains(pointInButton) {
+            onReconnect?()
+        }
+    }
+
+    func apply(_ presentation: CloudTerminalReconnectOverlayPolicy.Presentation) {
+        guard currentPresentation != presentation else { return }
+        currentPresentation = presentation
+        titleLabel.stringValue = presentation.title
+        detailLabel.stringValue = presentation.detail
+        reconnectButton.isHidden = !presentation.showsReconnectButton
+        spinner.isHidden = !presentation.showsProgress
+        iconView.isHidden = presentation.showsProgress
+        if presentation.showsProgress {
+            spinner.startAnimation(nil)
+        } else {
+            spinner.stopAnimation(nil)
+        }
+        iconView.image = NSImage(
+            systemSymbolName: presentation.showsReconnectButton ? "wifi.exclamationmark" : "arrow.triangle.2.circlepath",
+            accessibilityDescription: nil
+        )
+    }
+
+    @objc private func handleReconnect() {
+        onReconnect?()
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -7941,6 +8157,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -7961,6 +8178,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
+    let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -8198,6 +8416,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
+        linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -8406,6 +8625,9 @@ final class GhosttySurfaceScrollView: NSView {
             ),
             imageTransferIndicatorContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
+        linkHoverIndicatorView.frame = bounds
+        linkHoverIndicatorView.autoresizingMask = [.width, .height]
+        addSubview(linkHoverIndicatorView)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -8466,6 +8688,14 @@ final class GhosttySurfaceScrollView: NSView {
                 return
             }
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .workspaceRemoteConnectionPresentationDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleWorkspaceRemoteConnectionPresentationDidChange(notification)
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -8552,6 +8782,15 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let overlay = cloudTerminalReconnectOverlayView,
+           overlay.superview === self,
+           let hit = overlay.hitTest(convert(point, to: overlay)) {
+            return hit
+        }
+        return super.hitTest(point)
+    }
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
     override var acceptsFirstResponder: Bool { false }
@@ -8682,6 +8921,11 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
+        _ = setFrameIfNeeded(linkHoverIndicatorView, to: bounds)
+        if let cloudTerminalReconnectOverlayView {
+            _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: bounds)
+        }
+        synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
@@ -8717,6 +8961,64 @@ final class GhosttySurfaceScrollView: NSView {
         return true
     }
 
+    private func handleWorkspaceRemoteConnectionPresentationDidChange(_ notification: Notification) {
+        guard let terminalSurface = surfaceView.terminalSurface else {
+            synchronizeCloudTerminalReconnectOverlay()
+            return
+        }
+        if let workspace = notification.object as? Workspace,
+           workspace.id != terminalSurface.tabId {
+            return
+        }
+        synchronizeCloudTerminalReconnectOverlay()
+    }
+
+    private func currentCloudTerminalReconnectPresentation() -> CloudTerminalReconnectOverlayPolicy.Presentation? {
+        guard let terminalSurface = surfaceView.terminalSurface,
+              let workspace = terminalSurface.owningWorkspace() else {
+            return nil
+        }
+        return workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: terminalSurface.id)
+    }
+
+    private func synchronizeCloudTerminalReconnectOverlay() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.synchronizeCloudTerminalReconnectOverlay()
+            }
+            return
+        }
+
+        guard let presentation = currentCloudTerminalReconnectPresentation() else {
+            cloudTerminalReconnectOverlayView?.removeFromSuperview()
+            cloudTerminalReconnectOverlayView = nil
+            return
+        }
+
+        let overlay: CloudTerminalReconnectOverlayView
+        if let existing = cloudTerminalReconnectOverlayView {
+            overlay = existing
+        } else {
+            overlay = CloudTerminalReconnectOverlayView(frame: bounds)
+            overlay.autoresizingMask = [.width, .height]
+            cloudTerminalReconnectOverlayView = overlay
+        }
+        overlay.apply(presentation)
+        overlay.onReconnect = { [weak self] in
+            guard let terminalSurface = self?.surfaceView.terminalSurface,
+                  let workspace = terminalSurface.owningWorkspace() else {
+                return
+            }
+            _ = workspace.reconnectCloudTerminalSurface(surfaceId: terminalSurface.id)
+        }
+        overlay.frame = bounds
+        if overlay.superview !== self {
+            addSubview(overlay, positioned: .above, relativeTo: nil)
+        }
+        updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
+        updateImageTransferIndicatorZOrder(relativeTo: overlay)
+    }
+
     private func sizeApproximatelyEqual(_ lhs: CGSize, _ rhs: CGSize, epsilon: CGFloat = 0.0001) -> Bool {
         abs(lhs.width - rhs.width) <= epsilon && abs(lhs.height - rhs.height) <= epsilon
     }
@@ -8736,8 +9038,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func attachDropZoneOverlayIfNeeded() {
-        // Keep the hover indicator outside the hosted terminal subtree so it stays purely additive
-        // and cannot invalidate the scroll/surface layout that Ghostty renders into.
+        // Keep the drop-zone overlay outside the hosted terminal subtree so it cannot perturb layout.
         let container = dropZoneOverlayContainerView()
         if dropZoneOverlayView.superview !== container {
             dropZoneOverlayView.removeFromSuperview()
@@ -8889,11 +9190,13 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
+        if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
         _ = synchronizeGeometryAndContent()
+        synchronizeCloudTerminalReconnectOverlay()
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -9586,12 +9889,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
-        // Record portal visibility for renderer reclamation. When becoming
-        // visible, re-realize the GPU renderer BEFORE marking the surface
-        // visible/occluded or kicking any draw, so we never draw into a swap
-        // chain that RendererRealizationController released while this surface was
-        // offscreen. realizeRenderer() is idempotent (no-op if there is no runtime
-        // surface or it is already realized).
+        // Re-realize before marking visible so we never draw into a released swap chain.
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if visible {
             surfaceView.terminalSurface?.realizeRenderer()
@@ -9623,6 +9921,7 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
         if !visible {
+            setLinkHoverURL(nil)
             // If we were focused, yield first responder.
             if let window = uiWindow, let fr = window.firstResponder as? NSView,
                fr === surfaceView || fr.isDescendant(of: surfaceView) {

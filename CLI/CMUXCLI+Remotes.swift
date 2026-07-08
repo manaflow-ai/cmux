@@ -6,6 +6,31 @@ import Foundation
 // The CLI is presentation only; each verb maps to one `remotes.*` socket method
 // handled by the app's `RemotesClient` (the single registry-mutation path).
 extension CMUXCLI {
+    static let aiAccountsUsage = """
+        Usage: cmux ai-accounts <list|upload|remove> [options]
+
+        Upload local AI credentials to your team's subrouter tenant and manage
+        the sanitized account records stored there.
+
+          cmux ai-accounts list [--team <id>] [--json]
+              List uploaded AI accounts for the selected or specified team.
+
+          cmux ai-accounts upload <claude|codex|anthropic-key|openai-key> [--label <s>] [--key <s>] [--team <id>] [--validate] [--json]
+              Upload credentials. Claude and Codex OAuth files are read by the
+              cmux app. API-key providers read ANTHROPIC_API_KEY / OPENAI_API_KEY
+              from your shell environment; --key overrides but exposes the
+              secret in shell history and process listings.
+
+          cmux ai-accounts remove <account-id> [--team <id>] [--json]
+              Delete an uploaded AI account.
+
+        Examples:
+          cmux ai-accounts list
+          cmux ai-accounts upload claude --label work
+          ANTHROPIC_API_KEY=... cmux ai-accounts upload anthropic-key
+          cmux ai-accounts remove acct_123
+        """
+
     static let remotesUsage = """
         Usage: cmux remotes <list|add|remove> [options]
 
@@ -119,6 +144,149 @@ extension CMUXCLI {
                 \(Self.remotesUsage)
                 """)
         }
+    }
+
+    func runAIAccountsCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let sub = commandArgs.first?.lowercased() ?? "list"
+        let rest = Array(commandArgs.dropFirst())
+
+        switch sub {
+        case "help", "--help", "-h":
+            print(Self.aiAccountsUsage)
+
+        case "list", "ls":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            try rejectUnexpectedAIAccountArguments(remaining, command: "ai-accounts list")
+            var params: [String: Any] = [:]
+            if let teamOpt, !teamOpt.isEmpty { params["teamId"] = teamOpt }
+            let response = try client.sendV2(method: "aiAccounts.list", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            let accounts = (response["accounts"] as? [[String: Any]]) ?? []
+            if accounts.isEmpty {
+                print("No AI accounts. Upload one: cmux ai-accounts upload <claude|codex|anthropic-key|openai-key>")
+                return
+            }
+            printAIAccountsTable(accounts)
+
+        case "upload":
+            let (labelOpt, rem0) = parseOption(rest, name: "--label")
+            let (keyOpt, rem1) = parseOption(rem0, name: "--key")
+            let (teamOpt, rem2) = parseOption(rem1, name: "--team")
+            let validate = rem2.contains("--validate")
+            let remaining = rem2.filter { $0 != "--validate" }
+            if let unknown = remaining.first(where: Self.isAIAccountsFlagToken) {
+                throw CLIError(message: "ai-accounts upload: unknown flag '\(unknown)'.\n\n\(Self.aiAccountsUsage)")
+            }
+            let positionals = remaining.filter { !Self.isAIAccountsFlagToken($0) }
+            guard let provider = positionals.first, !provider.isEmpty else {
+                throw CLIError(message: """
+                    ai-accounts upload requires a provider.
+
+                    \(Self.aiAccountsUsage)
+                    """)
+            }
+            if positionals.count > 1 {
+                throw CLIError(message: "ai-accounts upload: unexpected argument '\(positionals[1])'.")
+            }
+            let normalizedProvider = provider.lowercased()
+            guard ["claude", "codex", "anthropic-key", "openai-key"].contains(normalizedProvider) else {
+                throw CLIError(message: "ai-accounts upload: unsupported provider '\(provider)'. Use claude, codex, anthropic-key, or openai-key.")
+            }
+            if keyOpt != nil, normalizedProvider == "claude" || normalizedProvider == "codex" {
+                throw CLIError(message: "ai-accounts upload: --key is only valid for anthropic-key and openai-key.")
+            }
+            var params: [String: Any] = ["provider": normalizedProvider]
+            if let labelOpt, !labelOpt.isEmpty { params["label"] = labelOpt }
+            if let keyOpt, !keyOpt.isEmpty {
+                params["key"] = keyOpt
+            } else if normalizedProvider == "anthropic-key" || normalizedProvider == "openai-key" {
+                // Read the invoking shell's environment here in the CLI process.
+                // The app-side fallback reads the app's environment, which never
+                // carries the user's shell key; without this the docs' env-var
+                // path silently does nothing and pushes users to `--key` argv,
+                // which leaks secrets into shell history and process listings.
+                let envKeyName = normalizedProvider == "anthropic-key" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"
+                if let envKey = ProcessInfo.processInfo.environment[envKeyName]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !envKey.isEmpty {
+                    params["key"] = envKey
+                }
+            }
+            if let teamOpt, !teamOpt.isEmpty { params["teamId"] = teamOpt }
+            if validate { params["validate"] = true }
+            let response = try client.sendV2(method: "aiAccounts.upload", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            printAIAccountUploadResult(response, fallbackProvider: normalizedProvider)
+
+        case "remove", "rm", "delete":
+            let (teamOpt, remaining) = parseOption(rest, name: "--team")
+            try rejectUnexpectedAIAccountArguments(Array(remaining.dropFirst()), command: "ai-accounts remove")
+            guard let accountID = remaining.first, !accountID.isEmpty, !Self.isAIAccountsFlagToken(accountID) else {
+                throw CLIError(message: """
+                    ai-accounts remove requires an account id.
+
+                      cmux ai-accounts remove <account-id>
+
+                    List accounts: cmux ai-accounts list
+                    """)
+            }
+            var params: [String: Any] = ["id": accountID]
+            if let teamOpt, !teamOpt.isEmpty { params["teamId"] = teamOpt }
+            let response = try client.sendV2(method: "aiAccounts.remove", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+                return
+            }
+            print("OK removed \(Self.sanitizeForTerminal(accountID))")
+
+        default:
+            throw CLIError(message: """
+                Unknown ai-accounts subcommand: \(sub)
+
+                \(Self.aiAccountsUsage)
+                """)
+        }
+    }
+
+    private func rejectUnexpectedAIAccountArguments(_ args: [String], command: String) throws {
+        if let unknown = args.first(where: Self.isAIAccountsFlagToken) {
+            throw CLIError(message: "\(command): unknown flag '\(unknown)'.\n\n\(Self.aiAccountsUsage)")
+        }
+        if let extra = args.first {
+            throw CLIError(message: "\(command): unexpected argument '\(extra)'.")
+        }
+    }
+
+    private func printAIAccountsTable(_ accounts: [[String: Any]]) {
+        for account in accounts {
+            let id = Self.sanitizeForTerminal((account["id"] as? String) ?? "?")
+            let kind = Self.sanitizeForTerminal((account["kind"] as? String) ?? (account["provider"] as? String) ?? "?")
+            let label = (account["label"] as? String).map(Self.sanitizeForTerminal) ?? ""
+            let createdAt = (account["createdAt"] as? String).map(Self.sanitizeForTerminal) ?? ""
+            let labelText = label.isEmpty ? "" : "  \(label)"
+            let createdText = createdAt.isEmpty ? "" : "  createdAt=\(createdAt)"
+            print("\(id)  [\(kind)]\(labelText)\(createdText)")
+        }
+    }
+
+    private func printAIAccountUploadResult(_ response: [String: Any], fallbackProvider: String) {
+        let account = (response["account"] as? [String: Any]) ?? response
+        let id = (account["id"] as? String).map(Self.sanitizeForTerminal)
+        let kind = Self.sanitizeForTerminal((account["kind"] as? String) ?? (account["provider"] as? String) ?? fallbackProvider)
+        print("OK uploaded \(kind)")
+        if let id, !id.isEmpty { print("  id:    \(id)") }
+        if let label = (account["label"] as? String).map(Self.sanitizeForTerminal), !label.isEmpty {
+            print("  label: \(label)")
+        }
+    }
+
+    private static func isAIAccountsFlagToken(_ value: String) -> Bool {
+        value.hasPrefix("-") && value != "-"
     }
 
     /// Lightweight client-side host:port validation for `remotes add --route`.

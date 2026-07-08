@@ -1,14 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Freestyle } from "freestyle";
 import {
   cloudAgentToolPackageSpecs,
+  cloudImageRuntimeEnvironment,
   cloudImageSmokeTestCommands,
+  cloudShellPackageNames,
   cloudToolInstallCommands,
+  daytonaEntrypointCommands,
+  toDockerfileRunCommand,
+  daytonaSnapshotImage,
   findFreestyleSnapshotByName,
+  freestyleBaseDockerfileContent,
   freestyleRecoveryWindowStart,
   pinnedNpmPackageVersion,
   positiveIntFromEnv,
   semverFromEnv,
+  systemdEnvironmentLines,
   waitForFreestyleSnapshotByName,
   waitForRetryInterval,
 } from "../scripts/build-cloud-vm-images";
@@ -106,12 +116,179 @@ describe("Cloud VM image build helpers", () => {
     expect(bunInstall).toContain("sha256sum -c");
   });
 
+  test("base image installs native build and Python packaging apt tools", () => {
+    const packages = cloudShellPackageNames();
+
+    for (const packageName of [
+      "build-essential",
+      "pkg-config",
+      "python3-pip",
+      "python3-venv",
+      "golang-go",
+    ]) {
+      expect(packages.includes(packageName)).toBe(true);
+    }
+  });
+
+  test("GitHub CLI is installed from the official apt repository", () => {
+    const commands = cloudToolInstallCommands().join("\n");
+
+    expect(commands).toContain("https://cli.github.com/packages/githubcli-archive-keyring.gpg");
+    expect(commands).toContain("https://cli.github.com/packages stable main");
+    expect(commands).toContain("apt-get install -y --no-install-recommends gh nodejs");
+  });
+
+  test("mise installs Node LTS through system shims", () => {
+    const commands = cloudToolInstallCommands().join("\n");
+
+    expect(commands).toContain("MISE_INSTALL_PATH=/usr/local/bin/mise");
+    expect(commands).toContain("node = \"lts\"");
+    expect(commands).toContain("mise install --system node@lts");
+    expect(commands).toContain("MISE_DATA_DIR=/usr/local/share/mise mise reshim --force");
+    expect(cloudImageRuntimeEnvironment().PATH.split(":")).toContain("/usr/local/share/mise/shims");
+  });
+
+  test("rustup uses a minimal stable toolchain in the shared cargo path", () => {
+    const commands = cloudToolInstallCommands().join("\n");
+
+    expect(commands).toContain("https://sh.rustup.rs");
+    expect(commands).toContain("--profile minimal --default-toolchain stable --no-modify-path");
+    expect(commands).toContain("RUSTUP_HOME='/opt/rustup'");
+    expect(commands).toContain("CARGO_HOME='/opt/cargo'");
+    expect(cloudImageRuntimeEnvironment().PATH.split(":")).toContain("/opt/cargo/bin");
+    expect(cloudImageRuntimeEnvironment()).not.toHaveProperty("CARGO_HOME");
+  });
+
+  test("toolchain profile and environment are wired for non-login commands", () => {
+    const profileInstall = cloudToolInstallCommands().find((command) =>
+      command.includes("/etc/profile.d/cmux-toolchains.sh")
+    );
+
+    expect(profileInstall).toContain("/etc/environment");
+    expect(profileInstall).toContain("/usr/local/share/mise/shims:/opt/cargo/bin");
+    expect(cloudImageRuntimeEnvironment()).toMatchObject({
+      RUSTUP_HOME: "/opt/rustup",
+    });
+    expect(profileInstall).not.toContain("export CARGO_HOME=");
+  });
+
+  test("Freestyle systemd service inherits toolchain runtime environment", () => {
+    const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+    const systemdEnv = systemdEnvironmentLines(cloudImageRuntimeEnvironment());
+
+    for (const line of systemdEnv) {
+      expect(dockerfile).toContain(line);
+    }
+    expect(dockerfile).toContain("Environment=PATH=/usr/local/share/mise/shims:/opt/cargo/bin");
+    expect(dockerfile).toContain("Environment=RUSTUP_HOME=/opt/rustup");
+    expect(dockerfile).not.toContain("Environment=CARGO_HOME=");
+  });
+
   test("image smoke checks exercise the cmux browser entrypoint without a daemon", () => {
     const browserSmoke = cloudImageSmokeTestCommands().find((command) =>
       command.includes("cmux-browser-help.txt")
     );
     expect(browserSmoke).toContain("--socket /tmp/cmux-browser-smoke.sock browser");
     expect(browserSmoke).toContain("requires a subcommand");
+  });
+
+  test("image smoke checks include useful shell tools", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+    expect(smoke).toContain("gh --version");
+    expect(smoke).toContain("htop --version");
+    expect(smoke).toContain("btop --version");
+    expect(smoke).toContain("tmux -V");
+    expect(smoke).toContain("zsh --version");
+    expect(smoke).toContain("/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh");
+  });
+
+  test("image smoke checks require the VM-local cmux CLI on PATH", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+    expect(smoke).toContain("test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux");
+    expect(smoke).toContain("cmux --help");
+  });
+
+  test("Freestyle Dockerfile bakes signed-admin service from public key only", () => {
+    const previousPublic = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY;
+    const previousPrivate = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED;
+    try {
+      process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = "LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=";
+      process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = "private-seed-must-not-be-baked";
+      const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+      expect(dockerfile).toContain(
+        "CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=",
+      );
+      expect(dockerfile).toContain("multi-user.target.wants/cmuxd-ws.service");
+      expect(dockerfile).not.toContain("private-seed-must-not-be-baked");
+    } finally {
+      if (previousPublic === undefined) {
+        delete process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY;
+      } else {
+        process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = previousPublic;
+      }
+      if (previousPrivate === undefined) {
+        delete process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED;
+      } else {
+        process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = previousPrivate;
+      }
+    }
+  });
+
+  test("Daytona image bakes the entrypoint supervisor for cmuxd-remote on 7777", () => {
+    // Image.addLocalFile validates the context file at construction time.
+    const daemonPath = path.join(tmpdir(), `cmuxd-remote-test-${process.pid}`);
+    writeFileSync(daemonPath, "stub");
+    const dockerfile = daytonaSnapshotImage(daemonPath).dockerfile;
+    expect(dockerfile).toContain("FROM ubuntu:24.04");
+    expect(dockerfile).toContain("/usr/local/bin/cmuxd-remote");
+    expect(dockerfile).toContain('ENTRYPOINT ["/usr/local/bin/cmux-daytona-entrypoint"]');
+    // Every line must be a real Dockerfile instruction: multi-line shell (heredoc profile and
+    // entrypoint writers) has to be wrapped by toDockerfileRunCommand, or the Daytona builder
+    // fails with "unknown instruction" at snapshot-create time.
+    const instruction = /^(#|FROM|RUN|ENV|COPY|ADD|ENTRYPOINT|CMD|WORKDIR|USER|ARG|LABEL|EXPOSE|SHELL)\b/;
+    for (const line of dockerfile.split("\n")) {
+      if (line.trim() === "") continue;
+      expect(line).toMatch(instruction);
+    }
+    // Daytona attach is preview-URL WebSockets and even Daytona's own SSH gateway
+    // terminates in the runner daemon, so no sshd belongs in the image.
+    expect(dockerfile).not.toContain("openssh-server");
+    expect(dockerfile).not.toContain("sshd");
+  });
+
+  test("toDockerfileRunCommand wraps multi-line shell and round-trips it", () => {
+    expect(toDockerfileRunCommand("echo one-liner")).toBe("echo one-liner");
+    const multi = daytonaEntrypointCommands()[0]!;
+    const wrapped = toDockerfileRunCommand(multi);
+    expect(wrapped).not.toContain("\n");
+    const encoded = wrapped.match(/printf '%s' '([^']+)' \| base64 -d \| sh/)?.[1];
+    expect(encoded).toBeTruthy();
+    expect(Buffer.from(encoded!, "base64").toString("utf8")).toBe(multi);
+  });
+
+  test("Daytona entrypoint restarts the daemon and keeps lease dir private", () => {
+    const script = daytonaEntrypointCommands().join("\n");
+    expect(script).toContain("mkdir -p /tmp/cmux");
+    expect(script).toContain("chmod 700 /tmp/cmux");
+    expect(script).toContain("while true; do");
+    expect(script).toContain("chmod 0755 /usr/local/bin/cmux-daytona-entrypoint");
+  });
+
+  test("image smoke checks cover baked toolchain commands", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+
+    expect(smoke).toContain("gcc /tmp/cmux-build-smoke.c -o /tmp/cmux-build-smoke");
+    expect(smoke).toContain("g++ --version");
+    expect(smoke).toContain("make --version");
+    expect(smoke).toContain("pkg-config --version");
+    expect(smoke).toContain("python3 -m pip --version");
+    expect(smoke).toContain("python3 -m venv /tmp/cmux-venv-smoke");
+    expect(smoke).toContain("test \"$(command -v node)\" = \"/usr/local/share/mise/shims/node\"");
+    expect(smoke).toContain("mise which node");
+    expect(smoke).toContain("go version");
+    expect(smoke).toContain("gh --version");
+    expect(smoke).toContain("rustup show active-toolchain");
+    expect(smoke).toContain("grep -q '^stable'");
   });
 
   test("snapshot recovery window tolerates provider clock skew", () => {

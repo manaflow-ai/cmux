@@ -10,7 +10,8 @@ const HANDOFF_COOKIE = "cmux-native-auth-handoff";
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
-const getUser = mock(async () => null);
+let getUserResponses: unknown[] = [];
+const getUser = mock(async (): Promise<any> => getUserResponses.shift() ?? null);
 const signOut = mock((_options?: unknown) => Promise.resolve());
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
@@ -61,6 +62,8 @@ describe("after sign-in native handoff", () => {
     handoffCookie = undefined;
     rawRefreshCookie = "refresh-token";
     rawAccessCookie = "access-token";
+    getUserResponses = [];
+    getUser.mockClear();
     signOut.mockClear();
   });
 
@@ -148,6 +151,31 @@ describe("after sign-in native handoff", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  test("mints native handoff tokens for an existing anonymous purchaser session", async () => {
+    rawRefreshCookie = "";
+    rawAccessCookie = "";
+    const createSession = mock(async () => ({
+      getTokens: async () => ({
+        refreshToken: "anon-refresh",
+        accessToken: "anon-access",
+      }),
+    }));
+    getUserResponses = [null, { createSession }];
+    const nativeReturnTo = "cmux://auth-callback";
+
+    const response = await GET(signInRequest(nativeReturnTo, "unused"));
+
+    expect(getUser).toHaveBeenNthCalledWith(1, { or: "return-null" });
+    expect(getUser).toHaveBeenNthCalledWith(2, { or: "anonymous-if-exists[deprecated]" });
+    expect(createSession).toHaveBeenCalledWith({ expiresInMillis: 30 * 24 * 60 * 60 * 1000 });
+    expect(response.status).toBe(200);
+    const callbackURL = new URL(returnHref(await response.text()));
+    expect(callbackURL.searchParams.get("stack_refresh")).toBe("anon-refresh");
+    expect(callbackURL.searchParams.get("stack_access")).toBe(
+      JSON.stringify(["anon-refresh", "anon-access"]),
+    );
   });
 });
 

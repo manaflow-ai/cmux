@@ -14,6 +14,9 @@ import CmuxRemoteSession
 final class RemoteTmuxSessionMirror {
     let host: RemoteTmuxHost
     private(set) var sessionName: String
+    /// Discovery's stable tmux session id (`$N`), seeded at creation so id-based
+    /// de-dup works before the control stream reports `connection.sessionId`.
+    let seededSessionId: Int?
     let connection: RemoteTmuxControlConnection
 
     /// Updates the tracked session name after a `rename-session`.
@@ -44,6 +47,8 @@ final class RemoteTmuxSessionMirror {
 
     private weak var tabManager: TabManager?
     private weak var workspace: Workspace?
+    /// The workspace currently backing this mirror, if it has not been released.
+    var mirroredWorkspace: Workspace? { workspace }
     private let defaultPanelIds: [UUID]
     private var defaultClosed = false
     private var panelIdByWindow: [Int: UUID] = [:]
@@ -69,12 +74,14 @@ final class RemoteTmuxSessionMirror {
     init(
         host: RemoteTmuxHost,
         sessionName: String,
+        seededSessionId: Int? = nil,
         connection: RemoteTmuxControlConnection,
         tabManager: TabManager,
         workspace: Workspace
     ) {
         self.host = host
         self.sessionName = sessionName
+        self.seededSessionId = seededSessionId
         self.connection = connection
         self.tabManager = tabManager
         self.workspace = workspace
@@ -347,17 +354,6 @@ final class RemoteTmuxSessionMirror {
         }
     }
 
-    /// The tab title for a mirrored window: the tmux window name, or a localized
-    /// placeholder when tmux hasn't reported one. tmux window names are
-    /// content-derived (like every other cmux tab title) so the name itself is
-    /// not translated; only the empty-name placeholder is localized.
-    private static func tabTitle(for window: RemoteTmuxWindow) -> String {
-        let trimmed = window.name.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty
-            ? String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
-            : trimmed
-    }
-
     private func closeDefaultTabsIfNeeded() {
         guard !defaultClosed, !panelIdByWindow.isEmpty, let workspace else { return }
         for panelId in defaultPanelIds where workspace.panels[panelId] != nil {
@@ -382,7 +378,7 @@ final class RemoteTmuxSessionMirror {
            activePane(inWindow: windowId) != paneId {
             return
         }
-        _ = workspace.updatePanelDirectory(panelId: panelId, directory: trimmed)
+        _ = workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: trimmed)
     }
 
     /// Re-projects the newly-active pane's cached directory onto its multi-pane
@@ -393,7 +389,7 @@ final class RemoteTmuxSessionMirror {
               windowMirrorByWindowId[windowId] != nil,
               let panelId = panelIdByWindow[windowId],
               let path = cwdByPane[paneId] else { return }
-        _ = workspace.updatePanelDirectory(panelId: panelId, directory: path)
+        _ = workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: path)
     }
 
     /// The panel id of the tab that renders `paneId`: a single-pane window's

@@ -119,6 +119,8 @@ extension TerminalController {
 
     /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
     /// sidebar workspace (windows become tabs). Params: `host` (required).
+    /// Mirrors into the host's dedicated mirror window when one is bound
+    /// (#7363); otherwise into the key window's sidebar.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
@@ -183,7 +185,8 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.detach` — detach a control client (leaves the remote session alive).
+    /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;
+    /// leaves the remote session alive.
     nonisolated func v2RemoteTmuxDetach(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
