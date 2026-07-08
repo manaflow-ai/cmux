@@ -4,7 +4,12 @@ import CmuxFoundation
 import Foundation
 import os
 
-struct AgentChatThemePayload: Codable, Equatable {
+private nonisolated let agentChatThemeSyncLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AgentChatThemeSync"
+)
+
+nonisolated struct AgentChatThemePayload: Codable, Equatable {
     let background: String
     let foreground: String
     let palette: [String]
@@ -112,8 +117,9 @@ enum AgentChatThemeSync {
         agentChatThemeSyncState.withLock { state in
             state.debouncedTask?.cancel()
             state.debouncedTask = Task { @MainActor in
+                let clock = ContinuousClock()
                 do {
-                    try await Task.sleep(for: .milliseconds(300))
+                    try await clock.sleep(for: .milliseconds(300))
                 } catch {
                     return
                 }
@@ -170,10 +176,14 @@ enum AgentChatThemeSync {
             let (_, response) = try await URLSession.shared.data(for: request)
             if let httpResponse = response as? HTTPURLResponse,
                !(200..<300).contains(httpResponse.statusCode) {
-                NSLog("[AgentChat] theme sync failed status=%d url=%@", httpResponse.statusCode, url.absoluteString)
+                agentChatThemeSyncLogger.error(
+                    "theme sync failed status=\(httpResponse.statusCode, privacy: .public) url=\(url.absoluteString, privacy: .public)"
+                )
             }
         } catch {
-            NSLog("[AgentChat] failed to sync theme: %@", String(describing: error))
+            agentChatThemeSyncLogger.error(
+                "failed to sync theme: \(String(describing: error), privacy: .public)"
+            )
         }
     }
 }

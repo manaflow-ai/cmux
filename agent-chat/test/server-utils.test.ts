@@ -101,6 +101,10 @@ assert(themeMsg.kind === "theme" && themeMsg.vars["--accent"] === "#0000ff", "th
 const { sources: _sources, ...postTheme } = fakeTheme;
 const cmuxTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux" });
 assert(cmuxTheme.source === "cmux" && cmuxTheme.palette.length === 16, "valid cmux theme POST payload should normalize");
+// background-opacity = 0 is legal ghostty config; Swift encoders may omit nil optionals entirely.
+const { selectionBackground: _sb, cursorColor: _cc, fontFamily: _ff, fontSize: _fs, ...sparseTheme } = postTheme;
+const sparse = validateCmuxThemePayload({ ...sparseTheme, source: "cmux", opacity: 0 });
+assert(sparse.opacity === 0 && sparse.fontFamily === null && sparse.selectionBackground === null, "omitted nullable keys default to null and opacity 0 validates");
 assert(themeOverrideStateForTest("cmux", cmuxTheme).hasOverride, "cmux theme push should become the authoritative override");
 const ghosttyWins = themeOverrideStateForTest("ghostty", { ...fakeTheme, background: "#010203", source: "show-config:test" });
 assert(!ghosttyWins.hasOverride && ghosttyWins.current.background === "#010203", "later ghostty refresh should supersede a stale cmux override");
