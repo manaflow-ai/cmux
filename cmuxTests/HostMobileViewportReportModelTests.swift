@@ -44,7 +44,7 @@ struct HostMobileViewportReportModelTests {
 
     private func makeModel(
         limiter: RecordingLimiter,
-        now: @escaping @MainActor () -> Date
+        now: @escaping @MainActor @Sendable () -> Date
     ) -> HostMobileViewportReportModel {
         HostMobileViewportReportModel(limiter: limiter, clock: ContinuousClock(), now: now)
     }

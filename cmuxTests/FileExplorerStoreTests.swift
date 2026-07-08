@@ -157,7 +157,7 @@ struct FileExplorerStoreTests {
                 group.cancelAll()
             }
         } catch {
-            await MainActor.run {
+            _ = await MainActor.run {
                 Issue.record("Timed out waiting for: \(description)")
             }
             throw error

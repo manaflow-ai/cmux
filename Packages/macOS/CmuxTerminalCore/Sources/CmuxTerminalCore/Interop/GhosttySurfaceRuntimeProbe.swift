@@ -1,5 +1,5 @@
-public import CoreText
-public import Darwin
+import CoreText
+import Darwin
 public import GhosttyKit
 
 /// Pure read-only probes over a runtime `ghostty_surface_t` and its context.

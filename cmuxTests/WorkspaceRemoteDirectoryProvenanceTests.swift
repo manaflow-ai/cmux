@@ -388,7 +388,7 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
 
         #expect(workspace.terminalPanel(for: localPanel.id)?.requestedWorkingDirectory == nil)
         #expect(workspace.allowsLocalDirectoryFallback(panelId: localPanel.id))
-        #expect(manager.gitProbeDirectory(for: workspace, panelId: localPanel.id) == nil)
+        #expect(manager.gitProbeDirectory(workspaceId: workspace.id, panelId: localPanel.id) == nil)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [localPanel.id]) == [])
     }
 

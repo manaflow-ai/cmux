@@ -3,6 +3,8 @@ import Bonsplit
 import Combine
 import Foundation
 import CmuxRemoteWorkspace
+import enum CmuxWorkspaces.SessionSidebarSelection
+import struct CmuxWorkspaces.SessionSidebarSnapshot
 import Testing
 
 #if canImport(cmux_DEV)

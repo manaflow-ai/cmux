@@ -108,7 +108,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let commandR = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
         KeyboardShortcutSettings.clearShortcut(for: .renameTab)
 
-        KeyboardShortcutSettings.swapShortcutConflict(
+        _ = KeyboardShortcutSettings.swapShortcutConflict(
             proposedShortcut: commandR,
             currentAction: .renameTab,
             conflictingAction: .browserReload,

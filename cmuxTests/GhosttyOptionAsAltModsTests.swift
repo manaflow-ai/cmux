@@ -95,7 +95,7 @@ import Testing
     }
 
     @Test func mouseOverLinkActionDecodesURLAndClearsEmptyHover() {
-        var bytes = Array("https://example.com/path?q=cmux".utf8CString)
+        let bytes = Array("https://example.com/path?q=cmux".utf8CString)
         let decoded = bytes.withUnsafeBufferPointer { buffer in
             GhosttySurfaceScrollView.linkHoverURL(from: ghostty_action_mouse_over_link_s(
                 url: buffer.baseAddress,

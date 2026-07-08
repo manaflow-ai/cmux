@@ -2262,7 +2262,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let openedFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
         let viewerFileURL = try resolvedDiffViewerHTMLFileURL(openedFileURL, from: params)
         if openedFileURL != viewerFileURL {
-            defer { try? FileManager.default.removeItem(at: openedFileURL) }
+            try? FileManager.default.removeItem(at: openedFileURL)
         }
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
         let html = try String(contentsOf: viewerFileURL, encoding: .utf8)

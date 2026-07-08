@@ -72,12 +72,11 @@ final class GhosttyConfigTests: XCTestCase {
     private func resolvedGhosttyResourcesDirectory(
         currentValue: String?,
         bundleResourceURL: URL?,
-        ghosttyAppResources: String,
-        fileManager: FileManager
+        ghosttyAppResources: String
     ) -> String? {
         GhosttyResourcesDirectoryResolver(
             ghosttyAppResources: ghosttyAppResources,
-            fileExists: { fileManager.fileExists(atPath: $0) }
+            fileExists: { FileManager.default.fileExists(atPath: $0) }
         ).resolve(currentValue: currentValue, bundleResourceURL: bundleResourceURL)
     }
 
@@ -103,8 +102,7 @@ final class GhosttyConfigTests: XCTestCase {
         let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: bundleResources,
-            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
-            fileManager: fileManager
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path
         )
 
         XCTAssertEqual(resolved, bundledGhostty.path)
@@ -125,8 +123,7 @@ final class GhosttyConfigTests: XCTestCase {
         let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: emptyBundleResources,
-            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
-            fileManager: fileManager
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path
         )
 
         XCTAssertEqual(resolved, inheritedResources.path)
@@ -151,8 +148,7 @@ final class GhosttyConfigTests: XCTestCase {
         let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: bundleResources,
-            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
-            fileManager: fileManager
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path
         )
 
         XCTAssertEqual(resolved, inheritedResources.path)
@@ -172,8 +168,7 @@ final class GhosttyConfigTests: XCTestCase {
         let resolved = resolvedGhosttyResourcesDirectory(
             currentValue: root.appendingPathComponent("missing-inherited", isDirectory: true).path,
             bundleResourceURL: bundleResources,
-            ghosttyAppResources: root.appendingPathComponent("missing-app", isDirectory: true).path,
-            fileManager: fileManager
+            ghosttyAppResources: root.appendingPathComponent("missing-app", isDirectory: true).path
         )
 
         XCTAssertEqual(resolved, bundledGhostty.path)
@@ -679,7 +674,7 @@ final class GhosttyConfigTests: XCTestCase {
             encoding: .utf8
         )
 
-        var config = GhosttyConfig()
+        let config = GhosttyConfig()
         config.loadTheme(
             themeFile.path,
             environment: [:],
