@@ -75,9 +75,10 @@ struct CmuxTaskManagerView: View {
                 value: CmuxTaskManagerFormat.cpu(model.snapshot.total.cpuPercent)
             )
             metric(
-                title: String(localized: "taskManager.summary.memory", defaultValue: "Memory"),
+                title: String(localized: "taskManager.summary.summedFootprint", defaultValue: "Summed Footprint"),
                 value: CmuxTaskManagerFormat.bytes(model.snapshot.total.memoryBytes)
             )
+            .help(String(localized: "taskManager.summary.summedFootprint.help", defaultValue: "Sum of each process's physical footprint. Shared memory (frameworks, dyld cache, IOSurfaces) is counted once per process, so this overstates real usage."))
             if let memoryDiagnostic = model.snapshot.memoryDiagnostic {
                 metric(
                     title: String(localized: "taskManager.summary.appFootprint", defaultValue: "App Footprint"),

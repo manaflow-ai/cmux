@@ -156,13 +156,16 @@ nonisolated extension CmuxTopProcessSnapshot {
         attributionByPID: [Int: CmuxTopProcessAttribution]
     ) -> [[String: Any]] {
         var groups: [String: MemoryDiagnosticGroupAccumulator] = [:]
+        let agentDefinitions = codingAgentDefinitionsByPID(for: pids)
         for pid in pids.sorted() {
             guard let process = processesByPID[pid] else { continue }
-            let name = process.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayName = name.isEmpty ? "pid-\(pid)" : name
-            let key = displayName.lowercased()
+            let displayName = agentDefinitions[pid]?.displayName
+                ?? cmuxTopCanonicalProcessName(name: process.name, path: process.path)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            let groupName = displayName.isEmpty ? "pid-\(pid)" : displayName
+            let key = groupName
             if groups[key] == nil {
-                groups[key] = MemoryDiagnosticGroupAccumulator(id: key, name: displayName)
+                groups[key] = MemoryDiagnosticGroupAccumulator(id: key, name: groupName)
             }
             groups[key]?.append(
                 process: process,

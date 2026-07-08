@@ -16144,7 +16144,7 @@ struct CMUXCLI {
 
             Output:
               CPU comes from macOS process accounting and can exceed 100% across cores.
-              Memory is summed from macOS physical footprint across the unique process IDs attributed to each tree node.
+              Memory is a summed physical footprint; shared pages can be counted once per attributed process.
               Browser webviews are attributed through their WebKit content process PID.
               TSV columns are: cpu_percent, memory_bytes, process_count, kind, ref, parent_ref, title.
 
