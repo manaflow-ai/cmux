@@ -38,8 +38,8 @@ export async function verifyStackSessionUser(
     if (payload.is_anonymous === true) return null;
     if (typeof payload.exp !== "number" || payload.exp <= Date.now() / 1000) return null;
 
-    const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
-    const publishableClientKey = process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
+    const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
+    const publishableClientKey = process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
     if (!projectId || !publishableClientKey) return null;
 
     const response = await verifyFetch(STACK_USER_API_URL, {
