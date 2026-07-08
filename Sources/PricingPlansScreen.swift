@@ -94,9 +94,8 @@ enum ProUpgradePresenter {
         NSWorkspace.shared.open(url)
     }
 
-    /// Opens the in-app "Welcome to cmux Pro" checklist as a chromeless web
-    /// page in the same dedicated workspace surface used for pricing, so the
-    /// post-purchase checklist matches how upgrade/pricing already appears.
+    /// Opens the in-app "Welcome to cmux Pro" checklist as a chromeless web page in the
+    /// same dedicated workspace surface used for pricing, matching upgrade/pricing.
     @MainActor
     static func presentProWelcomeWeb() {
         let url = decoratedAppWebURL(AuthEnvironment.appProWelcomeURL)
@@ -106,10 +105,7 @@ enum ProUpgradePresenter {
         }
         let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
         if AppDelegate.shared?.performProUpgradeWorkspaceAction(
-            title: title,
-            url: url,
-            debugSource: "proWelcomeChecklist"
-        ) != nil {
+            title: title, url: url, debugSource: "proWelcomeChecklist") != nil {
             return
         }
         presentBrowserSplit(url: url, transparentBackground: true)
@@ -129,9 +125,7 @@ enum ProUpgradePresenter {
         queryItems.removeAll { $0.name == "cmux_app" }
         queryItems.removeAll { $0.name == "cmux_scheme" }
         let backgroundColor = GhosttyBackgroundTheme.currentColor()
-        let appearance = cmuxReadableColorScheme(for: backgroundColor) == .dark
-            ? "dark"
-            : "light"
+        let appearance = cmuxReadableColorScheme(for: backgroundColor) == .dark ? "dark" : "light"
         queryItems.append(URLQueryItem(name: "appearance", value: appearance))
         queryItems.append(URLQueryItem(name: "background", value: backgroundColor.hexString()))
         queryItems.append(URLQueryItem(name: "cmux_app", value: "1"))
@@ -264,12 +258,10 @@ private final class NativePricingPlanStore: ObservableObject {
     }
 
     static func refreshForProWelcomeChecklist() async {
-        // Skip the authenticated /api/billing/plan fetch entirely when the
-        // checklist cannot be shown anyway (already seen, or the Pro upgrade
-        // UI flag is off) so Release sign-ins don't pay an extra GET.
+        // Skip the authenticated /api/billing/plan fetch when the checklist can't be shown
+        // anyway (already seen, or Pro upgrade UI flag off) so Release sign-ins skip the GET.
         guard ProWelcomeChecklistPresenter.canPresentAutomatically(
-            flagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled
-        ) else { return }
+            flagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled) else { return }
         let loadedState = await loadPlanState()
         presentWelcomeChecklistIfPro(loadedState)
     }
