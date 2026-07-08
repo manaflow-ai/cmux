@@ -114,6 +114,26 @@ const commandCatalog = new Map<string, {
   refreshing?: Promise<{ trigger: CommandTrigger; commands: CommandEntry[] }[]>;
 }>();
 const fileCatalog = new Map<string, { files: string[]; fetchedAt: number; refreshing?: Promise<string[]> }>();
+
+// The cwd-keyed catalogs grow one entry per directory ever chatted in; in the
+// long-lived launchd sidecar that is unbounded. Evict the stalest settled
+// entries beyond a small cap (in-flight refreshes are skipped).
+const MAX_CWD_CATALOG_ENTRIES = 64;
+function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Promise<unknown> }>) {
+  while (map.size > MAX_CWD_CATALOG_ENTRIES) {
+    let oldestKey: string | null = null;
+    let oldestAt = Infinity;
+    for (const [key, entry] of map) {
+      if (entry.refreshing) continue;
+      if (entry.fetchedAt < oldestAt) {
+        oldestAt = entry.fetchedAt;
+        oldestKey = key;
+      }
+    }
+    if (oldestKey === null) return;
+    map.delete(oldestKey);
+  }
+}
 const keyConfig = await readKeyConfig();
 
 function sessionSummary(s: Session) {
@@ -365,6 +385,7 @@ async function cachedCommands(provider: string, cwd: string): Promise<{ trigger:
   const refreshing = Promise.resolve(adapter.listCommands?.(cwd) ?? [])
     .then((groups) => {
       commandCatalog.set(key, { groups, fetchedAt: Date.now() });
+      pruneCwdCatalog(commandCatalog);
       return groups;
     })
     .catch((err) => {
@@ -400,6 +421,7 @@ async function cachedFiles(cwd: string): Promise<string[]> {
       const refreshing = loadFiles(key)
         .then((files) => {
           fileCatalog.set(key, { files, fetchedAt: Date.now() });
+          pruneCwdCatalog(fileCatalog);
           return files;
         })
         .catch((err) => {
@@ -412,6 +434,7 @@ async function cachedFiles(cwd: string): Promise<string[]> {
   }
   const refreshing = loadFiles(key).then((files) => {
     fileCatalog.set(key, { files, fetchedAt: Date.now() });
+    pruneCwdCatalog(fileCatalog);
     return files;
   });
   fileCatalog.set(key, { files: [], fetchedAt: 0, refreshing });

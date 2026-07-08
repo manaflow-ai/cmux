@@ -1044,7 +1044,7 @@ function useCommandMenu(
   }, [ctx, ref, setText, text]);
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open) return false;
-    const action = menuActionForKey(e.nativeEvent);
+    const action = menuActionForKey(e.nativeEvent, ctrlJ);
     if (action === "menu-next") {
       e.preventDefault();
       e.stopPropagation();
@@ -1071,7 +1071,7 @@ function useCommandMenu(
       return true;
     }
     return false;
-  }, [close, insert, items, open, selected]);
+  }, [close, ctrlJ, insert, items, open, selected]);
   const menu = open ? (
     <div className="command-menu" data-agent-popup="true">
       <CmdkMenu
@@ -1152,7 +1152,7 @@ function useKeymap({
 }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const menuAction = menuActionForKey(e);
+      const menuAction = menuActionForKey(e, ctrlJ);
       if (popupOpen && menuAction) return;
       const action = actionForKey(e);
       if (!action) return;
