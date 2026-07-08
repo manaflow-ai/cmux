@@ -836,7 +836,7 @@
       "managingTitle": "管理分组",
       "managingIntro": "分组创建后，可以通过其标题的右键菜单以及标题上的 + 按钮来管理分组并向其中添加工作区。这两者都不会创建新分组。",
       "headerMenuTitle": "通过分组标题栏右键菜单",
-      "headerMenuDesc": "右键单击现有分组标题，可使用 Rename Group…、Pin Group / Unpin Group、Edit Group Config…（会打开 ~/.config/cmux/cmux.json）、Open Workspace Groups Docs、Ungroup (Keep Workspaces) 以及 Delete Group (Close Workspaces)。Delete 是破坏性操作，会提示确认；取消分组会保留工作区，仅移除容器。",
+      "headerMenuDesc": "右键单击现有分组标题，可使用 Rename Group…、Pin Group / Unpin Group、Edit Group Config…（会打开 ~/.config/cmux/cmux.json）、Open Workspace Groups Docs、Delete Group 以及 Delete Group and Close Workspaces…。Delete Group 会保留工作区，仅移除容器；Delete Group and Close Workspaces 是破坏性操作，会提示确认。",
       "plusButtonTitle": "通过分组标题栏上的 + 按钮",
       "plusButtonDesc": "将鼠标悬停在分组标题上即可显示末尾的 + 按钮。单击它可在分组中以锚点工作目录创建一个新工作区。右键单击它可使用 New Workspace in Group、Edit Group Config… 以及 Open Workspace Groups Docs。",
       "plusButtonNote": "当活动工作区是某个分组的锚点或成员时，按 {shortcut} 同样会在该分组内创建新工作区。默认放置方式为 After current（在当前之后）：从普通分组成员触发时，新工作区会紧接在活动成员之后；从锚点或标题栏触发时，则会落在分组的顶部。",

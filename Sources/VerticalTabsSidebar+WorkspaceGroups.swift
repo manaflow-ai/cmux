@@ -170,10 +170,10 @@ extension VerticalTabsSidebar {
                     notificationStore.markUnread(forTabId: id)
                 }
             },
-            onUngroup: { [weak tabManager, groupId = group.id] in
+            onDeleteGroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
-            onDelete: { [weak tabManager, groupId = group.id] in
+            onDeleteGroupAndCloseWorkspaces: { [weak tabManager, groupId = group.id] in
                 guard let tabManager,
                       let confirmation = tabManager.workspaceGrouping.deletionConfirmation(groupId: groupId) else { return }
                 guard confirmDeleteWorkspaceGroup(
