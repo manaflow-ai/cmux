@@ -1,14 +1,20 @@
 import AppKit
 import CmuxSettings
+import os
+
+private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmux", category: "browser")
 
 /// Opens `url` in the user's preferred external browser, as configured by
 /// `browser.preferredExternalBrowser` in `~/.config/cmux/cmux.json`.
 ///
 /// When the setting is empty (the default), behaviour is identical to calling
-/// `NSWorkspace.shared.open(url)` directly.  When set, cmux attempts to
-/// resolve the value as either a bundle ID or an application display name and
-/// opens the URL in that application, without touching the system default
-/// browser setting.
+/// `NSWorkspace.shared.open(url)` directly. When set, cmux resolves the value
+/// as a bundle ID or application display name and opens the URL in that app,
+/// without touching the macOS system default browser.
+///
+/// Uses `NSWorkspace.open(_:configuration:)` — the fire-and-forget overload —
+/// to avoid blocking the calling thread. This is safe to call from the main
+/// thread and from WKNavigationDelegate callbacks.
 @discardableResult
 func cmuxOpenURLExternally(_ url: URL) -> Bool {
     let preferred = CmuxSettingsCatalog.shared.browser.preferredExternalBrowser.value
@@ -18,45 +24,39 @@ func cmuxOpenURLExternally(_ url: URL) -> Bool {
         return NSWorkspace.shared.open(url)
     }
 
-    // 1. Try bundle ID (e.g. "com.microsoft.edgemac")
-    if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: preferred) {
+    if let appURL = resolvePreferredBrowserURL(preferred) {
         let cfg = NSWorkspace.OpenConfiguration()
         cfg.activates = true
-        var opened = false
-        let sem = DispatchSemaphore(value: 0)
-        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: cfg) { _, _ in
-            opened = true
-            sem.signal()
-        }
-        sem.wait()
-        return opened
+        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: cfg, completionHandler: nil)
+        return true
     }
 
-    // 2. Match by display name against all installed apps the workspace knows about.
-    //    Check running apps first (fast path), then fall back to a Spotlight lookup.
+    logger.warning("cmuxOpenURLExternally: could not resolve preferred browser; falling back to system default")
+    return NSWorkspace.shared.open(url)
+}
+
+/// Resolves a display name or bundle ID to an application file URL.
+///
+/// Lookup order:
+/// 1. Bundle ID exact match via `NSWorkspace.urlForApplication(withBundleIdentifier:)`
+/// 2. Running application by `localizedName` (fast path when the browser is already open)
+/// 3. `/Applications/<name>.app` and `~/Applications/<name>.app` by display name
+private func resolvePreferredBrowserURL(_ preferred: String) -> URL? {
+    // 1. Bundle ID (e.g. "com.microsoft.edgemac")
+    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: preferred) {
+        return url
+    }
+
+    // 2. Running app by localised name
     let lowerPreferred = preferred.lowercased()
-
-    let runningMatch = NSWorkspace.shared.runningApplications.first {
+    if let match = NSWorkspace.shared.runningApplications.first(where: {
         ($0.localizedName ?? "").lowercased() == lowerPreferred
-    }
-    if let bundleID = runningMatch?.bundleIdentifier,
-       let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-        let cfg = NSWorkspace.OpenConfiguration()
-        cfg.activates = true
-        var opened = false
-        let sem = DispatchSemaphore(value: 0)
-        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: cfg) { _, _ in
-            opened = true
-            sem.signal()
-        }
-        sem.wait()
-        return opened
+    }), let bundleID = match.bundleIdentifier,
+       let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+        return url
     }
 
-    // 3. Ask NSWorkspace to find an app by display name via file URL heuristic.
-    //    NSWorkspace.urlForApplication(toOpen:) matches by UTI, not name, so we
-    //    use LSCopyApplicationURLsForBundleIdentifier-style lookup via the app
-    //    directories instead.
+    // 3. Display name in standard app directories
     let appDirs = [
         URL(fileURLWithPath: "/Applications"),
         URL(fileURLWithPath: "\(NSHomeDirectory())/Applications"),
@@ -64,20 +64,9 @@ func cmuxOpenURLExternally(_ url: URL) -> Bool {
     for dir in appDirs {
         let candidate = dir.appendingPathComponent("\(preferred).app")
         if FileManager.default.fileExists(atPath: candidate.path) {
-            let cfg = NSWorkspace.OpenConfiguration()
-            cfg.activates = true
-            var opened = false
-            let sem = DispatchSemaphore(value: 0)
-            NSWorkspace.shared.open([url], withApplicationAt: candidate, configuration: cfg) { _, _ in
-                opened = true
-                sem.signal()
-            }
-            sem.wait()
-            return opened
+            return candidate
         }
     }
 
-    // 4. System default browser fallback — preferred app was not found.
-    NSLog("cmuxOpenURLExternally: could not resolve preferred browser \"%@\"; falling back to system default", preferred)
-    return NSWorkspace.shared.open(url)
+    return nil
 }
