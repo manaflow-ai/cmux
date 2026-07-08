@@ -2727,9 +2727,32 @@
     "title": "cmux Pro is active",
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
     "emailLabel": "Purchase email",
+    "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",
     "manageBilling": "Manage billing",
-    "manageSignInMethods": "Manage sign-in methods"
+    "manageSignInMethods": "Manage sign-in methods",
+    "features": {
+      "cloudAgents": {
+        "title": "Cloud agents on Cloud VMs",
+        "body": "Run agents in isolated remote sandboxes.",
+        "action": "Open cmux"
+      },
+      "modelGateway": {
+        "title": "Model gateway",
+        "body": "Route across providers with usage and cost analytics, plus 20 compute-hours a month.",
+        "action": "Open model gateway"
+      },
+      "aiAccounts": {
+        "title": "Connect your AI accounts",
+        "body": "Add provider accounts so cmux can route work through them.",
+        "action": "Connect providers"
+      },
+      "iosApp": {
+        "title": "cmux iOS app",
+        "body": "Use cmux on your phone.",
+        "action": "Join the iOS beta"
+      }
+    }
   },
   "landing": {
     "bestTerminal": {
