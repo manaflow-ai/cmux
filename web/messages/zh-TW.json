@@ -3490,190 +3490,103 @@
     "done": "完成"
   },
   "privacyPolicyPage": {
-    "metaTitle": "Privacy Policy | cmux",
-    "metaDescription": "Privacy policy for cmux",
-    "title": "Privacy Policy",
-    "lastUpdated": "Last updated: July 8, 2026",
+    "metaTitle": "隱私權政策 | cmux",
+    "metaDescription": "cmux 的隱私權政策",
+    "title": "隱私權政策",
+    "lastUpdated": "最後更新：2026年7月8日",
     "blocks": [
       {
         "type": "p",
-        "text": "Manaflow (the \"Company\") is committed to maintaining robust privacy protections for its users. This Privacy Policy is designed to help you understand how we collect, use and safeguard the information you provide to us."
+        "text": "Manaflow（「本公司」）致力於維護使用者的隱私保護。本政策說明我們會收集哪些資訊、如何使用資訊，以及如何保護你提供給我們的資訊。"
       },
       {
         "type": "p",
-        "text": "For purposes of this policy, \"Site\" refers to the Company's website at <site>cmux.com</site>. \"Application\" refers to the cmux applications for macOS and iOS. \"Service\" refers to the Site and Application collectively. The terms \"we,\" \"us,\" and \"our\" refer to the Company. \"You\" refers to you, as a user of our Service."
+        "text": "在本政策中，「網站」指本公司位於 <site>cmux.com</site> 的網站。「應用程式」指 macOS 與 iOS 版 cmux 應用程式。「服務」統稱網站與應用程式。"
       },
       {
         "type": "p",
-        "text": "By using our Service, you accept this Privacy Policy and our <terms>Terms of Service</terms>, and you consent to our collection, storage, use and disclosure of your information as described here."
+        "text": "使用本服務即表示你接受本隱私權政策與我們的 <terms>服務條款</terms>，並同意我們依本政策所述收集、儲存、使用及揭露你的資訊。"
       },
       {
         "type": "h2",
-        "text": "I. Information We Collect"
+        "text": "I. 我們收集的資訊"
       },
       {
         "type": "p",
-        "text": "We collect \"Non-Personal Information\" and \"Personal Information.\" Non-Personal Information includes information that cannot be used to personally identify you, such as anonymous usage data, platform types, and crash diagnostics. Personal Information includes your email address if you choose to contact us."
-      },
-      {
-        "type": "h3",
-        "text": "1. Information collected via Technology"
+        "text": "macOS 應用程式可能會自動收集透過 Sentry 提供的當機報告與錯誤診斷、作業系統版本、應用程式版本，以及匿名使用模式。透過 Sparkle 檢查更新時，可能會將作業系統版本與應用程式版本傳送至我們的更新伺服器。"
       },
       {
         "type": "p",
-        "text": "The macOS Application may collect the following information automatically:"
+        "text": "iOS 應用程式可能會收集登入時的帳號資訊，例如電子郵件地址、顯示名稱（如有）、Stack 使用者 ID 與所選團隊；也可能收集安裝用戶端 ID 和裝置 ID 等應用程式產生的識別碼，用於配對、裝置登錄、多裝置同步與產品分析分組。"
       },
       {
         "type": "ul",
         "items": [
-          "Crash reports and error diagnostics (via Sentry)",
-          "Operating system version and application version",
-          "Anonymous usage patterns"
+          "產品分析事件，例如應用程式啟動、前景與背景狀態、登入結果、配對結果、開啟工作區、推播同意狀態、功能使用、計數與終端機輸入位元組數。",
+          "你提交的意見回饋，包括回覆電子郵件、訊息、應用程式版本、建置編號、套件識別碼、建置通道、作業系統版本、硬體型號與地區設定。",
+          "為終端機工作流程傳送至已配對 Mac 的終端機內容、貼上內容、圖片與檔案。除非你明確將這些內容放入回饋，否則 Manaflow 不會收集或保留。"
         ]
       },
       {
         "type": "p",
-        "text": "The Application checks for updates via Sparkle, which may transmit your operating system version and application version to our update server."
+        "text": "iOS 產品分析會透過 cmux 網頁分析代理傳送至 PostHog。它不包含終端機文字、提示、貼上內容、圖片、檔案、主機名稱、IP 位址、驗證權杖或配對票證。你可在 iOS 應用程式的「設定」、「隱私權」、「分享產品分析」中關閉。"
       },
       {
         "type": "p",
-        "text": "The iOS Application may collect the following information:"
+        "text": "網站使用 PostHog 分析頁面瀏覽與導覽模式。如果你加入平台等候名單，我們會記錄你提交的電子郵件地址，以便在該平台推出時通知你。如果你提交 Enterprise 聯絡表單，我們會記錄你提供的公司與聯絡資料以便回覆。"
+      },
+      {
+        "type": "p",
+        "text": "如果你透過電子郵件、聯絡頁面、Enterprise 表單、回饋表單或應用程式內回饋聯絡我們，我們會收集你提供的姓名、電子郵件地址、公司、職務、電話號碼、國家或地區、部署需求、留言與回饋內容。"
+      },
+      {
+        "type": "h2",
+        "text": "II. 第三方服務"
       },
       {
         "type": "ul",
         "items": [
-          "Account information from sign-in, such as your email address, display name when present, Stack user id, and selected team.",
-          "App-generated identifiers, such as an install client id and device id, used for pairing, device registry, multi-device sync, and product analytics grouping.",
-          "Product analytics events, such as app launch, foreground and background, sign-in result, pairing result, workspace open, push opt-in status, feature usage, counts, and terminal input byte counts.",
-          "Feedback you submit, including your reply-to email, message, app version, build number, bundle identifier, build channel, operating system version, hardware model, and locale."
+          "Sentry：macOS 錯誤追蹤與當機回報。",
+          "Sparkle：macOS 自動更新檢查。",
+          "Ghostty / libghostty：在你的裝置本機執行的終端機繪製引擎。",
+          "Stack Auth：iOS 應用程式與 cmux 帳號登入及配對所需的驗證服務。",
+          "PostHog：網站分析與 iOS 產品分析，可在 iOS 設定中關閉。",
+          "Resend：你自願提交回饋時用於傳送交易郵件。",
+          "Apple 語音辨識與聽寫框架：僅在 iOS 上你選擇向訊息框聽寫文字時使用。",
+          "Slack：將等候名單註冊與內部通知傳送至我們的私人工作區。"
         ]
       },
       {
         "type": "p",
-        "text": "iOS product analytics are sent through the cmux web analytics proxy to PostHog. They do not include terminal text, prompts, pasted content, images, files, hostnames, IP addresses, auth tokens, or pairing tickets. You can turn off iOS product analytics in the iOS app under Settings, Privacy, Share Product Analytics."
-      },
-      {
-        "type": "p",
-        "text": "iOS terminal content, pasted content, images, and files are sent to your paired Mac for the terminal workflow. Manaflow does not collect or retain that content unless you explicitly include it in a feedback submission."
-      },
-      {
-        "type": "p",
-        "text": "The Site uses PostHog for analytics, including page views and navigation patterns. PostHog stores a cookie to distinguish unique visitors. This analytics is anonymous and collects no personally identifiable information, with one exception: if you join a platform waitlist, the email address you submit is recorded in PostHog so we can notify you when that platform is available. If you submit the Enterprise contact form, we record the company and contact details you provide in PostHog and send them to our internal Slack workspace and founders email inbox so we can respond. You can opt out of Site analytics by using a browser extension that blocks tracking scripts."
-      },
-      {
-        "type": "h3",
-        "text": "2. Information you provide directly"
-      },
-      {
-        "type": "p",
-        "text": "If you contact us via email, our contact page, or the Enterprise contact form, feedback form, or in-app feedback flow, we collect the information you provide such as your name, email address, company, role, phone number, country, deployment needs, comments, and feedback message. If you join a platform waitlist, we collect the email address you submit so we can email you when that platform launches, and we send a notification of the signup (including that email address) to our internal Slack workspace."
-      },
-      {
-        "type": "h3",
-        "text": "3. Children's Privacy"
-      },
-      {
-        "type": "p",
-        "text": "The Service is not directed to anyone under the age of 13. We do not knowingly collect information from anyone under 13. If you believe we have collected such information, please contact us at <email>founders@manaflow.com</email>."
+        "text": "這些服務各自有其隱私權政策，規範其資料收集與使用。"
       },
       {
         "type": "h2",
-        "text": "II. Third-Party Services"
+        "text": "III. 我們如何使用與分享資訊"
       },
       {
         "type": "p",
-        "text": "The Application integrates with the following third-party services:"
-      },
-      {
-        "type": "ul",
-        "items": [
-          "Sentry: macOS error tracking and crash reporting. May collect error logs, stack traces, device information, and OS version.",
-          "Sparkle: macOS auto-update framework. Transmits application and OS version to check for updates.",
-          "Ghostty / libghostty: terminal rendering engine. Runs locally on your device.",
-          "Stack Auth: authentication provider for the iOS app and cmux account sign-in. Provides account identifiers, email address, display name when present, and team membership needed for sign-in and pairing.",
-          "PostHog: website analytics and iOS product analytics. Website analytics collect page view data, navigation patterns, and browser metadata via a first-party proxy. iOS product analytics collect product events and identifiers described above, unless you opt out in iOS Settings. If you join a platform waitlist, the email address you submit is also recorded in PostHog so we can notify you.",
-          "Resend: transactional email delivery. Used to deliver feedback submissions from the Application. Your email address is transmitted to Resend only if you voluntarily submit feedback.",
-          "Apple speech recognition and dictation frameworks: on iOS, used only when you choose to dictate text into the message box.",
-          "Slack: internal team notifications. If you join a platform waitlist, the email address and platforms you submit are sent to our private Slack workspace so the team is notified of the signup."
-        ]
-      },
-      {
-        "type": "p",
-        "text": "Each of these services has its own privacy policy governing the collection and use of your data."
+        "text": "我們不會為行銷目的向第三方出售、交換、出租或以其他方式分享你的個人資訊。我們只使用當機報告與診斷來改善應用程式。我們使用 iOS 產品分析來改善可靠性、入門流程、配對、通知與終端機工作流程。如我們善意認為揭露對遵循法律程序或防止損害有必要，可能會分享資訊。"
       },
       {
         "type": "h2",
-        "text": "III. How We Use and Share Information"
+        "text": "IV. 保護、保留與你的權利"
       },
       {
         "type": "p",
-        "text": "We do not sell, trade, rent or otherwise share your Personal Information with third parties for marketing purposes. We use crash reports and diagnostics solely to improve the Application. We use iOS product analytics to improve reliability, onboarding, pairing, notifications, and terminal workflows. We may share information if we have a good-faith belief that disclosure is necessary to meet legal process or protect against harm."
+        "text": "我們採取包含加密與安全伺服器軟體在內的安全措施來保護你的資訊，但任何傳輸或儲存方式都無法保證完全安全。當機報告、診斷、iOS 產品分析與回饋紀錄僅在診斷問題、改善服務、回覆回饋及履行法律義務所需期間保留。"
+      },
+      {
+        "type": "p",
+        "text": "依你的所在地，你可能享有存取、更正、刪除、資料可攜、限制處理或反對處理等權利。你可隨時在 iOS 應用程式的「設定」、「隱私權」、「分享產品分析」中退出 iOS 產品分析。若要行使權利，請透過 <email>founders@manaflow.com</email> 聯絡我們。"
       },
       {
         "type": "h2",
-        "text": "IV. How We Protect Information"
+        "text": "V. 兒童隱私、連結與變更"
       },
       {
         "type": "p",
-        "text": "We implement security measures designed to protect your information from unauthorized access, including encryption and secure server software. However, no method of transmission or storage is 100% secure. By using our Service, you acknowledge and agree to assume these risks."
-      },
-      {
-        "type": "h2",
-        "text": "V. Your Rights"
-      },
-      {
-        "type": "p",
-        "text": "Depending on your location, you may have rights under applicable data protection laws (such as GDPR or CCPA), including:"
-      },
-      {
-        "type": "ul",
-        "items": [
-          "Right to access a copy of data we hold about you",
-          "Right to request correction of inaccurate data",
-          "Right to request deletion of your data",
-          "Right to data portability",
-          "Right to restrict or object to processing"
-        ]
-      },
-      {
-        "type": "p",
-        "text": "You may opt out of iOS product analytics at any time in the iOS app under Settings, Privacy, Share Product Analytics. Turning this off stops future analytics events and identity calls from being sent."
-      },
-      {
-        "type": "p",
-        "text": "To exercise any of these rights, please contact us at <email>founders@manaflow.com</email>."
-      },
-      {
-        "type": "h2",
-        "text": "VI. Links to Other Websites"
-      },
-      {
-        "type": "p",
-        "text": "The Service may provide links to third-party websites. We are not responsible for the privacy practices of those websites. This Privacy Policy applies solely to information collected by us."
-      },
-      {
-        "type": "h2",
-        "text": "VII. Changes to This Policy"
-      },
-      {
-        "type": "p",
-        "text": "We reserve the right to change this policy at any time. Significant changes will go into effect 30 days following notification. You should periodically check the Site for updates."
-      },
-      {
-        "type": "h2",
-        "text": "VIII. Contact Us"
-      },
-      {
-        "type": "p",
-        "text": "If you have any questions regarding this Privacy Policy, please contact us at <email>founders@manaflow.com</email>."
-      },
-      {
-        "type": "h2",
-        "text": "IX. Data Retention"
-      },
-      {
-        "type": "p",
-        "text": "Crash reports, diagnostics, iOS product analytics, and feedback records are retained only as long as needed to diagnose issues, improve the Service, respond to feedback, and meet legal obligations. You may request deletion of any data associated with you by contacting us at <email>founders@manaflow.com</email>."
+        "text": "本服務不面向 13 歲以下的任何人。如果你認為我們收集了此類資訊，請透過 <email>founders@manaflow.com</email> 聯絡我們。我們不負責第三方網站的隱私做法。我們可能會修改本政策，重大變更會在通知後 30 天生效。"
       }
     ]
   }
