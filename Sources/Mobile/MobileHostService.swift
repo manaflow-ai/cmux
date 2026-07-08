@@ -1388,6 +1388,8 @@ final class MobileHostService {
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
             return nil
+        case "mobile.workspace.diff_status", "mobile.workspace.diff_file":
+            return nil
         case "workspace.create":
             return nil
         case "workspace.group.collapse", "workspace.group.expand":

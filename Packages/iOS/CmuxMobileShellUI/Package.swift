@@ -6,6 +6,7 @@ let package = Package(
     name: "CmuxMobileShellUI",
     platforms: [
         .iOS(.v18),
+        .macOS(.v14),
     ],
     products: [
         .library(
@@ -16,6 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../../Shared/CmuxDiffModel"),
         .package(path: "../CmuxAgentChatUI"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../CmuxMobileBrowser"),
@@ -36,6 +38,7 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxDiffModel",
                 "CmuxAgentChatUI",
                 "CmuxAuthRuntime",
                 "CmuxMobileBrowser",
@@ -60,6 +63,7 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxMobilePairedMac",
+                "CmuxDiffModel",
                 "CmuxMobileShellUI",
                 "CmuxAgentChat",
                 "CmuxMobileShell",

@@ -44,6 +44,7 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
+    @State private var isDiffReviewPresented = false
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
@@ -97,6 +98,17 @@ struct WorkspaceDetailView: View {
             }
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .navigationDestination(isPresented: $isDiffReviewPresented) {
+                DiffReviewFilesView(
+                    workspaceName: workspace.name,
+                    fetchStatus: {
+                        try await store.fetchDiffStatus(workspaceID: workspace.id)
+                    },
+                    fetchFile: { path in
+                        try await store.fetchFileDiff(workspaceID: workspace.id, path: path)
+                    }
+                )
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
@@ -427,6 +439,14 @@ struct WorkspaceDetailView: View {
             // Only while the terminal pane is showing: browser and chat modes
             // do not mount a terminal surface for text capture.
             if activeBrowser == nil && !isChatMode {
+                Button(action: openDiffReviewFromMenu) {
+                    Label(
+                        L10n.string("mobile.diff.reviewChanges", defaultValue: "Review Changes"),
+                        systemImage: "doc.text.magnifyingglass"
+                    )
+                }
+                .accessibilityIdentifier("MobileReviewChangesMenuItem")
+
                 Button(action: openTextSheetFromMenu) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
@@ -473,6 +493,10 @@ struct WorkspaceDetailView: View {
     private func openTextSheetFromMenu() {
         textSheetSurfaceID = selectedTerminal?.id.rawValue
         isTextSheetPresented = true
+    }
+
+    private func openDiffReviewFromMenu() {
+        isDiffReviewPresented = true
     }
 
     private func openFeedbackComposerFromMenu() {

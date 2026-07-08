@@ -27,6 +27,14 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("workspace.list", params)
     }
 
+    func controlMobileWorkspaceDiffStatus(params: [String: JSONValue]) -> ControlCallResult {
+        record("workspace.diff_status", params)
+    }
+
+    func controlMobileWorkspaceDiffFile(params: [String: JSONValue]) -> ControlCallResult {
+        record("workspace.diff_file", params)
+    }
+
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult {
         record("terminal.create", params)
     }
@@ -94,6 +102,14 @@ struct ControlCommandCoordinatorMobileHostTests {
         #expect(coordinator.handle(request("mobile.host.status")) != nil)
         // The v2 control socket path includes private metadata.
         #expect(context.lastMarker == "host.status.private")
+    }
+
+    @Test func v2SurfaceRoutesDiffReviewVerbsThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handle(request("mobile.workspace.diff_status")) != nil)
+        #expect(context.lastMarker == "workspace.diff_status")
+        #expect(coordinator.handle(request("mobile.workspace.diff_file")) != nil)
+        #expect(context.lastMarker == "workspace.diff_file")
     }
 
     @Test func v2SurfaceForwardsParamsVerbatim() {

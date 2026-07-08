@@ -816,6 +816,7 @@ jobs:
             CmuxAuthRuntime
             CmuxCommandPalette
             CmuxControlSocket
+            CmuxDiffModel
             CmuxFoundation
             CmuxGit
             CmuxSettings

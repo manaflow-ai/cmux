@@ -308,6 +308,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch method {
         case "mobile.workspace.list", "workspace.list":
             return false
+        case "mobile.workspace.diff_status", "mobile.workspace.diff_file":
+            return false
         case "workspace.create":
             return false
         case "workspace.action", "workspace.close":

@@ -505,6 +505,8 @@ extension ControlMobileHostContext {
 
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileWorkspaceDiffStatus(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileWorkspaceDiffFile(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalReplay(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }

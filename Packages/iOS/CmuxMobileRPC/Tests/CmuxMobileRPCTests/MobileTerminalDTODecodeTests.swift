@@ -33,6 +33,53 @@ import Testing
         #expect(response.theme == nil)
     }
 
+    @Test func diffStatusDecodesSnakeCaseFiles() throws {
+        let data = Data(
+            #"""
+            {
+              "repo_root": "/repo",
+              "files": [
+                {"path":"Sources/New.swift","old_path":"Sources/Old.swift","status":"R","additions":4,"deletions":2},
+                {"path":"README.md","status":"M"}
+              ]
+            }
+            """#.utf8
+        )
+
+        let response = try MobileWorkspaceDiffStatusResponse.decode(data)
+
+        #expect(response.repoRoot == "/repo")
+        #expect(response.files.count == 2)
+        #expect(response.files[0].oldPath == "Sources/Old.swift")
+        #expect(response.files[0].additions == 4)
+        #expect(response.files[1].deletions == nil)
+    }
+
+    @Test func diffStatusToleratesMissingForwardCompatibleFields() throws {
+        let response = try MobileWorkspaceDiffStatusResponse.decode(Data("{}".utf8))
+
+        #expect(response.repoRoot == "")
+        #expect(response.files.isEmpty)
+    }
+
+    @Test func diffFileDecodesUnifiedDiffAndTruncationFlag() throws {
+        let data = Data(#"{"path":"File.swift","unified_diff":"@@ -1 +1 @@\n-old\n+new","truncated":true}"#.utf8)
+
+        let response = try MobileWorkspaceDiffFileResponse.decode(data)
+
+        #expect(response.path == "File.swift")
+        #expect(response.unifiedDiff.contains("+new"))
+        #expect(response.truncated)
+    }
+
+    @Test func diffFileToleratesMissingForwardCompatibleFields() throws {
+        let response = try MobileWorkspaceDiffFileResponse.decode(Data("{}".utf8))
+
+        #expect(response.path == "")
+        #expect(response.unifiedDiff == "")
+        #expect(!response.truncated)
+    }
+
     /// A theme nested in the host-status payload, serialized with the Mac
     /// producer's `[String: Any]` key shape, round-trips back into the exact
     /// `TerminalTheme` the Mac sent. This pins the producer/consumer wire

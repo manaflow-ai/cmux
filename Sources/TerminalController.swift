@@ -14079,6 +14079,10 @@ class TerminalController {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.workspace.diff_status":
+            result = await v2MobileWorkspaceDiffStatus(params: request.params)
+        case "mobile.workspace.diff_file":
+            result = await v2MobileWorkspaceDiffFile(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
         case "mobile.terminal.create", "terminal.create":

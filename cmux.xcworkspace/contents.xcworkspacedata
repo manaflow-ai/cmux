@@ -23,6 +23,9 @@
          location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
+         location = "group:CmuxDiffModel">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
