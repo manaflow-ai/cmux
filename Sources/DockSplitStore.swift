@@ -743,6 +743,9 @@ final class DockSplitStore: BonsplitDelegate {
         guard !created.isEmpty else { return }
 
         let heights = created.map { max($0.definition.height ?? Self.defaultSeedHeight, 1) }
+        let remainingHeightTotals = heights.indices.reversed().reduce(into: Array(repeating: 0.0, count: heights.count)) { totals, index in
+            totals[index] = heights[index] + (index + 1 < heights.count ? totals[index + 1] : 0)
+        }
         let rootPaneId = bonsplitController.allPaneIds.first
         var previousPanelId: UUID?
 
@@ -755,10 +758,8 @@ final class DockSplitStore: BonsplitDelegate {
             let tracksTitle = surfaceKind == .browser
 
             if let previousPanelId, let sourcePaneId = paneId(forPanelId: previousPanelId) {
-                // Divider = the height share of everything already placed above
-                // this split (the source/top child) within the space remaining
-                // from this entry downward.
-                let remainingTotal = heights[(index - 1)...].reduce(0, +)
+                // Divider = previous entry's height share within the remaining stack.
+                let remainingTotal = remainingHeightTotals[index - 1]
                 let divider = CGFloat(min(max(heights[index - 1] / remainingTotal, 0.1), 0.9))
                 panels[panel.id] = panel
                 let newTab = Bonsplit.Tab(
