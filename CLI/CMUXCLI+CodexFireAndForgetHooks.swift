@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     /// The per-invocation Codex hook events the wrapper injects, paired with the
@@ -41,6 +42,12 @@ extension CMUXCLI {
         // inline snippet so the working path can never regress.
         let hooksDir = Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
+        if let safariDriverPath = SafariMCPServerConfig.resolvedDriverPath() {
+            for override in SafariMCPServerConfig.codexConfigOverrides(driverPath: safariDriverPath) {
+                args.append("-c")
+                args.append(override)
+            }
+        }
         for event in Self.codexWrapperInjectionEvents {
             let ff = Self.codexFireAndForgetAgentHookShellCommand(
                 "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
