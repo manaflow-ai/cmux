@@ -182,6 +182,35 @@ struct MainWindowVisibleFrameFitCoreTests {
             == core.topologySignature(of: [dockResized]))
     }
 
+    @Test func topologySignatureQuantizesSubpointJitter() {
+        let jittered = SessionDisplayGeometry(
+            displayID: Self.builtInDisplay.displayID,
+            stableID: Self.builtInDisplay.stableID,
+            frame: CGRect(x: 0.2, y: -0.3, width: 1_511.7, height: 982.4),
+            visibleFrame: CGRect(x: 0.1, y: 0.1, width: 1_511.9, height: 943.6)
+        )
+
+        #expect(core.trustedTopologySignature(of: [Self.builtInDisplay])
+            == core.trustedTopologySignature(of: [jittered]))
+    }
+
+    @Test func trustedTopologySignatureRejectsUntrustedSnapshots() {
+        let missingStableID = SessionDisplayGeometry(
+            displayID: Self.builtInDisplay.displayID,
+            frame: Self.builtInDisplay.frame,
+            visibleFrame: Self.builtInDisplay.visibleFrame
+        )
+        let degenerateVisibleFrame = SessionDisplayGeometry(
+            displayID: Self.builtInDisplay.displayID,
+            stableID: Self.builtInDisplay.stableID,
+            frame: Self.builtInDisplay.frame,
+            visibleFrame: .zero
+        )
+
+        #expect(core.trustedTopologySignature(of: [missingStableID]) == nil)
+        #expect(core.trustedTopologySignature(of: [degenerateVisibleFrame]) == nil)
+    }
+
     @Test func topologySignatureChangesWhenTopInsetChanges() {
         let menuBarMoved = SessionDisplayGeometry(
             displayID: Self.builtInDisplay.displayID,

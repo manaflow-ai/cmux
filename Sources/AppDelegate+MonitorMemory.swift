@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CmuxWindowing
 import Foundation
 
 // CoreGraphics requires a C callback; this trampoline only forwards to AppDelegate on the main queue.
@@ -137,6 +138,11 @@ extension AppDelegate {
         let signatureChanged = signature.map {
             didObserveUnknownDisplayConfiguration || $0 != lastAppliedConfigurationSignature
         } ?? false
+        let visibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
+            .trustedTopologySignature(of: displays.available)
+        let visibleFrameFitTopologyChanged = visibleFrameFitTopologySignature.map {
+            $0 != lastVisibleFrameFitTopologySignature
+        } ?? false
 #if DEBUG
         cmuxDebugLog(
             "monitorMemory.reconcile displays=\(displays.available.count) " +
@@ -160,6 +166,9 @@ extension AppDelegate {
             didObserveUnknownDisplayConfiguration = true
             requeueScreenChangeReconcileIfPossible()
         }
+        if let visibleFrameFitTopologySignature {
+            lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
+        }
 
         // Reachability safety net: any window still stranded is clamped back.
         let mainWindows = mainWindowsForVisibilityController()
@@ -181,7 +190,7 @@ extension AppDelegate {
 #endif
             window.setFrame(corrected, display: true)
         }
-        if signatureChanged {
+        if visibleFrameFitTopologyChanged {
             MainWindowVisibleFrameFitRescue().performFitIfNeeded(
                 displays: displays.available,
                 windows: mainWindows

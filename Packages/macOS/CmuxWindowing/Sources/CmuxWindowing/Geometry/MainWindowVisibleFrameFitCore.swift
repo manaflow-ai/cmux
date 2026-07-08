@@ -16,24 +16,36 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
     public func topologySignature(
         of displays: [SessionDisplayGeometry]
     ) -> [MainWindowVisibleFrameTopologySignatureEntry] {
-        displays
-            .map { display in
-                MainWindowVisibleFrameTopologySignatureEntry(
-                    stableID: display.stableID,
-                    frame: display.frame,
-                    visibleFrame: display.visibleFrame
-                )
-            }
-            .sorted { lhs, rhs in
-                let lhsID = lhs.stableID ?? ""
-                let rhsID = rhs.stableID ?? ""
-                if lhsID != rhsID { return lhsID < rhsID }
-                if lhs.frame.minX != rhs.frame.minX { return lhs.frame.minX < rhs.frame.minX }
-                if lhs.frame.minY != rhs.frame.minY { return lhs.frame.minY < rhs.frame.minY }
-                if lhs.frame.width != rhs.frame.width { return lhs.frame.width < rhs.frame.width }
-                if lhs.frame.height != rhs.frame.height { return lhs.frame.height < rhs.frame.height }
-                return lhs.topInset < rhs.topInset
-            }
+        trustedTopologySignature(of: displays) ?? []
+    }
+
+    /// Returns a validated display-topology signature suitable for runtime gating.
+    ///
+    /// The result is `nil` when any display lacks a stable identity or reports
+    /// degenerate geometry. Runtime callers should keep their previous baseline
+    /// in that case, because the display set is still ramping or otherwise not
+    /// trustworthy.
+    ///
+    /// - Parameter displays: Display geometry snapshots in any order.
+    /// - Returns: A sorted signature, or `nil` when the snapshot is not trusted.
+    public func trustedTopologySignature(
+        of displays: [SessionDisplayGeometry]
+    ) -> [MainWindowVisibleFrameTopologySignatureEntry]? {
+        let optionalEntries = displays.map { topologyEntry(for: $0) }
+        guard !optionalEntries.isEmpty,
+              !optionalEntries.contains(where: { $0 == nil }) else {
+            return nil
+        }
+        return optionalEntries.compactMap(\.self).sorted { lhs, rhs in
+            let lhsID = lhs.stableID ?? ""
+            let rhsID = rhs.stableID ?? ""
+            if lhsID != rhsID { return lhsID < rhsID }
+            if lhs.frame.minX != rhs.frame.minX { return lhs.frame.minX < rhs.frame.minX }
+            if lhs.frame.minY != rhs.frame.minY { return lhs.frame.minY < rhs.frame.minY }
+            if lhs.frame.width != rhs.frame.width { return lhs.frame.width < rhs.frame.width }
+            if lhs.frame.height != rhs.frame.height { return lhs.frame.height < rhs.frame.height }
+            return lhs.topInset < rhs.topInset
+        }
     }
 
     /// Returns fit decisions for `frames`, preserving input order.
@@ -110,6 +122,21 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             distanceSquared(from: center, to: lhs.visibleFrame)
                 < distanceSquared(from: center, to: rhs.visibleFrame)
         }
+    }
+
+    private func topologyEntry(
+        for display: SessionDisplayGeometry
+    ) -> MainWindowVisibleFrameTopologySignatureEntry? {
+        guard let stableID = display.stableID, !stableID.isEmpty,
+              isUsableRect(display.frame),
+              isUsableRect(display.visibleFrame) else {
+            return nil
+        }
+        return MainWindowVisibleFrameTopologySignatureEntry(
+            stableID: stableID,
+            frame: display.frame,
+            visibleFrame: display.visibleFrame
+        )
     }
 
     private func clampFrame(
