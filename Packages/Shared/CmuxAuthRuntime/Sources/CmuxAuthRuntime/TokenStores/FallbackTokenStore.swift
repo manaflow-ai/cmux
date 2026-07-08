@@ -98,6 +98,14 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
                 newRefreshToken: newRefreshToken,
                 newAccessToken: newAccessToken
             )
+            // Reads can fall back to the file store when Keychain returns nil;
+            // apply the same compare-guarded mutation so a matching stale
+            // file-fallback token cannot resurrect after the keychain path.
+            await file.compareAndSet(
+                compareRefreshToken: compareRefreshToken,
+                newRefreshToken: newRefreshToken,
+                newAccessToken: newAccessToken
+            )
             return
         }
         await file.compareAndSet(
