@@ -7,6 +7,88 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    func testClaudeWrapperInstallsStopFailureHookAsTurnEndSignal() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-wrapper-stopfailure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = root.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let fakeCmuxURL = root.appendingPathComponent("cmux", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "--socket" ]; then
+          shift
+          shift
+        fi
+        if [ "$1" = "ping" ]; then
+          exit 0
+        fi
+        printf '{}\\n'
+        exit 0
+        """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCmuxURL.path)
+
+        let fakeClaudeURL = root.appendingPathComponent("real-claude", isDirectory: false)
+        try """
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "--settings" ]; then
+            shift
+            printf '%s\\n' "$1"
+            exit 0
+          fi
+          shift
+        done
+        echo "missing --settings" >&2
+        exit 66
+        """.write(to: fakeClaudeURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeClaudeURL.path)
+
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wrapperURL = sourceRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCmuxURL.path
+        environment["CMUX_CUSTOM_CLAUDE_PATH"] = fakeClaudeURL.path
+        environment["CMUX_CLAUDE_HOOKS_DISABLED"] = "0"
+
+        let result = runProcess(
+            executablePath: wrapperURL.path,
+            arguments: [],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let settingsData = try XCTUnwrap(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8))
+        let settings = try XCTUnwrap(JSONSerialization.jsonObject(with: settingsData) as? [String: Any])
+        let hooks = try XCTUnwrap(settings["hooks"] as? [String: Any])
+        let stopFailureGroups = try XCTUnwrap(hooks["StopFailure"] as? [[String: Any]])
+        let stopFailureCommands = stopFailureGroups
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["command"] as? String }
+
+        XCTAssertTrue(
+            stopFailureCommands.contains { $0.contains("hooks claude stop-failure") },
+            "StopFailure must invoke the stop-failure subcommand so interrupt cleanup skips completion notification, saw \(stopFailureCommands)"
+        )
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
