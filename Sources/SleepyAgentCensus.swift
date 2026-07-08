@@ -23,20 +23,6 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
         return cached
     }
 
-    /// Total registered agent PIDs across an explicit workspace list. Takes
-    /// the list as a parameter (rather than sampling `AppDelegate.shared`)
-    /// so callers reconciling during a willSet-timed `tabsPublisher` emission
-    /// can count against the incoming tab list instead of stale storage.
-    static func runningAgentCount(in workspaces: [Workspace]) -> Int {
-        var total = 0
-        for workspace in workspaces {
-            for pid in workspace.agentPIDs.values where pid > 0 {
-                total += 1
-            }
-        }
-        return total
-    }
-
     private static func compute() -> SleepyAgentCounts {
         guard let app = AppDelegate.shared else { return SleepyAgentCounts() }
         var counts = SleepyAgentCounts()

@@ -39,7 +39,7 @@
 2563	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
-2404	Sources/Mobile/MobileHostService.swift
+2429	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
 2229	Sources/TerminalWindowPortal.swift
@@ -71,7 +71,7 @@
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1317	Sources/FileExplorerStore.swift
-1295	cmuxTests/MobileHostAuthorizationTests.swift
+1315	cmuxTests/MobileHostAuthorizationTests.swift
 1291	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift

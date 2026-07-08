@@ -19,6 +19,11 @@ final class PreventSleepManager {
     private var mainWindowContextsObserver: NSObjectProtocol?
     private var agentObservationTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var tabManagerCancellables: [ObjectIdentifier: AnyCancellable] = [:]
+    /// Running-agent count per observed workspace model, maintained
+    /// incrementally by ``agentModelDidChange(_:)`` so per-agent runtime
+    /// events never trigger an app-wide workspace sweep. Fully rebuilt only
+    /// on topology/settings syncs.
+    private var runningAgentCountsByModel: [ObjectIdentifier: Int] = [:]
 
     private init() {}
 
@@ -59,30 +64,36 @@ final class PreventSleepManager {
         sync(tabsOverride: nil)
     }
 
+    /// Topology/settings sync: (re)builds the observer set and the per-model
+    /// count table, then reconciles. Runs on defaults changes, mobile status
+    /// changes, window-context changes, and tab-list changes — never on
+    /// per-agent runtime events (those go through ``agentModelDidChange(_:)``).
     private func sync(tabsOverride: (tabManager: TabManager, tabs: [Workspace])?) {
-        let power = SettingCatalog().power
-        let agentsSettingEnabled = settingValue(power.preventSleepWhileAgentsRunning)
-        let mobileSettingEnabled = settingValue(power.preventSleepWhileMobileConnected)
-
         // Agent observation (per-workspace change streams, tab list
-        // subscriptions, and the census scan) stays fully off unless the
+        // subscriptions, and per-model counting) stays fully off unless the
         // default-off agents setting is on, so non-opted-in users pay no
         // per-agent-event or per-defaults-change fanout.
-        var runningAgentCount = 0
-        if agentsSettingEnabled {
-            let workspaces = openWorkspaces(tabsOverride: tabsOverride)
+        if settingValue(SettingCatalog().power.preventSleepWhileAgentsRunning) {
             refreshTabManagerObservers()
-            attachAgentObservers(to: workspaces)
-            runningAgentCount = SleepyAgentCensus.runningAgentCount(in: workspaces)
+            rebuildAgentObservation(for: openWorkspaces(tabsOverride: tabsOverride))
         } else {
             cancelAgentObservation()
         }
+        reconcileAssertion()
+    }
 
+    /// Constant-work reconcile: sums the maintained per-model counts and reads
+    /// the lean authenticated-connection count (never `statusSnapshot()`, whose
+    /// route resolution enumerates network interfaces). The mobile gate uses
+    /// authenticated connections only: raw accepted TCP sessions can be held
+    /// open by unauthenticated peers via the auth-exempt status verb.
+    private func reconcileAssertion() {
+        let power = SettingCatalog().power
         let desired = preventSleepDesired(
-            agentsSettingEnabled: agentsSettingEnabled,
-            mobileSettingEnabled: mobileSettingEnabled,
-            runningAgentCount: runningAgentCount,
-            mobileConnectionCount: MobileHostService.shared.statusSnapshot().activeConnectionCount
+            agentsSettingEnabled: settingValue(power.preventSleepWhileAgentsRunning),
+            mobileSettingEnabled: settingValue(power.preventSleepWhileMobileConnected),
+            runningAgentCount: runningAgentCountsByModel.values.reduce(0, +),
+            mobileConnectionCount: MobileHostService.shared.authenticatedConnectionCount
         )
         if desired {
             assertion.acquire()
@@ -167,26 +178,52 @@ final class PreventSleepManager {
         }
     }
 
-    private func attachAgentObservers(to workspaces: [Workspace]) {
+    private func rebuildAgentObservation(for workspaces: [Workspace]) {
         let models = workspaces.map(\.sidebarAgentRuntimeObservation)
         let currentIDs = Set(models.map(ObjectIdentifier.init))
 
         for id in agentObservationTasks.keys where !currentIDs.contains(id) {
             agentObservationTasks[id]?.cancel()
             agentObservationTasks[id] = nil
+            runningAgentCountsByModel[id] = nil
         }
 
         for model in models {
             let id = ObjectIdentifier(model)
+            // Topology syncs are rare, so refresh every count here and the
+            // aggregate can never drift from missed events.
+            runningAgentCountsByModel[id] = Self.runningAgentCount(in: model.agentPIDs)
             guard agentObservationTasks[id] == nil else { continue }
             agentObservationTasks[id] = Task { @MainActor [weak self, weak model] in
                 guard let model else { return }
                 for await _ in model.changes() {
                     if Task.isCancelled { break }
-                    self?.syncNow()
+                    self?.agentModelDidChange(model)
                 }
             }
         }
+    }
+
+    /// Scoped handler for one workspace's agent runtime events. `changes()`
+    /// fires for panel/lifecycle map churn too, so recompute only the emitting
+    /// model's count and reconcile only when that count actually moved —
+    /// an app-wide sweep here would multiply hot agent events into main-actor
+    /// scans of every workspace.
+    private func agentModelDidChange(_ model: WorkspaceSidebarAgentRuntimeObservationModel) {
+        let id = ObjectIdentifier(model)
+        guard agentObservationTasks[id] != nil else { return }
+        let newCount = Self.runningAgentCount(in: model.agentPIDs)
+        guard runningAgentCountsByModel[id] != newCount else { return }
+        runningAgentCountsByModel[id] = newCount
+        reconcileAssertion()
+    }
+
+    private static func runningAgentCount(in agentPIDs: [String: pid_t]) -> Int {
+        var total = 0
+        for pid in agentPIDs.values where pid > 0 {
+            total += 1
+        }
+        return total
     }
 
     private func cancelAgentObservation() {
@@ -198,6 +235,7 @@ final class PreventSleepManager {
             cancellable.cancel()
         }
         tabManagerCancellables.removeAll()
+        runningAgentCountsByModel.removeAll()
     }
 
     private func settingValue(_ key: DefaultsKey<Bool>) -> Bool {

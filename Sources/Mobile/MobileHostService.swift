@@ -250,6 +250,12 @@ struct MobileHostServiceStatus {
     let usesEphemeralFallback: Bool
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
+    /// Connections that have completed at least one authorized request.
+    /// `activeConnectionCount` counts raw accepted TCP sessions, which include
+    /// peers that never authenticate (`mobile.host.status` is auth-exempt), so
+    /// consumers gating behavior on "a phone is really connected" — like the
+    /// keep-awake power assertion — must use this count instead.
+    let authenticatedConnectionCount: Int
     let lastErrorDescription: String?
 
     var payload: [String: Any] {
@@ -260,6 +266,7 @@ struct MobileHostServiceStatus {
             "uses_ephemeral_fallback": usesEphemeralFallback,
             "routes": routes.map(\.mobileHostJSONObject),
             "active_connection_count": activeConnectionCount,
+            "authenticated_connection_count": authenticatedConnectionCount,
             "last_error": lastErrorDescription ?? NSNull()
         ]
     }
@@ -941,9 +948,16 @@ final class MobileHostService {
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            authenticatedConnectionCount: authenticatedConnectionCount,
             lastErrorDescription: lastErrorDescription
         )
     }
+
+    /// Lean accessor for ``MobileHostServiceStatus/authenticatedConnectionCount``:
+    /// callers that only need the count (keep-awake reconciliation on every
+    /// settings/agent event) must not pay ``statusSnapshot()``'s route
+    /// resolution, which enumerates network interfaces on each call.
+    var authenticatedConnectionCount: Int { clientIDsByConnectionID.count }
 
     /// Reconcile the live listener with current settings (enable/disable and
     /// preferred-port changes). Safe to call on any settings change: it no-ops
@@ -1211,14 +1225,25 @@ final class MobileHostService {
                 clientIDs: clientIDs,
                 reason: "mobile.connection.closed"
             )
+            // The registry's own remove() post can be delivered before this
+            // main-actor cleanup runs (onClose posts from the network callback
+            // thread), so re-post after the authenticated count actually
+            // dropped or keep-awake would hold until an unrelated event.
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
         }
         MobileHostRequestActivity.endConnection()
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
         var clientIDs = clientIDsByConnectionID[connectionID] ?? []
+        let isFirstAuthorizedRequestForConnection = clientIDs.isEmpty
         clientIDs.insert(clientID)
         clientIDsByConnectionID[connectionID] = clientIDs
+        if isFirstAuthorizedRequestForConnection {
+            // The connection just transitioned unauthenticated -> authenticated;
+            // authenticated-count consumers (keep-awake) resync on this signal.
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
     }
 
     private nonisolated static func clientID(from params: [String: Any]) -> String? {

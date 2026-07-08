@@ -704,6 +704,26 @@ struct MobileHostAuthorizationTests {
 
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
+    @Test func testAuthenticatedConnectionCountTracksAuthorizedConnectionsOnly() {
+        let service = MobileHostService.shared
+        let connectionID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+        #expect(service.authenticatedConnectionCount == 0)
+        #expect(service.statusSnapshot().authenticatedConnectionCount == 0)
+
+        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        #expect(service.authenticatedConnectionCount == 1)
+        #expect(service.statusSnapshot().authenticatedConnectionCount == 1)
+
+        // A second client id on the same connection must not double-count.
+        service.debugRecordClientIDForTesting("ipad-client", connectionID: connectionID)
+        #expect(service.authenticatedConnectionCount == 1)
+
+        service.debugRemoveConnectionForTesting(id: connectionID)
+        #expect(service.authenticatedConnectionCount == 0)
+        #expect(service.statusSnapshot().authenticatedConnectionCount == 0)
+    }
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
         MobileHostRequestActivity.resetForTesting()
         MobileHostRequestActivity.beginConnection()
