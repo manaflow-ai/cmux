@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -208,6 +209,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             let source = Workspace()
             let remoteCommand = "ssh cmux-macmini"
+            let expectedRestoredRemoteCommand = "ssh -tt cmux-macmini"
             source.configureRemoteConnection(
                 WorkspaceRemoteConfiguration(
                     destination: "cmux-macmini",
@@ -239,8 +241,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
             let restoredRemoteCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
 
-            XCTAssertEqual(restoredRemoteCommand, remoteCommand)
-            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), remoteCommand)
+            XCTAssertEqual(restoredRemoteCommand, expectedRestoredRemoteCommand)
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), expectedRestoredRemoteCommand)
             XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
             let input = try XCTUnwrap(restoredPanel.surface.initialInput)
@@ -663,6 +665,75 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let runningSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(runningSnapshot.panels.first?.terminal?.agent)
         XCTAssertEqual(runningSnapshot.panels.first?.terminal?.resumeBinding?.kind, "tmux")
+    }
+
+    // After a session is restored on reload, the UI fork action must still find it. The action
+    // resolves the conversation via Workspace.forkableAgentSnapshot(forPanelId:), which reads the
+    // snapshot captured at restore (restoredAgentSnapshotsByPanelId). A restored codex/claude/opencode
+    // session must therefore still expose a valid fork command + launchable fork input.
+    @MainActor
+    func testRestoredSessionRemainsForkable() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sessionId = "codex-fork-after-restore-session"
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: sessionId
+        )
+        let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        let forkable = try XCTUnwrap(
+            restored.forkableAgentSnapshot(forPanelId: restoredPanelId),
+            "a restored session must remain forkable via the UI"
+        )
+        XCTAssertEqual(forkable.sessionId, sessionId)
+        let forkCommand = try XCTUnwrap(forkable.forkCommand, "restored session must expose a fork command")
+        XCTAssertTrue(forkCommand.contains("'fork'"), "codex fork verb expected; got: \(forkCommand)")
+        XCTAssertTrue(forkCommand.contains(sessionId), "fork must reference the restored session id; got: \(forkCommand)")
+        XCTAssertNotNil(
+            forkable.forkStartupInput(
+                fileManager: .default,
+                temporaryDirectory: FileManager.default.temporaryDirectory
+            ),
+            "restored session must produce launchable fork startup input"
+        )
+    }
+
+    // After a resumed agent is killed, the surface must return to the session's launch directory,
+    // not the surface default. The resume command's own `cd` runs inside the `-lic` child shell, so
+    // the outer login shell needs an explicit `cd` to the working directory before `exec -l`.
+    func testResumeLauncherReturnsToLaunchCwdAfterAgentExits() {
+        let dir = "/tmp/repo-resume"
+        let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
+            command: "cd -- '\(dir)' 2>/dev/null || [ ! -d '\(dir)' ] && 'claude' '--resume' 'abc'",
+            workingDirectory: dir
+        )
+        let script = lines.joined(separator: "\n")
+
+        let outerCd = "{ cd -- '\(dir)' 2>/dev/null || true; }"
+        let exec = "exec -l \"$_cmux_resume_shell\""
+        let outerCdRange = script.range(of: outerCd)
+        let execRange = script.range(of: exec)
+        XCTAssertNotNil(outerCdRange, "launcher must cd the outer shell back to the launch dir; script:\n\(script)")
+        XCTAssertNotNil(execRange, script)
+        if let outerCdRange, let execRange {
+            XCTAssertTrue(
+                outerCdRange.lowerBound < execRange.lowerBound,
+                "the return-to-launch-dir cd must run before exec -l; script:\n\(script)"
+            )
+        }
+
+        // Back-compat: with no working directory, no extra outer cd is emitted.
+        let bare = TerminalStartupReturnShellScript
+            .commandThenReturnLines(command: "echo hi")
+            .joined(separator: "\n")
+        XCTAssertFalse(bare.contains("|| true; }"), bare)
+        XCTAssertTrue(bare.contains(exec), bare)
     }
 
     private func withRestoredDefaults<T>(

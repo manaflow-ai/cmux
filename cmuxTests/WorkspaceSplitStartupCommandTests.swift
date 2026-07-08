@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminal
 import Bonsplit
 import AppKit
 import SwiftUI
@@ -230,6 +231,62 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         XCTAssertEqual(surface.requestedWorkingDirectory, requestedDirectory)
         XCTAssertEqual(surface.surface.debugInitialCommand(), startupCommand)
         XCTAssertEqual(surface.surface.debugTmuxStartCommand(), tmuxStartCommand)
+    }
+
+    func testRespawnTerminalSurfacePreservesPaneTabAndSurfaceIdentity() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let placeholderCommand = "/bin/sh -c 'printf placeholder; while :; do sleep 86400; done'"
+        let attachCommand = "/bin/sh -c 'opencode attach http://127.0.0.1:4096 --session subagent --dir /tmp/omo'"
+        let requestedDirectory = "/tmp/cmux-respawn-\(UUID().uuidString)"
+        let startupEnvironment = [
+            "CMUX_OMO_SUBAGENT": "1",
+            "OMO_SUBAGENT_DESC": "test"
+        ]
+
+        let placeholderPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true,
+            initialCommand: placeholderCommand,
+            tmuxStartCommand: placeholderCommand,
+            startupEnvironment: startupEnvironment
+        ))
+        let originalPanelId = placeholderPanel.id
+        let originalPane = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId))
+        let originalPaneId = originalPane.id
+        let originalTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(originalPanelId))
+        let originalPaneCount = workspace.bonsplitController.allPaneIds.count
+        let originalTabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+        let originalWaitAfterCommand = placeholderPanel.surface.debugWaitAfterCommand()
+
+        let respawnedPanel = try XCTUnwrap(workspace.respawnTerminalSurface(
+            panelId: originalPanelId,
+            command: attachCommand,
+            workingDirectory: requestedDirectory,
+            tmuxStartCommand: attachCommand
+        ))
+
+        XCTAssertEqual(respawnedPanel.id, originalPanelId)
+        XCTAssertTrue(workspace.terminalPanel(for: originalPanelId) === respawnedPanel)
+        let currentPane = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelId))
+        XCTAssertEqual(currentPane.id, originalPaneId)
+        XCTAssertEqual(workspace.surfaceIdFromPanelId(originalPanelId), originalTabId)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, originalPaneCount)
+        XCTAssertTrue(workspace.bonsplitController.allPaneIds.contains(where: { $0.id == originalPaneId }))
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: currentPane).count, originalTabCount)
+        XCTAssertTrue(workspace.bonsplitController.tabs(inPane: currentPane).contains(where: { $0.id == originalTabId }))
+        XCTAssertEqual(respawnedPanel.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertEqual(respawnedPanel.surface.debugInitialCommand(), attachCommand)
+        XCTAssertEqual(respawnedPanel.surface.debugTmuxStartCommand(), attachCommand)
+        XCTAssertEqual(respawnedPanel.surface.debugWaitAfterCommand(), originalWaitAfterCommand)
+        for (key, value) in startupEnvironment {
+            XCTAssertEqual(respawnedPanel.surface.startupEnvironmentValue(key), value)
+        }
+        XCTAssertTrue(
+            GhosttyApp.terminalSurfaceRegistry.surface(id: originalPanelId) === respawnedPanel.surface,
+            "Respawn should replace the registered terminal surface for the existing cmux surface id"
+        )
     }
 
     func testSessionRestoreRelaunchesOMXHudTmuxStartCommand() throws {

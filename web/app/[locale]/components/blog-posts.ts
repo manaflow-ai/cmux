@@ -1,5 +1,29 @@
 export const blogPosts = [
   {
+    slug: "claude-code-best-worktree-manager",
+    key: "claudeCodeBestWorktreeManager",
+    title: "Claude Code Is The Best Worktree Manager",
+    date: "2026-07-03",
+    summary:
+      "Use Claude Code, Codex, scripts, and cmux primitives to build the worktree workflow your codebase actually needs.",
+  },
+  {
+    slug: "cmux-home",
+    key: "cmuxHome",
+    title: "cmux home",
+    date: "2026-06-23",
+    summary:
+      "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
+  },
+  {
+    slug: "cmux-history",
+    key: "cmuxHistory",
+    title: "cmux history",
+    date: "2026-06-02",
+    summary:
+      "Reopen closed terminals, browsers, workspaces, and agent sessions with Cmd+Shift+T, and retrace your focus with Cmd+[ and Cmd+].",
+  },
+  {
     slug: "cmux-finder",
     key: "cmuxFinder",
     title: "Introducing cmux Finder",

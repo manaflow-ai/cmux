@@ -6,6 +6,9 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Darwin
+import Testing
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -44,6 +47,298 @@ private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDe
     }
 }
 
+private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    let expectation: XCTestExpectation
+    var body: Any?
+
+    init(expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        body = message.body
+        expectation.fulfill()
+    }
+}
+
+@MainActor
+private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
+    var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
+    var hiddenAt: Date?
+    var webViewInstanceID = UUID()
+    var discardRequestCount = 0
+
+    init(snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot, hiddenAt: Date?) {
+        self.snapshot = snapshot
+        self.hiddenAt = hiddenAt
+    }
+
+    var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+        snapshot
+    }
+
+    var hiddenWebViewDiscardHiddenAt: Date? {
+        hiddenAt
+    }
+
+    var hiddenWebViewDiscardWebViewInstanceID: UUID {
+        webViewInstanceID
+    }
+
+    func hiddenWebViewDiscardManagerDidRequestDiscard(
+        _ manager: BrowserHiddenWebViewDiscardManager,
+        reason: String
+    ) {
+        discardRequestCount += 1
+    }
+
+    func hiddenWebViewDiscardManagerPolicyDidChange(
+        _ manager: BrowserHiddenWebViewDiscardManager,
+        reason: String
+    ) {}
+}
+
+@MainActor
+private func makeHiddenWebViewDiscardBlockerSnapshot(
+    hasActiveMainFrameProvisionalNavigation: Bool = false,
+    isVisualAutomationCaptureActive: Bool = false,
+    isCapturingMedia: Bool = false,
+    isPlayingMedia: Bool = false
+) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+    BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
+        isClosing: false,
+        isVisibleInUI: false,
+        shouldRenderWebView: true,
+        hasPendingRemoteNavigation: false,
+        hasCurrentURL: true,
+        isLoading: false,
+        webViewIsLoading: false,
+        hasActiveMainFrameProvisionalNavigation: hasActiveMainFrameProvisionalNavigation,
+        isDownloading: false,
+        activeDownloadCount: 0,
+        preferredDeveloperToolsVisible: false,
+        isDeveloperToolsVisible: false,
+        isElementFullscreenActive: false,
+        isReactGrabActive: false,
+        isVisualAutomationCaptureActive: isVisualAutomationCaptureActive,
+        hasPopups: false,
+        isCapturingMedia: isCapturingMedia,
+        isPlayingMedia: isPlayingMedia
+    )
+}
+
+@MainActor
+private func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
+    let defaults = UserDefaults.standard
+    let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    defer {
+        if let previousEnabled {
+            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        }
+    }
+    body()
+}
+
+@MainActor
+@Suite(.serialized)
+struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
+    /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5409:
+    /// a hidden pane that is actively playing media (e.g. a backgrounded YouTube
+    /// video) must be exempted from memory discard so switching workspaces does
+    /// not stop playback or reload the page. The media_capture blocker only
+    /// covers camera/mic capture, not <video>/<audio> playback.
+    @Test func activeMediaPlaybackBlocksHiddenWebViewDiscardScheduling() {
+        withHiddenWebViewDiscardPolicyEnabled {
+            let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: true)
+            let manager = BrowserHiddenWebViewDiscardManager()
+            let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+            manager.delegate = delegate
+
+            #expect(manager.blockers(for: snapshot) == ["media_playback"])
+
+            manager.scheduleIfNeeded(reason: "test.hidden")
+
+            #expect(!manager.hasScheduledDiscard)
+            #expect(delegate.discardRequestCount == 0)
+        }
+    }
+
+    /// An idle hidden pane (no playing media) must still be eligible for discard
+    /// so the memory bound from https://github.com/manaflow-ai/cmux/issues/4539
+    /// is preserved.
+    @Test func idlePaneWithoutMediaPlaybackStillSchedulesHiddenWebViewDiscard() {
+        withHiddenWebViewDiscardPolicyEnabled {
+            let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isPlayingMedia: false)
+            let manager = BrowserHiddenWebViewDiscardManager()
+            let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+            manager.delegate = delegate
+
+            #expect(manager.blockers(for: snapshot) == [])
+
+            manager.scheduleIfNeeded(reason: "test.hidden")
+
+            #expect(manager.hasScheduledDiscard)
+            #expect(delegate.discardRequestCount == 0)
+        }
+    }
+}
+
+@MainActor
+final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
+    private var previousEnabled: Any?
+
+    override func setUp() {
+        super.setUp()
+        let defaults = UserDefaults.standard
+        previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    }
+
+    override func tearDown() {
+        let defaults = UserDefaults.standard
+        if let previousEnabled {
+            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        }
+        super.tearDown()
+    }
+
+    func testActiveMediaCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isCapturingMedia: true)
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["media_capture"])
+
+        manager.scheduleIfNeeded(reason: "test.hidden")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    func testVisualAutomationCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isVisualAutomationCaptureActive: true)
+
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["visual_automation"])
+
+        manager.scheduleIfNeeded(reason: "test.visualAutomation")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
+    // a main-frame provisional navigation (e.g. a cross-origin process swap in
+    // flight) must block a hidden-webview discard from replacing the WKWebView.
+    func testMainFrameProvisionalNavigationBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(
+            hasActiveMainFrameProvisionalNavigation: true
+        )
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["provisional_navigation"])
+
+        manager.scheduleIfNeeded(reason: "test.provisional")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
+    // a discard countdown that elapsed across system sleep must restart from
+    // wake instead of discarding the webview immediately after wake, while
+    // WebKit pages are still reconnecting/renavigating.
+    func testSystemWakeRestartsHiddenWebViewDiscardCountdown() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(
+            snapshot: snapshot,
+            hiddenAt: Date(timeIntervalSinceNow: -7200)
+        )
+        manager.delegate = delegate
+
+        manager.noteSystemDidWake(now: Date())
+        manager.scheduleIfNeeded(reason: "test.postWake")
+
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+        XCTAssertTrue(manager.hasScheduledDiscard)
+    }
+
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
+    // sleep cancels an armed discard countdown and blocks re-arming until wake,
+    // and wake re-arms a fresh countdown without discarding.
+    func testSystemSleepCancelsArmedHiddenWebViewDiscard() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        manager.scheduleIfNeeded(reason: "test.hidden")
+        XCTAssertTrue(manager.hasScheduledDiscard)
+
+        manager.noteSystemWillSleep()
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(manager.blockers(for: snapshot), ["system_sleeping"])
+
+        manager.scheduleIfNeeded(reason: "test.whileSleeping")
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+
+        manager.noteSystemDidWake(now: Date())
+        XCTAssertTrue(manager.hasScheduledDiscard)
+        XCTAssertEqual(manager.blockers(for: snapshot), [])
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+}
+
+@MainActor
+final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
+    func testRestoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
+        let discardedAt = Date(timeIntervalSince1970: 400)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertNil(panel.webView.superview)
+        XCTAssertFalse(panel.hasBackgroundPreloadHost)
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertNil(panel.webView.superview)
+
+        XCTAssertTrue(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation"))
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNotNil(panel.webView.superview)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertFalse(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
+    }
+}
+
 @MainActor
 private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
@@ -62,6 +357,96 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         assertResolvedColorMatchesTheme(for: .dark)
     }
 
+    func testTransparentGhosttyBackgroundUsesClearBlankBrowserChrome() {
+        let baseColor = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
+
+        guard let actual = resolvedBrowserChromeBackgroundColor(
+            for: .dark,
+            themeBackgroundColor: themeBackground,
+            drawsBackground: false
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(actual.alphaComponent, 0.0, accuracy: 0.001)
+    }
+
+    func testGhosttyBackgroundThemeColorCompositesTranslucentBackgrounds() {
+        let baseColor = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.05)
+
+        XCTAssertEqual(themeBackground.alphaComponent, 1.0, accuracy: 0.001)
+    }
+
+    func testBrowserChromeColorSchemeAccountsForTranslucentBackground() {
+        let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
+
+        XCTAssertEqual(
+            resolvedBrowserChromeColorScheme(
+                for: .dark,
+                themeBackgroundColor: darkTranslucentBackground,
+                windowBackgroundColor: .white
+            ),
+            .light
+        )
+    }
+
+    func testBrowserChromeDrawDecisionMatchesTransparencyOwnership() {
+        let cases: [(String, Bool, Bool, Double, Bool, Bool, Bool)] = [
+            ("blank transparent Ghostty", true, false, 0.42, false, false, false),
+            ("blank glass", true, false, 1.0, true, false, false),
+            ("blank transparent window", true, false, 1.0, false, true, false),
+            ("real transparent Ghostty", false, false, 0.42, false, false, true),
+            ("transparent internal opaque Ghostty", false, true, 1.0, false, false, true),
+            ("transparent internal transparent Ghostty", false, true, 0.42, false, false, false),
+            ("blank opaque Ghostty", true, false, 1.0, false, false, true),
+        ]
+        for (name, isBlank, transparentPage, opacity, glass, transparentWindow, expected) in cases {
+            XCTAssertEqual(BrowserPanel.drawsWebViewBackground(
+                isBlankPage: isBlank,
+                usesTransparentBackground: transparentPage,
+                opacity: opacity,
+                usesGhosttyGlassStyle: glass,
+                usesTransparentWindow: transparentWindow
+            ), expected, name)
+        }
+    }
+
+    func testBrowserBlankPageURLDetectionTreatsOnlyEmptyAndAboutBlankAsBlank() throws {
+        XCTAssertTrue(BrowserPanel.isBlankBrowserPageURL(nil))
+        XCTAssertTrue(BrowserPanel.isBlankBrowserPageURL(try XCTUnwrap(URL(string: "about:blank"))))
+        XCTAssertFalse(BrowserPanel.isBlankBrowserPageURL(try XCTUnwrap(URL(string: "https://mail.google.com/"))))
+    }
+
+    func testBrowserBlankPageDetectionTreatsPendingRealNavigationAsNonBlank() throws {
+        XCTAssertFalse(BrowserPanel.isBlankBrowserPage(
+            liveURL: nil,
+            currentURL: nil,
+            pendingNavigationURL: try XCTUnwrap(URL(string: "https://mail.google.com/")),
+            isMainFrameProvisionalNavigationActive: true
+        ))
+    }
+
+    func testBrowserBlankPageDetectionTreatsInitialPendingRealNavigationAsNonBlank() throws {
+        XCTAssertFalse(BrowserPanel.isBlankBrowserPage(
+            liveURL: nil,
+            currentURL: nil,
+            pendingNavigationURL: try XCTUnwrap(URL(string: "https://mail.google.com/")),
+            isMainFrameProvisionalNavigationActive: false
+        ))
+    }
+
+    func testBrowserBlankPageDetectionClearsAfterCommittedAboutBlank() throws {
+        XCTAssertTrue(BrowserPanel.isBlankBrowserPage(
+            liveURL: try XCTUnwrap(URL(string: "about:blank")),
+            currentURL: try XCTUnwrap(URL(string: "about:blank")),
+            pendingNavigationURL: try XCTUnwrap(URL(string: "about:blank")),
+            isMainFrameProvisionalNavigationActive: false
+        ))
+    }
+
     private func assertResolvedColorMatchesTheme(
         for colorScheme: ColorScheme,
         file: StaticString = #filePath,
@@ -72,7 +457,8 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         guard
             let actual = resolvedBrowserChromeBackgroundColor(
                 for: colorScheme,
-                themeBackgroundColor: themeBackground
+                themeBackgroundColor: themeBackground,
+                drawsBackground: true
             ).usingColorSpace(.sRGB),
             let expected = themeBackground.usingColorSpace(.sRGB)
         else {
@@ -225,6 +611,236 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(panel.shouldRenderWebView)
         XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
     }
+
+    func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
+        let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        let schemePanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: schemeURL,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertEqual(schemePanel.preferredURLStringForOmnibar(), schemeURL.absoluteString)
+        XCTAssertNil(schemePanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(schemePanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(schemePanel.shouldRenderWebViewForSessionSnapshot())
+
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let loopbackPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: loopbackURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(loopbackPanel.preferredURLStringForOmnibar(), loopbackURL.absoluteString)
+        XCTAssertNil(loopbackPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(loopbackPanel.shouldPersistSessionSnapshot())
+        XCTAssertFalse(loopbackPanel.shouldRenderWebViewForSessionSnapshot())
+
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
+        let aliasPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: aliasURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertNil(aliasPanel.preferredURLStringForSessionSnapshot())
+        XCTAssertFalse(aliasPanel.shouldPersistSessionSnapshot())
+
+        let normalLocalhostURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/app"))
+        let normalLocalhostPanel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: normalLocalhostURL,
+            renderInitialNavigation: false
+        )
+        XCTAssertEqual(normalLocalhostPanel.preferredURLStringForSessionSnapshot(), normalLocalhostURL.absoluteString)
+        XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
+    }
+
+    func testDiffViewerURLIsNotRecordedInBrowserHistory() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-history-\(UUID().uuidString).json")
+        let store = BrowserHistoryStore(fileURL: fileURL)
+        defer {
+            store.clearHistory()
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+
+        let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
+        let loopbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/token/diff.html#cmux-diff-viewer"))
+        let aliasURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:49152/token/diff.html#cmux-diff-viewer"))
+        let normalURL = try XCTUnwrap(URL(string: "https://example.com/page"))
+
+        store.recordVisit(url: schemeURL, title: "Diff")
+        store.recordVisit(url: loopbackURL, title: "Diff")
+        store.recordVisit(url: aliasURL, title: "Diff")
+        store.recordTypedNavigation(url: aliasURL)
+        store.recordTypedNavigation(url: loopbackURL)
+        XCTAssertTrue(store.entries.isEmpty)
+
+        store.recordVisit(url: normalURL, title: "Normal")
+        XCTAssertEqual(store.entries.map(\.url), [normalURL.absoluteString])
+    }
+}
+
+
+@MainActor
+final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
+    private func trustedDiffViewerTestRoot() -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    func testDiffViewerSchemeRegistrationIsIdempotentForCopiedConfiguration() {
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(
+            CmuxDiffViewerURLSchemeHandler.shared,
+            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+        )
+
+        BrowserPanel.configureWebViewConfiguration(
+            config,
+            websiteDataStore: .nonPersistent()
+        )
+
+        XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
+    }
+
+    func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = trustedDiffViewerTestRoot()
+        let assetURL = rootURL
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("mod.mjs", isDirectory: false)
+        let workerAssetURL = rootURL
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("worker.js", isDirectory: false)
+        let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
+        try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try """
+        export const marker = "module-ok";
+        """.write(to: assetURL, atomically: true, encoding: .utf8)
+        try """
+        export const workerMarker = "js-ok";
+        """.write(to: workerAssetURL, atomically: true, encoding: .utf8)
+        try """
+        <!doctype html>
+        <html>
+        <body>
+        <script type="module">
+          import { marker } from "./assets/mod.mjs";
+          import { workerMarker } from "./assets/worker.js";
+          WebAssembly.compile(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]))
+            .then(() => {
+              const result = `${marker}:${workerMarker}:wasm-ok`;
+              document.body.dataset.loaded = result;
+              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+            })
+            .catch((error) => {
+              const result = `wasm-error:${error.message}`;
+              document.body.dataset.loaded = result;
+              window.webkit.messageHandlers.moduleLoaded.postMessage(result);
+            });
+        </script>
+        </body>
+        </html>
+        """.write(to: indexURL, atomically: true, encoding: .utf8)
+        let patchURL = rootURL.appendingPathComponent("index.patch", isDirectory: false)
+        try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
+
+        try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
+                .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/worker.js", fileURL: workerAssetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
+            ]
+        )
+
+        let allowedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html"))
+        let allowedPatchURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.patch"))
+        let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
+        let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
+        XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
+
+        let config = WKWebViewConfiguration()
+        let contentController = WKUserContentController()
+        let moduleLoaded = expectation(description: "module evaluated")
+        let moduleHandler = BrowserPanelTestScriptMessageHandler(expectation: moduleLoaded)
+        contentController.add(moduleHandler, name: "moduleLoaded")
+        config.userContentController = contentController
+        config.setURLSchemeHandler(
+            CmuxDiffViewerURLSchemeHandler.shared,
+            forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
+        )
+        defer {
+            contentController.removeScriptMessageHandler(forName: "moduleLoaded")
+        }
+        let webView = WKWebView(frame: .zero, configuration: config)
+        let loaded = expectation(description: "diff viewer loaded")
+        let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        webView.navigationDelegate = delegate
+        webView.load(URLRequest(url: allowedURL))
+        wait(for: [loaded], timeout: 10)
+        XCTAssertNil(delegate.error)
+        wait(for: [moduleLoaded], timeout: 10)
+        XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
+
+        let evaluated = expectation(description: "module evaluated")
+        webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
+            XCTAssertNil(error)
+            XCTAssertEqual(value as? String, "module-ok:js-ok:wasm-ok")
+            evaluated.fulfill()
+        }
+        wait(for: [evaluated], timeout: 10)
+    }
+
+    func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {
+        let token = UUID().uuidString.lowercased()
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer-security-\(UUID().uuidString)", isDirectory: true)
+        let trustedRootURL = trustedDiffViewerTestRoot()
+        let outsideURL = temporaryURL.appendingPathComponent("outside.html", isDirectory: false)
+        let linkURL = trustedRootURL.appendingPathComponent("link.html", isDirectory: false)
+        try FileManager.default.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trustedRootURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            try? FileManager.default.removeItem(at: trustedRootURL)
+        }
+
+        try "<!doctype html>".write(to: outsideURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideURL)
+
+        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/link.html", fileURL: linkURL, mimeType: "text/html"),
+            ]
+        ))
+    }
+
+    func testDiffViewerSchemeRejectsMismatchedPatchMimeType() throws {
+        let token = UUID().uuidString.lowercased()
+        let trustedRootURL = trustedDiffViewerTestRoot()
+        let patchURL = trustedRootURL.appendingPathComponent("diff.patch", isDirectory: false)
+        try FileManager.default.createDirectory(at: trustedRootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: trustedRootURL) }
+
+        try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
+            token: token,
+            files: [
+                .init(requestPath: "/diff.patch", fileURL: patchURL, mimeType: "text/html"),
+            ]
+        ))
+    }
 }
 
 
@@ -235,6 +851,21 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
 
     func testDarkModeSlightlyDarkensThemeBackground() {
         assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
+    }
+
+    func testTransparentGhosttyBackgroundUsesCompositedOmnibarPill() {
+        let baseColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
+        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
+
+        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            for: .light,
+            themeBackgroundColor: themeBackground
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(actual.alphaComponent, 1.0, accuracy: 0.001)
     }
 
     private func assertResolvedColorMatchesExpectedBlend(
@@ -322,10 +953,12 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
         let requestId = panel.requestAddressBarFocus()
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
 
         panel.acknowledgeAddressBarFocusRequest(requestId)
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
 
         // Acknowledgement only clears the durable request; focus suppression follows
         // explicit blur state transitions.
@@ -336,11 +969,22 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
     func testRequestCoalescesWhilePending() {
         let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus()
+        let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
         let secondRequest = panel.requestAddressBarFocus()
 
         XCTAssertEqual(firstRequest, secondRequest)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, firstRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
+    }
+
+    func testExplicitSelectAllRequestUpgradesPendingPreserveRequest() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
+        let secondRequest = panel.requestAddressBarFocus(selectionIntent: .selectAll)
+
+        XCTAssertNotEqual(firstRequest, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
     }
 
     func testStaleAcknowledgementDoesNotClearNewestRequest() {
@@ -370,6 +1014,25 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
         XCTAssertFalse(panel.requestExplicitWebViewFocus())
         XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
+    }
+
+    func testOmnibarVisibilityIsPanelScopedAndFocusRequestShowsIt() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertTrue(panel.isOmnibarVisible)
+        _ = panel.requestAddressBarFocus()
+        XCTAssertNotNil(panel.pendingAddressBarFocusRequestId)
+
+        XCTAssertTrue(panel.setOmnibarVisible(false))
+        XCTAssertFalse(panel.isOmnibarVisible)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.preferredFocusIntent, .webView)
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+
+        let requestId = panel.requestAddressBarFocus()
+        XCTAssertTrue(panel.isOmnibarVisible)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
+        XCTAssertEqual(panel.preferredFocusIntent, .addressBar)
     }
 
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
@@ -2291,6 +2954,169 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    private func makeBrowserSearchOverlayConfiguration(panelId: UUID) -> BrowserPortalSearchOverlayConfiguration {
+        BrowserPortalSearchOverlayConfiguration(
+            panelId: panelId,
+            searchState: BrowserSearchState(),
+            focusRequestGeneration: 0,
+            canApplyFocusRequest: { _ in false },
+            onNext: {},
+            onPrevious: {},
+            onClose: {},
+            onFieldDidFocus: {}
+        )
+    }
+
+    // Regression guard for https://github.com/manaflow-ai/cmux/issues/5733.
+    // The per-keystroke find-overlay lookup (`searchOverlayPanelId`) used to scan
+    // `entriesByWebViewId.values`, copying each `Entry` struct. Every copy
+    // performs 3 `objc_copyWeak` ops (weak webView/containerView/anchorView)
+    // under the global Obj-C weak-table lock, so the lookup did O(panes)
+    // weak-table churn on every key event — the stack-exhaustion fault site in
+    // #5733 and a typing-latency contributor (#4405).
+    //
+    // The fix drives the lookup off the live slot view hierarchy instead. This
+    // test pins that structural property: a slot that is present in the portal
+    // host's view hierarchy but absent from `entriesByWebViewId` must still be
+    // found. The old dictionary scan never visited such a slot (returned nil);
+    // the hierarchy scan finds it. Reintroducing the `entriesByWebViewId.values`
+    // scan — the weak-copy bug class — would fail this test.
+    func testSearchOverlayLookupResolvesOffSlotHierarchyNotEntriesDictionary() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let panelId = UUID()
+        slot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        // Install the slot into the live host hierarchy WITHOUT registering an Entry.
+        portal.browserPortalTestInstallSlotWithoutEntry(slot)
+
+        guard let overlayResponder = slot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(
+            portal.searchOverlayPanelId(for: overlayResponder),
+            panelId,
+            "Find-overlay lookup must resolve off the live slot view hierarchy, not the "
+                + "entries dictionary, so it materializes zero Entry weak-copies per keystroke (#5733)"
+        )
+    }
+
+    // Companion to the regression guard above: the normal path where the slot is
+    // registered via `bind` must keep resolving its own search overlay after the
+    // hierarchy-scan rewrite (#5733).
+    func testSearchOverlayLookupResolvesBoundSlotOverlay() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let panelId = UUID()
+        slot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        guard let overlayResponder = slot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(portal.searchOverlayPanelId(for: overlayResponder), panelId)
+        // A responder no slot owns must not match.
+        XCTAssertNil(portal.searchOverlayPanelId(for: window))
+    }
+
+    // Crash regression for https://github.com/manaflow-ai/cmux/issues/5733.
+    //
+    // The production crash was a main-thread stack-exhaustion SIGSEGV
+    // (KERN_PROTECTION_FAILURE, "Could not determine thread index for stack guard
+    // region") whose fault site was the find-overlay lookup copying `Entry`
+    // structs out of `entriesByWebViewId.values`. Each Entry copy performs 3
+    // `objc_copyWeak` ops, so at the crash-time load of 166 browser panes the
+    // lookup did ~498 weak-table-locked operations on EVERY key event and EVERY
+    // first-responder change (the reproduced stack showed the scan reached from
+    // both `cmux_performKeyEquivalent` and `cmux_makeFirstResponder` ->
+    // `BrowserPanel.ownedFocusIntent`). That per-call O(panes) weak-copy churn,
+    // stacked on top of the WebKit `doneWithKeyEvent` re-dispatch nesting, is the
+    // bug class that exhausted the 8 MB main-thread stack.
+    //
+    // True 8 MB exhaustion is not cleanly unit-testable (it needs the WebKit IPC
+    // re-dispatch chain under load), so this pins the underlying invariant at the
+    // crash-time pane count: the lookup must resolve off the live slot view
+    // hierarchy, never by enumerating/copying the entries dictionary. The find
+    // overlay is opened on the LAST of 166 host slots (worst case for any scan),
+    // none of which are registered in `entriesByWebViewId`. The fixed
+    // hierarchy-scan finds it (0 Entry copies); the old `entriesByWebViewId.values`
+    // scan would enumerate an empty dictionary and return nil.
+    func testSearchOverlayLookupRemainsHierarchyDrivenAtCrashPaneCount() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        // 166 = the browser-pane count at the time of the production crash (#5731).
+        let paneCount = 166
+        var slots: [WindowBrowserSlotView] = []
+        for index in 0..<paneCount {
+            let slot = WindowBrowserSlotView(
+                frame: NSRect(x: 0, y: CGFloat(index), width: 120, height: 1)
+            )
+            portal.browserPortalTestInstallSlotWithoutEntry(slot)
+            slots.append(slot)
+        }
+
+        let panelId = UUID()
+        guard let targetSlot = slots.last else {
+            XCTFail("Expected slots")
+            return
+        }
+        targetSlot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        guard let overlayResponder = targetSlot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(
+            portal.searchOverlayPanelId(for: overlayResponder),
+            panelId,
+            "At the 166-pane crash profile the find-overlay lookup must resolve off the "
+                + "live slot hierarchy with zero Entry weak-copies (#5733)"
+        )
+        // A responder no slot owns must still return nil after scanning all 166 slots.
+        XCTAssertNil(portal.searchOverlayPanelId(for: window))
+    }
+
     func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
@@ -3286,6 +4112,256 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.displayIfNeededCount,
             displayCountBeforeRebind,
             "Workspace rebind should refresh the preserved browser without recreating its portal slot"
+        )
+    }
+}
+
+@MainActor
+final class OmnibarNativeTextFieldCaretTests: XCTestCase {
+    /// A window that hands the omnibar field a real, controllable field editor so
+    /// the click path can be exercised headlessly in CI (mirrors the probe pattern
+    /// used by the omnibar key-routing tests in `BrowserConfigTests`).
+    private final class CaretProbeWindow: NSWindow {
+        let probeFieldEditor = NSTextView(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            probeFieldEditor
+        }
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        clickCount: Int = 1,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    private func makeCoordinator(
+        panelId: UUID = UUID(),
+        isFocused: Bool = true
+    ) -> OmnibarTextFieldRepresentable.Coordinator {
+        var text = ""
+        var focused = isFocused
+        return OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: panelId,
+                fontSize: 12,
+                text: Binding(
+                    get: { text },
+                    set: { text = $0 }
+                ),
+                isFocused: Binding(
+                    get: { focused },
+                    set: { focused = $0 }
+                ),
+                selectAllRequestId: 0,
+                inlineCompletion: nil,
+                placeholder: "",
+                onTap: {},
+                onSubmit: { _ in },
+                onEscape: {},
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
+
+    private func makeCaretProbeWindow() -> CaretProbeWindow {
+        let window = CaretProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        return window
+    }
+
+    private func installOmnibarField(
+        in window: NSWindow,
+        stringValue: String = "https://github.com/manaflow-ai/cmux"
+    ) -> OmnibarNativeTextField {
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 80, width: 360, height: 24))
+        field.font = .systemFont(ofSize: 12)
+        field.isEditable = true
+        field.isSelectable = true
+        field.isEnabled = true
+        field.stringValue = stringValue
+        window.contentView?.addSubview(field)
+        return field
+    }
+
+    private func cleanup(window: NSWindow, field: OmnibarNativeTextField) {
+        field.removeFromSuperview()
+        window.contentView = nil
+        window.orderOut(nil)
+    }
+
+    private func singleClick(field: OmnibarNativeTextField, in window: NSWindow) {
+        let clickPoint = NSPoint(x: field.frame.midX, y: field.frame.midY)
+        let pointInWindow = window.contentView?.convert(clickPoint, to: nil) ?? clickPoint
+        field.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window))
+        field.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: pointInWindow, window: window))
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/5268: a single,
+    /// unmodified click that focuses the omnibar must leave a caret (zero-length
+    /// selection) at the click position, not select the entire URL.
+    func testSingleClickFocusPlacesCaretInsteadOfSelectingAll() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        // Do NOT pre-focus: the bug only manifests on the click that first acquires
+        // focus, where the old code forced a select-all on mouseUp.
+        singleClick(field: field, in: window)
+
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after the click acquired focus")
+            return
+        }
+        let textLength = (editor.string as NSString).length
+        XCTAssertGreaterThan(textLength, 0, "Test precondition: the omnibar should contain a URL")
+        XCTAssertEqual(
+            editor.selectedRange().length,
+            0,
+            "A single click must place a caret, not select the whole URL"
+        )
+    }
+
+    /// The native single-click path can place a caret correctly and still be
+    /// clobbered later by the SwiftUI focus-gained effect. This exercises that
+    /// full behavior path instead of only checking the field's mouse handlers.
+    func testSwiftUIFocusGainedEffectDoesNotClobberSingleClickCaret() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        singleClick(field: field, in: window)
+
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after the click acquired focus")
+            return
+        }
+        XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
+
+        var state = OmnibarState()
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: field.stringValue)
+        )
+        let coordinator = makeCoordinator()
+        coordinator.parentField = field
+        if effects.shouldSelectAll {
+            coordinator.queueSelectAllRequest(1)
+            _ = coordinator.applyPendingSelectAllIfPossible(field: field)
+        }
+
+        XCTAssertEqual(
+            editor.selectedRange().length,
+            0,
+            "Focus-gained handling must preserve the caret placed by the focusing click"
+        )
+    }
+
+    /// Pane focus reconciliation can reassert omnibar focus after the click has
+    /// already placed the caret. That restore path must not treat the click as
+    /// Cmd+L and select the full URL.
+    func testFocusRestoreReassertionDoesNotClobberSingleClickCaret() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        singleClick(field: field, in: window)
+
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after the click acquired focus")
+            return
+        }
+        XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
+
+        var state = OmnibarState()
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: field.stringValue))
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusReasserted(
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    selectionIntent: .preserveFieldEditorSelection
+                )
+            )
+        )
+
+        let coordinator = makeCoordinator()
+        coordinator.parentField = field
+        if effects.shouldSelectAll {
+            coordinator.queueSelectAllRequest(1)
+            _ = coordinator.applyPendingSelectAllIfPossible(field: field)
+        }
+
+        XCTAssertEqual(
+            editor.selectedRange().length,
+            0,
+            "Focus-restore reassertion must preserve the caret placed by the focusing click"
+        )
+    }
+
+    func testExplicitSelectAllRequestStillSelectsWholeURL() {
+        let window = makeCaretProbeWindow()
+        let field = installOmnibarField(in: window)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cleanup(window: window, field: field)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected a field editor after focusing text field")
+            return
+        }
+        let textLength = (editor.string as NSString).length
+        editor.setSelectedRange(NSRange(location: textLength, length: 0))
+
+        let coordinator = makeCoordinator()
+        coordinator.parentField = field
+        coordinator.queueSelectAllRequest(1)
+
+        XCTAssertTrue(coordinator.applyPendingSelectAllIfPossible(field: field))
+        XCTAssertEqual(
+            editor.selectedRange(),
+            NSRange(location: 0, length: textLength),
+            "Explicit omnibar focus requests such as Cmd+L must still select the whole URL"
         )
     }
 }

@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -41,6 +45,56 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 		}
 	})
 	return server, hub
+}
+
+// TestAttachRPCSurfacesPTYAllocationFailure pins the contract that a remote PTY
+// allocation failure (e.g. a hardened devpts mounted ptmxmode=000 where
+// /dev/ptmx cannot be opened) is reported loudly: the error returned to the
+// client names the failing device and explains the devpts cause, and the daemon
+// records the failure instead of leaving a 0-byte log. This is the regression
+// for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
+// collapsed into a generic "remote PTY attach failed" with an empty daemon log.
+func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
+	t.Cleanup(hub.closeAll)
+
+	denied := &os.PathError{Op: "open", Path: "/dev/ptmx", Err: syscall.EACCES}
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		return nil, nil, denied
+	}
+
+	_, _, _, err := hub.attachRPC(context.Background(), "sess-1", "att-1", 80, 24, "", "", false)
+	if err == nil {
+		t.Fatalf("expected attachRPC to fail when PTY allocation is denied")
+	}
+
+	msg := err.Error()
+	lowered := strings.ToLower(msg)
+	// Pin the stable marker the Swift clients key their passthrough off of: a
+	// daemon wording change that dropped it would silently break client-side
+	// preservation of this diagnostic without failing any other assertion. Match
+	// case-insensitively, exactly as Sources/Workspace.swift does.
+	if !strings.Contains(lowered, "could not allocate a remote pty") {
+		t.Fatalf("error must preserve the stable PTY-allocation marker the clients key off: %q", msg)
+	}
+	if !strings.Contains(msg, "/dev/ptmx") {
+		t.Fatalf("error should name the device that could not be opened: %q", msg)
+	}
+	// The EACCES remediation hint is appended for any permission-denied failure
+	// independent of /proc/self/mountinfo, so these assertions hold even in a
+	// container/sandbox without a real devpts mount (describeDevPTS may add
+	// nothing there). Key off the hint, not the optional mount summary.
+	if !strings.Contains(lowered, "ptmxmode") || !strings.Contains(lowered, "remount") {
+		t.Fatalf("error should explain the hardened devpts cause and remediation: %q", msg)
+	}
+
+	if stderr.Len() == 0 {
+		t.Fatalf("PTY allocation failure must be logged to the daemon log, not swallowed")
+	}
+	if !strings.Contains(stderr.String(), "/dev/ptmx") {
+		t.Fatalf("daemon log should include the allocation failure detail: %q", stderr.String())
+	}
 }
 
 func TestServeWSRequiresExplicitLeaseFile(t *testing.T) {
@@ -72,6 +126,134 @@ func TestWebSocketPTYHealthIsAvailableWhenLocked(t *testing.T) {
 	}
 	if body["ok"] != true || body["locked"] != true {
 		t.Fatalf("unexpected health body: %v", body)
+	}
+}
+
+func TestWebSocketPTYAdminLeaseInstallRequiresToken(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	adminToken := "admin-token"
+	sum := sha256.Sum256([]byte(adminToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		AdminTokenSHA256: hex.EncodeToString(sum[:]),
+		Shell:            "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", strings.NewReader(`{"pty_lease":{}}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("unauthenticated install status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestWebSocketPTYAdminLeaseInstallUnlocksAttach(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	adminToken := "admin-token"
+	adminSum := sha256.Sum256([]byte(adminToken))
+	ptyToken := "pty-token"
+	ptySum := sha256.Sum256([]byte(ptyToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		AdminTokenSHA256: hex.EncodeToString(adminSum[:]),
+		Shell:            "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	lease := wsPTYLease{
+		Version:       1,
+		TokenSHA256:   hex.EncodeToString(ptySum[:]),
+		ExpiresAtUnix: time.Now().Add(time.Minute).Unix(),
+		SessionID:     "sess-admin",
+		SingleUse:     true,
+	}
+	body, err := json.Marshal(map[string]any{"pty_lease": lease})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("install status = %d, want 200", resp.StatusCode)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, conn, ptyToken, "sess-admin", 80, 24)
+	readReady(t, ctx, conn)
+}
+
+func TestWebSocketPTYAdminLeaseInstallAcceptsEd25519Signature(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	ptyToken := "pty-token"
+	ptySum := sha256.Sum256([]byte(ptyToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:   leasePath,
+		AdminEd25519PubKey: base64.StdEncoding.EncodeToString(publicKey),
+		Shell:              "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	lease := wsPTYLease{
+		Version:       1,
+		TokenSHA256:   hex.EncodeToString(ptySum[:]),
+		ExpiresAtUnix: time.Now().Add(time.Minute).Unix(),
+		SessionID:     "sess-signed",
+		SingleUse:     true,
+	}
+	body, err := json.Marshal(map[string]any{"pty_lease": lease})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new unsigned request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases unsigned: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("unsigned install status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new signed request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Cmux-Admin-Signature-Ed25519", base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, body)))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases signed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("signed install status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }
 
@@ -639,9 +821,17 @@ func TestWebSocketPTYWriteFailureClosesConnectionAndReapsAttachment(t *testing.T
 	}
 
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
-	_, _, err := conn.Read(ctx)
-	if err == nil {
-		t.Fatal("client connection stayed open after server write failure")
+	closeCtx, cancelClose := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelClose()
+	for {
+		_, _, err := conn.Read(closeCtx)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("client connection stayed open after server write failure")
+		}
+		break
 	}
 }
 

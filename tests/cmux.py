@@ -45,8 +45,12 @@ class cmuxError(Exception):
     pass
 
 
-_APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
-_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
+# The control socket, markers, and password live in the non-TCC cmux state
+# directory (~/.local/state/cmux), not Application Support, so the separately
+# signed cmux CLI can touch them without the macOS "access data from other apps"
+# prompt (https://github.com/manaflow-ai/cmux/issues/5146).
+_STATE_DIR = os.path.expanduser("~/.local/state/cmux")
+_STABLE_SOCKET_PATH = os.path.join(_STATE_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
 _STABLE_BUNDLE_ID = "com.cmuxterm.app"
 _NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
@@ -136,7 +140,7 @@ def _last_socket_path_files() -> List[str]:
         tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
 
     return [
-        os.path.join(_APP_SUPPORT_DIR, marker),
+        os.path.join(_STATE_DIR, marker),
         tmp_marker,
     ]
 
@@ -211,7 +215,7 @@ def _default_socket_path() -> str:
 
     if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
         tagged = glob.glob("/tmp/cmux-debug-*.sock")
-        tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
+        tagged.extend(glob.glob(os.path.join(_STATE_DIR, "cmux*.sock")))
         tagged = [
             p for p in tagged
             if os.path.exists(p)

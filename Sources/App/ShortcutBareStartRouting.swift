@@ -16,6 +16,8 @@ enum KeyboardShortcutBareStartCache {
         let resolvedKeys = Set(
             KeyboardShortcutSettings.Action.allCases.compactMap { action -> String? in
                 guard action != .showHideAllWindows else { return nil }
+                guard !action.isBrowserContentShortcut else { return nil }
+                guard action.participatesInAppWideBareStartRouting else { return nil }
                 return KeyboardShortcutSettings.shortcut(for: action).bareShortcutStartKey
             }
         )
@@ -31,6 +33,17 @@ enum KeyboardShortcutBareStartCache {
             queue: .main
         ) { _ in
             configuredKeys = nil
+        }
+    }
+}
+
+private extension KeyboardShortcutSettings.Action {
+    var participatesInAppWideBareStartRouting: Bool {
+        switch self {
+        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
+            return false
+        default:
+            return true
         }
     }
 }

@@ -155,29 +155,30 @@ def _write_hook_state(
     executable_path: Path,
     arguments: list[str] | None = None,
     environment: dict[str, str] | None = None,
+    transcript_path: Path | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "version": 1,
-        "sessions": {
-            session_id: {
-                "sessionId": session_id,
-                "workspaceId": workspace_id,
-                "surfaceId": surface_id,
-                "cwd": cwd,
-                "launchCommand": {
-                    "launcher": launcher,
-                    "executablePath": str(executable_path),
-                    "arguments": arguments or [str(executable_path)],
-                    "workingDirectory": cwd,
-                    "environment": environment,
-                    "capturedAt": time.time(),
-                    "source": "test",
-                },
-                "updatedAt": time.time(),
-            }
+    session: dict = {
+        "sessionId": session_id,
+        "workspaceId": workspace_id,
+        "surfaceId": surface_id,
+        "cwd": cwd,
+        "launchCommand": {
+            "launcher": launcher,
+            "executablePath": str(executable_path),
+            "arguments": arguments or [str(executable_path)],
+            "workingDirectory": cwd,
+            "environment": environment,
+            "capturedAt": time.time(),
+            "source": "test",
         },
+        "updatedAt": time.time(),
     }
+    if transcript_path is not None:
+        # Claude hook records are only restorable when their transcript
+        # exists on disk (hookRecordIsRestorable).
+        session["transcriptPath"] = str(transcript_path)
+    payload = {"version": 1, "sessions": {session_id: session}}
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -196,9 +197,12 @@ def main() -> int:
     snapshot = _snapshot_path(bundle_id)
     previous_snapshot = _snapshot_path(bundle_id, suffix="-previous")
     codex_expected = "CMUX_FAKE_CODEX_RESUME:resume codex-session-relaunch-2923"
-    claude_expected = (
-        "CMUX_FAKE_CLAUDE_RESUME:--resume claude-session-relaunch-2923 "
-        "--dangerously-skip-permissions"
+    # The cmux claude wrapper inserts its own arguments around --resume, so
+    # claude expectations are order-agnostic tokens that must share one line.
+    claude_expected_tokens = (
+        "CMUX_FAKE_CLAUDE_RESUME:",
+        "--resume claude-session-relaunch-2923",
+        "--dangerously-skip-permissions",
     )
     opencode_expected = "CMUX_FAKE_OPENCODE_RESUME:--session opencode-session-relaunch-2923"
     pi_expected = "CMUX_FAKE_PI_RESUME:--session pi-session-relaunch-2923"
@@ -220,6 +224,9 @@ def main() -> int:
         app_env = {
             "PATH": launch_path,
             "CMUX_AGENT_HOOK_STATE_DIR": str(hook_state_dir),
+            # Claude resume routes through the cmux claude wrapper, which
+            # resolves the real binary; point it at the fake one instead.
+            "CMUX_CUSTOM_CLAUDE_PATH": str(fake_bin_dir / "claude"),
         }
 
         _kill_existing(app_path)
@@ -257,6 +264,8 @@ def main() -> int:
                 if not claude_surfaces:
                     failures.append("expected a Claude workspace surface during setup")
                 else:
+                    claude_transcript = Path(td) / "claude-transcript.jsonl"
+                    claude_transcript.write_text('{"type":"user"}\n', encoding="utf-8")
                     _write_hook_state(
                         claude_hook_state,
                         session_id="claude-session-relaunch-2923",
@@ -275,6 +284,7 @@ def main() -> int:
                             "SHELL": "/bin/zsh",
                             "UNSAFE_TOKEN": "must-not-restore",
                         },
+                        transcript_path=claude_transcript,
                     )
 
                 opencode_workspace_id = client.new_workspace()
@@ -341,42 +351,59 @@ def main() -> int:
                 if len(workspaces) < 4:
                     failures.append(f"expected >=4 restored workspaces after relaunch, got {len(workspaces)}")
 
-                def workspace_contains(index: int, expected: str) -> bool:
-                    if len(client.list_workspaces()) <= index:
-                        return False
-                    client.select_workspace(index)
-                    return expected in _read_scrollback(client)
+                def find_workspace_with(expected: str) -> bool:
+                    # Restored workspaces are not guaranteed to keep their
+                    # seeding order, so scan every workspace for the expected
+                    # resume output instead of trusting a fixed index.
+                    for index in range(len(client.list_workspaces())):
+                        client.select_workspace(index)
+                        if expected in _read_scrollback(client):
+                            return True
+                    return False
 
-                if not _wait_for_condition(12.0, lambda: workspace_contains(0, codex_expected)):
-                    client.select_workspace(0)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                def find_workspace_with_tokens(tokens: tuple[str, ...]) -> bool:
+                    for index in range(len(client.list_workspaces())):
+                        client.select_workspace(index)
+                        if any(
+                            all(token in line for token in tokens)
+                            for line in _read_scrollback(client).splitlines()
+                        ):
+                            return True
+                    return False
+
+                def best_scrollback_tail() -> str:
+                    # Pick the longest scrollback across all workspaces so the
+                    # failure report shows the most informative pane.
+                    best = ""
+                    for index in range(len(client.list_workspaces())):
+                        client.select_workspace(index)
+                        lines = _read_scrollback(client).splitlines()
+                        if len(lines) >= len(best.splitlines()):
+                            best = "\n".join(lines[-20:])
+                    return best
+
+                if not _wait_for_condition(12.0, lambda: find_workspace_with(codex_expected)):
                     failures.append(
                         "normal relaunch did not resume the saved Codex session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
 
-                if not _wait_for_condition(12.0, lambda: workspace_contains(1, claude_expected)):
-                    client.select_workspace(1)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                if not _wait_for_condition(12.0, lambda: find_workspace_with_tokens(claude_expected_tokens)):
                     failures.append(
                         "normal relaunch did not resume the saved Claude session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
 
-                if not _wait_for_condition(12.0, lambda: workspace_contains(2, opencode_expected)):
-                    client.select_workspace(2)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                if not _wait_for_condition(12.0, lambda: find_workspace_with(opencode_expected)):
                     failures.append(
                         "normal relaunch did not resume the saved OpenCode session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
 
-                if not _wait_for_condition(12.0, lambda: workspace_contains(3, pi_expected)):
-                    client.select_workspace(3)
-                    scrollback_tail = "\n".join(_read_scrollback(client).splitlines()[-20:])
+                if not _wait_for_condition(12.0, lambda: find_workspace_with(pi_expected)):
                     failures.append(
                         "normal relaunch did not resume the saved Pi session; "
-                        f"tail:\n{scrollback_tail}"
+                        f"tail:\n{best_scrollback_tail()}"
                     )
             finally:
                 client.close()

@@ -11,7 +11,7 @@ export default function PrivacyPolicyPage() {
   return (
     <>
       <h1>Privacy Policy</h1>
-      <p>Last updated: March 18, 2026</p>
+      <p>Last updated: June 23, 2026</p>
 
       <p>
         Manaflow (the &ldquo;Company&rdquo;) is committed to maintaining robust
@@ -59,17 +59,27 @@ export default function PrivacyPolicyPage() {
         operating system version and application version to our update server.
       </p>
       <p>
-        The Site uses PostHog for anonymous analytics, including page views and
-        navigation patterns. PostHog stores a cookie to distinguish unique
-        visitors. No personally identifiable information is collected through
-        analytics. You can opt out by using a browser extension that blocks
-        tracking scripts.
+        The Site uses PostHog for analytics, including page views and navigation
+        patterns. PostHog stores a cookie to distinguish unique visitors. This
+        analytics is anonymous and collects no personally identifiable
+        information, with one exception: if you join a platform waitlist, the
+        email address you submit is recorded in PostHog so we can notify you when
+        that platform is available. If you submit the Enterprise contact form,
+        we record the company and contact details you provide in PostHog and
+        send them to our internal Slack workspace and founders email inbox so we
+        can respond. You can opt out of analytics by using a browser extension
+        that blocks tracking scripts.
       </p>
 
       <h3>2. Information you provide directly</h3>
       <p>
-        If you contact us via email or our contact page, we collect the
-        information you provide such as your name and email address.
+        If you contact us via email, our contact page, or the Enterprise contact
+        form, we collect the information you provide such as your name, email
+        address, company, role, phone number, country, deployment needs, and
+        comments. If you join a platform waitlist, we collect the email address
+        you submit so we can email you when that platform launches, and we send a
+        notification of the signup (including that email address) to our internal
+        Slack workspace.
       </p>
 
       <h3>3. Children&rsquo;s Privacy</h3>
@@ -101,12 +111,19 @@ export default function PrivacyPolicyPage() {
         <li>
           <strong>PostHog</strong> &mdash; website analytics. Collects anonymous
           page view data, navigation patterns, and browser metadata via a
-          first-party proxy. No personally identifiable information is collected.
+          first-party proxy. If you join a platform waitlist, the email address
+          you submit is also recorded in PostHog so we can notify you.
         </li>
         <li>
           <strong>Resend</strong> &mdash; transactional email delivery. Used to
           deliver feedback submissions from the Application. Your email address
           is transmitted to Resend only if you voluntarily submit feedback.
+        </li>
+        <li>
+          <strong>Slack</strong> &mdash; internal team notifications. If you join
+          a platform waitlist, the email address and platforms you submit are
+          sent to our private Slack workspace so the team is notified of the
+          signup.
         </li>
       </ul>
       <p>

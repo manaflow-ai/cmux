@@ -11,6 +11,8 @@ import {
   MobileDrawerOverlay,
   MobileDrawerToggle,
 } from "./mobile-drawer";
+import { BrandLogoLink } from "./brand-logo-link";
+import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 
 export function SiteHeader({
   section,
@@ -31,7 +33,7 @@ export function SiteHeader({
           <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
               <>
-                <Link href="/" className="flex items-center gap-2.5">
+                <BrandLogoLink className="flex items-center gap-2.5">
                   <img
                     src="/logo.png"
                     alt="cmux"
@@ -42,7 +44,7 @@ export function SiteHeader({
                   <span className="text-sm font-semibold tracking-tight">
                     cmux
                   </span>
-                </Link>
+                </BrandLogoLink>
                 {section && (
                   <>
                     <span className="text-border text-[13px]">/</span>
@@ -136,6 +138,15 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
+          <ProUpgradeVisibility>
+            <Link
+              href="/pricing"
+              onClick={close}
+              className="hover:text-foreground transition-colors py-1"
+            >
+              {t("pricing")}
+            </Link>
+          </ProUpgradeVisibility>
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />

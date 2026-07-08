@@ -16,7 +16,15 @@ extension Workspace {
 
         for filePath in filePaths {
             let panel: (any Panel)?
-            if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+            let pathExtension = (filePath as NSString).pathExtension.lowercased()
+            if pathExtension == "xcodeproj" || pathExtension == "xcworkspace" {
+                panel = newProjectSurface(
+                    inPane: paneId,
+                    projectPath: filePath,
+                    focus: shouldFocusNewTabs,
+                    targetIndex: nextIndex
+                )
+            } else if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
                 if reuseExisting {
                     panel = openOrFocusMarkdownSurface(
                         inPane: paneId,

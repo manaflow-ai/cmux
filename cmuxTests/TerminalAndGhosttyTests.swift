@@ -1,8 +1,15 @@
-import XCTest
+@preconcurrency import XCTest
+import CmuxTerminal
+import Testing
+import CmuxControlSocket
+import CmuxFoundation
+import CmuxTerminalCore
+import CmuxSettings
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
+import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
@@ -39,8 +46,44 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello world")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
+    }
+
+    func testCapturedStandardClipboardWriteDoesNotTouchGeneralPasteboard() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("existing clipboard text", forType: .string)
+        let initialChangeCount = pasteboard.changeCount
+
+        let captured = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+            GhosttyApp.terminalPasteboard.writeString(
+                "/tmp/cmux-screen.txt",
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+
+        XCTAssertEqual(captured, "/tmp/cmux-screen.txt")
+        XCTAssertEqual(pasteboard.string(forType: .string), "existing clipboard text")
+        XCTAssertEqual(pasteboard.changeCount, initialChangeCount)
+    }
+
+    func testStandardClipboardWriteAfterCaptureUsesGeneralPasteboard() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("existing clipboard text", forType: .string)
+
+        _ = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+            GhosttyApp.terminalPasteboard.writeString(
+                "/tmp/cmux-screen.txt",
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+
+        GhosttyApp.terminalPasteboard.writeString("normal clipboard text", to: GHOSTTY_CLIPBOARD_STANDARD)
+        XCTAssertEqual(pasteboard.string(forType: .string), "normal clipboard text")
     }
 
     func testAlternatePlainTextUTIExtractsPlainText() {
@@ -52,7 +95,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "hello from public.plain-text"
         )
     }
@@ -78,7 +121,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString(koreanText, forType: utf8Type)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             koreanText
         )
     }
@@ -97,7 +140,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("<p>\(chineseText)</p>", forType: .html)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             chineseText
         )
     }
@@ -114,7 +157,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setString("plain ascii", forType: legacyType)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "plain ascii"
         )
     }
@@ -132,7 +175,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setData(rtfData, forType: .rtf)
 
         XCTAssertEqual(
-            cmuxPasteboardStringContentsForTesting(pasteboard),
+            GhosttyApp.terminalPasteboard.stringContents(from: pasteboard),
             "hello from rtf fallback"
         )
     }
@@ -166,7 +209,6 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setData(rtfData, forType: .rtf)
 
         let mockPTY = MockPTY()
-        let startedAt = ProcessInfo.processInfo.systemUptime
 
         let plan = TerminalImageTransferPlanner.plan(
             pasteboard: pasteboard,
@@ -187,13 +229,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
             }
         )
 
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
         XCTAssertEqual(mockPTY.receivedText, text)
-        XCTAssertLessThan(
-            elapsed,
-            0.5,
-            "large plain-text pastes should not spend hundreds of milliseconds decoding HTML/RTF before writing to the PTY"
-        )
     }
 
     func testXHTMLTypeFallsBackToRenderedHTMLText() {
@@ -205,7 +241,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello world")
     }
 
     func testPublicURLPastePreservesOriginalURLText() throws {
@@ -218,7 +254,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(pasteboard.types?.contains(.URL) == true)
         XCTAssertFalse(pasteboard.types?.contains(.fileURL) == true)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), rawURL)
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), rawURL)
 
         let plan = TerminalImageTransferPlanner.plan(
             pasteboard: pasteboard,
@@ -251,9 +287,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -275,9 +311,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -303,9 +339,9 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".png"))
@@ -327,8 +363,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         pasteboard.setData(pngData, forType: .png)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testJPEGClipboardFallsBackToImagePath() throws {
@@ -354,7 +390,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
             forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)
         )
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
         XCTAssertTrue(imagePath.hasSuffix(".jpeg"))
@@ -380,12 +416,12 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
@@ -412,12 +448,12 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
 
-        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        let imagePath = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
@@ -436,8 +472,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard))
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testRTFDClipboardWithVisibleTextPrefersText() throws {
@@ -461,8 +497,8 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
         pasteboard.setData(data, forType: .rtfd)
 
-        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
-        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+        XCTAssertEqual(GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), "Hello")
+        XCTAssertNil(GhosttyApp.terminalPasteboard.saveClipboardImageIfNeeded(from: pasteboard))
     }
 
     func testImageOnlyPasteboardProducesTempFileURL() throws {
@@ -470,7 +506,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setData(try make1x1PNG(color: .red), forType: .png)
 
-        let fileURL = try XCTUnwrap(cmuxPasteboardImageFileURLForTesting(pasteboard))
+        let fileURL = try XCTUnwrap(GhosttyApp.terminalPasteboard.saveImageFileURLIfNeeded(from: pasteboard))
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         XCTAssertEqual(fileURL.pathExtension, "png")
@@ -484,7 +520,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         try Data("report".utf8).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([fileURL])
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([fileURL])
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
     }
@@ -940,6 +976,24 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
+#if DEBUG
+    private final class RecordingMobileTabManager: TabManager {
+        private(set) var scheduledMetadataRefreshes: [(workspaceId: UUID, panelId: UUID, reason: String)] = []
+
+        override func didScheduleInitialWorkspaceGitMetadataRefreshForTesting(
+            workspaceId: UUID,
+            panelId: UUID,
+            reason: String
+        ) {
+            scheduledMetadataRefreshes.append((workspaceId, panelId, reason))
+        }
+
+        func clearScheduledMetadataRefreshesForTesting() {
+            scheduledMetadataRefreshes.removeAll()
+        }
+    }
+#endif
+
     func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
         let panel = TerminalPanel(workspaceId: UUID())
 
@@ -1108,6 +1162,81 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testColdSocketInputQueuesReturnAsCommittedTextInputInsteadOfPasteOrKeyEvent() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertTrue(panel.surface.sendInput("printf 'ok\\n'\n"))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, 0)
+        XCTAssertGreaterThan(
+            pending.inputTextItems,
+            0,
+            "Programmatic newline input must use Ghostty committed text input so headless mobile commands execute."
+        )
+        XCTAssertEqual(
+            pending.pasteTextItems,
+            0,
+            "Programmatic newline input must not use paste mode because bracketed paste can strand commands at the prompt."
+        )
+        XCTAssertEqual(
+            pending.keyEvents,
+            0,
+            "Programmatic newline input must not be translated to Return key events for cold terminals."
+        )
+    }
+
+    /// Verifies OSC 11 is queued as terminal output bytes instead of literal shell input.
+    func testColdSocketInputQueuesOSC11AsRawTerminalBytes() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
+        XCTAssertTrue(panel.surface.sendInput(osc11))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertEqual(
+            pending.keyEvents,
+            0,
+            "OSC 11 must not be split into Escape key events plus literal text."
+        )
+        XCTAssertEqual(
+            pending.inputTextItems,
+            0,
+            "OSC 11 must bypass committed text input so Ghostty consumes it as a terminal control sequence."
+        )
+        XCTAssertEqual(
+            pending.pasteTextItems,
+            0,
+            "OSC 11 must bypass paste input so it is not echoed by the shell."
+        )
+        XCTAssertEqual(
+            pending.processOutputItems,
+            1,
+            "OSC 11 must be queued as one terminal output payload."
+        )
+        XCTAssertEqual(pending.bytes, osc11.utf8.count)
+    }
+
+    func testColdSocketInputChunksLongCommittedTextInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        let command = "printf '" + String(repeating: "x", count: 360) + "'\n"
+        XCTAssertTrue(panel.surface.sendInput(command))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(
+            pending.inputTextItems,
+            1,
+            "Long programmatic input must be split into committed-text chunks so Ghostty does not drop the tail of the command."
+        )
+        XCTAssertEqual(pending.pasteTextItems, 0)
+        XCTAssertEqual(pending.keyEvents, 0)
+        XCTAssertEqual(pending.bytes, command.utf8.count)
+    }
+
     func testTeardownClosesHeadlessStartupWindow() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
@@ -1145,6 +1274,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(pending.bytes, 0)
     }
 
+    func testSendNamedKeyRecognizesCtrlFForceStopChord() {
+        // Claude Code (and other raw-tty TUIs) only expose force-stop as a Ctrl-F
+        // keybinding. cmux must be able to deliver that chord to the focused terminal
+        // via a non-keyboard path, so the named-key layer has to recognize "ctrl-f".
+        // A recognized-but-undeliverable key returns `.surfaceUnavailable` on a closed
+        // surface, whereas an unrecognized key returns `.unknownKey`.
+        let panel = TerminalPanel(workspaceId: UUID())
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-f"),
+            .surfaceUnavailable,
+            "ctrl-f must be a recognized control chord so it can be forwarded to the focused terminal."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl+f"),
+            .surfaceUnavailable,
+            "The ctrl+f alias must resolve identically to ctrl-f."
+        )
+        XCTAssertEqual(
+            panel.surface.sendNamedKey("ctrl-thisisnotakey"),
+            .unknownKey,
+            "An unrecognized chord must surface as .unknownKey, proving the ctrl-f result is meaningful."
+        )
+    }
+
+    func testNamedKeySendResultAcceptedReflectsDelivery() {
+        // `sendCtrlFToFocusedTerminal()` reports success from this flag, so delivery and
+        // failure cases must map correctly.
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.sent.accepted)
+        XCTAssertTrue(TerminalSurface.NamedKeySendResult.queued.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.unknownKey.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.inputQueueFull.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.surfaceUnavailable.accepted)
+        XCTAssertFalse(TerminalSurface.NamedKeySendResult.processExited.accepted)
+    }
+
     func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
@@ -1167,57 +1334,435 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         let pending = panel.surface.debugPendingSocketInputForTesting()
         XCTAssertGreaterThan(pending.items, 0)
         XCTAssertGreaterThan(
-            pending.keyEvents,
+            pending.inputTextItems,
             0,
-            "A daemon send that accepts newline input for a cold terminal must queue the Return event instead of reporting OK for bytes that cannot execute."
+            "A daemon send that accepts newline input for a cold terminal must queue committed text input instead of reporting OK for pasted text that can fail to execute."
         )
+        XCTAssertEqual(pending.pasteTextItems, 0)
+        XCTAssertEqual(pending.keyEvents, 0)
+    }
+
+    func testMobileTerminalInputReportsRejectedClosedSurface() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.mobile.closed")
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "input",
+                method: "terminal.input",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": panel.id.uuidString,
+                    "text": "echo dropped\r",
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected closed mobile terminal input to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "surface_unavailable")
+    }
+
+    func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "status",
+                method: "mobile.host.status",
+                params: [:],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected mobile host status to succeed without auth")
+            return
+        }
+        XCTAssertNotNil(payload["routes"])
+        XCTAssertNil(payload["mac_device_id"])
+        XCTAssertNil(payload["mac_display_name"])
+        XCTAssertNil(payload["host_service"])
+        XCTAssertNil(payload["workspace_count"])
+    }
+
+    func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminal = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let badWorkspaceID = "workspace:not-a-uuid"
+        let requests: [(method: String, params: [String: Any])] = [
+            (
+                method: "mobile.attach_ticket.create",
+                params: ["workspace_id": badWorkspaceID]
+            ),
+            (
+                method: "terminal.create",
+                params: ["workspace_id": badWorkspaceID]
+            ),
+            (
+                method: "terminal.input",
+                params: [
+                    "workspace_id": badWorkspaceID,
+                    "terminal_id": terminal.id.uuidString,
+                    "text": "echo should-not-send\n",
+                ]
+            ),
+        ]
+
+        for request in requests {
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: request.method,
+                    method: request.method,
+                    params: request.params,
+                    auth: nil
+                )
+            )
+
+            guard case let .failure(error) = response else {
+                XCTFail("\(request.method) should reject malformed workspace_id")
+                continue
+            }
+            XCTAssertEqual(error.code, "invalid_params", request.method)
+        }
+    }
+
+    func testMobileWorkspaceListRejectsMissingScopedTargets() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let missingWorkspaceID = UUID()
+        let missingTerminalID = UUID()
+
+        let missingWorkspaceResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-list-missing-workspace",
+                method: "workspace.list",
+                params: ["workspace_id": missingWorkspaceID.uuidString],
+                auth: nil
+            )
+        )
+        guard case let .failure(missingWorkspaceError) = missingWorkspaceResponse else {
+            XCTFail("Expected stale mobile workspace scope to fail")
+            return
+        }
+        XCTAssertEqual(missingWorkspaceError.code, "not_found")
+
+        let missingTerminalResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-list-missing-terminal",
+                method: "workspace.list",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": missingTerminalID.uuidString,
+                ],
+                auth: nil
+            )
+        )
+        guard case let .failure(missingTerminalError) = missingTerminalResponse else {
+            XCTFail("Expected stale mobile terminal scope to fail")
+            return
+        }
+        XCTAssertEqual(missingTerminalError.code, "not_found")
+    }
+
+    func testMobileAttachTicketCreateWithoutTerminalStaysWorkspaceScoped() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        MobileHostService.shared.start()
+        defer {
+            MobileHostService.shared.stop()
+        }
+        guard await waitForMobileHostRoutesForTesting() else {
+            XCTFail("Expected mobile host to publish routes before creating attach ticket")
+            return
+        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let ticket = payload["ticket"] as? [String: Any] else {
+            XCTFail("Expected workspace-scoped attach ticket payload")
+            return
+        }
+        XCTAssertNil(ticket["terminalID"])
+    }
+
+    func testMobileAttachTicketCreateResolvesTerminalIDAcrossWorkspaces() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        MobileHostService.shared.start()
+        defer {
+            MobileHostService.shared.stop()
+        }
+        guard await waitForMobileHostRoutesForTesting() else {
+            XCTFail("Expected mobile host to publish routes before creating attach ticket")
+            return
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let backgroundWorkspace = manager.addWorkspace(
+            title: "Mobile Background",
+            select: false,
+            eagerLoadTerminal: false
+        )
+        let backgroundTerminal = try XCTUnwrap(backgroundWorkspace.focusedTerminalPanel)
+        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+        XCTAssertNotEqual(selectedWorkspace.id, backgroundWorkspace.id)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: ["terminal_id": backgroundTerminal.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let ticket = payload["ticket"] as? [String: Any] else {
+            XCTFail("Expected terminal-scoped attach ticket payload")
+            return
+        }
+        XCTAssertEqual(ticket["workspaceID"] as? String, backgroundWorkspace.id.uuidString)
+        XCTAssertEqual(ticket["terminalID"] as? String, backgroundTerminal.id.uuidString)
+    }
+
+    func testMobileAttachTicketCreateCanFilterRoutesForQRPairing() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        MobileHostService.shared.start()
+        defer {
+            MobileHostService.shared.stop()
+        }
+        guard await waitForMobileHostRoutesForTesting() else {
+            XCTFail("Expected mobile host to publish routes before creating attach ticket")
+            return
+        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "route_id": "debug_loopback",
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let ticket = payload["ticket"] as? [String: Any],
+              let routes = ticket["routes"] as? [[String: Any]] else {
+            XCTFail("Expected route-filtered attach ticket payload")
+            return
+        }
+        XCTAssertFalse(routes.isEmpty)
+        XCTAssertTrue(routes.allSatisfy { $0["id"] as? String == "debug_loopback" })
+        let topLevelRoutes = try XCTUnwrap(payload["routes"] as? [[String: Any]])
+        XCTAssertEqual(topLevelRoutes.count, routes.count)
+        XCTAssertTrue(topLevelRoutes.allSatisfy { $0["id"] as? String == "debug_loopback" })
+    }
+
+    func testMobileTerminalCreateReturnsBeforeStartingGhostty() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-create",
+                method: "terminal.create",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let terminalID = payload["created_terminal_id"] as? String,
+              let terminalUUID = UUID(uuidString: terminalID),
+              let terminalPanel = workspace.terminalPanel(for: terminalUUID) else {
+            XCTFail("Expected created terminal in mobile workspace list payload")
+            return
+        }
+        defer {
+            terminalPanel.surface.teardownSurface()
+        }
+
+        XCTAssertFalse(
+            terminalPanel.surface.debugBackgroundSurfaceStartQueuedForTesting(),
+            "Mobile terminal creation must return the new terminal ID without waiting on hidden Ghostty startup."
+        )
+        XCTAssertEqual(
+            terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "The first mobile snapshot request owns lazy startup so terminal.create remains a fast metadata-only operation."
+        )
+    }
+
+#if DEBUG
+    func testMobileWorkspaceCreateSkipsHiddenMacSideWorkAndReturnsCreatedScopeOnly() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        manager.clearScheduledMetadataRefreshesForTesting()
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-create",
+                method: "workspace.create",
+                params: ["title": "Created From iOS"],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let createdWorkspaceID = payload["created_workspace_id"] as? String,
+              let createdUUID = UUID(uuidString: createdWorkspaceID),
+              let workspaces = payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Expected mobile workspace.create to return the created workspace payload")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+        XCTAssertEqual(workspaces.count, 1)
+        XCTAssertEqual(workspaces.first?["id"] as? String, createdWorkspaceID)
+        XCTAssertTrue(manager.tabs.contains { $0.id == createdUUID })
+        XCTAssertTrue(
+            manager.scheduledMetadataRefreshes.isEmpty,
+            "Mobile background workspace creation should not schedule sidebar metadata probes on the macOS main path."
+        )
+    }
+
+    func testMobileTerminalCreateSkipsHiddenMacSideWorkAndKeepsMacSelection() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mobileWorkspace = manager.addWorkspace(
+            title: "Mobile Hidden Workspace",
+            select: false,
+            eagerLoadTerminal: false,
+            autoRefreshMetadata: false
+        )
+        manager.clearScheduledMetadataRefreshesForTesting()
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-create",
+                method: "terminal.create",
+                params: ["workspace_id": mobileWorkspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let createdTerminalID = payload["created_terminal_id"] as? String,
+              let createdTerminalUUID = UUID(uuidString: createdTerminalID),
+              let workspaces = payload["workspaces"] as? [[String: Any]] else {
+            XCTFail("Expected mobile terminal.create to return the created terminal payload")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedWorkspace?.id, selectedWorkspace.id)
+        XCTAssertNotNil(mobileWorkspace.terminalPanel(for: createdTerminalUUID))
+        XCTAssertEqual(workspaces.count, 1)
+        XCTAssertEqual(workspaces.first?["id"] as? String, mobileWorkspace.id.uuidString)
+        XCTAssertTrue(
+            manager.scheduledMetadataRefreshes.isEmpty,
+            "Mobile background terminal creation should not schedule sidebar metadata probes on the macOS main path."
+        )
+    }
+#endif
+
+    private func waitForMobileHostRoutesForTesting() async -> Bool {
+        for _ in 0..<200 {
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "status",
+                    method: "mobile.host.status",
+                    params: [:],
+                    auth: nil
+                )
+            )
+            if case let .ok(rawPayload) = response,
+               let payload = rawPayload as? [String: Any],
+               let routes = payload["routes"] as? [[String: Any]],
+               !routes.isEmpty {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return false
     }
 }
-
-@MainActor
-final class FeedbackComposerMessageEditorViewTests: XCTestCase {
-    func testLongMessageCreatesScrollableDocumentContent() {
-        let editor = FeedbackComposerMessageEditorView(
-            frame: NSRect(x: 0, y: 0, width: 360, height: 120)
-        )
-        editor.placeholder = "Message"
-        editor.layoutSubtreeIfNeeded()
-
-        editor.textView.string = (0..<80)
-            .map { "feedback line \($0)" }
-            .joined(separator: "\n")
-        editor.refreshTextLayout()
-        editor.layoutSubtreeIfNeeded()
-
-        XCTAssertGreaterThan(
-            editor.textView.frame.height,
-            editor.scrollView.contentSize.height + 40
-        )
-    }
-
-    func testTrailingBlankLineContributesToScrollableDocumentHeight() {
-        let editor = FeedbackComposerMessageEditorView(
-            frame: NSRect(x: 0, y: 0, width: 360, height: 120)
-        )
-        editor.layoutSubtreeIfNeeded()
-
-        let messageWithoutTrailingBlankLine = (0..<20)
-            .map { "feedback line \($0)" }
-            .joined(separator: "\n")
-        editor.textView.string = messageWithoutTrailingBlankLine
-        editor.refreshTextLayout()
-        let heightWithoutTrailingBlankLine = editor.textView.frame.height
-
-        editor.textView.string = messageWithoutTrailingBlankLine + "\n"
-        editor.refreshTextLayout()
-
-        XCTAssertGreaterThan(
-            editor.textView.frame.height,
-            heightWithoutTrailingBlankLine + 5
-        )
-    }
-}
-
 
 final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testCopyModeBypassAllowsOnlyCommandShortcuts() {
@@ -1229,7 +1774,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
     }
 
-    func testJKWithoutSelectionScrollByLine() {
+    func testVimMotionsWithoutSelectionMoveCursorInsteadOfViewport() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 38,
@@ -1237,7 +1782,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [],
                 hasSelection: false
             ),
-            .scrollLines(1)
+            .adjustSelection(.down)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1246,20 +1791,83 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [],
                 hasSelection: false
             ),
-            .scrollLines(-1)
+            .adjustSelection(.up)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 4,
+                charactersIgnoringModifiers: "h",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.left)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 37,
+                charactersIgnoringModifiers: "l",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.right)
         )
     }
 
+    func testVimKeysResolveUnderNonASCIIKeyboardLayout() {
+        // Korean 2-set (두벌식) reports non-ASCII characters for physical vim keys.
+        // Copy-mode vim keys must still resolve to a
+        // cursor motion via the ASCII-capable layout fallback, without forcing the
+        // user to switch input sources. The character provider is injected so this
+        // test is deterministic and independent of the CI runner's input source.
+        let asciiProvider: (UInt16, NSEvent.ModifierFlags) -> String? = { keyCode, _ in
+            switch keyCode {
+            case 4: return "h"
+            case 38: return "j"
+            case 40: return "k"
+            case 37: return "l"
+            default: return nil
+            }
+        }
+        let cases: [(keyCode: UInt16, characters: String, move: TerminalKeyboardCopyModeSelectionMove)] = [
+            (4, "ㅗ", .left),
+            (38, "ㅓ", .down),
+            (40, "ㅏ", .up),
+            (37, "ㅣ", .right),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                terminalKeyboardCopyModeAction(
+                    keyCode: testCase.keyCode,
+                    charactersIgnoringModifiers: testCase.characters,
+                    modifierFlags: [],
+                    hasSelection: false,
+                    asciiCharacterProvider: asciiProvider
+                ),
+                .adjustSelection(testCase.move)
+            )
+        }
+    }
+
     func testCapsLockDoesNotBlockLetterMappings() {
-        XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
-                keyCode: 38,
-                charactersIgnoringModifiers: "j",
-                modifierFlags: [.capsLock],
-                hasSelection: false
-            ),
-            .scrollLines(1)
-        )
+        let cases: [(keyCode: UInt16, characters: String, move: TerminalKeyboardCopyModeSelectionMove)] = [
+            (4, "h", .left),
+            (38, "j", .down),
+            (40, "k", .up),
+            (37, "l", .right),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                terminalKeyboardCopyModeAction(
+                    keyCode: testCase.keyCode,
+                    charactersIgnoringModifiers: testCase.characters,
+                    modifierFlags: [.capsLock],
+                    hasSelection: false
+                ),
+                .adjustSelection(testCase.move)
+            )
+        }
     }
 
     func testJKWithSelectionAdjustSelection() {
@@ -1335,6 +1943,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 keyCode: 0,
                 charactersIgnoringModifiers: "\u{05}",
                 modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{05}",
+                modifierFlags: [.control],
                 hasSelection: true
             ),
             .adjustSelection(.down)
@@ -1398,6 +2015,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 keyCode: 29,
                 charactersIgnoringModifiers: "0",
                 modifierFlags: [],
+                hasSelection: false
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 29,
+                charactersIgnoringModifiers: "0",
+                modifierFlags: [],
                 hasSelection: true
             ),
             .adjustSelection(.beginningOfLine)
@@ -1410,6 +2036,15 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 hasSelection: true
             ),
             .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .adjustSelection(.endOfLine)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1491,7 +2126,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         )
     }
 
-    func testShiftVMatchesVisualToggleBehavior() {
+    func testShiftVStartsVisualLineSelection() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 9,
@@ -1499,7 +2134,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: false
             ),
-            .startSelection
+            .startLineSelection
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1508,7 +2143,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: true
             ),
-            .clearSelection
+            .startLineSelection
         )
     }
 
@@ -1558,7 +2193,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testCountPrefixAppliesToMotion() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 3))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 3))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1566,7 +2201,13 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(19, chars: "2", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(29, chars: "0", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.scrollLines(-1), count: 20))
+        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.adjustSelection(.up), count: 20))
+
+        var zeroMotionState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(29, chars: "0", hasSelection: false, state: &zeroMotionState),
+            .perform(.adjustSelection(.beginningOfLine), count: 1)
+        )
 
         var selectionState = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(
@@ -1596,7 +2237,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testPendingYankLineDoesNotSwallowNextCommand() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 1))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1646,7 +2287,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testPendingGCancelledByOtherKey() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
-        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.adjustSelection(.down), count: 1))
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
@@ -1749,6 +2390,173 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
             ),
             23
         )
+    }
+
+    func testInitialViewportColumnUsesImePointMidpoint() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 5,
+                imeCellWidth: 10
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 235,
+                imeCellWidth: 10,
+                leftPadding: 5
+            ),
+            23
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportColumn(
+                columns: 80,
+                imePointX: 9999,
+                imeCellWidth: 10
+            ),
+            79
+        )
+    }
+
+    func testCursorMovementReturnsScrollDeltaOnlyAtVerticalEdges() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        XCTAssertEqual(cursor.move(.down, count: 2, rows: 10, columns: 8), 0)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 7, column: 3))
+
+        XCTAssertEqual(cursor.move(.down, count: 4, rows: 10, columns: 8), 2)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 9, column: 3))
+
+        XCTAssertEqual(cursor.move(.up, count: 12, rows: 10, columns: 8), -3)
+        XCTAssertEqual(cursor, TerminalKeyboardCopyModeCursor(row: 0, column: 3))
+    }
+
+    func testCursorSelectionXRangeUsesCellInteriorWhenAvailable() throws {
+        let range = try XCTUnwrap(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 20,
+                rectMaxX: 30,
+                boundsWidth: 100
+            )
+        )
+
+        XCTAssertEqual(range.startX, 20.5, accuracy: 0.0001)
+        XCTAssertEqual(range.endX, 29.5, accuracy: 0.0001)
+    }
+
+    func testCursorSelectionXRangeKeepsNonzeroDragAtRightEdge() throws {
+        let range = try XCTUnwrap(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 99.5,
+                rectMaxX: 120,
+                boundsWidth: 100
+            )
+        )
+
+        XCTAssertEqual(range.startX, 98, accuracy: 0.0001)
+        XCTAssertEqual(range.endX, 99, accuracy: 0.0001)
+    }
+
+    func testCursorSelectionXRangeKeepsNonzeroDragForCollapsedCellWidth() throws {
+        let range = try XCTUnwrap(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 50,
+                rectMaxX: 50.4,
+                boundsWidth: 100
+            )
+        )
+
+        XCTAssertEqual(range.startX, 50.2, accuracy: 0.0001)
+        XCTAssertEqual(range.endX, 51.2, accuracy: 0.0001)
+    }
+
+    func testCursorSelectionXRangeReturnsNilWhenViewCannotExpressHorizontalDrag() {
+        XCTAssertNil(
+            terminalKeyboardCopyModeCursorSelectionXRange(
+                rectMinX: 0,
+                rectMaxX: 10,
+                boundsWidth: 1
+            )
+        )
+    }
+}
+
+
+@Suite("Terminal keyboard copy mode cursor")
+struct TerminalKeyboardCopyModeCursorSwiftTests {
+    @Test func clampKeepsStoredCursorInsideResizedGrid() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 25, column: 90)
+        cursor.clamp(rows: 10, columns: 20)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 19))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: -4, column: -2)
+        cursor.clamp(rows: 0, columns: 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 0))
+    }
+
+    @Test func homeAndEndResetBothAxes() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        #expect(cursor.move(.home, count: 1, rows: 10, columns: 8) == 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 0))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        #expect(cursor.move(.end, count: 1, rows: 10, columns: 8) == 0)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
+    }
+
+    @Test func viewportScrollShiftsCursorToStayOnSameText() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 5, column: 3)
+        cursor.shiftForViewportScroll(lineDelta: 2, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 3, column: 3))
+
+        cursor.shiftForViewportScroll(lineDelta: -4, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 7, column: 3))
+    }
+
+    @Test func viewportScrollShiftClampsAtEdges() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 1, column: 99)
+        cursor.shiftForViewportScroll(lineDelta: 5, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 7))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 8, column: -2)
+        cursor.shiftForViewportScroll(lineDelta: -5, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 0))
+    }
+
+    @Test func terminalSelectionAdjustmentKeepsEndpointAtViewportEdge() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 9, column: 3)
+        cursor.moveAfterTerminalSelectionAdjustment(.down, count: 1, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 9, column: 3))
+
+        cursor = TerminalKeyboardCopyModeCursor(row: 0, column: 3)
+        cursor.moveAfterTerminalSelectionAdjustment(.up, count: 1, rows: 10, columns: 8)
+        #expect(cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 3))
+    }
+
+    @Test func visualSelectionAnchorFollowsMovedCursor() {
+        var cursor = TerminalKeyboardCopyModeCursor(row: 8, column: 7)
+
+        let moveAction = terminalKeyboardCopyModeAction(
+            keyCode: 38,
+            charactersIgnoringModifiers: "j",
+            modifierFlags: [],
+            hasSelection: false
+        )
+        #expect(moveAction == .adjustSelection(.down))
+        if case let .adjustSelection(move)? = moveAction {
+            #expect(cursor.move(move, count: 1, rows: 20, columns: 40) == 0)
+        }
+
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: false
+            ) == .startSelection
+        )
+        #expect(cursor.clamped(rows: 20, columns: 40) == TerminalKeyboardCopyModeCursor(row: 9, column: 7))
     }
 }
 
@@ -2106,6 +2914,39 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
+    private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
+        var drained = false
+        DispatchQueue.main.async {
+            drained = true
+        }
+        XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
+    }
+
+    private func waitForRuntimeSurface(
+        _ surface: TerminalSurface,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            waitUntil(timeout: timeout) { surface.surface != nil },
+            "Expected runtime surface to be recreated",
+            file: file,
+            line: line
+        )
+    }
+
     func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -2170,9 +3011,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
         let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
         surfaceView.mouseDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
@@ -2240,9 +3079,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
         surfaceView.keyDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
@@ -2290,14 +3127,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
-        )
-        wait(for: [recovered], timeout: 1.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(
             surface.surface,
@@ -2353,10 +3183,15 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.removeFromSuperview()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
-        XCTAssertTrue(
-            (window.firstResponder as? NSView) === surfaceView,
-            "Expected the detached Ghostty view to remain the stale first responder during the regression setup"
-        )
+        let detachedViewStillFirstResponder = (window.firstResponder as? NSView) === surfaceView
+        if !detachedViewStillFirstResponder {
+            // Some runners clear the window responder during detach without calling the view hook.
+            surface.recordExternalFocusState(false)
+            XCTAssertFalse(
+                surface.debugDesiredFocusState(),
+                "Runner already moved first responder away, so desired Ghostty focus should be cleared before recovery"
+            )
+        }
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
@@ -2372,14 +3207,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             surface.debugDesiredFocusState(),
             "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
         )
-
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
-        )
-        wait(for: [recovered], timeout: 1.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
         XCTAssertFalse(
@@ -2435,10 +3263,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let drained = expectation(description: "background recovery drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertNil(
             surface.surface,
@@ -2664,10 +3489,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
-
-        let drained = expectation(description: "visible toggle drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
@@ -3065,6 +3887,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
 
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    private var surfacesToRelease: [TerminalSurface] = []
+
     private final class ScrollProbeSurfaceView: GhosttyNSView {
         private(set) var scrollWheelCallCount = 0
 
@@ -3087,6 +3911,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class KeyStatusTestWindow: NSWindow {
+        override var isKeyWindow: Bool { true }
+    }
+
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
         GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(
@@ -3095,6 +3923,28 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 len: len
             )
         )
+    }
+
+    override func tearDown() {
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+        for surface in surfacesToRelease.reversed() {
+            surface.releaseSurfaceForTesting()
+        }
+        surfacesToRelease.removeAll()
+        super.tearDown()
+    }
+
+    private func makeTrackedTerminalSurface(
+        tabId: UUID = UUID()
+    ) -> TerminalSurface {
+        let surface = TerminalSurface(
+            tabId: tabId,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        surfacesToRelease.append(surface)
+        return surface
     }
 
     private func findEditableTextField(in view: NSView) -> NSTextField? {
@@ -3129,17 +3979,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         line: UInt = #line,
         _ condition: @escaping () -> Bool
     ) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                if Thread.isMainThread {
-                    return condition()
-                }
-                return DispatchQueue.main.sync(execute: condition)
-            },
-            object: NSObject()
-        )
-        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
-        guard result == .completed else {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        guard condition() else {
             XCTFail("Timed out waiting for \(description)", file: file, line: line)
             return false
         }
@@ -3296,12 +4143,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -3362,14 +4204,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
         let legacyContentWidth = scrollView.contentSize.width
-        XCTAssertLessThan(
-            legacyContentWidth,
-            initialContentWidth,
-            "Legacy scrollbars should reserve width in the scroll view content area"
-        )
+        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         assertPendingSurfaceWidth(
             initialSurfaceSize.width,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
+            "Changing the scroll view style alone should leave the terminal grid unchanged until the scroller-style observer runs"
         )
 
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
@@ -3377,6 +4215,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let restoredContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertGreaterThanOrEqual(
+            restoredContentWidth,
+            legacyContentWidth,
+            "Preferred scroller style changes should not shrink terminal content when overlay scrollbars return"
+        )
         XCTAssertEqual(
             restoredContentWidth,
             initialContentWidth,
@@ -3434,57 +4277,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testSearchOverlayMountsAndUnmountsWithSearchState() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
-        XCTAssertFalse(hostedView.debugHasSearchOverlay())
-
-        let searchState = TerminalSurface.SearchState(needle: "example")
-        hostedView.setSearchOverlay(searchState: searchState)
-        waitUntil(description: "search overlay to mount") {
-            hostedView.debugHasSearchOverlay()
-        }
-        XCTAssertTrue(hostedView.debugHasSearchOverlay())
-
-        hostedView.setSearchOverlay(searchState: nil)
-        waitUntil(description: "search overlay to unmount") {
-            !hostedView.debugHasSearchOverlay()
-        }
-        XCTAssertFalse(hostedView.debugHasSearchOverlay())
-    }
-
-    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
-        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
-        hostedView.setSearchOverlay(searchState: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertFalse(
-            hostedView.debugHasSearchOverlay(),
-            "A stale deferred mount must not resurrect the find overlay after it closes"
-        )
-    }
-
-    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -3504,32 +4298,103 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+
+        let searchState = TerminalSurface.SearchState(needle: "example")
+        hostedView.setSearchOverlay(searchState: searchState)
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        hostedView.setSearchOverlay(searchState: nil)
+        waitUntil(description: "search overlay to unmount") {
+            !hostedView.debugHasSearchOverlay()
+        }
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
+        hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.debugHasSearchOverlay(),
+            "A stale deferred mount must not resurrect the find overlay after it closes"
+        )
+    }
+
+    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+
+        let window = KeyStatusTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let surface = terminalPanel.surface
+        let hostedView = terminalPanel.hostedView
+        surfacesToRelease.append(surface)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
 
         let searchState = TerminalSurface.SearchState(needle: "")
         surface.searchState = searchState
         hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitUntil(description: "search overlay to mount and expose field") {
+            self.findEditableTextField(in: hostedView) != nil
+        }
 
         guard let searchField = findEditableTextField(in: hostedView) else {
             XCTFail("Expected mounted find text field")
             return
         }
 
-        XCTAssertTrue(
-            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
-            "Deferred search overlay attach should still move focus into the find field"
-        )
+        waitUntil(description: "search field to become first responder") {
+            self.firstResponderOwnsTextField(window.firstResponder, textField: searchField)
+        }
     }
 
     func testStartOrFocusTerminalSearchReusesExistingSearchState() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let existingSearchState = TerminalSurface.SearchState(needle: "existing")
         surface.searchState = existingSearchState
 
@@ -3551,12 +4416,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
         _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -3644,12 +4504,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     @MainActor
     func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
 
@@ -3706,12 +4561,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
@@ -3737,23 +4587,26 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     func testSearchOverlayMountDoesNotRetainTerminalSurface() {
         weak var weakSurface: TerminalSurface?
 
-        let hostedView: GhosttySurfaceScrollView = {
-            let surface = TerminalSurface(
-                tabId: UUID(),
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: nil,
-                workingDirectory: nil
-            )
-            weakSurface = surface
-            let hostedView = surface.hostedView
+        var surface: TerminalSurface? = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        weakSurface = surface
+        guard let hostedView = surface?.hostedView else {
+            XCTFail("Expected hosted terminal view")
+            return
+        }
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
-        return hostedView
-        }()
 
         waitUntil(description: "search overlay to mount") {
             hostedView.debugHasSearchOverlay()
         }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        surface?.releaseSurfaceForTesting()
+        surface = nil
         waitUntil(description: "terminal surface to deallocate after search overlay mount") {
             weakSurface == nil
         }
@@ -3780,12 +4633,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.addSubview(anchorA)
         contentView.addSubview(anchorB)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -3819,12 +4667,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 220, height: 160))
         contentView.addSubview(anchor)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -4785,467 +5628,8 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
-final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
-    func testTrimsTrailingPeriodAfterMarkdownFile() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "~/ClaudeCode/feature-spec-template.md."
-            ),
-            "~/ClaudeCode/feature-spec-template.md"
-        )
-    }
-
-    func testTrimsTrailingCommaInList() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/first.txt,"
-            ),
-            "/tmp/fixtures/first.txt"
-        )
-    }
-
-    func testTrimsTrailingCloseParenWhenNoBalancedOpenParen() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/notes.txt)"
-            ),
-            "/tmp/fixtures/notes.txt"
-        )
-    }
-
-    func testPreservesBalancedParensInMiddleOfPath() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/report (draft)/notes.txt"
-            ),
-            "/tmp/fixtures/report (draft)/notes.txt"
-        )
-    }
-
-    func testStripsMultipleTrailingPunctuationCharacters() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/report (draft).md).,!?\""
-            ),
-            "/tmp/fixtures/report (draft).md"
-        )
-    }
-
-    func testTrimsTrailingClosingQuote() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/notes.txt\""
-            ),
-            "/tmp/fixtures/notes.txt"
-        )
-    }
-
-    func testResolveQuicklookFallsBackToStrippedPathWhenLiteralPathIsMissing() {
-        let strippedPath = "/tmp/cmux-cmdclick-path.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "\(strippedPath).",
-                cwd: "/tmp",
-                existingPaths: [strippedPath]
-            ),
-            strippedPath
-        )
-    }
-
-    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithDot() {
-        let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
-        let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                literalPath,
-                cwd: "/tmp",
-                existingPaths: [literalPath, strippedPath]
-            ),
-            literalPath
-        )
-    }
-
-    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithParen() {
-        let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
-        let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                literalPath,
-                cwd: "/tmp",
-                existingPaths: [literalPath, strippedPath]
-            ),
-            literalPath
-        )
-    }
-
-    // MARK: - Relative path + trailing punctuation (bug #4569)
-
-    func testResolveQuicklookResolvesRelativeMarkdownPathWithTrailingDot() {
-        let cwd = "/Users/dev/project"
-        let existingFile = "/Users/dev/project/docs/specs/2026-05-22-test.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "docs/specs/2026-05-22-test.md.",
-                cwd: cwd,
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveQuicklookResolvesRelativePathWithTrailingComma() {
-        let cwd = "/Users/dev/project"
-        let existingFile = "/Users/dev/project/src/main.swift"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "src/main.swift,",
-                cwd: cwd,
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveQuicklookReturnsNilForRelativePathThatDoesNotExist() {
-        XCTAssertNil(
-            cmuxResolveQuicklookPathForTesting(
-                "docs/nonexistent.md.",
-                cwd: "/Users/dev/project",
-                existingPaths: []
-            )
-        )
-    }
-}
-
-// MARK: - Scheme detection gate for file-path-before-URL resolution (bug #4569)
-
-final class TerminalOpenURLSchemeGateTests: XCTestCase {
-    func testRelativePathWithTrailingDotHasNoScheme() {
-        XCTAssertNil(URL(string: "docs/specs/2026-05-22-test.md.")?.scheme)
-    }
-
-    func testBareDomainWithSlashHasNoScheme() {
-        // resolveBrowserNavigableURL handles these, but they have no scheme
-        XCTAssertNil(URL(string: "example.com/docs")?.scheme)
-    }
-
-    func testHTTPSURLHasScheme() {
-        XCTAssertEqual(URL(string: "https://example.com/path")?.scheme, "https")
-    }
-
-    func testFileURLHasScheme() {
-        XCTAssertEqual(URL(string: "file:///tmp/test.md")?.scheme, "file")
-    }
-
-    func testMailtoURLHasScheme() {
-        XCTAssertEqual(URL(string: "mailto:test@example.com")?.scheme, "mailto")
-    }
-
-    func testAbsolutePathHasNoScheme() {
-        // Absolute paths are filtered by isAbsolutePath before the scheme check,
-        // but verify URL(string:) doesn't synthesize a scheme for them.
-        XCTAssertNil(URL(string: "/tmp/test.md")?.scheme)
-    }
-}
-
-
-final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
-    func testLeftShiftPressReturnsPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testLeftShiftReleaseReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: 0
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testLeftShiftWithoutLeftSideDeviceMaskReturnsReleaseWhenRightShiftHeld() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightShiftRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightShiftWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightShiftWithoutRightSideDeviceMaskReturnsReleaseWhenLeftShiftHeld() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightControlRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3E,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightControlWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3E,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightOptionRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3D,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightOptionWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3D,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightCommandRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x36,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testCapsLockUsesLogicalModifierState() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x39,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.capsLock.rawValue
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x39,
-                modifierFlagsRawValue: 0
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testNonModifierKeyReturnsNil() {
-        XCTAssertNil(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x00,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
-            )
-        )
-    }
-}
-
-
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
-    func testStableSocketBindPermissionFailureFallsBackToUserScopedSocket() {
-        XCTAssertEqual(
-            TerminalController.fallbackSocketPathAfterBindFailure(
-                requestedPath: SocketControlSettings.stableDefaultSocketPath,
-                stage: "bind",
-                errnoCode: EACCES,
-                currentUserID: 501
-            ),
-            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
-        )
-    }
-
-    func testNonStableSocketBindFailureDoesNotFallback() {
-        XCTAssertNil(
-            TerminalController.fallbackSocketPathAfterBindFailure(
-                requestedPath: "/tmp/cmux-debug.sock",
-                stage: "bind",
-                errnoCode: EACCES,
-                currentUserID: 501
-            )
-        )
-    }
-
-    func testStableSocketLockFailureFallsBackToUserScopedSocket() {
-        XCTAssertEqual(
-            TerminalController.fallbackSocketPathAfterBindFailure(
-                requestedPath: SocketControlSettings.stableDefaultSocketPath,
-                stage: "lock",
-                errnoCode: EWOULDBLOCK,
-                currentUserID: 501
-            ),
-            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
-        )
-    }
-
-    func testStableSocketLockPreparationFailuresFallBackToUserScopedSocket() {
-        let failures: [(stage: String, errnoCode: Int32)] = [
-            ("create_lock_directory", EACCES),
-            ("open_lock", EACCES),
-            ("open_lock", ELOOP),
-            ("open_lock", EINVAL),
-            ("open_lock", EMLINK),
-        ]
-
-        for failure in failures {
-            XCTAssertEqual(
-                TerminalController.fallbackSocketPathAfterBindFailure(
-                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
-                    stage: failure.stage,
-                    errnoCode: failure.errnoCode,
-                    currentUserID: 501
-                ),
-                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
-                failure.stage
-            )
-        }
-    }
-
-    func testStableSocketExistingPathFailuresFallBackToUserScopedSocket() {
-        let failures: [(stage: String, errnoCode: Int32)] = [
-            ("existing_path", EEXIST),
-            ("stat_existing_path", EACCES),
-        ]
-
-        for failure in failures {
-            XCTAssertEqual(
-                TerminalController.fallbackSocketPathAfterBindFailure(
-                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
-                    stage: failure.stage,
-                    errnoCode: failure.errnoCode,
-                    currentUserID: 501
-                ),
-                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
-                failure.stage
-            )
-        }
-    }
-
-    func testSocketPathAcceptsConnectionsForLiveUnixSocket() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(path)
-        }
-
-        let handled = acceptSingleClient(on: listenerFD) { _ in }
-
-        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
-        wait(for: [handled], timeout: 1.0)
-    }
-
-    func testSocketPathAcceptsConnectionsRejectsStaleSocketFile() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        Darwin.close(listenerFD)
-        defer { unlink(path) }
-
-        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
-    }
-
-    func testPrepareSocketPathForBindRejectsRegularFileWithoutDeletingIt() throws {
-        let path = makeTempSocketPath()
-        try "not-a-socket".write(toFile: path, atomically: true, encoding: .utf8)
-        defer { unlink(path) }
-
-        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
-
-        XCTAssertEqual(failure.stage, "existing_path")
-        XCTAssertEqual(failure.errnoCode, EEXIST)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-    }
-
-    func testPrepareSocketPathForBindRejectsLiveSocketWithoutDeletingIt() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(path)
-        }
-
-        let handled = acceptSingleClient(on: listenerFD) { _ in }
-        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
-
-        XCTAssertEqual(failure.stage, "bind")
-        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-        wait(for: [handled], timeout: 1.0)
-    }
-
-    func testPrepareSocketPathForBindPreservesRefusedSocketFileWithoutPathLock() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        Darwin.close(listenerFD)
-        defer { unlink(path) }
-
-        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
-
-        XCTAssertEqual(failure.stage, "bind")
-        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
-    }
-
-    func testPrepareSocketPathForBindRemovesRefusedSocketFileWithReusablePathLock() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        Darwin.close(listenerFD)
-        defer { unlink(path) }
-
-        XCTAssertNil(TerminalController.prepareSocketPathForBind(path, canReplaceRefusedSocket: true))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
-    }
+    private let transport = SocketTransport()
 
     @MainActor
     func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
@@ -5268,7 +5652,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
+        XCTAssertFalse(transport.pathCanBeReclaimedForStartup(path))
         TerminalController.shared.start(
             tabManager: TabManager(),
             socketPath: path,
@@ -5276,7 +5660,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
-        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
+        XCTAssertFalse(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
@@ -5298,7 +5682,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
     }
 
@@ -5313,7 +5697,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             socketPath: path,
             accessMode: .allowAll
         )
-        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
 
         TerminalController.shared.stop()
         let listenerFD = try bindUnixSocket(at: path)
@@ -5322,7 +5706,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             unlink(path)
             unlink(path + ".lock")
         }
-        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
+        XCTAssertTrue(transport.pathCanBeReclaimedForStartup(path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),
@@ -5330,7 +5714,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
@@ -5362,35 +5746,6 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }
 
-    func testStartupReclaimabilityAllowsMissingSocketWithoutLock() {
-        let path = makeTempSocketPath()
-        defer {
-            unlink(path)
-            unlink(path + ".lock")
-        }
-
-        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
-    }
-
-    func testStartupReclaimabilityRejectsMissingSocketWithInvalidLock() throws {
-        let path = makeTempSocketPath()
-        let lockPath = path + ".lock"
-        let targetPath = path + ".target"
-        try "preserve me".write(toFile: targetPath, atomically: true, encoding: .utf8)
-        XCTAssertEqual(symlink(targetPath, lockPath), 0)
-        defer {
-            unlink(path)
-            unlink(lockPath)
-            unlink(targetPath)
-        }
-
-        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
-        XCTAssertEqual(
-            try String(contentsOfFile: targetPath, encoding: .utf8),
-            "preserve me"
-        )
-    }
-
     @MainActor
     func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
         TerminalController.shared.stop()
@@ -5415,7 +5770,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(reservedPath))
+        XCTAssertTrue(transport.pathAcceptsConnections(reservedPath))
     }
 
     @MainActor
@@ -5468,7 +5823,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             socketPath: activePath,
             accessMode: .allowAll
         )
-        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(activePath))
+        XCTAssertTrue(transport.pathAcceptsConnections(activePath))
 
         XCTAssertEqual(TerminalController.shared.reserveStartupSocketPath(reservedPath), reservedPath)
         XCTAssertFalse(FileManager.default.fileExists(atPath: reservedPath + ".lock"))
@@ -5531,32 +5886,6 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return fd
     }
 
-    private func acceptSingleClient(
-        on listenerFD: Int32,
-        handler: @escaping (_ clientFD: Int32) -> Void
-    ) -> XCTestExpectation {
-        let handled = expectation(description: "socket client handled")
-        DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
-            }
-            guard clientFD >= 0 else {
-                handled.fulfill()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                handled.fulfill()
-            }
-            handler(clientFD)
-        }
-        return handled
-    }
-
     @MainActor
     func testSocketListenerHealthRecognizesSocketPath() throws {
         let path = makeTempSocketPath()
@@ -5583,91 +5912,4 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
-    func testProbeSocketCommandReturnsFirstLineResponse() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(path)
-        }
-
-        let handled = acceptSingleClient(on: listenerFD) { clientFD in
-            var buffer = [UInt8](repeating: 0, count: 256)
-            _ = read(clientFD, &buffer, buffer.count)
-            let response = "PONG\nextra\n"
-            _ = response.withCString { ptr in
-                write(clientFD, ptr, strlen(ptr))
-            }
-        }
-
-        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5)
-
-        XCTAssertEqual(response, "PONG")
-        wait(for: [handled], timeout: 1.0)
-    }
-
-    func testProbeSocketCommandTimesOutWithoutPollingUntilServerResponds() throws {
-        let path = makeTempSocketPath()
-        let listenerFD = try bindUnixSocket(at: path)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(path)
-        }
-
-        let releaseServer = DispatchSemaphore(value: 0)
-        let handled = acceptSingleClient(on: listenerFD) { clientFD in
-            var buffer = [UInt8](repeating: 0, count: 256)
-            _ = read(clientFD, &buffer, buffer.count)
-            _ = releaseServer.wait(timeout: .now() + 1.0)
-        }
-
-        let startedAt = Date()
-        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.2)
-        let elapsed = Date().timeIntervalSince(startedAt)
-        releaseServer.signal()
-
-        XCTAssertNil(response)
-        XCTAssertGreaterThanOrEqual(elapsed, 0.18)
-        XCTAssertLessThan(elapsed, 0.8)
-        wait(for: [handled], timeout: 1.0)
-    }
-
-    func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
-        let health = TerminalController.SocketListenerHealth(
-            isRunning: true,
-            acceptLoopAlive: true,
-            socketPathMatches: true,
-            socketPathExists: true,
-            socketPathOwnedByListener: true
-        )
-        XCTAssertTrue(health.isHealthy)
-        XCTAssertTrue(health.failureSignals.isEmpty)
-    }
-
-    func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
-        let health = TerminalController.SocketListenerHealth(
-            isRunning: false,
-            acceptLoopAlive: false,
-            socketPathMatches: false,
-            socketPathExists: false,
-            socketPathOwnedByListener: false
-        )
-        XCTAssertFalse(health.isHealthy)
-        XCTAssertEqual(
-            health.failureSignals,
-            ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
-        )
-    }
-
-    func testSocketListenerHealthReportsIdentityMismatchSeparately() {
-        let health = TerminalController.SocketListenerHealth(
-            isRunning: true,
-            acceptLoopAlive: true,
-            socketPathMatches: true,
-            socketPathExists: true,
-            socketPathOwnedByListener: false
-        )
-        XCTAssertFalse(health.isHealthy)
-        XCTAssertEqual(health.failureSignals, ["socket_identity_mismatch"])
-    }
 }

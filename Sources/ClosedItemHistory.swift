@@ -1,14 +1,20 @@
 import Foundation
 import Combine
 import Bonsplit
+import OSLog
 
-struct ClosedPanelSplitPlacement {
+private let closedItemHistoryLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ClosedItemHistory"
+)
+
+struct ClosedPanelSplitPlacement: Codable {
     let orientation: SplitOrientation
     let insertFirst: Bool
     let anchorPanelId: UUID?
 }
 
-struct ClosedPanelHistoryEntry {
+struct ClosedPanelHistoryEntry: Codable {
     let workspaceId: UUID
     let paneId: UUID
     let paneAnchorPanelId: UUID?
@@ -36,14 +42,14 @@ struct ClosedPanelHistoryEntry {
     }
 }
 
-struct ClosedWorkspaceHistoryEntry {
+struct ClosedWorkspaceHistoryEntry: Codable {
     let workspaceId: UUID
     let windowId: UUID?
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
 
-struct ClosedWindowHistoryEntry {
+struct ClosedWindowHistoryEntry: Codable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot
 
@@ -56,13 +62,13 @@ struct ClosedWindowHistoryEntry {
     }
 }
 
-enum ClosedItemHistoryEntry {
+enum ClosedItemHistoryEntry: Codable {
     case panel(ClosedPanelHistoryEntry)
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
 }
 
-struct ClosedItemHistoryRecord: Identifiable {
+struct ClosedItemHistoryRecord: Identifiable, Codable {
     let id: UUID
     let closedAt: Date
     var entry: ClosedItemHistoryEntry
@@ -120,14 +126,52 @@ enum ClosedWindowRestoreValidation {
 
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
-    static let shared = ClosedItemHistoryStore(capacity: 50)
+    static let shared = ClosedItemHistoryStore(
+        capacity: nil,
+        fileURL: defaultHistoryFileURL()
+    )
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
-    private let capacity: Int
+    private let capacity: Int?
+    private let fileURL: URL?
+    private let persistsRecordsSynchronously: Bool
+    private var didFinishPersistedRecordsLoad: Bool
+    private var needsPersistenceAfterPersistedRecordsLoad = false
+    private var shouldDiscardPersistedRecordsOnLoad = false
+    private var pendingPersistedRecordMutations: [PendingPersistedRecordMutation] = []
 
-    init(capacity: Int) {
-        self.capacity = max(1, capacity)
+    private enum PendingPersistedRecordMutation {
+        case remapPanelWorkspaceIds(
+            oldWorkspaceId: UUID,
+            newWorkspaceId: UUID,
+            panelIdMap: [UUID: UUID]
+        )
+        case remapPanelAnchorIds(oldPanelId: UUID, newPanelId: UUID)
+        case remapWorkspaceWindowIds(oldWindowId: UUID, newWindowId: UUID)
+        case removePanelRecords(workspaceIds: Set<UUID>)
+    }
+
+    init(
+        capacity: Int? = nil,
+        fileURL: URL? = nil,
+        loadPersisted: Bool = true,
+        loadsPersistedRecordsSynchronously: Bool = false,
+        persistsRecordsSynchronously: Bool = false
+    ) {
+        self.capacity = capacity.map { max(1, $0) }
+        self.fileURL = fileURL
+        self.persistsRecordsSynchronously = persistsRecordsSynchronously
+        self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
+        if loadPersisted, let fileURL {
+            if loadsPersistedRecordsSynchronously {
+                records = Self.loadRecords(fileURL: fileURL)
+                trimToCapacityIfNeeded()
+                didFinishPersistedRecordsLoad = true
+            } else {
+                loadPersistedRecordsAsync(from: fileURL)
+            }
+        }
     }
 
     var canReopen: Bool {
@@ -140,10 +184,9 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     func push(_ record: ClosedItemHistoryRecord) {
         records.append(record)
-        if records.count > capacity {
-            records.removeFirst(records.count - capacity)
-        }
+        trimToCapacityIfNeeded()
         revision &+= 1
+        persistRecords()
     }
 
     @discardableResult
@@ -179,6 +222,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             if let index = records.firstIndex(where: { $0.id == candidate.id }) {
                 records.remove(at: index)
                 revision &+= 1
+                persistRecords()
             }
             return true
         }
@@ -191,12 +235,13 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
         let record = records.remove(at: index)
         revision &+= 1
+        persistRecords()
         return (record, index)
     }
 
     func insert(_ record: ClosedItemHistoryRecord, at index: Int) {
         records.insert(record, at: min(max(0, index), records.count))
-        if records.count > capacity {
+        if let capacity, records.count > capacity {
             let protectedRecordId = record.id
             let overflow = records.count - capacity
             for _ in 0..<overflow {
@@ -208,21 +253,24 @@ final class ClosedItemHistoryStore: ObservableObject {
             }
         }
         revision &+= 1
+        persistRecords()
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        let allItems = records.reversed().map(Self.menuItem(for:))
-        if let maxItemCount, maxItemCount >= 0, allItems.count > maxItemCount {
+        // Build items only for the records the menu will show — this runs in
+        // the App commands body on every menu rebuild, and `records` is
+        // unbounded persisted history.
+        if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
             return ClosedItemHistoryMenuSnapshot(
-                items: Array(allItems.prefix(maxItemCount)),
-                totalItemCount: allItems.count,
+                items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
+                totalItemCount: records.count,
                 isLimited: true
             )
         }
 
         return ClosedItemHistoryMenuSnapshot(
-            items: allItems,
-            totalItemCount: allItems.count,
+            items: records.reversed().map(Self.menuItem(for:)),
+            totalItemCount: records.count,
             isLimited: false
         )
     }
@@ -233,6 +281,196 @@ final class ClosedItemHistoryStore: ObservableObject {
         panelIdMap: [UUID: UUID] = [:]
     ) {
         guard oldWorkspaceId != newWorkspaceId else { return }
+        queuePersistedRecordMutationIfLoading(.remapPanelWorkspaceIds(
+            oldWorkspaceId: oldWorkspaceId,
+            newWorkspaceId: newWorkspaceId,
+            panelIdMap: panelIdMap
+        ))
+        let result = Self.recordsByRemappingPanelWorkspaceIds(
+            records,
+            from: oldWorkspaceId,
+            to: newWorkspaceId,
+            panelIdMap: panelIdMap
+        )
+        if result.didUpdate {
+            records = result.records
+            revision &+= 1
+            persistRecords()
+        }
+    }
+
+    func remapPanelAnchorIds(from oldPanelId: UUID, to newPanelId: UUID) {
+        guard oldPanelId != newPanelId else { return }
+        queuePersistedRecordMutationIfLoading(.remapPanelAnchorIds(
+            oldPanelId: oldPanelId,
+            newPanelId: newPanelId
+        ))
+        let result = Self.recordsByRemappingPanelAnchorIds(records, from: oldPanelId, to: newPanelId)
+        if result.didUpdate {
+            records = result.records
+            revision &+= 1
+            persistRecords()
+        }
+    }
+
+    func remapWorkspaceWindowIds(from oldWindowId: UUID, to newWindowId: UUID) {
+        guard oldWindowId != newWindowId else { return }
+        queuePersistedRecordMutationIfLoading(.remapWorkspaceWindowIds(
+            oldWindowId: oldWindowId,
+            newWindowId: newWindowId
+        ))
+        let result = Self.recordsByRemappingWorkspaceWindowIds(records, from: oldWindowId, to: newWindowId)
+        if result.didUpdate {
+            records = result.records
+            revision &+= 1
+            persistRecords()
+        }
+    }
+
+    func removePanelRecords(forWorkspaceIds workspaceIds: Set<UUID>) {
+        guard !workspaceIds.isEmpty else { return }
+        queuePersistedRecordMutationIfLoading(.removePanelRecords(workspaceIds: workspaceIds))
+        let result = Self.recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
+        if result.didUpdate {
+            records = result.records
+            revision &+= 1
+            persistRecords()
+        }
+    }
+
+    func removeAll() {
+        guard !records.isEmpty || !didFinishPersistedRecordsLoad else { return }
+        if !didFinishPersistedRecordsLoad {
+            shouldDiscardPersistedRecordsOnLoad = true
+        }
+        records.removeAll(keepingCapacity: false)
+        revision &+= 1
+        persistRecords()
+    }
+
+    private func trimToCapacityIfNeeded() {
+        guard let capacity, records.count > capacity else { return }
+        records.removeFirst(records.count - capacity)
+    }
+
+    private func persistRecords() {
+        guard let fileURL else { return }
+        guard didFinishPersistedRecordsLoad else {
+            needsPersistenceAfterPersistedRecordsLoad = true
+            return
+        }
+        let recordsSnapshot = records
+        let revisionSnapshot = revision
+        if persistsRecordsSynchronously {
+            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
+        } else {
+            Task {
+                await ClosedItemHistoryPersistenceActor.shared.save(
+                    recordsSnapshot,
+                    fileURL: fileURL,
+                    revision: revisionSnapshot
+                )
+            }
+        }
+    }
+
+    func flushPendingSaves() {
+        guard let fileURL else { return }
+        if !didFinishPersistedRecordsLoad {
+            finishPersistedRecordsLoad(Self.loadRecords(fileURL: fileURL))
+        }
+        needsPersistenceAfterPersistedRecordsLoad = false
+        let recordsSnapshot = records
+        let revisionSnapshot = revision
+        if persistsRecordsSynchronously {
+            Self.saveRecords(recordsSnapshot, fileURL: fileURL)
+            return
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached(priority: .userInitiated) {
+            await ClosedItemHistoryPersistenceActor.shared.save(
+                recordsSnapshot,
+                fileURL: fileURL,
+                revision: revisionSnapshot
+            )
+            semaphore.signal()
+        }
+        semaphore.wait()
+    }
+
+    private func loadPersistedRecordsAsync(from fileURL: URL) {
+        Task { @MainActor [weak self] in
+            let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
+            guard let self, !didFinishPersistedRecordsLoad else { return }
+            finishPersistedRecordsLoad(loadedRecords)
+            if needsPersistenceAfterPersistedRecordsLoad {
+                needsPersistenceAfterPersistedRecordsLoad = false
+                persistRecords()
+            }
+        }
+    }
+
+    private func finishPersistedRecordsLoad(_ loadedRecords: [ClosedItemHistoryRecord]) {
+        guard !didFinishPersistedRecordsLoad else { return }
+        if !shouldDiscardPersistedRecordsOnLoad {
+            var loadedRecords = loadedRecords
+            let didMutateLoadedRecords = applyPendingPersistedRecordMutations(to: &loadedRecords)
+            mergeLoadedPersistedRecords(loadedRecords)
+            if didMutateLoadedRecords {
+                needsPersistenceAfterPersistedRecordsLoad = true
+            }
+        } else {
+            pendingPersistedRecordMutations.removeAll(keepingCapacity: false)
+        }
+        didFinishPersistedRecordsLoad = true
+        shouldDiscardPersistedRecordsOnLoad = false
+    }
+
+    private func queuePersistedRecordMutationIfLoading(_ mutation: PendingPersistedRecordMutation) {
+        guard !didFinishPersistedRecordsLoad else { return }
+        pendingPersistedRecordMutations.append(mutation)
+    }
+
+    @discardableResult
+    private func applyPendingPersistedRecordMutations(to loadedRecords: inout [ClosedItemHistoryRecord]) -> Bool {
+        guard !pendingPersistedRecordMutations.isEmpty else { return false }
+        var didUpdate = false
+        for mutation in pendingPersistedRecordMutations {
+            let result = Self.recordsByApplying(mutation, to: loadedRecords)
+            loadedRecords = result.records
+            didUpdate = didUpdate || result.didUpdate
+        }
+        pendingPersistedRecordMutations.removeAll(keepingCapacity: false)
+        return didUpdate
+    }
+
+    private static func recordsByApplying(
+        _ mutation: PendingPersistedRecordMutation,
+        to records: [ClosedItemHistoryRecord]
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
+        switch mutation {
+        case .remapPanelWorkspaceIds(let oldWorkspaceId, let newWorkspaceId, let panelIdMap):
+            return recordsByRemappingPanelWorkspaceIds(
+                records,
+                from: oldWorkspaceId,
+                to: newWorkspaceId,
+                panelIdMap: panelIdMap
+            )
+        case .remapPanelAnchorIds(let oldPanelId, let newPanelId):
+            return recordsByRemappingPanelAnchorIds(records, from: oldPanelId, to: newPanelId)
+        case .remapWorkspaceWindowIds(let oldWindowId, let newWindowId):
+            return recordsByRemappingWorkspaceWindowIds(records, from: oldWindowId, to: newWindowId)
+        case .removePanelRecords(let workspaceIds):
+            return recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
+        }
+    }
+
+    private static func recordsByRemappingPanelWorkspaceIds(
+        _ records: [ClosedItemHistoryRecord],
+        from oldWorkspaceId: UUID,
+        to newWorkspaceId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
         func remapAnchor(_ panelId: UUID?) -> UUID? {
             guard let panelId else { return nil }
             return panelIdMap[panelId] ?? panelId
@@ -261,14 +499,14 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement: fallbackSplitPlacement
             )))
         }
-        if didUpdate {
-            records = remappedRecords
-            revision &+= 1
-        }
+        return (remappedRecords, didUpdate)
     }
 
-    func remapPanelAnchorIds(from oldPanelId: UUID, to newPanelId: UUID) {
-        guard oldPanelId != newPanelId else { return }
+    private static func recordsByRemappingPanelAnchorIds(
+        _ records: [ClosedItemHistoryRecord],
+        from oldPanelId: UUID,
+        to newPanelId: UUID
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
         var didUpdate = false
         let remappedRecords = records.map { record in
             guard case .panel(let panelEntry) = record.entry else { return record }
@@ -299,14 +537,14 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement: fallbackSplitPlacement
             )))
         }
-        if didUpdate {
-            records = remappedRecords
-            revision &+= 1
-        }
+        return (remappedRecords, didUpdate)
     }
 
-    func remapWorkspaceWindowIds(from oldWindowId: UUID, to newWindowId: UUID) {
-        guard oldWindowId != newWindowId else { return }
+    private static func recordsByRemappingWorkspaceWindowIds(
+        _ records: [ClosedItemHistoryRecord],
+        from oldWindowId: UUID,
+        to newWindowId: UUID
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
         var didUpdate = false
         let remappedRecords = records.map { record in
             guard case .workspace(let workspaceEntry) = record.entry,
@@ -321,28 +559,108 @@ final class ClosedItemHistoryStore: ObservableObject {
                 snapshot: workspaceEntry.snapshot
             )))
         }
-        if didUpdate {
-            records = remappedRecords
-            revision &+= 1
-        }
+        return (remappedRecords, didUpdate)
     }
 
-    func removePanelRecords(forWorkspaceIds workspaceIds: Set<UUID>) {
-        guard !workspaceIds.isEmpty else { return }
-        let originalCount = records.count
-        records.removeAll { record in
-            guard case .panel(let panelEntry) = record.entry else { return false }
-            return workspaceIds.contains(panelEntry.workspaceId)
+    private static func recordsByRemovingPanelRecords(
+        _ records: [ClosedItemHistoryRecord],
+        forWorkspaceIds workspaceIds: Set<UUID>
+    ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
+        let filteredRecords = records.filter { record in
+            guard case .panel(let panelEntry) = record.entry else { return true }
+            return !workspaceIds.contains(panelEntry.workspaceId)
         }
-        if records.count != originalCount {
-            revision &+= 1
-        }
+        return (filteredRecords, filteredRecords.count != records.count)
     }
 
-    func removeAll() {
-        guard !records.isEmpty else { return }
-        records.removeAll(keepingCapacity: false)
+    private func mergeLoadedPersistedRecords(_ loadedRecords: [ClosedItemHistoryRecord]) {
+        guard !loadedRecords.isEmpty else { return }
+        if records.isEmpty {
+            records = loadedRecords
+        } else {
+            var seenRecordIds = Set(records.map(\.id))
+            let missingLoadedRecords = loadedRecords.filter { seenRecordIds.insert($0.id).inserted }
+            guard !missingLoadedRecords.isEmpty else { return }
+            records = missingLoadedRecords + records
+        }
+        trimToCapacityIfNeeded()
         revision &+= 1
+    }
+
+    nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        let decoder = JSONDecoder()
+        if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
+           snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
+            return snapshot.records
+        }
+        return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
+    }
+
+    nonisolated fileprivate static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
+        guard !records.isEmpty else {
+            do {
+                try FileManager.default.removeItem(at: fileURL)
+            } catch {
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    closedItemHistoryLogger.debug(
+                        "closedItemHistory.remove.failed file=\(fileURL.path, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    )
+                }
+            }
+            return
+        }
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            let snapshot = ClosedItemHistoryPersistenceSnapshot(records: records)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(snapshot)
+            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                return
+            }
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            closedItemHistoryLogger.debug(
+                "closedItemHistory.save.failed file=\(fileURL.path, privacy: .public) records=\(records.count) error=\(error.localizedDescription, privacy: .public)"
+            )
+            return
+        }
+    }
+
+    nonisolated private static func defaultHistoryFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil,
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+    ) -> URL? {
+        guard !isRunningUnderAutomatedTests else { return nil }
+        let resolvedAppSupport: URL
+        if let appSupportDirectory {
+            resolvedAppSupport = appSupportDirectory
+        } else if let discovered = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            resolvedAppSupport = discovered
+        } else {
+            return nil
+        }
+        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? bundleIdentifier!
+            : "com.cmuxterm.app"
+        let safeBundleId = bundleId.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+        return resolvedAppSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("closed-item-history-\(safeBundleId).json", isDirectory: false)
     }
 
     private static func menuItem(for record: ClosedItemHistoryRecord) -> ClosedItemHistoryMenuItem {
@@ -370,18 +688,22 @@ final class ClosedItemHistoryStore: ObservableObject {
             )
         }
     }
-
     private static func title(for snapshot: SessionPanelSnapshot) -> String {
         let candidates = [
             snapshot.customTitle,
             snapshot.title,
-            snapshot.directory.map { URL(fileURLWithPath: $0).lastPathComponent }
+            // String-only path math — NOT URL(fileURLWithPath:), which lstat()s
+            // the path to infer directory-ness. These snapshots can hold REMOTE
+            // working directories (closed remote-tmux tabs); stat'ing one on the
+            // main thread blocks on the autofs automounter (e.g. /home/…) for
+            // hundreds of ms per record, and this runs inside the App commands
+            // body on every menu rebuild.
+            snapshot.directory.map { ($0 as NSString).lastPathComponent }
         ]
         if let title = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
             .first(where: { !$0.isEmpty }) {
             return title
         }
-
         switch snapshot.type {
         case .terminal:
             return String(localized: "menu.history.recentlyClosed.panel.terminal", defaultValue: "Terminal")
@@ -396,6 +718,16 @@ final class ClosedItemHistoryStore: ObservableObject {
                 return mode.label
             }
             return String(localized: "menu.history.recentlyClosed.panel.tool", defaultValue: "Tool")
+        case .customSidebar:
+            return String(localized: "menu.history.recentlyClosed.panel.customSidebar", defaultValue: "Custom Sidebar")
+        case .agentSession:
+            return String(localized: "menu.history.recentlyClosed.panel.agentSession", defaultValue: "Agent")
+        case .project:
+            return String(localized: "menu.history.recentlyClosed.panel.project", defaultValue: "Project")
+        case .extensionBrowser:
+            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .cloudVMLoading:
+            return String(localized: "menu.history.recentlyClosed.panel.cloudVM", defaultValue: "Cloud VM")
         }
     }
 
@@ -415,7 +747,9 @@ final class ClosedItemHistoryStore: ObservableObject {
     private static func directoryTitleCandidate(_ directory: String) -> String? {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "." else { return nil }
-        return URL(fileURLWithPath: trimmed).lastPathComponent
+        // String-only path math — see title(for:): URL(fileURLWithPath:) would
+        // lstat() a possibly-remote path on the main thread.
+        return (trimmed as NSString).lastPathComponent
     }
 
     private static func normalizedTitleCandidate(_ candidate: String?) -> String? {
@@ -435,5 +769,31 @@ final class ClosedItemHistoryStore: ObservableObject {
             ),
             count
         )
+    }
+}
+
+private struct ClosedItemHistoryPersistenceSnapshot: Codable {
+    static let currentVersion = 1
+
+    var version: Int = currentVersion
+    var records: [ClosedItemHistoryRecord]
+}
+
+private actor ClosedItemHistoryPersistenceActor {
+    static let shared = ClosedItemHistoryPersistenceActor()
+
+    private var latestRevisionByPath: [String: UInt64] = [:]
+
+    func load(fileURL: URL) -> [ClosedItemHistoryRecord] {
+        ClosedItemHistoryStore.loadRecords(fileURL: fileURL)
+    }
+
+    func save(_ records: [ClosedItemHistoryRecord], fileURL: URL, revision: UInt64) {
+        let path = fileURL.standardizedFileURL.path
+        if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
+            return
+        }
+        latestRevisionByPath[path] = revision
+        ClosedItemHistoryStore.saveRecords(records, fileURL: fileURL)
     }
 }

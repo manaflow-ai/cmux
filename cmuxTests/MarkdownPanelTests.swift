@@ -42,6 +42,159 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(overlay.alphaComponent, 1, accuracy: 0.0001)
     }
 
+    func testMarkdownFontSizeSettingsClampAndPageZoom() {
+        XCTAssertEqual(MarkdownFontSizeSettings.clamp(5), MarkdownFontSizeSettings.minimumPointSize)
+        XCTAssertEqual(MarkdownFontSizeSettings.clamp(1000), MarkdownFontSizeSettings.maximumPointSize)
+        XCTAssertEqual(MarkdownFontSizeSettings.clamp(20), 20)
+
+        // pageZoom = pointSize / baseRenderPointSize (15px body).
+        XCTAssertEqual(MarkdownFontSizeSettings.pageZoom(forPointSize: 15), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(MarkdownFontSizeSettings.pageZoom(forPointSize: 30), 2.0, accuracy: 0.0001)
+        // Out-of-range sizes clamp before converting to a zoom factor.
+        XCTAssertEqual(
+            MarkdownFontSizeSettings.pageZoom(forPointSize: 4),
+            CGFloat(MarkdownFontSizeSettings.minimumPointSize / MarkdownFontSizeSettings.baseRenderPointSize),
+            accuracy: 0.0001
+        )
+    }
+
+    func testMarkdownFontSizeSettingsResolvedDefaultHonorsDefaults() throws {
+        let suiteName = "cmux.markdownFontSizeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Unset -> baseline default.
+        XCTAssertEqual(MarkdownFontSizeSettings.resolvedDefault(defaults: defaults), MarkdownFontSizeSettings.defaultPointSize)
+
+        // In-range override is honored.
+        defaults.set(22, forKey: MarkdownFontSizeSettings.key)
+        XCTAssertEqual(MarkdownFontSizeSettings.resolvedDefault(defaults: defaults), 22)
+
+        // Out-of-range override is clamped.
+        defaults.set(500, forKey: MarkdownFontSizeSettings.key)
+        XCTAssertEqual(MarkdownFontSizeSettings.resolvedDefault(defaults: defaults), MarkdownFontSizeSettings.maximumPointSize)
+    }
+
+    func testMarkdownFontFamilyNormalizesDefaultsAndEscapesCSSValue() throws {
+        let suiteName = "cmux.markdownFontFamilyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(MarkdownFontFamily.resolvedDefault(defaults: defaults), MarkdownFontFamily.systemDefault)
+        XCTAssertNil(MarkdownFontFamily.cssValue(for: ""))
+
+        MarkdownFontFamily.setDefault("  Avenir Next  \n", defaults: defaults)
+        XCTAssertEqual(MarkdownFontFamily.resolvedDefault(defaults: defaults), "Avenir Next")
+        XCTAssertEqual(MarkdownFontFamily.cssValue(for: #"Quote " Test \ Family"#), #""Quote \" Test \\ Family""#)
+
+        MarkdownFontFamily.setDefault(" \n ", defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: MarkdownFontFamily.key))
+    }
+
+    func testMarkdownMaxWidthSettingsClampAndResolvedDefault() throws {
+        XCTAssertEqual(MarkdownMaxWidthSettings.clamp(200), MarkdownMaxWidthSettings.minimumCSSPixels)
+        XCTAssertEqual(MarkdownMaxWidthSettings.clamp(4000), MarkdownMaxWidthSettings.maximumCSSPixels)
+        XCTAssertEqual(MarkdownMaxWidthSettings.clamp(980), 980)
+
+        let suiteName = "cmux.markdownMaxWidthTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(MarkdownMaxWidthSettings.resolvedDefault(defaults: defaults), MarkdownMaxWidthSettings.defaultCSSPixels)
+
+        MarkdownMaxWidthSettings.setDefault(1220, defaults: defaults)
+        XCTAssertEqual(MarkdownMaxWidthSettings.resolvedDefault(defaults: defaults), 1220)
+
+        defaults.set(10000, forKey: MarkdownMaxWidthSettings.key)
+        XCTAssertEqual(MarkdownMaxWidthSettings.resolvedDefault(defaults: defaults), MarkdownMaxWidthSettings.maximumCSSPixels)
+
+        MarkdownMaxWidthSettings.resetDefault(defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: MarkdownMaxWidthSettings.key))
+    }
+
+    func testMarkdownPanelZoomStepsClampAndReset() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-zoom-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# hello".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        // Pin the persisted default to a non-boundary value so the reset
+        // assertions below don't depend on (or mutate) the developer's settings.
+        let defaultsKey = MarkdownFontSizeSettings.key
+        let savedDefault = UserDefaults.standard.object(forKey: defaultsKey)
+        UserDefaults.standard.set(20, forKey: defaultsKey)
+        defer {
+            if let savedDefault {
+                UserDefaults.standard.set(savedDefault, forKey: defaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+            }
+        }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path, fontSize: 15)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.fontSize, 15)
+
+        // Each step changes by exactly one point and reports the change.
+        XCTAssertTrue(panel.zoomOut())
+        XCTAssertEqual(panel.fontSize, 15 - MarkdownFontSizeSettings.stepPointSize)
+        XCTAssertTrue(panel.zoomIn())
+        XCTAssertEqual(panel.fontSize, 15)
+
+        // Zooming out clamps at the minimum and then reports no change.
+        var guardCount = 0
+        while panel.zoomOut() { guardCount += 1; XCTAssertLessThan(guardCount, 1000) }
+        XCTAssertEqual(panel.fontSize, MarkdownFontSizeSettings.minimumPointSize)
+        XCTAssertFalse(panel.zoomOut())
+
+        // Reset returns to the configured default (seeded to 20 above) and
+        // reports the change.
+        XCTAssertTrue(panel.resetZoom())
+        XCTAssertEqual(panel.fontSize, 20)
+        XCTAssertFalse(panel.resetZoom())
+    }
+
+    func testMarkdownPanelTypographyResetsToConfiguredDefaults() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-typography-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# hello".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let savedSize = UserDefaults.standard.object(forKey: MarkdownFontSizeSettings.key)
+        let savedFamily = UserDefaults.standard.object(forKey: MarkdownFontFamily.key)
+        UserDefaults.standard.set(19, forKey: MarkdownFontSizeSettings.key)
+        UserDefaults.standard.set("Avenir Next", forKey: MarkdownFontFamily.key)
+        defer {
+            if let savedSize {
+                UserDefaults.standard.set(savedSize, forKey: MarkdownFontSizeSettings.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: MarkdownFontSizeSettings.key)
+            }
+            if let savedFamily {
+                UserDefaults.standard.set(savedFamily, forKey: MarkdownFontFamily.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: MarkdownFontFamily.key)
+            }
+        }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path, fontSize: 15)
+        defer { panel.close() }
+
+        XCTAssertEqual(panel.fontFamily, "Avenir Next")
+        XCTAssertTrue(panel.setFontFamily("  Menlo  \n"))
+        XCTAssertEqual(panel.fontFamily, "Menlo")
+        panel.resetTypography()
+        XCTAssertEqual(panel.fontSize, 19)
+        XCTAssertEqual(panel.fontFamily, "Avenir Next")
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -198,6 +351,9 @@ final class MarkdownPanelTests: XCTestCase {
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
+            fontSize: 15,
+            fontFamily: MarkdownFontFamily.systemDefault,
+            maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
             session: session,
             onRequestPanelFocus: {}
         )
@@ -210,6 +366,9 @@ final class MarkdownPanelTests: XCTestCase {
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
+            fontSize: 15,
+            fontFamily: MarkdownFontFamily.systemDefault,
+            maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
             session: session,
             onRequestPanelFocus: {}
         )
@@ -316,6 +475,87 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
         coordinator.update(markdown: "# Existing\n", theme: theme)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowReloadsShellAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // Document was healthy when the pane was dragged out of its column.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        coordinator.handleViewLeftWindow()
+
+        // While detached, WebKit reclaimed the WebContent process and the
+        // in-place recovery budget was exhausted, leaving the panel blank.
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Re-parenting the pane back into a window must recover the blank
+        // panel: reset the recovery budget and reload the shell.
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowKeepsLoadedShell() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A still-loaded shell (WebContent process alive, just unpainted) must
+        // not be torn down and reloaded when the view re-enters a window.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        // Consume part of the per-payload crash-recovery budget, then finish a
+        // successful reload so the shell is loaded again.
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        // Re-entry on a loaded shell must not reload it, and must preserve the
+        // per-payload crash budget so reparent/layout churn can't grant a
+        // crashing payload extra recovery cycles.
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+    }
+
+    func testMarkdownRendererReentersWindowDoesNotReviveCrashLoopingPayload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A payload that keeps crashing WebContent *while attached* exhausts
+        // the recovery budget and is intentionally left blank by the crash-loop
+        // guard — the shell was never healthy when detached.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Crashy\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Dragging the pane (detach while already blank) then re-entering must
+        // NOT grant the crashing payload a fresh budget or reload it.
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
 
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
@@ -773,22 +1013,11 @@ final class MarkdownPanelTests: XCTestCase {
         let copiedHTTPButton = try XCTUnwrap(copiedHTTPButtonState as? [String: Any])
         XCTAssertEqual(copiedHTTPButton["text"] as? String, expectedCopiedButton)
         XCTAssertEqual(copiedHTTPButton["copied"] as? String, "1")
-        try await Task.sleep(nanoseconds: 1_300_000_000)
-        let restoredHTTPButtonState = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="HTTP remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              var button = placeholder && placeholder.querySelectorAll('button')[0];
-              return {
-                text: button ? button.textContent : '',
-                copied: button ? button.getAttribute('data-copied') : ''
-              };
-            })();
-            """
+        let restoredHTTPButton = try await waitForRemoteImageButtonRevert(
+            alt: "HTTP remote",
+            expectedText: expectedCopyURLButton,
+            in: webView
         )
-        let restoredHTTPButton = try XCTUnwrap(restoredHTTPButtonState as? [String: Any])
         XCTAssertEqual(restoredHTTPButton["text"] as? String, expectedCopyURLButton)
         XCTAssertNil(restoredHTTPButton["copied"] as? String)
         let openedHTTPImageURL = try await webView.evaluateJavaScript(
@@ -1204,6 +1433,49 @@ final class MarkdownPanelTests: XCTestCase {
             code: 1,
             userInfo: [
                 NSLocalizedDescriptionKey: "Timed out waiting for markdown image to load. Last snapshot: \(lastSnapshot)"
+            ]
+        )
+    }
+
+    private func waitForRemoteImageButtonRevert(
+        alt: String,
+        expectedText: String,
+        in webView: WKWebView
+    ) async throws -> [String: Any] {
+        // The "Copied" label reverts to "Copy image URL" via a JS setTimeout in the
+        // markdown viewer shell, which runs in a separate WebKit process. Poll the real
+        // DOM transition instead of racing a fixed sleep against that timer.
+        let deadline = Date().addingTimeInterval(8)
+        var lastSnapshot: [String: Any] = [:]
+
+        while Date() < deadline {
+            let result = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var img = document.querySelector('img[alt="\(alt)"]');
+                  var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+                  var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+                  var button = placeholder && placeholder.querySelectorAll('button')[0];
+                  return {
+                    text: button ? button.textContent : '',
+                    copied: button ? button.getAttribute('data-copied') : ''
+                  };
+                })();
+                """
+            )
+            lastSnapshot = try XCTUnwrap(result as? [String: Any])
+            if lastSnapshot["text"] as? String == expectedText,
+               lastSnapshot["copied"] == nil || lastSnapshot["copied"] is NSNull {
+                return lastSnapshot
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for remote image button to revert to \(expectedText). Last snapshot: \(lastSnapshot)"
             ]
         )
     }

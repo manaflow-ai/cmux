@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type {
@@ -7,6 +7,7 @@ import type {
   ExecResult,
   ProviderId,
   SSHEndpoint,
+  VMStatus,
 } from "./drivers";
 import {
   VmBillingGateway,
@@ -21,17 +22,25 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  VmProviderOperationError,
+  VmSnapshotNotFoundError,
+  isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
+import { maxActiveVmsForPlan } from "./entitlements";
 import { isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
+  type BeginBaseCreateResult,
+  type CloudVmBaseGenerationRow,
+  type CloudVmBaseRow,
+  type CloudVmSessionRow,
   type CloudVmStatus,
   type CloudVmLeaseKind,
   type CloudVmRow,
@@ -44,10 +53,30 @@ export type VmEntry = {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
+  readonly status: CloudVmStatus;
   readonly createdAt: number;
 };
 
+export type BaseVmEntry = VmEntry & {
+  readonly baseId: string;
+  readonly baseName: string;
+  readonly generation: number;
+  readonly retainedProviderVmId: string | null;
+};
+
+export type CloudVmSessionEntry = CloudVmSessionRow;
+
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
+
+const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+
+export type VmProviderStatusReconcileResult = {
+  readonly checked: number;
+  readonly updated: number;
+  readonly destroyed: number;
+  readonly skipped: number;
+  readonly skippedNoGetStatus: boolean;
+};
 
 export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
@@ -67,6 +96,82 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
   });
 }
 
+export function getVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const providerVmId = vm.providerVmId ?? input.providerVmId;
+    const getStatus = providers.getStatus;
+    if (!getStatus) return vmEntryFromRow(vm);
+
+    const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.catchAll((err) =>
+        isProviderNotFoundError(err)
+          ? Effect.succeed("destroyed" as const)
+          : Effect.fail(err),
+      ),
+    );
+    if (providerStatus !== "creating" && providerStatus !== vm.status) {
+      const dbStatus = dbStatusFromProviderStatus(providerStatus);
+      const didUpdate = yield* repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: dbStatus,
+      });
+      if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
+    }
+    return vmEntryFromRow(vm);
+  });
+}
+
+export function reconcileVmProviderStatuses(input: {
+  readonly limit?: number;
+} = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    const providers = yield* VmProviderGateway;
+    const getStatus = providers.getStatus;
+    if (!getStatus) {
+      return {
+        checked: 0,
+        updated: 0,
+        destroyed: 0,
+        skipped: 0,
+        skippedNoGetStatus: true,
+      };
+    }
+
+    const repo = yield* VmRepository;
+    const candidates = yield* repo.reconciliationCandidates({
+      limit: boundedVmStatusReconcileLimit(input.limit),
+    });
+    const outcomes = yield* Effect.forEach(
+      candidates,
+      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron"),
+      { concurrency: 10 },
+    );
+    let updated = 0;
+    let destroyed = 0;
+    let skipped = 0;
+    for (const outcome of outcomes) {
+      if (outcome === "updated") updated += 1;
+      else if (outcome === "destroyed") destroyed += 1;
+      else if (outcome === "skipped") skipped += 1;
+    }
+    return {
+      checked: candidates.length,
+      updated,
+      destroyed,
+      skipped,
+      skippedNoGetStatus: false,
+    };
+  });
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -77,6 +182,7 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
+  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -91,6 +197,7 @@ export function createVm(input: {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
+            code: existing.failureCode,
             message: existing.failureMessage ?? "previous VM create failed",
           }),
         );
@@ -109,7 +216,11 @@ export function createVm(input: {
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
-      providers.create(input.provider, { image: input.image }),
+      providers.create(input.provider, {
+        image: input.image,
+        providerMetadata: create.vm.providerMetadata,
+        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+      }),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
@@ -141,6 +252,7 @@ export function createVm(input: {
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
+        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -167,6 +279,472 @@ export function createVm(input: {
     yield* recordCreateSuccessEvents(repo, input, running);
 
     return vmEntryFromRow(running);
+  });
+}
+
+export function openBaseVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly provider: ProviderId;
+  readonly image: string;
+  readonly imageVersion?: string | null;
+  readonly baseName?: string;
+  readonly bakedFreestyleSignedAdmin?: boolean;
+  readonly timing?: VmTimingSink;
+}): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const billing = yield* VmBillingGateway;
+    const create = yield* measureVmEffect(
+      input.timing,
+      "begin_base_open",
+      repo.beginBaseOpen(input),
+    );
+    return yield* finishBaseCreate(repo, providers, billing, input, create);
+  });
+}
+
+export function resetBaseVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly provider: ProviderId;
+  readonly image: string;
+  readonly imageVersion?: string | null;
+  readonly baseName?: string;
+  readonly reason?: string | null;
+  readonly bakedFreestyleSignedAdmin?: boolean;
+  readonly timing?: VmTimingSink;
+}): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const billing = yield* VmBillingGateway;
+    const create = yield* measureVmEffect(
+      input.timing,
+      "begin_base_reset",
+      repo.beginBaseReset(input),
+    );
+    return yield* finishBaseCreate(repo, providers, billing, input, create);
+  });
+}
+
+function finishBaseCreate(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  billing: VmBillingGatewayShape,
+  input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+    readonly image: string;
+    readonly imageVersion?: string | null;
+    readonly baseName?: string;
+    readonly bakedFreestyleSignedAdmin?: boolean;
+    readonly timing?: VmTimingSink;
+  },
+  create: BeginBaseCreateResult,
+): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
+  return Effect.gen(function* () {
+    if (create.kind === "existing") {
+      const existing = create.vm;
+      if (existing.status === "failed") {
+        return yield* Effect.fail(
+          new VmCreateFailedError({
+            idempotencyKey: existing.idempotencyKey ?? "",
+            code: existing.failureCode ?? null,
+            message: existing.failureMessage ?? "previous Base create failed",
+          }),
+        );
+      }
+      if (!existing.providerVmId) {
+        return yield* Effect.fail(
+          new VmCreateInProgressError({ idempotencyKey: existing.idempotencyKey ?? "" }),
+        );
+      }
+      return baseVmEntryFromRows(create.base, create.generation, existing, null);
+    }
+
+    const idempotencyKey = create.vm.idempotencyKey ?? undefined;
+    const creditReservation = yield* reserveCreateCredit(billing, repo, {
+      ...input,
+      idempotencyKey,
+    }, create.vm);
+    yield* recordCreateRequestedEvents(repo, {
+      ...input,
+      idempotencyKey,
+    }, create.vm, creditReservation);
+
+    const handle = yield* measureVmEffect(
+      input.timing,
+      "provider_create",
+      providers.create(input.provider, {
+        image: input.image,
+        providerMetadata: create.vm.providerMetadata,
+        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+      }),
+    ).pipe(
+      Effect.tapError((err) =>
+        Effect.all([
+          refundCredit(billing, repo, create.vm, creditReservation),
+          repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: err.operation,
+            message: errorMessage(err.cause),
+          }),
+          repo.recordUsageEvent({
+            userId: input.userId,
+            billingTeamId: input.billingTeamId,
+            billingPlanId: input.billingPlanId,
+            vmId: create.vm.id,
+            eventType: "vm.base.create.failed",
+            provider: input.provider,
+            imageId: input.image,
+            metadata: { operation: err.operation, message: errorMessage(err.cause), baseName: input.baseName ?? "base" },
+          }),
+        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+      ),
+    );
+
+    const running = yield* measureVmEffect(
+      input.timing,
+      "mark_base_running",
+      repo.markBaseCreateRunning({
+        baseId: create.base.id,
+        generation: create.generation.generation,
+        vmId: create.vm.id,
+        providerVmId: handle.providerVmId,
+        image: handle.image,
+        imageVersion: input.imageVersion ?? null,
+        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        userId: input.userId,
+      }),
+    ).pipe(
+      Effect.catchAll((err) =>
+        Effect.gen(function* () {
+          yield* providers.destroy(input.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+          yield* refundCredit(billing, repo, create.vm, creditReservation);
+          yield* repo.markBaseCreateFailed({
+            baseId: create.base.id,
+            generation: create.generation.generation,
+            vmId: create.vm.id,
+            userId: input.userId,
+            code: "database_finalize_failed",
+            message: "Cloud VM Base state update failed.",
+          }).pipe(Effect.catchAll(() => Effect.void));
+          yield* recordCreateFailureEvent(
+            repo,
+            {
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              provider: input.provider,
+              image: input.image,
+            },
+            create.vm,
+            "database_finalize_failed",
+            errorMessage(err.cause),
+          ).pipe(Effect.catchAll(() => Effect.void));
+          return yield* Effect.fail(err);
+        }),
+      ),
+    );
+
+    yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey }, running);
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId,
+      vmId: running.id,
+      eventType: create.previousVm ? "vm.base.reset" : "vm.base.opened",
+      provider: input.provider,
+      imageId: input.image,
+      metadata: {
+        baseName: input.baseName ?? "base",
+        generation: create.generation.generation,
+        retainedProviderVmId: create.previousVm?.providerVmId ?? null,
+      },
+    }).pipe(Effect.catchAll(() => Effect.void));
+
+    return baseVmEntryFromRows(
+      create.base,
+      create.generation,
+      running,
+      create.previousVm?.providerVmId ?? null,
+    );
+  });
+}
+
+export function snapshotVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly providerVmId: string;
+  readonly name?: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const snapshot = yield* (providers.snapshot
+      ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
+      : Effect.fail(new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "snapshot",
+        cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
+      })));
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.snapshot.created",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
+    });
+    return snapshot;
+  });
+}
+
+export function restoreVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly provider: ProviderId;
+  readonly snapshotId: string;
+  readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const hasSnapshot = yield* repo.hasOwnedSnapshot({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      provider: input.provider,
+      snapshotId: input.snapshotId,
+    });
+    if (!hasSnapshot) {
+      return yield* Effect.fail(new VmSnapshotNotFoundError({ snapshotId: input.snapshotId }));
+    }
+    return yield* createVm({
+      userId: input.userId,
+      billingCustomerType: input.billingCustomerType,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId,
+      maxActiveVms: input.maxActiveVms,
+      provider: input.provider,
+      image: input.snapshotId,
+      imageVersion: null,
+      idempotencyKey: input.idempotencyKey,
+      bakedFreestyleSignedAdmin: false,
+      timing: input.timing,
+    });
+  });
+}
+
+export function forkVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly providerVmId: string;
+  readonly name?: string;
+  readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const billing = yield* VmBillingGateway;
+    const source = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId, "fork");
+
+    if (source.provider === "freestyle" && providers.fork) {
+      const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: source.provider,
+        image: source.imageId,
+        imageVersion: source.imageVersion,
+        maxActiveVms: input.maxActiveVms,
+        idempotencyKey: input.idempotencyKey,
+        timing: input.timing,
+      });
+
+      if (!create.inserted) {
+        const existing = create.vm;
+        if (existing.status === "failed") {
+          return yield* Effect.fail(
+            new VmCreateFailedError({
+              idempotencyKey: input.idempotencyKey ?? "",
+              code: existing.failureCode ?? null,
+              message: existing.failureMessage ?? "previous VM fork failed",
+            }),
+          );
+        }
+        if (!existing.providerVmId) {
+          return yield* Effect.fail(
+            new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
+          );
+        }
+        return { snapshot: null, fork: vmEntryFromRow(existing) };
+      }
+
+      const creditReservation = yield* reserveCreateCredit(billing, repo, {
+        userId: input.userId,
+        billingCustomerType: input.billingCustomerType,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: source.provider,
+        image: source.imageId,
+        imageVersion: source.imageVersion,
+        idempotencyKey: input.idempotencyKey,
+        timing: input.timing,
+      }, create.vm);
+      yield* recordCreateRequestedEvents(repo, {
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: source.provider,
+        image: source.imageId,
+        imageVersion: source.imageVersion,
+        idempotencyKey: input.idempotencyKey,
+        timing: input.timing,
+      }, create.vm, creditReservation);
+
+      const handle = yield* measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
+      ).pipe(
+        Effect.tapError((err) =>
+          Effect.all([
+            refundCredit(billing, repo, create.vm, creditReservation),
+            repo.markCreateFailed({
+              id: create.vm.id,
+              code: err.operation,
+              message: errorMessage(err.cause),
+            }),
+            repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              vmId: create.vm.id,
+              eventType: "vm.create.failed",
+              provider: source.provider,
+              imageId: source.imageId,
+              metadata: { operation: err.operation, message: errorMessage(err.cause), sourceProviderVmId: source.providerVmId },
+            }),
+          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ),
+      );
+
+      const running = yield* measureVmEffect(
+        input.timing,
+        "mark_running",
+        repo.markCreateRunning({
+          id: create.vm.id,
+          providerVmId: handle.providerVmId,
+          image: source.imageId,
+          imageVersion: source.imageVersion,
+          providerMetadata: handle.providerMetadata ?? source.providerMetadata,
+        }),
+      ).pipe(
+        Effect.catchAll((err) =>
+          Effect.gen(function* () {
+            yield* providers.destroy(source.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+            yield* refundCredit(billing, repo, create.vm, creditReservation);
+            yield* repo.markCreateFailed({
+              id: create.vm.id,
+              code: "database_finalize_failed",
+              message: "Cloud VM fork state update failed.",
+            }).pipe(Effect.catchAll(() => Effect.void));
+            yield* recordCreateFailureEvent(
+              repo,
+              {
+                userId: input.userId,
+                billingTeamId: input.billingTeamId,
+                billingPlanId: input.billingPlanId,
+                provider: source.provider,
+                image: source.imageId,
+              },
+              create.vm,
+              "database_finalize_failed",
+              errorMessage(err.cause),
+            ).pipe(Effect.catchAll(() => Effect.void));
+            return yield* Effect.fail(err);
+          }),
+        ),
+      );
+
+      yield* recordCreateSuccessEvents(repo, input, running);
+      const fork = vmEntryFromRow(running);
+      yield* repo.recordUsageEvent({
+        userId: source.userId,
+        billingTeamId: source.billingTeamId,
+        billingPlanId: source.billingPlanId,
+        vmId: source.id,
+        eventType: "vm.forked",
+        provider: source.provider,
+        imageId: source.imageId,
+        metadata: {
+          native: true,
+          sourceProviderVmId: source.providerVmId,
+          forkProviderVmId: fork.providerVmId,
+          idempotencyKeySet: !!input.idempotencyKey,
+        },
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return { snapshot: null, fork };
+    }
+
+    const snapshot = yield* snapshotVm({
+      userId: input.userId,
+      billingTeamId: source.billingTeamId,
+      providerVmId: input.providerVmId,
+      name: input.name,
+    });
+    const fork = yield* createVm({
+      userId: input.userId,
+      billingCustomerType: input.billingCustomerType,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId,
+      maxActiveVms: input.maxActiveVms,
+      provider: source.provider,
+      image: snapshot.id,
+      imageVersion: null,
+      idempotencyKey: input.idempotencyKey,
+      timing: input.timing,
+    });
+    yield* repo.recordUsageEvent({
+      userId: source.userId,
+      billingTeamId: source.billingTeamId,
+      billingPlanId: source.billingPlanId,
+      vmId: source.id,
+      eventType: "vm.forked",
+      provider: source.provider,
+      imageId: source.imageId,
+      metadata: {
+        snapshotId: snapshot.id,
+        forkProviderVmId: fork.providerVmId,
+        idempotencyKeySet: !!input.idempotencyKey,
+      },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return { snapshot, fork };
   });
 }
 
@@ -213,35 +791,9 @@ function refreshActiveLimitProviderStatuses(
     yield* Effect.forEach(candidates, (vm) => {
       const providerVmId = vm.providerVmId;
       if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
-      return Effect.gen(function* () {
-        const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
-          Effect.catchAll((err) =>
-            isProviderNotFoundError(err)
-              ? Effect.succeed("destroyed" as const)
-              : Effect.succeed(null),
-          ),
-        );
-        if (!providerStatus || providerStatus === "creating") return;
-        const dbStatus = dbStatusFromProviderStatus(providerStatus);
-        if (dbStatus === vm.status) return;
-        const didUpdate = yield* repo.markProviderObservedStatus({
-          id: vm.id,
-          providerVmId,
-          status: dbStatus,
-        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
-        if (didUpdate && dbStatus === "destroyed") {
-          yield* repo.recordUsageEvent({
-            userId: vm.userId,
-            billingTeamId: vm.billingTeamId,
-            billingPlanId: vm.billingPlanId,
-            vmId: vm.id,
-            eventType: "vm.destroyed",
-            provider: vm.provider,
-            imageId: vm.imageId,
-            metadata: { source: "provider_status_refresh" },
-          }).pipe(Effect.catchAll(() => Effect.void));
-        }
-      });
+      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh").pipe(
+        Effect.asVoid,
+      );
     }, { concurrency: "unbounded", discard: true });
   });
 }
@@ -250,11 +802,378 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
-export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
+type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
+
+function reconcileObservedProviderStatus(
+  repo: VmRepositoryShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  vm: CloudVmRow,
+  usageEventSource: string,
+): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  return Effect.gen(function* () {
+    const providerVmId = vm.providerVmId;
+    if (!providerVmId) return "skipped" as const;
+    const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.catchAll((err) =>
+        isProviderNotFoundError(err)
+          ? Effect.succeed("destroyed" as const)
+          : Effect.succeed(null),
+      ),
+    );
+    if (!providerStatus || providerStatus === "creating") return "skipped" as const;
+    const dbStatus = dbStatusFromProviderStatus(providerStatus);
+    if (dbStatus === vm.status) return "unchanged" as const;
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: dbStatus,
+    }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+    if (!didUpdate) return "skipped" as const;
+    if (dbStatus === "destroyed") {
+      yield* repo.recordUsageEvent({
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.destroyed",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { source: usageEventSource },
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return "destroyed" as const;
+    }
+    return "updated" as const;
+  });
+}
+
+function boundedVmStatusReconcileLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return VM_STATUS_RECONCILE_BATCH_LIMIT;
+  return Math.max(1, Math.min(VM_STATUS_RECONCILE_BATCH_LIMIT, Math.trunc(limit)));
+}
+
+const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
+const RESUME_SETTLE_ATTEMPTS = 10;
+const RESUME_SETTLE_INTERVAL = "1 second";
+type VmResumeSource = "exec" | "attach" | "ssh" | "fork";
+
+// resume() can legitimately return a not-yet-running handle (Freestyle maps a
+// post-start "starting" state to "creating"), so poll briefly until the VM is
+// observably running; never record a running transition for a VM that has not
+// settled, and fail without a durable write if it does not.
+function waitForRunningStatus(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    if (!getStatus) return true;
+    for (let attempt = 0; attempt < RESUME_SETTLE_ATTEMPTS; attempt += 1) {
+      const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        Effect.timeoutFail({
+          duration: RESUME_STATUS_PROBE_TIMEOUT,
+          onTimeout: () =>
+            new VmProviderOperationError({
+              provider: vm.provider,
+              operation: `getStatus(${providerVmId})`,
+              cause: new Error("status probe timed out"),
+            }),
+        }),
+        Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+      );
+      if (status === "running") return true;
+      yield* Effect.sleep(RESUME_SETTLE_INTERVAL);
+    }
+    return false;
+  });
+}
+
+function bestEffortPause(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  const pause = providers.pause;
+  if (!pause) return Effect.void;
+  return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+}
+
+function resumeUntilRunning(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const resume = providers.resume;
+    if (!resume) return;
+    const handle = yield* resume(vm.provider, providerVmId);
+    if (handle.status === "running") return;
+    const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+    if (settled) return;
+    // The provider start already happened; roll back so a started-but-
+    // unrecorded VM is never left running outside Postgres accounting.
+    yield* bestEffortPause(providers, vm, providerVmId);
+    return yield* Effect.fail(
+      new VmProviderOperationError({
+        provider: vm.provider,
+        operation: `resume(${providerVmId})`,
+        cause: new Error("VM did not reach running after resume"),
+      }),
+    );
+  });
+}
+
+function reservePausedResumeIfTeam(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, VmWorkflowError> {
+  if (!vm.billingTeamId) return Effect.succeed(false);
+  return Effect.gen(function* () {
+    const reserved = yield* repo.reservePausedResume({
+      id: vm.id,
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      providerVmId,
+      maxActiveVms: maxActiveVmsForPlan(vm.billingPlanId),
+    });
+    if (!reserved) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+    }
+    if (reserved.status !== "running") {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: `reservePausedResume(${providerVmId})`,
+          cause: new Error(`VM resume reservation returned ${reserved.status}`),
+        }),
+      );
+    }
+    return vm.status === "paused";
+  });
+}
+
+function rollbackPausedResumeReservation(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  reserved: boolean,
+): Effect.Effect<void, never> {
+  if (!reserved) return Effect.void;
+  return repo.markProviderObservedStatus({
+    id: vm.id,
+    providerVmId,
+    status: "paused",
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+function recordResumeUsageEvent(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  resumeSource: VmResumeSource,
+): Effect.Effect<void, never> {
+  return repo.recordUsageEvent({
+    userId: vm.userId,
+    billingTeamId: vm.billingTeamId,
+    billingPlanId: vm.billingPlanId,
+    vmId: vm.id,
+    eventType: "vm.resumed",
+    provider: vm.provider,
+    imageId: vm.imageId,
+    metadata: { source: resumeSource },
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+// Active-limit note: the control-plane-owned paused-row resume path is
+// limit-gated for billing teams by reservePausedResume before the provider
+// resume starts. Freestyle can still resume a VM outside the control plane
+// (for example through its SSH gateway); those already-running observations
+// are reconciled durably here, and beginCreate re-counts provider-running VMs
+// before allocating another active slot.
+function preflightResumeIfSuspended(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  resumeSource: VmResumeSource,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const getStatus = providers.getStatus;
+    const resume = providers.resume;
+    if (!getStatus || !resume) return;
+
+    const status = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.timeoutFail({
+        duration: RESUME_STATUS_PROBE_TIMEOUT,
+        onTimeout: () =>
+          new VmProviderOperationError({
+            provider: vm.provider,
+            operation: `getStatus(${providerVmId})`,
+            cause: new Error("status probe timed out"),
+          }),
+      }),
+      Effect.catchAll((err) =>
+        // Fail closed when the row durably says paused and the probe cannot
+        // prove otherwise: minting endpoints against a suspended VM would
+        // hand out unusable credentials and record leases/usage for it.
+        vm.status === "paused"
+          ? Effect.fail(err)
+          : Effect.succeed(null as VMStatus | null),
+      ),
+    );
+    if (status === "creating") {
+      // Another caller's resume is in flight; wait for it rather than
+      // minting endpoints or running commands against a not-yet-ready VM.
+      const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+      if (!settled) {
+        return yield* Effect.fail(
+          new VmProviderOperationError({
+            provider: vm.provider,
+            operation: `getStatus(${providerVmId})`,
+            cause: new Error("VM stayed in a resuming state"),
+          }),
+        );
+      }
+      // Persist the observed running state ourselves in case the resuming
+      // caller dies before its own durable write. An already-running row
+      // still matches the update (returns true); false means the row was
+      // destroyed or replaced concurrently, so fail closed. No pause
+      // rollback here: the caller that started the VM owns compensation.
+      const recorded = yield* repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: "running",
+      });
+      if (!recorded) {
+        return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+      }
+      return;
+    }
+    if (status === "running") {
+      // Freestyle's SSH gateway can resume a VM entirely outside the control
+      // plane; if the durable row still says paused, record the observed
+      // running state so active-limit reconciliation can see the VM.
+      if (vm.status === "paused") {
+        const recorded = yield* repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: "running",
+        });
+        if (!recorded) {
+          return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+        }
+      }
+      return;
+    }
+    if (status !== "paused") return;
+
+    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
+    yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+    );
+    yield* recordRunningTransition(
+      repo,
+      providers,
+      vm,
+      providerVmId,
+      new VmNotFoundError({ vmId: providerVmId }),
+    ).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+    );
+    if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+  });
+}
+
+function withResumeOnSuspendedAfterFailure<A>(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  resumeSource: VmResumeSource,
+  op: Effect.Effect<A, VmWorkflowError>,
+): Effect.Effect<A, VmWorkflowError> {
+  return op.pipe(
+    Effect.catchAll((originalError) => {
+      const getStatus = providers.getStatus;
+      const resume = providers.resume;
+      if (!getStatus || !resume) return Effect.fail(originalError);
+
+      return Effect.gen(function* () {
+        const status = yield* getStatus(vm.provider, providerVmId).pipe(
+          Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+        );
+        if (status === "creating") {
+          const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+          if (!settled) return yield* Effect.fail(originalError);
+          const recorded = yield* repo.markProviderObservedStatus({
+            id: vm.id,
+            providerVmId,
+            status: "running",
+          }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          if (!recorded) return yield* Effect.fail(originalError);
+          return yield* op;
+        }
+        if (status !== "paused") {
+          return yield* Effect.fail(originalError);
+        }
+
+        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
+        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+          Effect.catchAll(() => Effect.fail(originalError)),
+        );
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+        );
+        if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+        return yield* op;
+      });
+    }),
+  );
+}
+
+// After a successful provider resume, Postgres must record the running
+// transition before the workflow proceeds. When the write fails (or the row
+// was destroyed concurrently), roll the provider back to the durable state
+// with a best-effort pause so a running VM is never left invisible to
+// active-limit accounting; Freestyle's idle auto-suspend (~10s) is the
+// backstop if the pause itself fails.
+function recordRunningTransition<E extends VmWorkflowError>(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  staleRowError: E,
+): Effect.Effect<void, VmDatabaseError | E> {
+  const rollbackPause = (): Effect.Effect<void, never> => {
+    const pause = providers.pause;
+    if (!pause) return Effect.void;
+    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+  };
+  return Effect.gen(function* () {
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "running",
+    }).pipe(
+      Effect.tapError(() => rollbackPause()),
+    );
+    if (!didUpdate) {
+      yield* rollbackPause();
+      return yield* Effect.fail(staleRowError);
+    }
+  });
+}
+
+export function destroyVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly providerVmId: string;
+}) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
 
     yield* revokeActiveIdentities(vm);
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
@@ -278,6 +1197,7 @@ export function destroyVm(input: { readonly userId: string; readonly providerVmI
 
 export function execVm(input: {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
@@ -285,7 +1205,14 @@ export function execVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "exec",
+    );
     const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
       timeoutMs: input.timeoutMs,
     });
@@ -303,17 +1230,79 @@ export function execVm(input: {
   });
 }
 
-export function openAttachEndpoint(input: {
+type OpenAttachEndpointInput = {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
   readonly options?: AttachOptions;
+  readonly sessionTitle?: string | null;
+};
+
+export function openAttachEndpoint(input: OpenAttachEndpointInput) {
+  return Effect.gen(function* () {
+    const result = yield* openAttachEndpointResult(input);
+    return result.endpoint;
+  });
+}
+
+export function openVmSession(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly providerVmId: string;
+  readonly sessionId?: string;
+  readonly attachmentId?: string;
+  readonly title?: string | null;
+}) {
+  const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
+  const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
+  return openAttachEndpointResult({
+    userId: input.userId,
+    billingTeamId: input.billingTeamId,
+    providerVmId: input.providerVmId,
+    sessionTitle: input.title,
+    options: {
+      requireDaemon: true,
+      sessionId,
+      attachmentId,
+    },
+  });
+}
+
+export function listVmSessions(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    return yield* repo.listVmSessions({ userId: input.userId, vmId: vm.id });
+  });
+}
+
+function openAttachEndpointResult(input: OpenAttachEndpointInput) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
+    // grants an identity), which would hand out an endpoint while Postgres
+    // still says paused. Preflight-resume first — and before revoking the
+    // user's existing identities, so a preflight failure never strands them
+    // with old credentials revoked and no replacement minted.
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "attach",
+      providers.openAttach(vm.provider, input.providerVmId, {
+        ...(input.options ?? {}),
+        providerMetadata: vm.providerMetadata,
+      }),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -332,23 +1321,53 @@ export function openAttachEndpoint(input: {
       metadata: {
         transport: endpoint.transport,
         requireDaemon: input.options?.requireDaemon === true,
+        requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
     }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
+    const session = endpoint.transport === "websocket"
+      ? yield* repo.upsertVmSession({
+        vmId: vm.id,
+        userId: input.userId,
+        providerSessionId: endpoint.sessionId,
+        title: input.sessionTitle ?? null,
+        status: "running",
+        attachmentCount: 1,
+        metadata: {
+          transport: endpoint.transport,
+          daemonAvailable: !!endpoint.daemon,
+          attachmentId: endpoint.attachmentId,
+        },
+      })
+      : undefined;
+    return { endpoint, session };
   });
 }
 
 export function openSshEndpoint(input: {
   readonly userId: string;
+  readonly billingTeamId?: string | null;
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
+    // grants an identity), which would hand out an endpoint while Postgres
+    // still says paused. Preflight-resume first — and before revoking the
+    // user's existing identities, so a preflight failure never strands them
+    // with old credentials revoked and no replacement minted.
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openSSH(vm.provider, input.providerVmId);
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "ssh",
+      providers.openSSH(vm.provider, input.providerVmId),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -370,10 +1389,10 @@ export function openSshEndpoint(input: {
   });
 }
 
-function requireUserVm(userId: string, providerVmId: string) {
+function requireUserVm(userId: string, providerVmId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* repo.findUserVm({ userId, providerVmId });
+    const vm = yield* repo.findUserVm({ userId, billingTeamId, providerVmId });
     if (!vm || !vm.providerVmId) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
@@ -406,6 +1425,15 @@ function storeEndpointLeases(vm: CloudVmRow, endpoint: AttachEndpoint | SSHEndpo
         transport: "ssh",
         metadata: { credentialKind: endpoint.credential.kind },
       });
+      if (endpoint.daemon) {
+        yield* recordEndpointLease(vm, {
+          kind: "rpc",
+          token: endpoint.daemon.token,
+          expiresAt: new Date(endpoint.daemon.expiresAtUnix * 1000),
+          sessionId: endpoint.daemon.sessionId,
+          transport: "websocket",
+        });
+      }
       return;
     }
 
@@ -506,7 +1534,9 @@ function reserveCreateCredit(
           Effect.all([
             repo.markCreateFailed({
               id: vm.id,
-              code: "billing_reserve_failed",
+              code: isVmCreateCreditsInsufficientError(err)
+                ? "billing_credits_insufficient"
+                : "billing_reserve_failed",
               message: errorMessage(err),
             }),
             repo.recordUsageEvent({
@@ -770,7 +1800,23 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     provider: row.provider,
     image: row.imageId,
     imageVersion: row.imageVersion,
+    status: row.status,
     createdAt: row.createdAt.getTime(),
+  };
+}
+
+function baseVmEntryFromRows(
+  base: CloudVmBaseRow,
+  generation: CloudVmBaseGenerationRow,
+  row: CloudVmRow,
+  retainedProviderVmId: string | null,
+): BaseVmEntry {
+  return {
+    ...vmEntryFromRow(row),
+    baseId: base.id,
+    baseName: base.name,
+    generation: generation.generation,
+    retainedProviderVmId,
   };
 }
 

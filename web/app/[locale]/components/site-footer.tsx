@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
 import { LanguageSwitcher } from "./language-switcher";
+import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 
 function isExternal(href: string) {
   return href.startsWith("http") || href.startsWith("mailto:");
@@ -14,15 +15,19 @@ export async function SiteFooter() {
     {
       heading: t("product"),
       links: [
+        { label: t("pricing"), href: "/pricing", proUpgrade: true },
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
+        { label: t("assets"), href: "/assets" },
       ],
     },
     {
       heading: t("resources"),
       links: [
         { label: t("docs"), href: "/docs/getting-started" },
+        { label: t("guides"), href: "/guides" },
+        { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
       ],
     },
@@ -55,27 +60,36 @@ export async function SiteFooter() {
                 {col.heading}
               </h3>
               <ul className="space-y-2">
-                {col.links.map((link) => (
-                  <li key={link.href}>
-                    {isExternal(link.href) ? (
-                      <a
-                        href={link.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-muted hover:text-foreground transition-colors"
-                      >
-                        {link.label}
-                      </a>
-                    ) : (
-                      <Link
-                        href={link.href}
-                        className="text-sm text-muted hover:text-foreground transition-colors"
-                      >
-                        {link.label}
-                      </Link>
-                    )}
-                  </li>
-                ))}
+                {col.links.map((link) => {
+                  const item = (
+                    <li key={link.href}>
+                      {isExternal(link.href) ? (
+                        <a
+                          href={link.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-muted hover:text-foreground transition-colors"
+                        >
+                          {link.label}
+                        </a>
+                      ) : (
+                        <Link
+                          href={link.href}
+                          className="text-sm text-muted hover:text-foreground transition-colors"
+                        >
+                          {link.label}
+                        </Link>
+                      )}
+                    </li>
+                  );
+                  return link.proUpgrade ? (
+                    <ProUpgradeVisibility key={link.href}>
+                      {item}
+                    </ProUpgradeVisibility>
+                  ) : (
+                    item
+                  );
+                })}
               </ul>
             </div>
           ))}
@@ -83,6 +97,17 @@ export async function SiteFooter() {
         <div className="flex items-center justify-between mt-10">
           <p className="text-xs text-muted">
             {t("copyright", { year })}
+            <span aria-hidden className="mx-2">
+              ·
+            </span>
+            <a
+              href="https://github.com/manaflow-ai/cmux"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground transition-colors"
+            >
+              {t("openSource")}
+            </a>
           </p>
           <LanguageSwitcher />
         </div>

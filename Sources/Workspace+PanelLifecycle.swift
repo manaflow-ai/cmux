@@ -1,6 +1,9 @@
 import Bonsplit
+import CmuxSettings
+import CmuxCore
 import Darwin
 import Foundation
+import CmuxSidebar
 
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
@@ -91,14 +94,41 @@ extension Workspace {
         )
     }
 
+    var agentPIDs: [String: pid_t] {
+        get { sidebarAgentRuntimeObservation.agentPIDs }
+        set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
+    }
+
+    var agentPIDProcessIdentitiesByKey: [String: AgentPIDProcessIdentity] {
+        get { sidebarAgentRuntimeObservation.agentPIDProcessIdentitiesByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDProcessIdentitiesByKey(newValue) }
+    }
+
+    var agentPIDPanelIdsByKey: [String: UUID] {
+        get { sidebarAgentRuntimeObservation.agentPIDPanelIdsByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDPanelIdsByKey(newValue) }
+    }
+
+    var agentPIDKeysByPanelId: [UUID: Set<String>] {
+        get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
+    }
+
+    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+    }
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
         var agentPIDsForPanel: [String: pid_t] = [:]
+        var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
         var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 agentPIDsForPanel[key] = pid
+                agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             if let statusEntry = statusEntries[statusKey] {
@@ -110,6 +140,7 @@ extension Workspace {
             panelId: panelId,
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
+            agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
             agentPIDKeys: pidKeys
         )
     }
@@ -183,6 +214,7 @@ extension Workspace {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
         agentPIDs[key] = pid
+        agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
@@ -194,12 +226,81 @@ extension Workspace {
         return didClearOtherStructuredAgentRuntime
     }
 
+    @discardableResult
+    func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
+        var didChange = false
+        for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
+            if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    @discardableResult
+    func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
+        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for key in keys {
+            guard let pid = agentPIDs[key] else {
+                if clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                    didChange = true
+                }
+                continue
+            }
+            if !isRecordedAgentPIDLive(key: key, pid: pid),
+               clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
+    }
+
+    func clearAllAgentPIDs(refreshPorts: Bool = true) {
+        let hadAgentPIDs = !agentPIDs.isEmpty
+        agentPIDs.removeAll()
+        agentPIDProcessIdentitiesByKey.removeAll()
+        agentPIDPanelIdsByKey.removeAll()
+        agentPIDKeysByPanelId.removeAll()
+        if hadAgentPIDs, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+    }
+
+    private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
+        guard pid > 0,
+              let recordedIdentity = agentPIDProcessIdentitiesByKey[key],
+              let currentIdentity = Self.agentPIDProcessIdentity(pid: pid) else {
+            return false
+        }
+        return currentIdentity == recordedIdentity
+    }
+
+    static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return AgentPIDProcessIdentity(
+            pid: pid,
+            startSeconds: Int64(info.pbi_start_tvsec),
+            startMicroseconds: Int64(info.pbi_start_tvusec)
+        )
+    }
+
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
         guard let panelId else {
             return false
         }
 
-        if AgentSubagentNotificationSettings.suppressNotifications(),
+        if AgentIntegrationSettingsStore(defaults: .standard).suppressesSubagentNotifications,
            terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
             return true
         }
@@ -303,6 +404,9 @@ extension Workspace {
         if agentPIDs.removeValue(forKey: key) != nil {
             didChange = true
         }
+        if agentPIDProcessIdentitiesByKey.removeValue(forKey: key) != nil {
+            didChange = true
+        }
         if ownedPanelId != nil {
             removeAgentPIDOwnership(key: key)
             didChange = true
@@ -354,6 +458,9 @@ extension Workspace {
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            if let recordedIdentity = runtimeState.agentPIDProcessIdentities[key] {
+                agentPIDProcessIdentitiesByKey[key] = recordedIdentity
+            }
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
@@ -387,6 +494,8 @@ extension Workspace {
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
+        discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
+        discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
@@ -395,20 +504,35 @@ extension Workspace {
             panel?.close()
         }
 
-        panels.removeValue(forKey: panelId)
-        untrackRemoteTerminalSurface(panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-        if let tabId {
-            surfaceIdToPanelId.removeValue(forKey: tabId)
-        } else {
-            surfaceIdToPanelId = surfaceIdToPanelId.filter { $0.value != panelId }
+        let shouldPreserveRemoteDisconnectOnClose =
+            origin == "tab_close" ||
+            origin == "pane_close"
+        if shouldPreserveRemoteDisconnectOnClose,
+           panel is TerminalPanel {
+            markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
+        }
+        let shouldRefreshRemoteDisconnectPlaceholder =
+            shouldPreserveRemoteDisconnectOnClose &&
+            remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
+            panels.count == 1
+        if shouldRefreshRemoteDisconnectPlaceholder,
+           let remoteConfiguration {
+            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
         }
 
+        panels.removeValue(forKey: panelId)
+        untrackRemoteTerminalSurface(panelId)
+        discardRemoteDirectoryTrustState(panelId: panelId)
+        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        removeSurfaceMappings(forPanelId: panelId)
+
         panelDirectories.removeValue(forKey: panelId)
+        panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
+        panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
@@ -426,6 +550,7 @@ extension Workspace {
         discardAgentRuntimeState(closedAgentRuntimeState)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)

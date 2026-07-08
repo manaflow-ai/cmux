@@ -1,11 +1,16 @@
+import CmuxFoundation
 #if DEBUG
 import AppKit
 import SwiftUI
 
-final class FeedTextEditorDebugWindowController: NSWindowController, NSWindowDelegate {
+final class FeedTextEditorDebugWindowController: ReleasingWindowController {
     static let shared = FeedTextEditorDebugWindowController()
 
-    private init() {
+    private override init() {
+        super.init()
+    }
+
+    override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -19,8 +24,7 @@ final class FeedTextEditorDebugWindowController: NSWindowController, NSWindowDel
         window.identifier = NSUserInterfaceItemIdentifier("cmux.feedTextEditorDebug")
         window.center()
         window.contentView = NSHostingView(rootView: FeedTextEditorDebugView())
-        super.init(window: window)
-        window.delegate = self
+        return window
     }
 
     @available(*, unavailable)
@@ -29,13 +33,7 @@ final class FeedTextEditorDebugWindowController: NSWindowController, NSWindowDel
     }
 
     func show() {
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-    }
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        sender.orderOut(nil)
-        return false
+        showManagedWindow()
     }
 }
 
@@ -89,7 +87,7 @@ private struct FeedTextEditorDebugView: View {
                 header
 
                 Text(String(localized: "feed.textEditorDebug.section.swiftui", defaultValue: "SwiftUI"))
-                    .font(.system(size: 12, weight: .semibold))
+                    .cmuxFont(size: 12, weight: .semibold)
                     .foregroundStyle(.secondary)
 
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
@@ -102,7 +100,7 @@ private struct FeedTextEditorDebugView: View {
                 }
 
                 Text(String(localized: "feed.textEditorDebug.section.appkit", defaultValue: "AppKit"))
-                    .font(.system(size: 12, weight: .semibold))
+                    .cmuxFont(size: 12, weight: .semibold)
                     .foregroundStyle(.secondary)
                     .padding(.top, 2)
 
@@ -129,12 +127,12 @@ private struct FeedTextEditorDebugView: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(localized: "feed.textEditorDebug.title", defaultValue: "Feed Text Editors"))
-                    .font(.system(size: 18, weight: .semibold))
+                    .cmuxFont(size: 18, weight: .semibold)
                 Text(String(
                     localized: "feed.textEditorDebug.subtitle",
                     defaultValue: "Compare autosizing editors with identical input."
                 ))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)
             }
             Spacer()
@@ -148,7 +146,7 @@ private struct FeedTextEditorDebugView: View {
         TextField(placeholder, text: $swiftUITextFieldText, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(1...10)
-            .font(.system(size: 13, weight: .semibold))
+            .cmuxFont(size: 13, weight: .semibold)
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
             .background(editorBackground)
@@ -157,7 +155,7 @@ private struct FeedTextEditorDebugView: View {
     private var swiftUIMirrorTextEditor: some View {
         ZStack(alignment: .topLeading) {
             Text(swiftUIMirrorText.isEmpty ? " " : swiftUIMirrorText + " ")
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
                 .lineSpacing(0)
                 .padding(.horizontal, 9)
                 .padding(.top, 9)
@@ -170,7 +168,7 @@ private struct FeedTextEditorDebugView: View {
                     }
                 )
             TextEditor(text: $swiftUIMirrorText)
-                .font(.system(size: 13, weight: .semibold))
+                .cmuxFont(size: 13, weight: .semibold)
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 4)
                 .padding(.top, 5)
@@ -215,10 +213,10 @@ private struct FeedTextEditorDebugView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(variant.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                 Spacer()
                 Text(metrics(for: text))
-                    .font(.system(size: 10).monospacedDigit())
+                    .cmuxFont(size: 10, monospacedDigit: true)
                     .foregroundStyle(.secondary)
             }
             content()
@@ -409,7 +407,7 @@ private struct FeedTextEditorDebugAppKitEditor: NSViewRepresentable {
     private func configure(_ host: FeedTextEditorDebugAppKitHost) {
         host.apply(
             mode: mode,
-            font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            font: GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold),
             placeholder: placeholder
         )
     }
@@ -420,7 +418,7 @@ private final class FeedTextEditorDebugAppKitHost: NSView {
     private let scrollView = NSScrollView(frame: .zero)
     private let placeholderField = NSTextField(labelWithString: "")
     private var mode = FeedTextEditorDebugAppKitMode.directSizeThatFits
-    private var currentFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    private var currentFont = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
     private var lastMeasuredHeight: CGFloat = 0
 
     var onMeasuredHeightChange: ((CGFloat) -> Void)?

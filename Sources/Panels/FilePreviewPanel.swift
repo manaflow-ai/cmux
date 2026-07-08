@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import AVKit
 import Bonsplit
@@ -100,8 +101,15 @@ enum FileExternalOpenAction {
     @discardableResult
     static func openDefault(fileURL: URL) -> Bool {
         let resolver = FileExternalOpenApplicationResolver.live
-        let primaryApplication = resolver.applications(for: fileURL).first
-        return open(fileURL: fileURL, applicationURL: primaryApplication?.url)
+        guard let defaultURL = resolver.defaultApplicationURL(fileURL) else {
+            return open(fileURL: fileURL, applicationURL: nil)
+        }
+        if resolver.shouldIncludeApplication(defaultURL) {
+            return open(fileURL: fileURL, applicationURL: defaultURL)
+        }
+        let fallbackURL = resolver.applicationURLs(fileURL).first(where: resolver.shouldIncludeApplication)
+        guard let fallbackURL else { return false }
+        return open(fileURL: fileURL, applicationURL: fallbackURL)
     }
 
     @discardableResult
@@ -113,6 +121,10 @@ enum FileExternalOpenAction {
             return true
         }
         return NSWorkspace.shared.open(fileURL)
+    }
+
+    static func revealInFinder(fileURL: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 }
 
@@ -128,6 +140,81 @@ enum FileExternalOpenText {
     static func openInApplication(_ applicationName: String) -> String {
         let format = String(localized: "filePreview.openInApplication", defaultValue: "Open in %@")
         return String(format: format, applicationName)
+    }
+
+    static var revealInFinder: String {
+        String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder")
+    }
+}
+
+enum FileExternalOpenMenuFactory {
+    static func makeMenu(
+        fileURL: URL,
+        primaryApplication: FileExternalOpenApplication?,
+        otherApplications: [FileExternalOpenApplication]
+    ) -> NSMenu {
+        let menu = NSMenu(title: FileExternalOpenText.openWithMenu)
+        menu.autoenablesItems = false
+
+        if let primaryApplication {
+            menu.addItem(menuItem(
+                title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
+                fileURL: fileURL,
+                action: .open(applicationURL: primaryApplication.url)
+            ))
+        } else {
+            menu.addItem(menuItem(
+                title: FileExternalOpenText.openExternally,
+                fileURL: fileURL,
+                action: .open(applicationURL: nil)
+            ))
+        }
+
+        menu.addItem(menuItem(
+            title: FileExternalOpenText.revealInFinder,
+            fileURL: fileURL,
+            action: .revealInFinder
+        ))
+
+        if !otherApplications.isEmpty {
+            menu.addItem(.separator())
+            let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+            openWithMenu.autoenablesItems = false
+            for application in otherApplications {
+                openWithMenu.addItem(menuItem(
+                    title: application.displayName,
+                    fileURL: fileURL,
+                    action: .open(applicationURL: application.url)
+                ))
+            }
+            let openWithItem = NSMenuItem(
+                title: FileExternalOpenText.openWithMenu,
+                action: nil,
+                keyEquivalent: ""
+            )
+            openWithItem.submenu = openWithMenu
+            menu.addItem(openWithItem)
+        }
+
+        return menu
+    }
+
+    private static func menuItem(
+        title: String,
+        fileURL: URL,
+        action: FileExternalOpenMenuPayloadAction
+    ) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
+            keyEquivalent: ""
+        )
+        item.target = FileExternalOpenMenuActionTarget.shared
+        item.representedObject = FileExternalOpenMenuActionPayload(
+            fileURL: fileURL,
+            action: action
+        )
+        return item
     }
 }
 
@@ -198,7 +285,7 @@ struct FileExternalOpenMenu: View {
             PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
         case .chrome:
             Image(systemName: "square.and.arrow.up")
-                .font(.system(size: 16, weight: .semibold))
+                .cmuxFont(size: 16, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .frame(width: style.buttonSize.width, height: style.buttonSize.height)
                 .contentShape(Rectangle())
@@ -264,52 +351,11 @@ struct FileExternalOpenMenu: View {
         primaryApplication: FileExternalOpenApplication?,
         otherApplications: [FileExternalOpenApplication]
     ) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-
-        if let primaryApplication {
-            menu.addItem(menuItem(
-                title: openInTitle(primaryApplication.displayName),
-                applicationURL: primaryApplication.url
-            ))
-
-            if !otherApplications.isEmpty {
-                menu.addItem(.separator())
-                let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-                openWithMenu.autoenablesItems = false
-                for application in otherApplications {
-                    openWithMenu.addItem(menuItem(
-                        title: application.displayName,
-                        applicationURL: application.url
-                    ))
-                }
-                let openWithItem = NSMenuItem(
-                    title: FileExternalOpenText.openWithMenu,
-                    action: nil,
-                    keyEquivalent: ""
-                )
-                openWithItem.submenu = openWithMenu
-                menu.addItem(openWithItem)
-            }
-        } else {
-            menu.addItem(menuItem(title: FileExternalOpenText.openExternally, applicationURL: nil))
-        }
-
-        return menu
-    }
-
-    private func menuItem(title: String, applicationURL: URL?) -> NSMenuItem {
-        let item = NSMenuItem(
-            title: title,
-            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
-            keyEquivalent: ""
-        )
-        item.target = FileExternalOpenMenuActionTarget.shared
-        item.representedObject = FileExternalOpenMenuActionPayload(
+        FileExternalOpenMenuFactory.makeMenu(
             fileURL: fileURL,
-            applicationURL: applicationURL
+            primaryApplication: primaryApplication,
+            otherApplications: otherApplications
         )
-        return item
     }
 }
 
@@ -349,61 +395,26 @@ private struct FileExternalOpenHeaderMenuButton: View {
     }
 
     private func makeMenu() -> NSMenu {
-        let menu = NSMenu(title: FileExternalOpenText.openWithMenu)
-        if let primaryApplication {
-            menu.addItem(menuItem(for: primaryApplication))
-            if !otherApplications.isEmpty {
-                menu.addItem(.separator())
-                let submenuItem = NSMenuItem(
-                    title: FileExternalOpenText.openWithMenu,
-                    action: nil,
-                    keyEquivalent: ""
-                )
-                let submenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-                otherApplications.forEach { application in
-                    submenu.addItem(menuItem(for: application))
-                }
-                submenuItem.submenu = submenu
-                menu.addItem(submenuItem)
-            }
-        } else {
-            let item = NSMenuItem(
-                title: FileExternalOpenText.openExternally,
-                action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
-                keyEquivalent: ""
-            )
-            item.target = FileExternalOpenMenuActionTarget.shared
-            item.representedObject = FileExternalOpenMenuActionPayload(
-                fileURL: fileURL,
-                applicationURL: nil
-            )
-            menu.addItem(item)
-        }
-        return menu
-    }
-
-    private func menuItem(for application: FileExternalOpenApplication) -> NSMenuItem {
-        let item = NSMenuItem(
-            title: FileExternalOpenText.openInApplication(application.displayName),
-            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
-            keyEquivalent: ""
-        )
-        item.target = FileExternalOpenMenuActionTarget.shared
-        item.representedObject = FileExternalOpenMenuActionPayload(
+        FileExternalOpenMenuFactory.makeMenu(
             fileURL: fileURL,
-            applicationURL: application.url
+            primaryApplication: primaryApplication,
+            otherApplications: otherApplications
         )
-        return item
     }
+}
+
+private enum FileExternalOpenMenuPayloadAction {
+    case open(applicationURL: URL?)
+    case revealInFinder
 }
 
 private final class FileExternalOpenMenuActionPayload: NSObject {
     let fileURL: URL
-    let applicationURL: URL?
+    let action: FileExternalOpenMenuPayloadAction
 
-    init(fileURL: URL, applicationURL: URL?) {
+    init(fileURL: URL, action: FileExternalOpenMenuPayloadAction) {
         self.fileURL = fileURL
-        self.applicationURL = applicationURL
+        self.action = action
     }
 }
 
@@ -414,10 +425,15 @@ private final class FileExternalOpenMenuActionTarget: NSObject {
         guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
             return
         }
-        if let applicationURL = payload.applicationURL {
+        switch payload.action {
+        case .open(let applicationURL):
+            guard let applicationURL else {
+                FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
+                return
+            }
             FileExternalOpenAction.open(fileURL: payload.fileURL, applicationURL: applicationURL)
-        } else {
-            FileExternalOpenAction.openDefault(fileURL: payload.fileURL)
+        case .revealInFinder:
+            FileExternalOpenAction.revealInFinder(fileURL: payload.fileURL)
         }
     }
 }
@@ -653,10 +669,10 @@ enum FilePreviewKindResolver {
     ]
 
     private static let textExtensions: Set<String> = [
-        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "env",
+        "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "cts", "env",
         "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "plist", "py",
-        "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
+        "jsx", "kt", "log", "m", "markdown", "md", "mdx", "mm", "mts", "plist",
+        "py", "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
     ]
 
@@ -709,6 +725,10 @@ enum FilePreviewKindResolver {
 
     private static func initialResolution(for url: URL) -> Resolution {
         let ext = url.pathExtension.lowercased()
+        if let textResolution = knownTextResolutionBeforeMedia(for: url, sniffMediaCollisions: false) {
+            return textResolution
+        }
+
         if let type = UTType(filenameExtension: ext),
            let mediaMode = mediaMode(for: type) {
             return .resolved(mediaMode)
@@ -729,6 +749,10 @@ enum FilePreviewKindResolver {
         let ext = url.pathExtension.lowercased()
         if ext == "plist", looksLikeBinaryPropertyList(url: url) {
             return .resolved(.quickLook)
+        }
+
+        if let textResolution = knownTextResolutionBeforeMedia(for: url, sniffMediaCollisions: true) {
+            return textResolution
         }
 
         for type in contentTypes(for: url) {
@@ -793,6 +817,35 @@ enum FilePreviewKindResolver {
         return false
     }
 
+    private static func knownTextResolutionBeforeMedia(for url: URL, sniffMediaCollisions: Bool) -> Resolution? {
+        let filename = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
+        guard ext != "plist",
+              textFilenames.contains(filename) || textExtensions.contains(ext) else {
+            return nil
+        }
+
+        guard let type = UTType(filenameExtension: ext),
+              let mediaMode = mediaMode(for: type),
+              !type.conforms(to: .text),
+              !type.conforms(to: .sourceCode) else {
+            return .resolved(.text)
+        }
+
+        // Source extensions can collide with system audio/video UTIs (.ts, .mts).
+        // Initial routing stays extension-only; resolved routing sniffs off-main.
+        guard sniffMediaCollisions else {
+            return .resolved(.text)
+        }
+        if sniffLooksLikeText(url: url) {
+            return .resolved(.text)
+        }
+        if looksLikeMPEGTransportStream(url: url) {
+            return .resolved(.media)
+        }
+        return .resolved(mediaMode)
+    }
+
     private static func looksLikeBinaryPropertyList(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
@@ -800,21 +853,48 @@ enum FilePreviewKindResolver {
         return String(data: data, encoding: .ascii) == "bplist00"
     }
 
+    private static func looksLikeMPEGTransportStream(url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+
+        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        guard data.count >= 376 else { return false }
+
+        let syncCandidates = [
+            (packetSize: 188, syncOffset: 0),
+            (packetSize: 192, syncOffset: 0),
+            (packetSize: 192, syncOffset: 4),
+            (packetSize: 204, syncOffset: 0)
+        ]
+
+        for candidate in syncCandidates where data.count > candidate.syncOffset {
+            var offset = candidate.syncOffset
+            var syncCount = 0
+            while offset < data.count {
+                guard data[offset] == 0x47 else { break }
+                syncCount += 1
+                offset += candidate.packetSize
+            }
+            if syncCount >= 2 {
+                return true
+            }
+        }
+
+        return false
+    }
+
     private static func sniffLooksLikeText(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
         let data = (try? handle.read(upToCount: 4096)) ?? Data()
         guard !data.isEmpty else { return true }
-        if String(data: data, encoding: .utf8) != nil {
-            return true
-        }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
         }
         if data.contains(0) {
             return false
         }
-        return false
+        return String(data: data, encoding: .utf8) != nil
     }
 
     private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {
@@ -919,18 +999,26 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    private weak var textView: NSTextView?
-    private let focusCoordinator: FilePreviewFocusCoordinator
+    weak var textView: NSTextView?
+    let focusCoordinator: FilePreviewFocusCoordinator
+    private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
     }
 
-    init(workspaceId: UUID, filePath: String) {
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
+            await FilePreviewTextLoader.load(url: url)
+        }
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        self.textLoader = textLoader
         let fileURL = URL(fileURLWithPath: filePath)
         let initialPreviewMode = FilePreviewKindResolver.initialMode(for: fileURL)
         self.previewMode = initialPreviewMode
@@ -961,11 +1049,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
-    }
-
-    func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
-        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
@@ -1031,7 +1114,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             filePreviewIntent = target
         case .panel:
             filePreviewIntent = focusCoordinator.preferredIntent
-        case .terminal, .browser:
+        case .terminal, .browser, .project:
             return false
         }
         return focusCoordinator.focus(filePreviewIntent)
@@ -1084,6 +1167,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     private func applyResolvedPreviewMode(_ mode: FilePreviewMode) {
         guard previewMode != mode else { return }
+        if mode != .text {
+            textLoadGeneration += 1
+        }
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
@@ -1093,13 +1179,19 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never> {
+        guard previewMode == .text else {
+            return Task {}
+        }
         textLoadGeneration += 1
         let generation = textLoadGeneration
         let fileURL = fileURL
+        let textLoader = textLoader
 
-        return Task { [weak self, fileURL, generation, replacingDirtyContent] in
-            let result = await FilePreviewTextLoader.load(url: fileURL)
-            guard let self, self.textLoadGeneration == generation else { return }
+        return Task { [weak self, fileURL, generation, replacingDirtyContent, textLoader] in
+            let result = await textLoader(fileURL)
+            guard let self,
+                  self.textLoadGeneration == generation,
+                  self.previewMode == .text else { return }
             self.applyTextLoadResult(result, replacingDirtyContent: replacingDirtyContent)
         }
     }
@@ -1195,6 +1287,7 @@ struct FilePreviewPanelView: View {
 
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
+    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
 
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
@@ -1265,7 +1358,8 @@ struct FilePreviewPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground
+                    drawsBackground: appearance.drawsContentBackground,
+                    wordWrap: fileEditorWordWrap
                 )
             case .pdf:
                 FilePreviewPDFView(
@@ -1302,19 +1396,19 @@ struct FilePreviewPanelView: View {
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+                .cmuxFont(size: 40)
                 .foregroundStyle(.secondary)
             Text(String(localized: "filePreview.fileUnavailable.title", defaultValue: "File unavailable"))
-                .font(.headline)
+                .cmuxFont(.headline)
             Text(panel.filePath)
-                .font(.system(size: 12, design: .monospaced))
+                .cmuxFont(size: 12, design: .monospaced)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "filePreview.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1505,9 +1599,9 @@ private struct FilePreviewPDFSidebarChromeView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "sidebar.left")
-                    .font(.system(size: 17, weight: .regular))
+                    .cmuxFont(size: 17, weight: .regular)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .cmuxFont(size: 10, weight: .semibold)
                     .foregroundStyle(.secondary)
             }
             .frame(width: 58, height: 36)
@@ -1686,7 +1780,7 @@ struct FilePreviewPDFZoomChromeView: View {
         } else {
             Button(action: action) {
                 Image(systemName: systemName)
-                    .font(.system(size: 16, weight: .regular))
+                    .cmuxFont(size: 16, weight: .regular)
                     .frame(width: 38, height: 36)
                     .contentShape(Rectangle())
             }
@@ -1716,7 +1810,7 @@ private struct FilePreviewChromeIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 16, weight: .semibold))
+                .cmuxFont(size: 16, weight: .semibold)
                 .frame(width: 42, height: 40)
         }
         .buttonStyle(FilePreviewChromeHoverButtonStyle(isHovered: isHovered))
@@ -1736,9 +1830,9 @@ private struct FilePreviewChromeSidebarMenuLabel: View {
         HStack(spacing: 6) {
             Image(systemName: "sidebar.left")
             Image(systemName: "chevron.down")
-                .font(.system(size: 11, weight: .semibold))
+                .cmuxFont(size: 11, weight: .semibold)
         }
-        .font(.system(size: 16, weight: .semibold))
+        .cmuxFont(size: 16, weight: .semibold)
         .foregroundStyle(isHovered ? Color.primary : Color.secondary)
         .frame(width: 68, height: 34)
         .background {
@@ -1929,7 +2023,10 @@ struct FilePreviewPDFStandaloneChromeStyleModifier: ViewModifier {
 final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSource, NSCollectionViewDelegate, NSCollectionViewDelegateFlowLayout {
     private enum Metrics {
         static let thumbnailHeight = FilePreviewPDFSizing.thumbnailMaximumSize.height
-        static let labelHeight: CGFloat = 22
+        static func labelHeight() -> CGFloat {
+            let font = GlobalFontMagnification.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+            return max(22, ceil(font.ascender - font.descender + font.leading) + 8)
+        }
         static let itemSpacing: CGFloat = 12
         static let verticalInset: CGFloat = 24
     }
@@ -1938,6 +2035,7 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     private let collectionView = FilePreviewPDFThumbnailCollectionView()
     private let flowLayout = NSCollectionViewFlowLayout()
     private var document: PDFDocument?
+    private var labelHeight = Metrics.labelHeight()
     private var isApplyingSelection = false
     private var selectedPageIndex: Int?
     private var selectionIsActive = false
@@ -1954,7 +2052,6 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     required init?(coder: NSCoder) {
         nil
     }
-
     override func layout() {
         super.layout()
         updateItemSize()
@@ -1975,6 +2072,12 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
         selectedPageIndex = nil
         collectionView.reloadData()
         selectPage(at: 0, scrollToVisible: false)
+    }
+
+    func reloadFontsForGlobalMagnification() {
+        labelHeight = Metrics.labelHeight(); flowLayout.invalidateLayout()
+        collectionView.reloadData()
+        updateItemSize()
     }
 
     func selectPage(at pageIndex: Int, scrollToVisible: Bool) {
@@ -2090,7 +2193,7 @@ final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSour
     private func thumbnailItemSize(width: CGFloat) -> NSSize {
         NSSize(
             width: max(1, width),
-            height: Metrics.thumbnailHeight + Metrics.labelHeight + 10
+            height: Metrics.thumbnailHeight + labelHeight + 10
         )
     }
 
@@ -2269,7 +2372,7 @@ private final class FilePreviewPDFThumbnailItemView: NSView {
         imageView.translatesAutoresizingMaskIntoConstraints = false
 
         pageLabel.alignment = .center
-        pageLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        pageLabel.font = GlobalFontMagnification.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         pageLabel.lineBreakMode = .byTruncatingTail
         pageLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -2354,6 +2457,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     private var previewBackgroundColor = NSColor.textBackgroundColor
     private var drawsPreviewBackground = true
     private var lastAppliedPDFScrollBackgroundAppearance: PDFScrollBackgroundAppearance?
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private static let documentLoadQueue = DispatchQueue(
         label: "com.cmux.file-preview.pdf-document-load",
         qos: .userInitiated
@@ -2374,6 +2478,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupView()
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyFloatingChromeFonts()
+            self?.thumbnailView.reloadFontsForGlobalMagnification()
+            self?.outlineView.reloadData()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -2701,12 +2810,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         chromeHost.addSubview(zoomChromeHost)
         chromeHost.interactiveOverlayViews = [sidebarChromeHost, zoomChromeHost]
 
-        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        applyFloatingChromeFonts()
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingMiddle
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        pageLabel.font = .systemFont(ofSize: 11)
         pageLabel.textColor = .secondaryLabelColor
         pageLabel.lineBreakMode = .byTruncatingTail
 
@@ -2735,6 +2843,11 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             titleStack.centerYAnchor.constraint(equalTo: sidebarChromeHost.centerYAnchor),
             titleStack.trailingAnchor.constraint(lessThanOrEqualTo: zoomChromeHost.leadingAnchor, constant: -12),
         ])
+    }
+
+    private func applyFloatingChromeFonts() {
+        titleLabel.font = GlobalFontMagnification.systemFont(ofSize: 14, weight: .semibold)
+        pageLabel.font = GlobalFontMagnification.systemFont(ofSize: 11)
     }
 
     private func layoutFloatingChrome() {

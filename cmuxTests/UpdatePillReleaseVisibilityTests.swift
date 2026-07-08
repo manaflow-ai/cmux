@@ -217,14 +217,66 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
     }
 
+    func testTitlebarControlsDefaultStyleIsCompact() {
+        let suiteName = "TitlebarControlsDefaultStyleIsCompact-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(TitlebarControlsStyle.defaultStyle, .compact)
+        XCTAssertEqual(TitlebarControlsStyle.stored(in: defaults), .compact)
+
+        defaults.set(TitlebarControlsStyle.classic.rawValue, forKey: TitlebarControlsStyle.storageKey)
+        XCTAssertEqual(TitlebarControlsStyle.stored(in: defaults), .classic)
+
+        defaults.set(999, forKey: TitlebarControlsStyle.storageKey)
+        XCTAssertEqual(TitlebarControlsStyle.stored(in: defaults), .compact)
+    }
+
     func testTitlebarControlsUseDeterministicContentSize() {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
-        XCTAssertEqual(classic.width, 150, accuracy: 0.001)
+        XCTAssertEqual(classic.width, 152, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
-        XCTAssertEqual(compact.width, 136, accuracy: 0.001)
+        XCTAssertEqual(compact.width, 139, accuracy: 0.001)
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+    }
+
+    func testTitlebarControlsLeadingOffsetDoesNotDoubleApplyTrafficLightPosition() {
+        let snapshot = MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+        )
+        let trafficLightFrame = NSRect(x: 18, y: 7, width: 14, height: 14)
+
+        XCTAssertEqual(
+            TitlebarControlsLayoutMetrics.leadingOffset(
+                trafficLightFrame: trafficLightFrame,
+                debugSnapshot: snapshot
+            ),
+            0,
+            accuracy: 0.001
+        )
+    }
+
+    func testTitlebarControlsLeadingOffsetDoesNotFollowSidebarTrailingEdge() {
+        let snapshot = MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: 150,
+            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+        )
+
+        XCTAssertEqual(
+            TitlebarControlsLayoutMetrics.leadingOffset(
+                trafficLightFrame: NSRect(x: 18, y: 7, width: 14, height: 14),
+                debugSnapshot: snapshot
+            ),
+            78,
+            accuracy: 0.001
+        )
     }
 
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
@@ -316,12 +368,21 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
 
             XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
-            for range in ranges {
+            for (index, range) in ranges.enumerated() {
+                let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
+                let expectedWidth: CGFloat = switch slot {
+                case .some(.newTab):
+                    TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+                case .some(.cloudVM):
+                    TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+                case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
+                    config.buttonSize
+                }
                 XCTAssertEqual(
                     range.upperBound - range.lowerBound,
-                    config.buttonSize,
+                    expectedWidth,
                     accuracy: 0.001,
-                    "Expected every titlebar button lane to use one visual height for style \(style)"
+                    "Expected titlebar hit lane width to match its visible control for style \(style)"
                 )
             }
         }
@@ -352,6 +413,35 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
                 "Expected pressed border to stay at least as visible as hover for style \(style)"
             )
         }
+    }
+
+    func testStandaloneTitlebarHoverMatchesSplitButtonActiveSegment() {
+        let compactConfig = TitlebarControlsStyle.compact.config
+        let standaloneHoverOpacity = max(
+            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true)
+        )
+
+        XCTAssertEqual(
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            standaloneHoverOpacity,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            0.016,
+            accuracy: 0.001
+        )
+        XCTAssertLessThan(
+            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
+            "The inactive half of the compound plus/cloud control should be lighter than a normal hovered titlebar icon."
+        )
+        XCTAssertEqual(
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+            0,
+            accuracy: 0.001
+        )
     }
 
     func testIdleTitlebarButtonsStayReadableButMuted() {

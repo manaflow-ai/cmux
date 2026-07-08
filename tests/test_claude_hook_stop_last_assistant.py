@@ -105,12 +105,20 @@ class CapturingSocketServer:
                         continue
                     line = raw_line.decode("utf-8", errors="replace")
                     self.commands.append(line)
-                    conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    response = self._response_for(line)
+                    if response is None:
+                        continue
+                    try:
+                        conn.sendall((response + "\n").encode("utf-8"))
+                    except OSError:
+                        return
 
-    def _response_for(self, line: str) -> str:
+    def _response_for(self, line: str) -> str | None:
         if line.startswith("{"):
             try:
                 request = json.loads(line)
+                if "id" not in request:
+                    return None
                 if request.get("method") == "surface.list":
                     return json.dumps(
                         {
@@ -245,7 +253,12 @@ def main() -> int:
             return 1
 
         notify = notify_commands[-1]
-        expected_payload = f"notify_target_async {workspace_id} {surface_id} Claude Code|Completed in fun|2"
+        # Stop notifications carry the agent-notification gating meta as a 4th
+        # pipe segment; no background_tasks/session_crons in the payload => p=0.
+        expected_payload = (
+            f"notify_target_async {workspace_id} {surface_id} "
+            "Claude Code|Completed in fun|2|c=turn-complete;p=0"
+        )
         if notify != expected_payload:
             print("FAIL: expected stop notification to use final assistant text")
             print(f"expected={expected_payload!r}")
