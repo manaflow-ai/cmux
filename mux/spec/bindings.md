@@ -22,7 +22,7 @@ Bindings must:
 
 ## Rust
 
-Rust bindings should use typed request and response structs with Serde serialization. Public methods should return `Result<T, MuxError>`, where `MuxError` separates command errors, decode errors, connection errors, timeouts, and protocol-version errors.
+Rust bindings should use typed request and response structs with Serde serialization. Public methods should return `Result<T, CmuxError>`, where `CmuxError` separates command errors, decode errors, connection errors, timeouts, and protocol-version errors.
 
 Method names use snake_case. Wire command names remain kebab-case through Serde attributes. Events should be a non-exhaustive enum with typed payload structs and an `Unknown` variant for forward compatibility.
 
@@ -32,7 +32,7 @@ Streaming APIs should use an iterator or channel for blocking clients and may of
 
 Python bindings should provide a synchronous client and dataclasses for command results and events. Method names use snake_case, such as `read_screen(surface)` and `list_workspaces()`.
 
-Errors should derive from a common `MuxError`, with subclasses for `CommandError`, `ConnectionError`, `ProtocolError`, and `TimeoutError`. The server error string must be available as a property.
+Errors should derive from a common `CmuxError`, with subclasses for `CommandError`, `ConnectionError`, `ProtocolError`, and `TimeoutError`. The server error string must be available as a property.
 
 The client should support context-manager usage to close sockets deterministically. Event streams should be Python iterators yielding dataclass event objects. Raw JSON access should remain available for scripts.
 
@@ -57,7 +57,7 @@ Event and attach streams should expose receive methods that take a context and r
 Java bindings should provide a client with builder-based configuration:
 
 ```text
-MuxClient.builder().session("main").build()
+CmuxClient.builder().session("main").build()
 ```
 
 Command request objects with more than one optional parameter should use builders. Simple commands may be direct methods. Results should be immutable value objects.
