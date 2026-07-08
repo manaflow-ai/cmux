@@ -48,27 +48,19 @@ jobs:
           fetch-tags: true
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -z "$XCODE_APP" ]; then
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Verify asc CLI
+        run: |
+          set -euo pipefail
+          command -v asc
+          asc --version
 
       - name: Materialize App Store Connect API key
         run: |
@@ -81,7 +73,7 @@ jobs:
             echo "Missing IOS_APPSTORE_APP_ID repository variable" >&2
             exit 1
           fi
-          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
           KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
           mkdir -p "$KEY_DIR"
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
@@ -218,4 +210,6 @@ jobs:
 
       - name: Cleanup keychain
         if: always()
-        run: security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
+        run: |
+          rm -f "${ASC_API_KEY_PATH:-}"
+          security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
