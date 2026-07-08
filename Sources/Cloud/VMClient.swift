@@ -723,14 +723,12 @@ actor VMClient {
 
     // MARK: - HTTP
 
-    // Internal (not private) so extensions in sibling files (VMClientEnvLayers.swift) can share the HTTP path.
-    func request(
+    func request( // internal: sibling extension files (VMClientEnvLayers.swift) share the HTTP path
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
-        timeoutSeconds: TimeInterval? = nil,
-        queryItems: [URLQueryItem] = []
+        timeoutSeconds: TimeInterval? = nil, queryItems: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
         let tokens: (accessToken: String, refreshToken: String)
         do {
@@ -846,8 +844,7 @@ actor VMClient {
 
     func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "<binary>"
-            throw VMClientError.httpStatus(http.statusCode, body)
+            throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<binary>")
         }
     }
 
