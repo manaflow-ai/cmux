@@ -17,12 +17,6 @@ const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
   process.env.VERCEL_ENV === "preview";
 const allowPreviewStackPlaceholders = process.env.VERCEL_ENV === "preview";
-export const STACK_LOCAL_DEV_SECRET_SERVER_KEY_PLACEHOLDER = "cmux-local-dev-placeholder";
-export const STACK_PREVIEW_SECRET_SERVER_KEY_PLACEHOLDER = "preview-secret-server-key";
-export const STACK_SECRET_SERVER_KEY_PLACEHOLDERS = new Set<string>([
-  STACK_LOCAL_DEV_SECRET_SERVER_KEY_PLACEHOLDER,
-  STACK_PREVIEW_SECRET_SERVER_KEY_PLACEHOLDER,
-]);
 const isVercelNonPreviewDeployment =
   process.env.VERCEL === "1" &&
   typeof process.env.VERCEL_ENV === "string" &&
@@ -52,7 +46,7 @@ export const env = createEnv({
     CMUX_FEEDBACK_FROM_EMAIL: z.string().email(),
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID"),
-    STACK_SECRET_SERVER_KEY: requireVercelNonPreviewValue("STACK_SECRET_SERVER_KEY"),
+    STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
     // CMUX_APNS_KEY_P8 holds the .p8 PEM (literal "\n" escapes are normalized
@@ -147,7 +141,7 @@ export const env = createEnv({
     ),
     STACK_SECRET_SERVER_KEY: stackEnv(
       process.env.STACK_SECRET_SERVER_KEY,
-      STACK_PREVIEW_SECRET_SERVER_KEY_PLACEHOLDER
+      "preview-secret-server-key"
     ),
   },
   skipValidation: skipEnvValidation,
