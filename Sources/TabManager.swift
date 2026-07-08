@@ -879,6 +879,53 @@ class TabManager {
         )
     }
 
+    func makeWorkspaceForCreation(
+        title: String,
+        explicitTitle: String?,
+        workingDirectory: String?,
+        portOrdinal: Int,
+        inheritedTerminalFontPoints: Float?,
+        initialSurface: NewWorkspaceInitialSurface,
+        initialTerminalCommand: String?,
+        initialTerminalInput: String?,
+        initialTerminalEnvironment: [String: String],
+        initialBrowserURL: URL?,
+        initialBrowserOmnibarVisible: Bool,
+        initialBrowserTransparentBackground: Bool,
+        workspaceEnvironment: [String: String],
+        allowTextBoxFocusDefault: Bool,
+        chromeInheritanceSource: Workspace?
+    ) -> Workspace {
+        let inheritedConfig = workspaceCreationConfigTemplate(
+            inheritedTerminalFontPoints: inheritedTerminalFontPoints
+        )
+        let newWorkspace = Workspace(
+            title: title,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            configTemplate: inheritedConfig,
+            initialSurface: initialSurface,
+            initialTerminalCommand: initialTerminalCommand,
+            initialTerminalInput: initialTerminalInput,
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            initialBrowserURL: initialBrowserURL,
+            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
+            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            workspaceEnvironment: workspaceEnvironment,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+        )
+        applyCreationChromeInheritance(
+            to: newWorkspace,
+            from: chromeInheritanceSource
+        )
+        newWorkspace.owningTabManager = self
+        if explicitTitle != nil {
+            newWorkspace.setCustomTitle(explicitTitle)
+        }
+        wireClosedBrowserTracking(for: newWorkspace)
+        return newWorkspace
+    }
+
     func applyCreationChromeInheritance(
         to newWorkspace: Workspace,
         from sourceWorkspace: Workspace?
@@ -2116,53 +2163,6 @@ class TabManager {
 
     func cloudVMDefaultWorkspaceTitle() -> String {
         String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
-    }
-
-    func makeWorkspaceForCreation(
-        title: String,
-        explicitTitle: String?,
-        workingDirectory: String?,
-        portOrdinal: Int,
-        inheritedTerminalFontPoints: Float?,
-        initialSurface: NewWorkspaceInitialSurface,
-        initialTerminalCommand: String?,
-        initialTerminalInput: String?,
-        initialTerminalEnvironment: [String: String],
-        initialBrowserURL: URL?,
-        initialBrowserOmnibarVisible: Bool,
-        initialBrowserTransparentBackground: Bool,
-        workspaceEnvironment: [String: String],
-        allowTextBoxFocusDefault: Bool,
-        chromeInheritanceSource: Workspace?
-    ) -> Workspace {
-        let inheritedConfig = workspaceCreationConfigTemplate(
-            inheritedTerminalFontPoints: inheritedTerminalFontPoints
-        )
-        let newWorkspace = Workspace(
-            title: title,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
-            configTemplate: inheritedConfig,
-            initialSurface: initialSurface,
-            initialTerminalCommand: initialTerminalCommand,
-            initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment,
-            initialBrowserURL: initialBrowserURL,
-            initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
-            initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceEnvironment: workspaceEnvironment,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
-        )
-        applyCreationChromeInheritance(
-            to: newWorkspace,
-            from: chromeInheritanceSource
-        )
-        newWorkspace.owningTabManager = self
-        if explicitTitle != nil {
-            newWorkspace.setCustomTitle(explicitTitle)
-        }
-        wireClosedBrowserTracking(for: newWorkspace)
-        return newWorkspace
     }
 
     func nextPortOrdinal() -> Int {
