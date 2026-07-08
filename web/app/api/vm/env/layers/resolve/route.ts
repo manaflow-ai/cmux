@@ -2,7 +2,7 @@
 // the base image the deployed backend would boot so the CLI hashes against the
 // same image id the server will use for layer-0 creates.
 
-import { defaultProviderId, type ProviderId } from "../../../../../../services/vms/drivers";
+import { type ProviderId } from "../../../../../../services/vms/drivers";
 import { resolveVmImage } from "../../../../../../services/vms/images/resolver";
 import {
   jsonResponse,
@@ -40,7 +40,10 @@ export async function POST(request: Request): Promise<Response> {
       if (rawProvider !== undefined && !isKnownProvider(rawProvider)) {
         return envBadRequest("`provider` must be one of e2b, freestyle, daytona.");
       }
-      const provider: ProviderId = isKnownProvider(rawProvider) ? rawProvider : defaultProviderId();
+      // Env layers are Freestyle-only (requireEnvLayerProvider rejects the
+      // rest), so a provider-less probe must not inherit a deployment default
+      // like e2b/daytona that would brick `cmux vm env` before hashing.
+      const provider: ProviderId = isKnownProvider(rawProvider) ? rawProvider : "freestyle";
       if (!Array.isArray(rawChainHashes) || rawChainHashes.some((hash) => typeof hash !== "string" || !hash.trim())) {
         return envBadRequest("`chainHashes` must be an array of non-empty strings.");
       }

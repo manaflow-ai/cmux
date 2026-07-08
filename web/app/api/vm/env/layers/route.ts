@@ -2,7 +2,7 @@
 // hash to a provider snapshot taken after that step succeeded; ownership of the
 // snapshot is re-verified server-side before the layer becomes restorable.
 
-import { defaultProviderId, type ProviderId } from "../../../../../services/vms/drivers";
+import { type ProviderId } from "../../../../../services/vms/drivers";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
@@ -13,6 +13,8 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { listEnvLayers, recordEnvLayer, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 export const dynamic = "force-dynamic";
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -34,9 +36,11 @@ export async function POST(request: Request): Promise<Response> {
       if (candidate.provider !== undefined && !isKnownProvider(candidate.provider)) {
         return envBadRequest("`provider` must be one of e2b, freestyle, daytona.");
       }
+      // Env layers are Freestyle-only; never inherit a non-Freestyle
+      // deployment default for a provider-less registration.
       const provider: ProviderId = isKnownProvider(candidate.provider)
         ? candidate.provider
-        : defaultProviderId();
+        : "freestyle";
       const baseImageId = requiredString(candidate.baseImageId);
       const chainHash = requiredString(candidate.chainHash);
       const specDigest = requiredString(candidate.specDigest);
@@ -48,8 +52,17 @@ export async function POST(request: Request): Promise<Response> {
       if (!baseImageId || !chainHash || !specDigest || !snapshotId) {
         return envBadRequest("`baseImageId`, `chainHash`, `specDigest`, and `snapshotId` are required strings.");
       }
-      if (typeof stepIndex !== "number" || !Number.isInteger(stepIndex) || stepIndex < 0) {
-        return envBadRequest("`stepIndex` must be a non-negative integer.");
+      if (typeof stepIndex !== "number" || !Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex > 255) {
+        return envBadRequest("`stepIndex` must be an integer between 0 and 255.");
+      }
+      // These are stored (and some indexed) verbatim; reject junk and cap
+      // lengths so a client with one owned snapshot cannot grow rows or
+      // usage-event metadata without bound.
+      if (!SHA256_HEX.test(chainHash) || !SHA256_HEX.test(specDigest)) {
+        return envBadRequest("`chainHash` and `specDigest` must be lowercase sha-256 hex digests.");
+      }
+      if (baseImageId.length > 512 || snapshotId.length > 256 || (stepName !== null && stepName.length > 200)) {
+        return envBadRequest("`baseImageId` (512), `snapshotId` (256), and `stepName` (200) exceed their maximum lengths.");
       }
 
       const account = resolveVmRouteAccountScope(user, request);
