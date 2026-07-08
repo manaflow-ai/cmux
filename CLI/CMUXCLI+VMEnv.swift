@@ -317,7 +317,13 @@ extension CMUXCLI {
             if failingStepIndex != nil { break }
         }
 
-        // Verify commands always run (never cached, never snapshotted).
+        // Verify commands always run and are never cached as layers. They run
+        // BEFORE the final layer snapshot (which only happens after they pass):
+        // there is no provider snapshot-delete verb, so snapshotting first
+        // would strand an unregistered, secret-bearing snapshot on every
+        // verify failure. The documented contract is that verify commands are
+        // read-only checks, so their filesystem footprint in the final layer
+        // is expected to be nil.
         var verifyReports: [[String: Any]] = []
         if failingStepIndex == nil {
             for (index, _) in spec.verify.enumerated() {

@@ -31,7 +31,7 @@ verify:
   - run: test -d ghostty/zig-out
 ```
 
-Fields: `version` (required, must be `1`), `name`, `base` (`default` or a provider image/snapshot id), `env` (exported into every step), `steps` (each needs `run`; `name` and `timeoutMinutes` optional), `verify` (always runs, never cached). `run` accepts `|` block scalars. Steps run as user `cmux` under `bash -l` with `set -eo pipefail`, starting in `$HOME`; `sudo` is available. Only full-line `#` comments are supported — this is a strict YAML subset, and the parser errors precisely rather than guessing.
+Fields: `version` (required, must be `1`), `name`, `base` (`default` or a provider image/snapshot id), `env` (exported into every step), `steps` (each needs `run`; `name` and `timeoutMinutes` optional), `verify` (always runs, never cached; runs before the final layer snapshot, so keep verify commands read-only). `run` accepts `|` block scalars. Steps run as user `cmux` under `bash -l` with `set -eo pipefail`, starting in `$HOME`; `sudo` is available. Only full-line `#` comments are supported — this is a strict YAML subset, and the parser errors precisely rather than guessing.
 
 ## Caching model
 
