@@ -72,7 +72,7 @@ extension RestorableAgentSessionIndex {
             fileManager: fileManager,
             scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey
         )
-
+        resolved.merge(processDetectedClaudeForkFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: processArgumentsProvider)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
