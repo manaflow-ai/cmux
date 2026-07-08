@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Debug explorer for the per-agent sidebar row presentation: seven variants
+/// Debug explorer for the per-agent sidebar row presentation: eight variants
 /// switchable live from Debug > "Agent Rows Style…", persisted in
 /// UserDefaults. This is a dogfood decision aid; once a winner is picked the
 /// losing variants get deleted and the store collapses to a constant.

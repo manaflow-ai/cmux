@@ -583,8 +583,9 @@ private struct SidebarAgentGraphiteRow: View {
     }
 
     private var nameColor: Color {
+        // isActiveAgent implies isActive (gated at the call site).
         if isActiveAgent {
-            return isActive ? activeForegroundColor : Color(red: 205 / 255, green: 212 / 255, blue: 1)
+            return activeForegroundColor
         }
         return isActive ? activeForegroundColor.opacity(0.92) : .primary.opacity(0.85)
     }
