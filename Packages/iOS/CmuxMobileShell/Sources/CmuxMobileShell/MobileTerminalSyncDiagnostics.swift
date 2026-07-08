@@ -39,7 +39,7 @@ final class MobileTerminalSyncDiagnostics {
         ackSeqGap: Int? = nil
     ) {
         let timestamp = now()
-        let dropKey = Self.dropKey(surface: surface, gate: gate)
+        let dropKey = terminalDropKey(surface: surface, gate: gate)
         let previousDropCount = dropCountsBySurfaceGate[dropKey] ?? 0
         let sampleCount = droppedFrames > previousDropCount ? droppedFrames : previousDropCount + 1
         dropCountsBySurfaceGate[dropKey] = sampleCount
@@ -394,18 +394,18 @@ final class MobileTerminalSyncDiagnostics {
         return UInt32(clamping: Int(max(0, now().timeIntervalSince(start) * 1000)))
     }
 
-    /// Packs a surface handle and gate into one integer key so the per-frame
-    /// drop path never allocates a string. Gate raw values fit in the low byte.
-    private static func dropKey(surface: UInt32, gate: TerminalRenderDropGate) -> UInt64 {
-        (UInt64(surface) << 8) | UInt64(gate.rawValue)
-    }
-
     private func resetDropCounts(surface: UInt32) {
         let surfaceBits = UInt64(surface) << 8
         dropCountsBySurfaceGate = dropCountsBySurfaceGate.filter { $0.key & ~0xFF != surfaceBits }
     }
 
     private func resetDropCount(surface: UInt32, gate: TerminalRenderDropGate) {
-        dropCountsBySurfaceGate.removeValue(forKey: Self.dropKey(surface: surface, gate: gate))
+        dropCountsBySurfaceGate.removeValue(forKey: terminalDropKey(surface: surface, gate: gate))
     }
+}
+
+/// Packs a surface handle and gate into one integer key so the per-frame
+/// drop path never allocates a string. Gate raw values fit in the low byte.
+private func terminalDropKey(surface: UInt32, gate: TerminalRenderDropGate) -> UInt64 {
+    (UInt64(surface) << 8) | UInt64(gate.rawValue)
 }

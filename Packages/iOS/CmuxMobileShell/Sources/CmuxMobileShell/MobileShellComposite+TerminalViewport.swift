@@ -10,14 +10,25 @@ nonisolated private let terminalViewportLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// Records that an unsent viewport report was superseded by a newer one.
+    /// Wired from ``TerminalViewportReportScheduler``'s `onReportSuperseded`
+    /// hook by the owning surface view. Diagnostics only; no gate state changes.
     public func terminalViewportReportSuperseded(surfaceID: String) {
         terminalSyncDiagnostics.viewportReportSuperseded(surface: Self.diagnosticSurfaceHandle(surfaceID))
     }
 
+    /// Records that an in-flight viewport report send was cancelled because a
+    /// newer report superseded it. Wired from the scheduler's
+    /// `onReportCancelled` hook, which is the single ownership point for
+    /// counting cancellations. Diagnostics only; no gate state changes.
     public func terminalViewportReportCancelled(surfaceID: String) {
         terminalSyncDiagnostics.viewportReportCancelled(surface: Self.diagnosticSurfaceHandle(surfaceID))
     }
 
+    /// Records that a completed viewport report's effective-grid echo was
+    /// discarded as stale because a newer report was submitted while it was in
+    /// flight. Wired from the scheduler's `onStaleEcho` hook. Diagnostics
+    /// only; no gate state changes.
     public func terminalViewportEchoStale(surfaceID: String) {
         terminalSyncDiagnostics.viewportEchoStale(surface: Self.diagnosticSurfaceHandle(surfaceID))
     }

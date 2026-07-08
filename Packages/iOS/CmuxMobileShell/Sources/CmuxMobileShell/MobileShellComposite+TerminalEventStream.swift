@@ -109,14 +109,7 @@ extension MobileShellComposite {
         lastTerminalEventAt = runtime?.now() ?? Date()
     }
 
-    #if DEBUG
-    func debugRunRenderGridLivenessCheckForTesting() {
-        guard let listenerID = renderGridLivenessListenerID else { return }
-        checkRenderGridLiveness(listenerID: listenerID)
-    }
-    #endif
-
-    private func checkRenderGridLiveness(listenerID: UUID) {
+    func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
         guard terminalEventListenerID == listenerID else { return }
