@@ -7,7 +7,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-mux", "protocol": 5 } },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-mux", "protocol": 6 } },
           "match": "partial"
         }
       ]

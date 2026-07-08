@@ -10,26 +10,26 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional
 
 
-class MuxError(Exception):
+class CmuxError(Exception):
     pass
 
 
-class CommandError(MuxError):
+class CommandError(CmuxError):
     def __init__(self, message: str, response: Optional[Dict[str, Any]] = None):
         super().__init__(message)
         self.message = message
         self.response = response
 
 
-class MuxConnectionError(MuxError):
+class CmuxConnectionError(CmuxError):
     pass
 
 
-class ProtocolError(MuxError):
+class ProtocolError(CmuxError):
     pass
 
 
-class TimeoutError(MuxError):
+class TimeoutError(CmuxError):
     pass
 
 
@@ -153,7 +153,7 @@ class _JsonLineConnection:
             self.sock.connect(path)
         except OSError as exc:
             self.sock.close()
-            raise MuxConnectionError(f"cannot connect to session socket {path}: {exc}") from exc
+            raise CmuxConnectionError(f"cannot connect to session socket {path}: {exc}") from exc
         self.reader = self.sock.makefile("r", encoding="utf-8", newline="\n")
         self._lock = threading.Lock()
 
@@ -163,7 +163,7 @@ class _JsonLineConnection:
             try:
                 self.sock.sendall(line)
             except OSError as exc:
-                raise MuxConnectionError(f"socket write failed: {exc}") from exc
+                raise CmuxConnectionError(f"socket write failed: {exc}") from exc
 
     def recv(self) -> Dict[str, Any]:
         try:
@@ -171,9 +171,9 @@ class _JsonLineConnection:
         except socket.timeout as exc:
             raise TimeoutError("session did not respond") from exc
         except OSError as exc:
-            raise MuxConnectionError(f"socket read failed: {exc}") from exc
+            raise CmuxConnectionError(f"socket read failed: {exc}") from exc
         if line == "":
-            raise MuxConnectionError("session socket closed")
+            raise CmuxConnectionError("session socket closed")
         try:
             return json.loads(line)
         except json.JSONDecodeError as exc:
@@ -187,7 +187,7 @@ class _JsonLineConnection:
 
 
 class _Stream:
-    def __init__(self, client: "MuxClient", request: Dict[str, Any]):
+    def __init__(self, client: "CmuxClient", request: Dict[str, Any]):
         self._client = client
         self._conn = _JsonLineConnection(client.socket_path, client.timeout)
         self._queue: List[Event] = []
@@ -240,7 +240,7 @@ class AttachStream(_Stream):
     pass
 
 
-class MuxClient:
+class CmuxClient:
     def __init__(
         self,
         socket_path: Optional[str] = None,
@@ -256,7 +256,7 @@ class MuxClient:
         self._id_lock = threading.Lock()
         self._protocol: Optional[int] = None
 
-    def __enter__(self) -> "MuxClient":
+    def __enter__(self) -> "CmuxClient":
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:

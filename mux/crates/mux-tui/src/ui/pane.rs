@@ -7,7 +7,7 @@
 //! notifications will hook in later.
 
 use ghostty_vt::{Cell as VtCell, ColorSpec, RenderState, Rgb};
-use mux_core::{Rect, SurfaceKind};
+use mux_core::{BrowserStatus, Rect, SurfaceKind};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
@@ -256,6 +256,7 @@ fn draw_content(
     let surface = app.session.surface(area.surface)?;
     surface.take_dirty();
     if surface.kind() == SurfaceKind::Browser {
+        super::omnibar::draw(app, frame, area);
         draw_browser_content(app, frame, area, &surface);
         return None;
     }
@@ -263,6 +264,7 @@ fn draw_content(
     let selection: Option<Selection> =
         app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
     let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
+    let theme = app.config.theme;
 
     let rs = app
         .render_states
@@ -272,8 +274,6 @@ fn draw_content(
         return None;
     }
     rs.set_clean();
-
-    let theme = app.config.theme;
 
     let screen = frame.area();
     let buf = frame.buffer_mut();
@@ -340,7 +340,15 @@ fn draw_browser_content(
         }
     }
 
-    let message = if surface.browser_url().is_none() {
+    let message = if matches!(surface.browser_status(), Some(BrowserStatus::Failed(_))) {
+        let error = match surface.browser_status() {
+            Some(BrowserStatus::Failed(error)) => error,
+            _ => String::new(),
+        };
+        Some(format!("browser failed: {error}"))
+    } else if matches!(surface.browser_status(), Some(BrowserStatus::Starting)) {
+        Some("starting browser...".to_string())
+    } else if surface.browser_url().is_none() {
         Some("browser panes are not supported over attach yet".to_string())
     } else if !app.graphics_supported {
         Some("terminal has no kitty graphics support".to_string())

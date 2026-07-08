@@ -2,7 +2,8 @@
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
 use mux_core::{
-    assign_short_ids, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind, WorkspaceId,
+    assign_short_ids, BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId,
+    SurfaceKind, WorkspaceId,
 };
 use serde_json::Value;
 
@@ -51,6 +52,8 @@ pub struct TabView {
     pub name: Option<String>,
     pub title: String,
     pub kind: SurfaceKind,
+    pub browser_source: Option<BrowserSource>,
+    pub browser_frames_stalled: bool,
 }
 
 impl TreeView {
@@ -159,6 +162,12 @@ pub fn tree_from_state(state: &State) -> TreeView {
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
+                    browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
+                    browser_frames_stalled: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|s| s.browser_frames_stalled())
+                        .unwrap_or(false),
                 })
                 .collect(),
         })
@@ -243,6 +252,16 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 Some("browser") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,
                             },
+                            browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
+                            {
+                                Some("external") => Some(BrowserSource::External),
+                                Some("launched") => Some(BrowserSource::Launched),
+                                _ => None,
+                            },
+                            browser_frames_stalled: tab
+                                .get("browser_frames_stalled")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
                         })
                     })
                     .collect()

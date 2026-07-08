@@ -20,9 +20,9 @@ enum SessionPersistencePolicy {
     // minimum width. The titlebar title tracks the sidebar's actual width only
     // when it is wider than the minimum, so a default above the minimum would make
     // the folder/title shift when toggling the sidebar at the default width.
-    static let defaultSidebarWidth: Double = 216
-    static let defaultMinimumSidebarWidth: Double = 216
-    static let minimumSidebarWidth: Double = 216
+    static let defaultSidebarWidth: Double = 240
+    static let defaultMinimumSidebarWidth: Double = 240
+    static let minimumSidebarWidth: Double = 240
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
@@ -1634,76 +1634,16 @@ struct SessionProjectPanelSnapshot: Codable, Sendable {
     }
 }
 
-struct SessionNotificationSnapshot: Codable, Sendable {
-    var id: UUID
-    var title: String
-    var subtitle: String
-    var body: String
-    var createdAt: TimeInterval
-    var isRead: Bool
-    var paneFlash: Bool?
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        title: String,
-        subtitle: String,
-        body: String,
-        createdAt: TimeInterval,
-        isRead: Bool,
-        paneFlash: Bool? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    init(notification: TerminalNotification) {
-        self.init(
-            id: notification.id,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body,
-            createdAt: notification.createdAt.timeIntervalSince1970,
-            isRead: notification.isRead,
-            paneFlash: notification.paneFlash,
-            clickAction: notification.clickAction
-        )
-    }
-
-    func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
-        TerminalNotification(
-            id: id,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            createdAt: Date(timeIntervalSince1970: createdAt),
-            isRead: isRead,
-            paneFlash: paneFlash ?? true,
-            clickAction: clickAction
-        )
-    }
-}
-
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
     var title: String?
     var customTitle: String?
-    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
-    /// persisted before provenance existed decode unchanged; restore treats
-    /// absent provenance as user-set (the conservative choice for auto-naming).
+    /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
+    var directoryIsTrustedRemoteReport: Bool? = nil
+    var directoryRequiresRemoteTrust: Bool? = nil
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil
@@ -1750,6 +1690,7 @@ enum SessionSplitOrientation: String, Codable, Sendable {
 struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var panelIds: [UUID]
     var selectedPanelId: UUID?
+    var isFullWidthTabMode: Bool? = nil
 }
 
 struct SessionSplitLayoutSnapshot: Codable, Sendable {

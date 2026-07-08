@@ -93,10 +93,17 @@ extension AuthCoordinator {
     /// refresh-token-only start and report "Not signed in" even though a valid
     /// session becomes available moments later.
     /// - Returns: The access and refresh tokens.
-    /// - Throws: ``AuthError/unauthorized`` when either token is missing.
+    /// - Throws: ``AuthError/networkError`` when the access token is missing
+    ///   but a refresh token survives, meaning the refresh failed transiently;
+    ///   ``AuthError/unauthorized`` when the session is missing either an access
+    ///   token with no refresh token to recover from, or the refresh token
+    ///   required by backend requests.
     public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
         await awaitBootstrapped()
         guard let access = await client.accessToken(), !access.isEmpty else {
+            if let refresh = await client.refreshToken(), !refresh.isEmpty {
+                throw AuthError.networkError
+            }
             throw AuthError.unauthorized
         }
         guard let refresh = await client.refreshToken(), !refresh.isEmpty else {

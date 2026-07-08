@@ -51,7 +51,10 @@
       "vaultSessions": "sessions",
       "vaultCliSetup": "cli setup",
       "subrouterGroup": "subrouter",
-      "subrouterOverview": "overview"
+      "subrouterOverview": "overview",
+      "accountGroup": "account",
+      "billing": "billing",
+      "testflight": "iOS TestFlight"
     },
     "home": {
       "title": "dashboard",
@@ -66,6 +69,106 @@
     "subrouter": {
       "title": "subrouter",
       "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+    },
+    "billing": {
+      "eyebrow": "account",
+      "title": "billing",
+      "description": "review your cmux plan and manage subscription billing.",
+      "banners": {
+        "cancelled": "Your plan will cancel at the end of the current billing period.",
+        "resumed": "Your plan has been resumed and will renew normally.",
+        "nosub": "No active Stripe subscription was found for this account.",
+        "error": "Billing could not be updated. Try again shortly."
+      },
+      "free": {
+        "name": "Free",
+        "body": "You are currently on the Free plan. Upgrade when you need Pro limits and hosted features.",
+        "upsellTitle": "Upgrade when you need cloud agents or team billing.",
+        "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
+        "testflightTitle": "Get the cmux iOS app",
+        "testflightBody": "The iOS beta is available through TestFlight for active Pro users and Team members.",
+        "testflightCta": "Join the iOS beta"
+      },
+      "pro": {
+        "name": "cmux Pro",
+        "activeBody": "Your plan renews on {date}.",
+        "pendingBody": "Your plan is scheduled to end on {date}."
+      },
+      "team": {
+        "name": "cmux Team",
+        "fallbackName": "your team",
+        "activeBody": "{team} renews on {date}.",
+        "pendingBody": "{team} is scheduled to end on {date}.",
+        "price": "$35/seat/month"
+      },
+      "legacy": {
+        "body": "Your subscription is managed by our previous billing system. Contact support to make changes."
+      },
+      "details": {
+        "renewsOn": "Renews on",
+        "endsOn": "Ends on",
+        "price": "Price",
+        "seats": "Seats"
+      },
+      "dates": {
+        "unknown": "unknown"
+      },
+      "cancel": {
+        "body": "Your Pro access remains active until {date}. Check the box to confirm cancellation at period end.",
+        "teamBody": "Team access remains active until {date}. Check the box to confirm cancellation at period end.",
+        "checkbox": "I understand my plan will end at the current period end."
+      },
+      "actions": {
+        "viewPricing": "View pricing",
+        "manageBilling": "Manage billing",
+        "cancelSummary": "Cancel plan",
+        "confirmCancel": "Confirm cancellation",
+        "resume": "Resume plan"
+      }
+    },
+    "testflight": {
+      "eyebrow": "account",
+      "title": "iOS TestFlight",
+      "description": "join the cmux iOS beta from your active subscription.",
+      "banners": {
+        "joined": "Apple will email your TestFlight invite shortly.",
+        "left": "You have left the iOS TestFlight group.",
+        "error": "TestFlight could not be updated. Try again shortly.",
+        "ineligible": "An active Pro or Team subscription is required for iOS TestFlight.",
+        "needs_email": "Add a verified primary email before joining iOS TestFlight.",
+        "unavailable": "TestFlight enrollment is not available right now."
+      },
+      "notEligible": {
+        "title": "Subscription required",
+        "body": "iOS TestFlight access is available to active Pro users and members of a Team subscription."
+      },
+      "needsEmail": {
+        "title": "Verified email required",
+        "body": "Add a verified primary email to your account so Apple can send the TestFlight invite."
+      },
+      "unavailable": {
+        "title": "Enrollment unavailable",
+        "body": "TestFlight enrollment is not configured for this environment. Try again later."
+      },
+      "join": {
+        "title": "Join the iOS beta",
+        "body": "Apple will send a TestFlight invite to {email}. Install TestFlight on your iPhone, then accept the invite."
+      },
+      "enrolled": {
+        "title": "You are enrolled",
+        "body": "{email} is in the cmux iOS TestFlight group.",
+        "lapseNote": "Access ends automatically if your subscription lapses."
+      },
+      "details": {
+        "email": "Email",
+        "status": "Status",
+        "enrolled": "Enrolled"
+      },
+      "actions": {
+        "viewPricing": "View pricing",
+        "join": "Join iOS TestFlight",
+        "leave": "Leave TestFlight"
+      }
     },
     "aiAccounts": {
       "metaTitle": "AI accounts — cmux",
@@ -514,6 +617,7 @@
     "welcomePendingAction": "Check again",
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
+    "billingExternal": "Your subscription is managed by our previous billing system. Contact support to make changes.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "welcomeTeam": "Your cmux Team purchase is complete."
@@ -1231,6 +1335,53 @@
     }
   },
   "docs": {
+    "base": {
+      "title": "Base",
+      "metaTitle": "Base cloud workspace",
+      "metaDescription": "Base is your persistent cmux cloud workspace: one VM per personal or team scope, resumable from Mac and iOS.",
+      "intro": "Base is your always-on cmux cloud workspace. It is the default cloud VM cmux opens for a signed-in account: persistent, resumable, and meant for coding agents, shells, and work you want to reach from any cmux client.",
+      "previewNote": "Preview naming. Some CLI output and lower-level menus still say Cloud VM while the product name moves to Base.",
+      "whatTitle": "What Base is",
+      "whatDesc": "Base is the home workspace for cloud work in cmux. Opening Base is deterministic: cmux finds the right persistent VM for your current account scope, resumes it if needed, repairs the terminal endpoint if it can, and opens a terminal into it.",
+      "whatPersistent": "Persistent: files, installed tools, shell history, and agent state stay on the VM until you explicitly reset Base.",
+      "whatSameVm": "Stable identity: the same account scope opens the same Base VM every time.",
+      "whatAnywhere": "Reachable from clients: Mac and iOS attach through cmux auth, so the Mac that created the workspace does not need to stay online.",
+      "ownershipTitle": "Ownership",
+      "ownershipDesc": "Base is scoped by the Stack account context you are using in cmux.",
+      "ownerType": "Owner",
+      "ownerScope": "Scope",
+      "personalOwner": "Personal Base",
+      "personalScope": "One persistent VM owned by your Stack user. Only your signed-in clients can attach unless you share access through a product feature.",
+      "teamOwner": "Team Base",
+      "teamScope": "One persistent VM owned by a Stack team. Access follows team membership and team policy, separate from each member's personal Base.",
+      "switchingDesc": "Switching Stack accounts or teams changes which Base opens. A personal Base and a team Base are different VMs even if you use them from the same Mac.",
+      "openCreateTitle": "Open, reset, create, fork",
+      "openCreateDesc": "The main button should be Open Base. It is idempotent and safe to press repeatedly.",
+      "openMeaning": "Open Base: create the scoped Base VM only if it does not exist, otherwise resume and attach to the existing one.",
+      "resetMeaning": "Reset Base: create a new Base generation for the same account scope. The previous generation is retained so accidental resets are recoverable.",
+      "createMeaning": "Create VM: make an additional, separate cloud VM for explicit extra machines.",
+      "forkMeaning": "Fork VM: copy the current VM into a new branch of work.",
+      "cliNamingDesc": "The current preview CLI exposes this through vm commands. The product model is Base for the default persistent workspace, and VM for explicit extra machines and low-level operations.",
+      "sessionsTitle": "Sessions and reconnects",
+      "sessionsDesc": "Each terminal pane should have its own remote PTY session. Splitting or opening a new tab creates a new session. Restoring cmux reattaches each pane to its session when possible.",
+      "sessionScrollback": "Scrollback belongs to the pane in cmux and should survive app relaunch.",
+      "sessionReconnect": "Reconnects should be quiet in the terminal. cmux should show state in the UI instead of appending retry loops to scrollback.",
+      "sessionRepair": "If the terminal endpoint is stale, cmux attempts an in-place repair before asking you to reset anything.",
+      "mobileTitle": "iOS access",
+      "mobileDesc": "Base runs independently of a Mac process. The iOS app can list your Base workspaces and attach through the cloud control plane as long as you are signed in. This lets you check agents and terminals while your MacBook is asleep or offline.",
+      "notificationsTitle": "Notifications",
+      "notificationsDesc": "A Base VM can have many attached clients. Agent notifications should fan out through the cloud event path to every signed-in client with access, including Mac and iOS.",
+      "securityTitle": "Security model",
+      "securityAuth": "Authentication uses your cmux account. A client must be signed in before it can list or attach to Base.",
+      "securityLease": "Terminal attach endpoints should be short-lived and scoped to the authenticated account, device, VM, and session.",
+      "securityProvider": "Provider credentials and VM bootstrap secrets stay server-side. Clients receive only the attach endpoint or signed operation they need.",
+      "securityTeam": "Team Base access must be checked server-side on every list, open, attach, fork, checkpoint, and reset operation.",
+      "recoveryTitle": "Recovery",
+      "recoveryDesc": "Base is designed to prefer repair over replacement because its identity and filesystem are part of the user promise.",
+      "recoveryRetry": "Retry: ask cmux to resume and reattach to the same Base VM.",
+      "recoveryReset": "Reset: explicitly create a new Base generation. cmux keeps the old generation retained; permanent deletion should be a separate confirmation step.",
+      "recoverySupport": "Feedback: include the VM id, elapsed time, and last non-secret error so support can tell whether the failure is auth, service readiness, terminal endpoint, or local client state."
+    },
     "remoteTmux": {
       "title": "Remote tmux",
       "metaTitle": "Remote tmux (beta)",
@@ -1632,8 +1783,9 @@
       "actionTypes": "Action types",
       "actionTypeBuiltin": "Alias a built-in cmux action such as cmux.newTerminal, cmux.newBrowser, cmux.splitRight, or cmux.splitDown.",
       "actionTypeCommand": "Run shell text in a terminal. Use target to choose the current terminal or a new tab in the current pane.",
-      "actionTypeAgent": "Start a supported coding agent. Today this supports codex and claude, with optional args.",
+      "actionTypeAgent": "Start a coding agent in a new terminal tab. Any CLI name works (claude, codex, opencode, or your own binary), with optional args.",
       "actionTypeWorkspaceCommand": "Run a named workspace definition from commands. Use this for multi-pane layouts, custom working directories, and startup commands.",
+      "actionTypeWorkspace": "Create a workspace from an inline workspace definition, with optional restart behavior. Offered in the new-workspace plus-button menu automatically.",
       "actionFields": "Action fields",
       "actionFieldTitle": "Command Palette row title, surface button label, menu item title, and trust prompt title unless an entry overrides it.",
       "actionFieldSubtitle": "Command Palette secondary text. description is accepted as an alias for subtitle.",
@@ -1642,6 +1794,7 @@
       "actionFieldShortcut": "Optional action shortcut, using the same single-stroke or two-stroke chord syntax as settings shortcuts.",
       "actionFieldTarget": "For command and agent actions only. Use currentTerminal or newTabInCurrentPane.",
       "actionFieldConfirm": "Ask before running the action.",
+      "actionFieldNewWorkspaceMenu": "Set true to offer any action in the new-workspace plus-button menu, or false to hide a workspace action from it.",
       "commandPaletteBehavior": "Command Palette behavior",
       "commandPaletteBehaviorDesc": "Command Palette reads the resolved action registry. Custom action IDs are added as rows when <palette>palette</palette> is not false. Legacy <commands>commands</commands> are added automatically as custom rows unless an action with the same generated ID already exists. Built-in commands keep their normal palette labels, but overriding a built-in ID such as <newTerminal>cmux.newTerminal</newTerminal> changes the behavior behind that shared entrypoint.",
       "commandPaletteScreenshotAlt": "cmux Command Palette showing a custom Codex Worktree action from cmux.json",
@@ -1651,6 +1804,10 @@
       "newWorkspaceButton": "Custom plus button actions",
       "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>.",
       "newWorkspaceWorktreeNote": "This example makes the normal plus click run the <action>worktree-agents</action> action. The workspace command from <commands>commands</commands> uses a visible setup terminal to create the Git <worktree>worktree</worktree> first. Codex and Claude start at the same time, wait for the workspace-specific state file, then cd into the created directory before exec.",
+      "workspaceActions": "Workspace layouts",
+      "workspaceActionsDesc": "A workspace layout is stored as a <workspace>workspace</workspace> action, embedding a full workspace definition directly in the action so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
+      "workspaceActionsMenuDesc": "Workspace layouts appear in the plus-button right-click menu automatically. Set <newWorkspaceMenu>newWorkspaceMenu</newWorkspaceMenu> to <falseValue>false</falseValue> to hide one, or to <trueValue>true</trueValue> on any other action to add it to the menu.",
+      "workspaceActionsSaveDesc": "You can also create these without writing JSON: right-click the plus button and choose <saveLayout>Save Workspace as Layout</saveLayout> to capture the current workspace's splits, directories, running agents, and browser tabs into <configPath>~/.config/cmux/cmux.json</configPath>. They are stored as entries in the <actions>actions</actions> block. <customize>Customize Workspace Layouts</customize> opens that file in your editor.",
       "simpleCommands": "Simple commands",
       "simpleCommandsDesc": "A simple command runs a shell command in the currently focused terminal:",
       "simpleCommandFields": "Fields",
@@ -1668,6 +1825,8 @@
       "wsFieldName": "Workspace tab name (defaults to command name)",
       "wsFieldCwd": "Working directory for the workspace",
       "wsFieldColor": "Workspace tab color",
+      "wsFieldEnv": "Environment variables inherited by every shell in the workspace",
+      "wsFieldSetup": "Bootstrap command sent to the workspace's first terminal before that terminal's own command",
       "wsFieldLayout": "Layout tree defining splits and panes",
       "restartBehavior": "Restart behavior",
       "restartBehaviorDesc": "Controls what happens when a workspace with the same name already exists:",
@@ -1699,7 +1858,9 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
-      "restartNew": "Create a new workspace (default)"
+      "restartNew": "Create a new workspace (default)",
+      "workspaceActionsDefaultTitle": "Default for new workspaces",
+      "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",
@@ -2290,6 +2451,7 @@
     "navItems": {
       "gettingStarted": "Getting Started",
       "concepts": "Concepts",
+      "base": "Base",
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
@@ -2570,9 +2732,32 @@
     "title": "cmux Pro is active",
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
     "emailLabel": "Purchase email",
+    "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",
     "manageBilling": "Manage billing",
-    "manageSignInMethods": "Manage sign-in methods"
+    "manageSignInMethods": "Manage sign-in methods",
+    "features": {
+      "cloudAgents": {
+        "title": "Cloud agents on Cloud VMs",
+        "body": "Run agents in isolated remote sandboxes.",
+        "action": "Open cmux"
+      },
+      "modelGateway": {
+        "title": "Model gateway",
+        "body": "Route across providers with usage and cost analytics, plus 20 compute-hours a month.",
+        "action": "Open model gateway"
+      },
+      "aiAccounts": {
+        "title": "Connect your AI accounts",
+        "body": "Add provider accounts so cmux can route work through them.",
+        "action": "Connect providers"
+      },
+      "iosApp": {
+        "title": "cmux iOS app",
+        "body": "Use cmux on your phone.",
+        "action": "Join the iOS beta"
+      }
+    }
   },
   "landing": {
     "bestTerminal": {

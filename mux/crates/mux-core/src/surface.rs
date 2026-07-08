@@ -16,8 +16,10 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use crate::platform;
 use crate::{Mux, MuxEvent, SurfaceId};
 
-pub use crate::browser::{BrowserFrame, BrowserSource};
-use crate::browser::{BrowserRuntime, BrowserSurface};
+use crate::browser::BrowserSurface;
+pub use crate::browser::{
+    BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
+};
 
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
@@ -43,8 +45,14 @@ pub struct SurfaceOptions {
     pub browser_discover_ports: Vec<u16>,
     /// Optional Chrome user data directory for launched browser runtime.
     pub browser_user_data_dir: Option<String>,
+    /// Session component for the default launched Chrome profile path.
+    pub browser_session_name: String,
     /// Use a temporary launched Chrome profile and delete it on shutdown.
     pub browser_ephemeral: bool,
+    /// Maximum browser capture size before downscaling, in megapixels.
+    pub browser_max_capture_megapixels: f64,
+    /// Optional fixed browser capture scale, where 1.0 captures at pane pixels.
+    pub browser_capture_scale: Option<f64>,
 }
 
 impl Default for SurfaceOptions {
@@ -59,10 +67,13 @@ impl Default for SurfaceOptions {
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
-            browser_discover: true,
+            browser_discover: false,
             browser_discover_ports: vec![9222],
             browser_user_data_dir: None,
+            browser_session_name: "default".to_string(),
             browser_ephemeral: false,
+            browser_max_capture_megapixels: 2.0,
+            browser_capture_scale: None,
         }
     }
 }
@@ -300,15 +311,50 @@ impl Surface {
         Ok(surface)
     }
 
-    pub(crate) fn spawn_browser(
+    #[cfg(test)]
+    pub(crate) fn spawn_for_test(
         id: SurfaceId,
-        url: String,
-        runtime: Arc<BrowserRuntime>,
+        opts: SurfaceOptions,
         mux: Weak<Mux>,
-        size: (u16, u16),
-        cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
-        crate::browser::spawn(id, url, runtime, mux, size, cell_pixels)
+        let callbacks = Callbacks {
+            on_bell: Some(Box::new({
+                let mux = mux.clone();
+                move || {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.emit(MuxEvent::Bell(id));
+                    }
+                }
+            })),
+            ..Callbacks::default()
+        };
+
+        let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        if let Some(mux) = mux.upgrade() {
+            let colors = mux.default_colors();
+            term.set_default_colors(colors.fg, colors.bg);
+        }
+
+        Ok(Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta { id, name: Mutex::new(None) },
+            term: Mutex::new(term),
+            writer: Mutex::new(Box::new(std::io::sink())),
+            master: Mutex::new(Box::new(TestMasterPty {
+                size: Mutex::new(PtySize {
+                    rows: opts.rows,
+                    cols: opts.cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                }),
+            })),
+            killer: Mutex::new(Box::new(TestChildKiller)),
+            dead: AtomicBool::new(false),
+            dirty: AtomicBool::new(false),
+            title: Mutex::new(String::new()),
+            pwd: Mutex::new(None),
+            size: Mutex::new((opts.cols, opts.rows)),
+            taps: Mutex::new(Vec::new()),
+        })))
     }
 
     fn as_pty(&self) -> Option<&PtySurface> {
@@ -318,7 +364,7 @@ impl Surface {
         }
     }
 
-    fn as_browser(&self) -> Option<&BrowserSurface> {
+    pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {
         match self {
             Surface::Pty(_) => None,
             Surface::Browser(surface) => Some(surface),
@@ -391,7 +437,11 @@ impl Surface {
     pub fn resize(&self, cols: u16, rows: u16) -> bool {
         match self {
             Surface::Pty(pty) => pty.resize(cols, rows),
-            Surface::Browser(browser) => browser.resize(cols, rows),
+            Surface::Browser(browser) => {
+                let before = browser.size();
+                browser.resize(cols, rows);
+                browser.size() != before
+            }
         }
     }
 
@@ -467,7 +517,22 @@ impl Surface {
     }
 
     pub fn browser_source(&self) -> Option<BrowserSource> {
-        self.as_browser().map(BrowserSurface::source)
+        self.as_browser().and_then(BrowserSurface::source)
+    }
+
+    pub fn browser_status(&self) -> Option<BrowserStatus> {
+        self.as_browser().map(BrowserSurface::status)
+    }
+
+    pub fn browser_frames_stalled(&self) -> Option<bool> {
+        self.as_browser().map(BrowserSurface::frames_stalled)
+    }
+
+    pub fn attach_frames(&self) -> anyhow::Result<(BrowserAttachState, BrowserFrameStream)> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        Ok(browser.attach_frames())
     }
 
     pub fn browser_insert_text(&self, text: &str) -> anyhow::Result<()> {
@@ -518,6 +583,89 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.navigate(url)
+    }
+
+    pub fn browser_back(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.back()
+    }
+
+    pub fn browser_forward(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.forward()
+    }
+
+    pub fn browser_reload(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.reload()
+    }
+
+    pub fn browser_activate(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.activate()
+    }
+}
+
+#[cfg(test)]
+struct TestMasterPty {
+    size: Mutex<PtySize>,
+}
+
+#[cfg(test)]
+impl MasterPty for TestMasterPty {
+    fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        *self.size.lock().unwrap() = size;
+        Ok(())
+    }
+
+    fn get_size(&self) -> anyhow::Result<PtySize> {
+        Ok(*self.size.lock().unwrap())
+    }
+
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+        Ok(Box::new(std::io::empty()))
+    }
+
+    fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+        Ok(Box::new(std::io::sink()))
+    }
+
+    #[cfg(unix)]
+    fn process_group_leader(&self) -> Option<libc::pid_t> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+        None
+    }
+
+    #[cfg(unix)]
+    fn tty_name(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct TestChildKiller;
+
+#[cfg(test)]
+impl ChildKiller for TestChildKiller {
+    fn kill(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(TestChildKiller)
     }
 }
 
