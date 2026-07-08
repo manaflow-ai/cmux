@@ -147,6 +147,34 @@ struct DockControlDefinitionDecodingTests {
         #expect(file.controls[1].url == "https://example.com")
     }
 
+    @Test("Dock config rejects excessive controls before trust rendering")
+    func configRejectsExcessiveControls() throws {
+        let controls: [[String: String]] = (0...DockConfigFile.maximumControlCount).map { index in
+            ["id": "control-\(index)", "command": "echo \(index)"]
+        }
+        let data = try JSONSerialization.data(withJSONObject: ["controls": controls])
+
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(DockConfigFile.self, from: data)
+        }
+    }
+
+    @Test("Dock controls reject excessive environment variables before trust rendering")
+    func controlRejectsExcessiveEnvironmentVariables() throws {
+        let environment = Dictionary(
+            uniqueKeysWithValues: (0...DockControlDefinition.maximumEnvironmentVariableCount).map { index in
+                ("KEY_\(index)", "value-\(index)")
+            }
+        )
+        let data = try JSONSerialization.data(
+            withJSONObject: ["id": "env-heavy", "command": "echo ok", "env": environment]
+        )
+
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(DockControlDefinition.self, from: data)
+        }
+    }
+
     @Test("Project config identity follows the resolved dock file, not child cwd")
     @MainActor
     func projectConfigIdentityUsesResolvedDockFile() throws {

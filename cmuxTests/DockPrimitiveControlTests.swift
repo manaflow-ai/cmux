@@ -60,6 +60,9 @@ struct DockPrimitiveControlTests {
         #expect(throws: (any Error).self) {
             _ = try decode(#"{"id":"blank","title":"Blank","type":"command","command":"   "}"#)
         }
+        #expect(throws: (any Error).self) {
+            _ = try decode(#"{"id":"blank-terminal","title":"Blank Terminal","type":"terminal","command":"   "}"#)
+        }
 
         let profiledBrowser = try decode(#"{"id":"docs","title":"Docs","type":"browser","url":"https://docs.cmux.dev","profile":" Work "}"#)
         #expect(profiledBrowser.variant == .browser(url: "https://docs.cmux.dev", profile: "Work"))

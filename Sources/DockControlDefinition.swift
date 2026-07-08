@@ -2,6 +2,8 @@ import Foundation
 
 /// A single Dock control loaded from `dock.json`.
 struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
+    static let maximumEnvironmentVariableCount = 64
+
     let id: String
     let title: String
     let variant: DockControlVariant
@@ -75,7 +77,8 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         let rawType = try container.decodeIfPresent(String.self, forKey: .type)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let normalizedCommand = try container.decodeIfPresent(String.self, forKey: .command)?
+        let rawCommand = try container.decodeIfPresent(String.self, forKey: .command)
+        let normalizedCommand = rawCommand?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedURL = try container.decodeIfPresent(String.self, forKey: .url)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,7 +96,13 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             }
             resolvedVariant = .command(normalizedCommand)
         case .some("terminal"):
-            if let normalizedCommand, !normalizedCommand.isEmpty {
+            if let normalizedCommand {
+                guard !normalizedCommand.isEmpty else {
+                    throw Self.validationError(
+                        code: 4,
+                        message: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+                    )
+                }
                 resolvedVariant = .command(normalizedCommand)
             } else {
                 resolvedVariant = .terminal
@@ -125,7 +134,20 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         height = try container.decodeIfPresent(Double.self, forKey: .height)
-        env = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
+        let decodedEnv = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
+        guard decodedEnv.count <= Self.maximumEnvironmentVariableCount else {
+            throw Self.validationError(
+                code: 9,
+                message: String(
+                    format: String(
+                        localized: "dock.error.tooManyEnvironmentVariables",
+                        defaultValue: "Dock control env supports at most %lld variables."
+                    ),
+                    Int64(Self.maximumEnvironmentVariableCount)
+                )
+            )
+        }
+        env = decodedEnv
     }
 
     func encode(to encoder: Encoder) throws {

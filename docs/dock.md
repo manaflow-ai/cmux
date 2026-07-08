@@ -93,6 +93,8 @@ Fields:
 - `height`: optional requested terminal height in points. Controls without a height share remaining space.
 - `env`: optional non-secret environment variables passed only to command and terminal controls.
 
+Dock configs can define up to 64 controls. Each command or terminal control can define up to 64 `env` variables. Larger configs are rejected before the project trust prompt is rendered.
+
 Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command. Project Dock trust prompts show each command or login shell with its effective `cwd` and `env` overrides before cmux opens the controls. Browser controls show each requested URL and profile, including the resolved profile ID for non-default profiles. Trust for browser controls is bound to the resolved profile UUID, so a display-name or slug reference that later points at a different profile asks for trust again.
 
 Existing configs without `type` keep loading unchanged as command controls. Legacy configs that set `type: "terminal"` together with a `command` also keep loading as command controls. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
