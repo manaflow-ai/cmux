@@ -267,13 +267,24 @@ private func cmuxWrapperInjectedAgentNameFromArgumentPrefix(_ args: [String]) ->
 }
 
 private func cmuxInjectedClaudeHookSettingsArgumentPrefixEnd(_ args: [String]) -> Int? {
-    guard let first = args.first else { return nil }
-    if first == "--settings", args.count > 1 {
-        return isCmuxInjectedClaudeHookSettingsValue(args[1]) ? 2 : nil
+    var index = 0
+    if index + 1 < args.count,
+       args[index] == "--session-id",
+       !args[index + 1].hasPrefix("-") {
+        index += 2
+    } else if index < args.count,
+              args[index].hasPrefix("--session-id=") {
+        index += 1
+    }
+    guard index < args.count else { return nil }
+
+    let first = args[index]
+    if first == "--settings", index + 1 < args.count {
+        return isCmuxInjectedClaudeHookSettingsValue(args[index + 1]) ? index + 2 : nil
     }
     if first.hasPrefix("--settings="),
        isCmuxInjectedClaudeHookSettingsValue(String(first.dropFirst("--settings=".count))) {
-        return 1
+        return index + 1
     }
     return nil
 }
