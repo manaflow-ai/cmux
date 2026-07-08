@@ -368,7 +368,9 @@ extension CmuxVaultAgentSessionIDSource {
         switch self {
         case .argvOption(let option):
             guard let sessionId = AgentResumeArgvParser().nonOptionValue(in: process.arguments, afterOption: option) else { return nil }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+            let source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource =
+                registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: source)
         case .piSessionFile:
             let locator = PiSessionLocator(fileManager: fileManager)
             if let session = process.piCompatibleSessionID {
@@ -379,7 +381,9 @@ extension CmuxVaultAgentSessionIDSource {
                     registrationSessionDirectory: registration.sessionDirectory,
                     builtInOmpSessionDirectory: CmuxVaultAgentRegistration.builtInOmp.sessionDirectory
                 ) ?? session
-                return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+                let source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource =
+                    registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit
+                return VaultAgentSessionIDResolution(sessionId: sessionId, source: source)
             }
             guard let sessionId = locator.latestSessionPath(
                 for: process,

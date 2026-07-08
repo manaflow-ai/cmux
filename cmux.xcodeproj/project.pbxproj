@@ -317,6 +317,7 @@
 		A5D41211A1B2C3D4E5F60718 /* CLIHookNoResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41212A1B2C3D4E5F60718 /* CLIHookNoResponseTests.swift */; };
 		A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */; };
 		A5D41330A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */; };
+		F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */; };
 		C72280000000000000000004 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72280000000000000000003 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift */; };
 		A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */; };
 		A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */; };
@@ -711,6 +712,8 @@
 		C0DEFB300000000000000001 /* FocusSurfaceBroadcasterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFB300000000000000002 /* FocusSurfaceBroadcasterTests.swift */; };
 		AA5269A0C0DE0002FACE0002 /* ForeignFirstResponderPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */; };
 		AA5269A0C0DE0004FACE0004 /* ForeignFirstResponderPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5269A0C0DE0003FACE0003 /* ForeignFirstResponderPolicyTests.swift */; };
+		F0F0CF0F0000000000000001 /* ForkParentFallbackGeneralizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */; };
+		F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */; };
 		F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000004 /* FullWidthTabCommandTests.swift */; };
 		F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */; };
 		D0B10012A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */; };
@@ -1521,6 +1524,7 @@
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
 		C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */; };
 		D7C6F5040000000000000000 /* UserDefaultsChangeSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5040000000000000001 /* UserDefaultsChangeSubscription.swift */; };
+		F0F0CF0C0000000000000001 /* VaultAgentProcessScanner+ForkParentFallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0C0000000000000002 /* VaultAgentProcessScanner+ForkParentFallback.swift */; };
 		B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000005 /* VaultAgentProcessScanner.swift */; };
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
 		B3575000000000000000000D /* VaultOpenCodeProcessScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000E /* VaultOpenCodeProcessScanner.swift */; };
@@ -2052,6 +2056,7 @@
 		A5D41212A1B2C3D4E5F60718 /* CLIHookNoResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHookNoResponseTests.swift; sourceTree = "<group>"; };
 		A5D4120CA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLILegacyHookAliasTests.swift; sourceTree = "<group>"; };
 		A5D41331A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIMockSocketServerSupport.swift; sourceTree = "<group>"; };
+		F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeForkOfForkRegressionTests.swift; sourceTree = "<group>"; };
 		C72280000000000000000003 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyClaudeHookWorkspaceRoutingTests.swift; sourceTree = "<group>"; };
 		A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessIntegrationRegressionTests.swift; sourceTree = "<group>"; };
 		A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessTestSupport.swift; sourceTree = "<group>"; };
@@ -2379,6 +2384,8 @@
 		C0DEFB300000000000000002 /* FocusSurfaceBroadcasterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusSurfaceBroadcasterTests.swift; sourceTree = "<group>"; };
 		AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ForeignFirstResponderPolicy.swift; sourceTree = "<group>"; };
 		AA5269A0C0DE0003FACE0003 /* ForeignFirstResponderPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForeignFirstResponderPolicyTests.swift; sourceTree = "<group>"; };
+		F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackGeneralizationTests.swift; sourceTree = "<group>"; };
+		F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackSessionIndexTests.swift; sourceTree = "<group>"; };
 		F17F00000000000000000004 /* FullWidthTabCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabCommandTests.swift; sourceTree = "<group>"; };
 		F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabPersistenceTests.swift; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
@@ -3177,6 +3184,7 @@
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
 		C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/URLRequest+BrowserFailedNavigation.swift"; sourceTree = "<group>"; };
 		D7C6F5040000000000000001 /* UserDefaultsChangeSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDefaultsChangeSubscription.swift; sourceTree = "<group>"; };
+		F0F0CF0C0000000000000002 /* VaultAgentProcessScanner+ForkParentFallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+ForkParentFallback.swift"; sourceTree = "<group>"; };
 		B35750000000000000000005 /* VaultAgentProcessScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScanner.swift; sourceTree = "<group>"; };
 		B35750000000000000000001 /* VaultAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentRegistry.swift; sourceTree = "<group>"; };
 		B3575000000000000000000E /* VaultOpenCodeProcessScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultOpenCodeProcessScanner.swift; sourceTree = "<group>"; };
@@ -4656,6 +4664,7 @@
 				A6AC72070000000000000002 /* SpinnerSpec.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
+				F0F0CF0C0000000000000002 /* VaultAgentProcessScanner+ForkParentFallback.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -5146,6 +5155,9 @@
 				A6AC72080000000000000002 /* CMUXWorkspaceLoadingCLIRegressionTests.swift */,
 				C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */,
 				A6AC73040000000000000002 /* SidebarWorkspaceSnapshotAgentActivityTests.swift */,
+				F0F0CF0E0000000000000002 /* CLINotifyClaudeForkOfForkRegressionTests.swift */,
+				F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */,
+				F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -6562,6 +6574,7 @@
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */,
 				D7C6F5040000000000000000 /* UserDefaultsChangeSubscription.swift in Sources */,
+				F0F0CF0C0000000000000001 /* VaultAgentProcessScanner+ForkParentFallback.swift in Sources */,
 				B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */,
 				B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				B3575000000000000000000D /* VaultOpenCodeProcessScanner.swift in Sources */,
@@ -6897,6 +6910,7 @@
 				A5D41211A1B2C3D4E5F60718 /* CLIHookNoResponseTests.swift in Sources */,
 				A5D4120BA1B2C3D4E5F60718 /* CLILegacyHookAliasTests.swift in Sources */,
 				A5D41330A1B2C3D4E5F60718 /* CLIMockSocketServerSupport.swift in Sources */,
+				F0F0CF0E0000000000000001 /* CLINotifyClaudeForkOfForkRegressionTests.swift in Sources */,
 				C72280000000000000000004 /* CLINotifyClaudeHookWorkspaceRoutingTests.swift in Sources */,
 				A5D41203A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift in Sources */,
 				A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */,
@@ -6983,6 +6997,8 @@
 				C0F15A000000000000000001 /* FishShellIntegrationTests.swift in Sources */,
 				C0DEFB300000000000000001 /* FocusSurfaceBroadcasterTests.swift in Sources */,
 				AA5269A0C0DE0004FACE0004 /* ForeignFirstResponderPolicyTests.swift in Sources */,
+				F0F0CF0F0000000000000001 /* ForkParentFallbackGeneralizationTests.swift in Sources */,
+				F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */,
 				F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */,
 				F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */,
 				1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */,

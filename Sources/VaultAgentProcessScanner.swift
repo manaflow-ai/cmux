@@ -39,11 +39,23 @@ extension RestorableAgentSessionIndex {
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan;
+        // memoize so the OpenCode, built-in, fallback, and registry passes read
+        // each pid once. updateValue keeps nil misses cached instead of removing them.
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            if let cached = processArgumentsByPID[processID] { return cached }
+            let resolved = processArgumentsProvider(processID)
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
+            return resolved
+        }
+
         let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         var resolved = VaultOpenCodeProcessScanner(fileManager: fileManager).processDetectedSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
-            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments
         )
 
         // Built-in claude/codex have no Vault registration, so detect them
@@ -55,10 +67,16 @@ extension RestorableAgentSessionIndex {
             capturedAt: capturedAt,
             fileManager: fileManager,
             scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
-            processArgumentsProvider: processArgumentsProvider
+            processArgumentsProvider: cachedProcessArguments
         ) where resolved[key] == nil {
             resolved[key] = entry
         }
+        resolved.merge(processDetectedForkParentFallbackSnapshots(
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
+            processArgumentsProvider: cachedProcessArguments
+        )) { existing, _ in existing }
 
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
@@ -80,7 +98,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = processArgumentsProvider(process.pid) else {
+                  let processArguments = cachedProcessArguments(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(

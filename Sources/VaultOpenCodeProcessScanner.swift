@@ -21,7 +21,10 @@ struct VaultOpenCodeProcessScanner {
     func processDetectedSnapshots(
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        scopedProcessIDsByPanelKey: [RestorableAgentSessionIndex.PanelKey: Set<Int>]
+        scopedProcessIDsByPanelKey: [RestorableAgentSessionIndex.PanelKey: Set<Int>],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
     ) -> [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] {
         let openCodeResolver = OpenCodeProcessResolver()
         var resolved: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry] = [:]
@@ -42,7 +45,7 @@ struct VaultOpenCodeProcessScanner {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(

@@ -28,6 +28,8 @@ public enum AgentLaunchSanitizer {
         var resumeSubcommand: String?
         var preserveFirstPositional: Bool = false
         var preservePositionals: Bool = false
+        /// Keeps scanning for top-level option tokens after prompt positionals; only Claude supports this replay boundary.
+        var scansOptionsPastPositionals: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
     public static func sanitizedLaunchArguments(
@@ -382,79 +384,6 @@ public enum AgentLaunchSanitizer {
         return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
     }
 
-    private static func preserveOptions(_ args: [String], policy: Policy) -> [String]? {
-        var result: [String] = []
-        var index = 0
-        var consumedFirstPositional = false
-        var skippingResumePositionals = false
-
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
-                break
-            }
-
-            if !arg.hasPrefix("-") || arg == "-" {
-                if policy.preservePositionals { result.append(arg); index += 1; continue }
-                if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
-                    index += 1
-                    continue
-                }
-                if skippingResumePositionals {
-                    skippingResumePositionals = false
-                    index += 1
-                    continue
-                }
-                if policy.nonRestorableCommands.contains(arg) {
-                    return nil
-                }
-                if policy.preserveFirstPositional, !consumedFirstPositional {
-                    result.append(arg)
-                    consumedFirstPositional = true
-                    index += 1
-                    continue
-                }
-                break
-            }
-
-            if shouldDropOption(arg, droppedOptions: policy.rejectOptions) {
-                return nil
-            }
-
-            if policy.droppedOptionPrefixes.contains(where: { arg.hasPrefix($0) }) {
-                index += 1
-                continue
-            }
-
-            let runtimeOnlyWidth = runtimeOnlyOptionWidth(arg)
-            let width = runtimeOnlyWidth ?? optionWidth(args, index: index, policy: policy)
-            if runtimeOnlyWidth != nil || shouldDropOption(arg, droppedOptions: policy.droppedOptions) {
-                index += width
-                continue
-            }
-
-            if policy.skipClaudeHookSettings,
-               let replacement = claudeHookSettingsReplacement(args, index: index) {
-                result.append(contentsOf: replacement)
-                index += width
-                continue
-            }
-            guard let consumedPromptBoundary = consumePromptBoundaryOption(arg, args: args, index: &index, width: width, policy: policy, result: &result) else { return nil }
-            if consumedPromptBoundary { continue }
-            result.append(contentsOf: args[index..<min(args.count, index + width)])
-            index += width
-        }
-
-        return result
-    }
-
-    private static func shouldDropOption(_ arg: String, droppedOptions: Set<String>) -> Bool {
-        if droppedOptions.contains(arg) { return true }
-        guard let equals = arg.firstIndex(of: "=") else { return false }
-        return droppedOptions.contains(String(arg[..<equals]))
-    }
-
     private static func normalizedWorkingDirectory(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -470,7 +399,7 @@ public enum AgentLaunchSanitizer {
         return true
     }
 
-    private static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {
+    static func runtimeOnlyOptionWidth(_ arg: String) -> Int? {
         if let width = runtimeOnlyOptionWidths[arg] {
             return width
         }
@@ -478,49 +407,7 @@ public enum AgentLaunchSanitizer {
         return runtimeOnlyOptionWidths[String(arg[..<equals])].map { _ in 1 }
     }
 
-    private static func optionWidth(
-        _ args: [String],
-        index: Int,
-        policy: Policy,
-        stopVariadicAtPositionals: Set<String> = []
-    ) -> Int {
-        let arg = args[index]
-        if arg.contains("=") {
-            return 1
-        }
-        if policy.optionalValueOptions.contains(arg) {
-            guard index + 1 < args.count else { return 1 }
-            let value = args[index + 1]
-            if let choices = policy.optionalValueChoices[arg] { return choices.contains(value) ? 2 : 1 }
-            let following = index + 2 < args.count ? args[index + 2] : nil
-            if policy.greedyOptionalValueOptions.contains(arg),
-               looksLikeGreedyOptionalValue(value) { return 2 }
-            guard looksLikeOptionalValue(value, following: following) else { return 1 }
-            return 2
-        }
-        guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
-        if policy.variadicOptions.contains(arg) {
-            var end = index + 1
-            while end < args.count,
-                  !args[end].hasPrefix("-"),
-                  !stopVariadicAtPositionals.contains(args[end]) {
-                end += 1
-            }
-            return max(1, end - index)
-        }
-        return 2
-    }
-
-    private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
-        guard !value.isEmpty,
-              !value.hasPrefix("-"),
-              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-            return false
-        }
-        return following == nil || value.contains(",") || (following?.hasPrefix("-") == true)
-    }
-
-    private static func claudeHookSettingsReplacement(_ args: [String], index: Int) -> [String]? {
+    static func claudeHookSettingsReplacement(_ args: [String], index: Int) -> [String]? {
         let arg = args[index]
         if arg.hasPrefix("--settings=") {
             let value = String(arg.dropFirst("--settings=".count))

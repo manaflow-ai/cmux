@@ -230,9 +230,10 @@ struct RestorableAgentSessionIndex: Sendable {
         let agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     }
 
-    enum ProcessDetectedSessionIDSource: Sendable {
+    enum ProcessDetectedSessionIDSource: Equatable, Sendable {
         case explicit
         case inferredLatestSessionFile
+        case forkParentFallback
     }
 
     typealias ProcessDetectedSnapshotEntry = (
@@ -474,11 +475,35 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
+        func processDetectedEntry(snapshot: SessionRestorableAgentSnapshot, lifecycle: AgentHibernationLifecycleState?, updatedAt: TimeInterval, detected: ProcessDetectedSnapshotEntry) -> Entry {
+            Entry(
+                snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
+                processIDs: detected.processIDs, agentProcessIDs: detected.agentProcessIDs,
+                agentProcessIdentities: agentProcessIdentities(
+                    for: detected.agentProcessIDs,
+                    processIdentityProvider: processIdentityProvider
+                )
+            )
+        }
+
         for (key, detected) in detectedSnapshots {
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
-            if let existing = Self.matchingHookEntry(
+            if detected.sessionIDSource == .forkParentFallback,
+               let panelCandidate = sameKindPanelCandidate,
+               Self.hookCandidateRepresentsDetectedProcess(
+                   panelCandidate,
+                   detected: detected,
+                   processIdentityProvider: processIdentityProvider
+               ) {
+                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+            } else if detected.sessionIDSource == .forkParentFallback,
+                      Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
+                // A nested fork process inside another agent's pane must not displace
+                // that pane's hook-backed identity.
+                continue
+            } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
                 panelCandidate: sameKindPanelCandidate,
@@ -486,44 +511,14 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = Entry(
-                    snapshot: detected.snapshot,
-                    lifecycle: existing.lifecycle,
-                    updatedAt: existing.updatedAt,
-                    processIDs: detected.processIDs,
-                    agentProcessIDs: detected.agentProcessIDs,
-                    agentProcessIdentities: agentProcessIdentities(
-                        for: detected.agentProcessIDs,
-                        processIdentityProvider: processIdentityProvider
-                    )
-                )
+                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindPanelCandidate {
                 // Latest-file detection is ambiguous when multiple panels share a cwd; preserve the exact
                 // hook-store identity while still carrying live process evidence for this panel.
-                resolved[key] = Entry(
-                    snapshot: panelCandidate.snapshot,
-                    lifecycle: panelCandidate.lifecycle,
-                    updatedAt: panelCandidate.updatedAt,
-                    processIDs: detected.processIDs,
-                    agentProcessIDs: detected.agentProcessIDs,
-                    agentProcessIdentities: agentProcessIdentities(
-                        for: detected.agentProcessIDs,
-                        processIdentityProvider: processIdentityProvider
-                    )
-                )
+                resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else {
-                resolved[key] = Entry(
-                    snapshot: detected.snapshot,
-                    lifecycle: nil,
-                    updatedAt: 0,
-                    processIDs: detected.processIDs,
-                    agentProcessIDs: detected.agentProcessIDs,
-                    agentProcessIdentities: agentProcessIdentities(
-                        for: detected.agentProcessIDs,
-                        processIdentityProvider: processIdentityProvider
-                    )
-                )
+                resolved[key] = processDetectedEntry(snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
             }
         }
 
@@ -786,15 +781,8 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
 
-        guard kind == .claude else { return false }
-        let liveBase = liveExecutable.lowercased()
-        guard liveBase == "node" || liveBase == "bun" else { return false }
-        return arguments.dropFirst().contains { argument in
-            let lowered = argument.lowercased()
-            return executableBasename(argument).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame
-                || lowered.contains("/.claude/")
-                || lowered.contains("/claude/versions/")
-        }
+        return CachedAgentProcessIdentityValidator.liveClaudeProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
+            || CachedAgentProcessIdentityValidator.liveCodexProcessExecutableMatches(kind: kind, liveExecutable: liveExecutable, arguments: arguments)
     }
 
     private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
