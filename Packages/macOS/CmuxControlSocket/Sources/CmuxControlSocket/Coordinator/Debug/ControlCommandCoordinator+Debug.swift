@@ -221,9 +221,8 @@ extension ControlCommandCoordinator {
         }
     }
 
-    // MARK: - debug.pro_welcome_checklist.show
+    // MARK: - debug.pro_welcome_checklist.show — show the Pro welcome checklist
 
-    /// `debug.pro_welcome_checklist.show`: show the Pro welcome checklist.
     func debugShowProWelcomeChecklist() -> ControlCallResult {
         guard let debugContext else {
             return .err(code: "unavailable", message: "Control context unavailable", data: nil)
