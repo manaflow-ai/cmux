@@ -43,16 +43,8 @@ mock.module("@stackframe/stack", () => ({
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser: async () => currentUser }),
-  getStackHandlerApp: () => ({
-    getUser: async () => {
-      if (getUserRejects) throw new Error("getUser failed");
-      return currentUser;
-    },
-  }),
   isStackConfigured: () => true,
-  isStackHandlerConfigured: () => true,
-  stackServerApp: { getUser: async () => currentUser },
-  stackHandlerApp: {
+  stackServerApp: {
     getUser: async () => {
       if (getUserRejects) throw new Error("getUser failed");
       return currentUser;

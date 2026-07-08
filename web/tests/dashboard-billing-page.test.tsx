@@ -64,7 +64,6 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser: async () => currentUser }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
-  stackHandlerApp: null,
 }));
 
 mock.module("../db/client", () => ({
@@ -95,12 +94,18 @@ describe("dashboard billing page", () => {
     proUser.update.mockClear();
   });
 
-  test("renders the Free plan state with a pricing link", async () => {
+  test("renders the Free plan state with pricing cards and TestFlight link", async () => {
     const html = await renderBillingPage();
 
     expect(html).toContain("Free");
     expect(html).toContain("You are currently on the Free plan.");
-    expect(html).toContain('href="/pricing"');
+    expect(html).toContain("Upgrade when you need cloud agents or team billing.");
+    expect(html).toContain('href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1"');
+    expect(html).toContain('href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1"');
+    expect(html).toContain("Get Pro");
+    expect(html).toContain("Get Teams");
+    expect(html).toContain('href="/dashboard/testflight"');
+    expect(html).toContain("Join the iOS beta");
     expect(html).not.toContain("/api/billing/subscription");
   });
 

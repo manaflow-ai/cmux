@@ -1421,6 +1421,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case networkChange
         case manual
         case presencePush
+
+        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
+
         var description: String {
             switch self {
             case .networkChange: return "networkChange"
@@ -1465,6 +1468,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if connectionState == .connected, remoteClient != nil {
             markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
+            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+                scheduleSecondaryAggregation()
+            }
             return
         }
         guard !recoveryInFlight else { return }
@@ -3827,22 +3833,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
-    /// then UserDefaults, then DEBUG on / Release off — so the aggregation (still
-    /// being hardened) ships dark in Release and the single-Mac list is the exact
-    /// prior behavior unless explicitly turned on.
+    /// then UserDefaults, then enabled by default. Env/defaults are kill switches
+    /// for rollout control.
     private var multiMacAggregationEnabled: Bool {
-        if let raw = ProcessInfo.processInfo.environment["CMUX_MULTI_MAC_AGGREGATION"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-            return ["1", "true", "yes", "on"].contains(raw.lowercased())
-        }
-        if multiMacAggregationDefaults.object(forKey: "multiMacAggregation") != nil {
-            return multiMacAggregationDefaults.bool(forKey: "multiMacAggregation")
-        }
-        #if DEBUG
-        return true
-        #else
-        return false
-        #endif
+        MultiMacAggregationFlag(
+            environment: ProcessInfo.processInfo.environment,
+            defaults: multiMacAggregationDefaults
+        ).isEnabled
     }
 
     /// Sentinel key for the foreground Mac when its attach ticket carries no
@@ -5083,9 +5080,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     }
-                    // Aggregate the user's other Macs' workspaces in the
-                    // background (no-op / off in Release). Best-effort; never
-                    // blocks the foreground connect.
+                    // Aggregate the user's other Macs' workspaces in the background.
+                    // Best-effort; never blocks the foreground connect.
                     if multiMacAggregationEnabled {
                         self.scheduleSecondaryAggregation()
                     }

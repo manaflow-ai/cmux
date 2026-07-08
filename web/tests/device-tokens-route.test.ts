@@ -18,7 +18,6 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
-  stackHandlerApp: null,
 }));
 
 const { DELETE, POST } = await import("../app/api/device-tokens/route");

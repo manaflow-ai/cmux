@@ -65,7 +65,6 @@ mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser: async () => currentUser }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
-  stackHandlerApp: null,
 }));
 
 mock.module("../db/client", () => ({
