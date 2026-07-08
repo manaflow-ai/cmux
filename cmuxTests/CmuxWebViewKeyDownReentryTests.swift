@@ -13,7 +13,9 @@ import ObjectiveC.runtime
 private var cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled = false
 private var cmuxUnitTestCmuxWebViewKeyDownHook: ((CmuxWebView, NSEvent) -> Bool)?
 
-private final class FakeWKInspectorUndoResponderView: NSView {}
+private final class FakeWKInspectorUndoResponderView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
 
 private final class BrowserUndoMenuActionSpy: NSObject {
     private(set) var invoked = false
@@ -201,7 +203,8 @@ final class CmuxWebViewKeyDownReentryTests: XCTestCase {
             installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
 
             let spy = BrowserUndoMenuActionSpy()
-            installUndoMenu(target: spy)
+            let previousMenu = installUndoMenu(target: spy)
+            defer { NSApp.mainMenu = previousMenu }
 
             guard let webView = window.contentView?.subviews.compactMap({ $0 as? CmuxWebView }).first else {
                 XCTFail("Failed to find hosted CmuxWebView")
@@ -274,7 +277,8 @@ final class CmuxWebViewKeyDownReentryTests: XCTestCase {
         body(window, { keyDownEvents })
     }
 
-    private func installUndoMenu(target: NSObject) {
+    private func installUndoMenu(target: NSObject) -> NSMenu? {
+        let previousMenu = NSApp.mainMenu
         let mainMenu = NSMenu()
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         let editMenu = NSMenu(title: "Edit")
@@ -290,6 +294,7 @@ final class CmuxWebViewKeyDownReentryTests: XCTestCase {
         mainMenu.setSubmenu(editMenu, for: editItem)
         _ = NSApplication.shared
         NSApp.mainMenu = mainMenu
+        return previousMenu
     }
 
     private func makeKeyDownEvent(
