@@ -1,4 +1,6 @@
 import { locales } from "../../i18n/routing";
+import { comparePages, comparePath } from "./compare-pages";
+import type { ComparePageKey } from "./compare-pages";
 import { featureWorkflowContentLocales } from "../../i18n/locale-availability";
 
 export type AgentPageFormat = "md" | "txt";
@@ -21,6 +23,45 @@ type AgentReadablePage = {
   locales?: readonly string[];
 };
 
+const llmsCompareDescriptions = {
+  "best-terminal-for-ai-coding-agents":
+    "compares cmux, Conductor, Superset, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, tmux, Kitty, Alacritty, WezTerm, OpenCode, Herdr, and other tools for agent-heavy workflows.",
+  "cmux-vs-alacritty":
+    "native macOS agent supervision versus a fast cross-platform OpenGL terminal emulator.",
+  "cmux-vs-conductor":
+    "native terminal/browser supervision versus a Mac app for running Claude Code, Codex, Cursor, and OpenCode in isolated workspaces.",
+  "cmux-vs-cursor":
+    "terminal agent supervision beside any editor versus an AI editor and hosted agent platform.",
+  "cmux-vs-devin":
+    "local terminal supervision for your CLI agents versus a cloud AI software engineer and team agent platform.",
+  "cmux-vs-ghostty":
+    "cmux as a libghostty-based agent workflow app versus Ghostty as a general-purpose terminal.",
+  "cmux-vs-herdr":
+    "native Mac agent workspace with browser panes versus a terminal-native agent multiplexer with SSH attach.",
+  "cmux-vs-iterm2":
+    "agent-aware native terminal workspace versus a mature general-purpose macOS terminal.",
+  "cmux-vs-kitty":
+    "agent-aware macOS workspace versus a fast, feature-rich, GPU-based terminal emulator.",
+  "cmux-vs-opencode":
+    "terminal workspace and supervision layer versus an open source coding agent that can run in terminal, desktop, or IDE surfaces.",
+  "cmux-vs-superset":
+    "native terminal/browser supervision versus an Electron agent orchestration workspace.",
+  "cmux-vs-tmux":
+    "native macOS agent supervision versus a portable terminal multiplexer.",
+  "cmux-vs-vscode":
+    "terminal agent supervision beside a general-purpose editor and extension platform.",
+  "cmux-vs-warp":
+    "agent supervision terminal versus an AI-enhanced terminal product.",
+  "cmux-vs-wezterm":
+    "agent notification workspace versus a cross-platform terminal emulator and multiplexer.",
+  "cmux-vs-windsurf":
+    "terminal agent supervision beside any editor versus the Devin Desktop IDE lineage.",
+  "cmux-vs-zed":
+    "terminal agent supervision beside a fast collaborative code editor.",
+  "multiple-claude-code-agents-parallel":
+    "explains parallel Claude Code, Codex, OpenCode, and other CLI agents with visible workspaces, notification rings, and jump-to-latest-unread review flow.",
+} satisfies Record<(typeof comparePages)[number]["slug"], string>;
+
 const extensionPattern = /\.(md|txt)$/i;
 const reservedTextRoutes = new Set(["/robots.txt"]);
 const blockedPrefixes = [
@@ -36,12 +77,42 @@ const englishOnlyPages = [
   "/eula",
 ] as const;
 
+const comparePageTitles = {
+  bestTerminalForAgents: "Best terminals and agent workspaces for AI coding agents",
+  cmuxVsAlacritty: "cmux vs Alacritty",
+  cmuxVsConductor: "cmux vs Conductor",
+  cmuxVsCursor: "cmux vs Cursor",
+  cmuxVsDevin: "cmux vs Devin",
+  cmuxVsGhostty: "cmux vs Ghostty",
+  cmuxVsHerdr: "cmux vs Herdr",
+  cmuxVsIterm2: "cmux vs iTerm2",
+  cmuxVsKitty: "cmux vs Kitty",
+  cmuxVsOpencode: "cmux vs OpenCode",
+  cmuxVsSuperset: "cmux vs Superset",
+  cmuxVsTmux: "cmux vs tmux",
+  cmuxVsVscode: "cmux vs VS Code",
+  cmuxVsWarp: "cmux vs Warp",
+  cmuxVsWezterm: "cmux vs WezTerm",
+  cmuxVsWindsurf: "cmux vs Windsurf",
+  cmuxVsZed: "cmux vs Zed",
+  multipleClaudeAgents: "How to run multiple Claude Code agents in parallel",
+} satisfies Record<ComparePageKey, string>;
+
+const agentReadableComparePages = comparePages.map((page) => ({
+  path: comparePath(page.slug),
+  title: comparePageTitles[page.key],
+}));
+
 export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
   { path: "/pricing", title: "Pricing" },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
+  {
+    path: "/blog/claude-code-best-worktree-manager",
+    title: "Claude Code Is The Best Worktree Manager",
+  },
   { path: "/blog/cmux-home", title: "cmux home" },
   { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
@@ -68,6 +139,7 @@ export const agentReadablePages = [
   { path: "/docs", title: "Docs" },
   { path: "/docs/getting-started", title: "Getting Started" },
   { path: "/docs/concepts", title: "Concepts" },
+  { path: "/docs/base", title: "Base" },
   { path: "/docs/workspace-groups", title: "Workspace Groups" },
   { path: "/docs/configuration", title: "Configuration" },
   { path: "/docs/textbox", title: "TextBox" },
@@ -105,6 +177,8 @@ export const agentReadablePages = [
   { path: "/nightly", title: "Nightly" },
   { path: "/assets", title: "Brand Assets" },
   { path: "/guides", title: "Guides" },
+  { path: "/compare", title: "Compare cmux" },
+  ...agentReadableComparePages,
   { path: "/best-terminal-for-mac", title: "Best terminal for Mac" },
   { path: "/built-on-ghostty", title: "Built on Ghostty" },
   { path: "/agents", title: "Terminal for coding agents" },
@@ -187,8 +261,10 @@ export function buildLlmsText(origin: string): string {
     "- Native macOS app: written in Swift and AppKit with no Electron, built on libghostty (the Ghostty engine) for GPU-accelerated rendering.",
     "- Agent-first: run many AI coding agents in parallel, each in its own workspace, instead of juggling one terminal.",
     "- Notification rings: a pane lights up the moment an agent needs your attention, so you are not babysitting prompts.",
+    "- Keyboard-first attention: shortcuts such as jump to latest unread move directly to the agent that needs a decision.",
     "- Workspace organization: a vertical sidebar groups work by workspace, each showing its git branch, working directory, ports, and the latest line of agent output.",
     "- Vertical tabs: tabs live in the sidebar instead of a cramped top bar, scaling to dozens of concurrent sessions.",
+    "- Performance under load: native Swift/AppKit plus libghostty keeps the UI lightweight while many agents, dev servers, and browser panes are running.",
     "- Agent-agnostic and open source (GPL): bring your own agent, no required account to use the terminal.",
     "",
     "## Programmable",
@@ -210,6 +286,13 @@ export function buildLlmsText(origin: string): string {
     "- Automation: `cmux` CLI and Unix socket API, browser automation, hooks, skills, and custom commands",
     `- Download: ${origin}/docs/getting-started`,
     "- Source: https://github.com/manaflow-ai/cmux",
+    "",
+    "## Comparisons and buying guides",
+    "",
+    ...comparePages.map(
+      (page) =>
+        `- [${comparePageTitles[page.key]}](${origin}${comparePath(page.slug)}): ${llmsCompareDescriptions[page.slug]}`,
+    ),
     "",
     "## Page variants",
     "",

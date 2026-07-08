@@ -5,9 +5,8 @@ import SwiftUI
 ///
 /// Shows the cmux Pro pitch (one title line + one price/value subtitle)
 /// with a trailing button that asks the host to open the pricing page in
-/// the default browser via ``AccountFlow/openProUpgrade()``. Stateless:
-/// the app does not track plan state yet, so the row renders for every
-/// user.
+/// the default browser via ``AccountFlow/openProUpgrade()`` or the billing
+/// portal via ``AccountFlow/openBillingPortal()`` for Stripe-managed subscribers.
 @MainActor
 struct ProUpgradeCard: View {
     let flow: AccountFlow?
@@ -21,23 +20,59 @@ struct ProUpgradeCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(localized: "settings.account.pro.title", defaultValue: "cmux Pro"))
                     .cmuxFont(size: 13, weight: .medium)
-                Text(String(
-                    localized: "settings.account.pro.subtitle",
-                    defaultValue: "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $240/year."
-                ))
-                .cmuxFont(size: 11)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(subtitleText)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            Button {
-                flow?.openProUpgrade()
-            } label: {
-                Text(String(localized: "settings.account.pro.upgrade", defaultValue: "Upgrade…"))
+            if shouldShowAction {
+                Button {
+                    if flow?.canManageBilling == true {
+                        flow?.openBillingPortal()
+                    } else {
+                        flow?.openProUpgrade()
+                    }
+                } label: {
+                    Text(buttonTitle)
+                }
+                .controlSize(.small)
             }
-            .controlSize(.small)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .task(id: flow?.currentIdentity?.id ?? "") {
+            await flow?.refreshBillingPlan()
+        }
+    }
+
+    private var subtitleText: String {
+        if flow?.isProActive == true {
+            if flow?.canManageBilling == true {
+                return String(
+                    localized: "settings.account.pro.activeSubtitle",
+                    defaultValue: "Your Pro subscription is active. Manage billing or cancel in Stripe."
+                )
+            }
+            return String(
+                localized: "settings.account.pro.externalSubtitle",
+                defaultValue: "Your subscription is managed by our previous billing system. Contact support to make changes."
+            )
+        }
+        return String(
+            localized: "settings.account.pro.subtitle",
+            defaultValue: "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $240/year."
+        )
+    }
+
+    private var buttonTitle: String {
+        if flow?.canManageBilling == true {
+            return String(localized: "settings.account.pro.manageBilling", defaultValue: "Manage billing")
+        }
+        return String(localized: "settings.account.pro.upgrade", defaultValue: "Upgrade…")
+    }
+
+    private var shouldShowAction: Bool {
+        flow?.isProActive != true || flow?.canManageBilling == true
     }
 }

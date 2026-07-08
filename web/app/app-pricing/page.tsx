@@ -84,12 +84,12 @@ export default async function AppPricingPage({
               period={pricing.perMonth}
               badge={
                 snapshot.planId === FREE_PLAN_ID ? (
-                  <CurrentPlanBadge>Current plan</CurrentPlanBadge>
+                  <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
                 ) : null
               }
             >
               {snapshot.planId === FREE_PLAN_ID ? (
-                <DisabledButton>Current plan</DisabledButton>
+                <DisabledButton>{pricing.currentPlan}</DisabledButton>
               ) : (
                 <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
                   {pricing.free.cta}
@@ -98,7 +98,7 @@ export default async function AppPricingPage({
               <p className="mt-5 text-sm font-medium text-muted">
                 {pricing.free.featuresLead}
               </p>
-              <FeatureList items={pricing.free.features} muted />
+              <FeatureList items={pricing.free.features} />
             </PlanCard>
 
             <PlanCard
@@ -107,12 +107,23 @@ export default async function AppPricingPage({
               period={pricing.perMonth}
               badge={
                 snapshot.isPro ? (
-                  <CurrentPlanBadge>Current plan</CurrentPlanBadge>
+                  <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
                 ) : null
               }
             >
               {snapshot.isPro ? (
-                <DisabledButton>Current plan</DisabledButton>
+                <div className="space-y-2">
+                  <DisabledButton>{pricing.currentPlan}</DisabledButton>
+                  {snapshot.billingManagement === "stripe" ? (
+                    <SecondaryLink href="/api/billing/portal">
+                      {pricing.manageBilling}
+                    </SecondaryLink>
+                  ) : (
+                    <p className="text-sm leading-6 text-muted">
+                      {pricing.billingExternal}
+                    </p>
+                  )}
+                </div>
               ) : (
                 <PrimaryLink href={proCheckoutURL}>{pricing.pro.cta}</PrimaryLink>
               )}
@@ -167,14 +178,14 @@ export default async function AppPricingPage({
               actions={{
                 free:
                   snapshot.planId === FREE_PLAN_ID ? (
-                    <DisabledButton size="compact">Current plan</DisabledButton>
+                    <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
                   ) : (
                     <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
                       {pricing.free.cta}
                     </PrimaryLink>
                   ),
                 pro: snapshot.isPro ? (
-                  <DisabledButton size="compact">Current plan</DisabledButton>
+                  <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
                 ) : (
                   <PrimaryLink href={proCheckoutURL} size="compact">
                     {pricing.pro.cta}
@@ -226,17 +237,30 @@ type AppPlanSnapshot = {
   authenticated: boolean;
   planId: string;
   isPro: boolean;
+  billingManagement: "stripe" | "external" | "none";
   email: string | null;
 };
 
 async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
   if (!isStackConfigured()) {
-    return { authenticated: false, planId: FREE_PLAN_ID, isPro: false, email: null };
+    return {
+      authenticated: false,
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "none",
+      email: null,
+    };
   }
 
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
-    return { authenticated: false, planId: FREE_PLAN_ID, isPro: false, email: null };
+    return {
+      authenticated: false,
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "none",
+      email: null,
+    };
   }
 
   const status = await resolveProPlanStatus(user);
@@ -244,6 +268,7 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
     authenticated: !user.isAnonymous,
     planId: status.planId,
     isPro: status.isPro,
+    billingManagement: status.billingManagement,
     email: user.primaryEmail,
   };
 }
@@ -280,6 +305,9 @@ function appPricingBanner(
   if (billing === "unavailable") {
     return { message: pricing.billingUnavailable };
   }
+  if (billing === "external") {
+    return { message: pricing.billingExternal };
+  }
   if (billing === "cancelled") {
     return { message: pricing.billingCancelled };
   }
@@ -306,7 +334,7 @@ function BillingBanner({ banner }: { banner: BillingBannerModel }) {
           {" "}
           <a
             href={banner.action.href}
-            className="underline underline-offset-2 decoration-border transition-colors hover:decoration-foreground"
+            className="underline underline-offset-2 decoration-link-underline transition-colors hover:decoration-foreground"
           >
             {banner.action.label}
           </a>
