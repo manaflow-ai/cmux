@@ -149,10 +149,10 @@ public struct MobileAuthComposition {
 
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
-        coordinator.start()
         protectedDataAvailability.startObserving { [coordinator] in
             Task { await coordinator.revalidateSession() }
         }
+        coordinator.start()
     }
 
     private static var isDevelopmentBuild: Bool {

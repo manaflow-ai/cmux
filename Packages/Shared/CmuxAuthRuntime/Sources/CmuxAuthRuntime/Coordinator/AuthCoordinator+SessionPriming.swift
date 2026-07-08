@@ -90,7 +90,7 @@ extension AuthCoordinator {
         ))
     }
 
-    func checkExistingSession() async {
+    func checkExistingSession(retryOnStorageAvailable: Bool = true) async {
         if launch.clearAuthRequested { return }
         // Coalesce overlapping runs (rapid foreground transitions): a second
         // call while one is in flight would race coordinator-state writes
@@ -102,6 +102,14 @@ extension AuthCoordinator {
         let storeWriteHighWater = tokenStoreWriteHighWater
 
         let cachedUser = loadCachedUser()
+        // The keychain token store (AfterFirstUnlock protection) becomes
+        // readable exactly once per boot, at the first unlock, and never
+        // regresses while this process lives; an unavailable report can only
+        // under-state readability. Snapshot before token reads so a first
+        // unlock that lands while the token probe is suspended cannot make a
+        // nil locked read look like a definitive empty store.
+        let tokenStorageWasAvailable = await isTokenStorageAvailable()
+        guard generation == sessionGeneration else { return }
         // accessToken() may refresh over the network; a sign-out can land
         // while these reads are parked, so bound the probe and re-check the
         // generation after. A timeout preserves the cached identity instead of
@@ -155,11 +163,22 @@ extension AuthCoordinator {
             return
         }
 
-        let tokenStorageAvailable = await isTokenStorageAvailable()
-        guard generation == sessionGeneration else { return }
-        if !tokenStorageAvailable {
+        if !tokenStorageWasAvailable {
             authLog.info("Token storage unavailable during session restore; preserving cached session")
             preserveCachedSessionAfterValidationFailure()
+            if retryOnStorageAvailable {
+                let tokenStorageIsAvailable = await isTokenStorageAvailable()
+                guard generation == sessionGeneration else { return }
+                if tokenStorageIsAvailable {
+                    // A protected-data notification can coalesce into this
+                    // in-flight restore. Retry exactly once when storage came
+                    // online mid-restore; tests may script oscillating
+                    // availability, while real protected data unlocks at most
+                    // once per process.
+                    isRevalidatingSession = false
+                    await checkExistingSession(retryOnStorageAvailable: false)
+                }
+            }
             return
         }
 

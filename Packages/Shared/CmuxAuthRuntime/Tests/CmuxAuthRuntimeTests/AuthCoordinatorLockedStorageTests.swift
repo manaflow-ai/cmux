@@ -8,34 +8,49 @@ actor LockedStorageAuthClient: AuthClient {
     private var refresh: String?
     private var user: CMUXAuthUser?
     private var locked: Bool
+    private var lockedTokenReadsRemaining: Int
     private(set) var clearLocalSessionCallCount = 0
 
     init(
         access: String? = nil,
         refresh: String? = nil,
         user: CMUXAuthUser? = nil,
-        locked: Bool
+        locked: Bool,
+        locksFirstReads: Int = 0
     ) {
         self.access = access
         self.refresh = refresh
         self.user = user
         self.locked = locked
+        self.lockedTokenReadsRemaining = locksFirstReads
     }
 
     func unlock() {
         locked = false
+        lockedTokenReadsRemaining = 0
+    }
+
+    private func tokenReadIsLocked() -> Bool {
+        if locked {
+            return true
+        }
+        if lockedTokenReadsRemaining > 0 {
+            lockedTokenReadsRemaining -= 1
+            return true
+        }
+        return false
     }
 
     func accessToken() async -> String? {
-        locked ? nil : access
+        tokenReadIsLocked() ? nil : access
     }
 
     func refreshToken() async -> String? {
-        locked ? nil : refresh
+        tokenReadIsLocked() ? nil : refresh
     }
 
     func forceRefreshAccessToken() async -> String? {
-        locked ? nil : access
+        tokenReadIsLocked() ? nil : access
     }
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
@@ -66,7 +81,7 @@ actor LockedStorageAuthClient: AuthClient {
     }
 
     func storedAccessToken() async -> String? {
-        locked ? nil : access
+        tokenReadIsLocked() ? nil : access
     }
 
     func clearLocalSession() async {
@@ -85,15 +100,17 @@ actor LockedStorageAuthClient: AuthClient {
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
 
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? {
-        locked ? nil : accessToken ?? access
+        tokenReadIsLocked() ? nil : accessToken ?? access
     }
 }
 
 actor TokenStorageAvailabilityProbe {
     private var available: Bool
+    private var unavailableReadsRemaining: Int
 
-    init(available: Bool) {
+    init(available: Bool, unavailableFirstReads: Int = 0) {
         self.available = available
+        self.unavailableReadsRemaining = unavailableFirstReads
     }
 
     func setAvailable(_ available: Bool) {
@@ -101,7 +118,11 @@ actor TokenStorageAvailabilityProbe {
     }
 
     func isAvailable() -> Bool {
-        available
+        if unavailableReadsRemaining > 0 {
+            unavailableReadsRemaining -= 1
+            return false
+        }
+        return available
     }
 }
 
@@ -160,6 +181,32 @@ actor TokenStorageAvailabilityProbe {
 
         #expect(coordinator.isAuthenticated == true)
         #expect(coordinator.currentUser == validatedUser)
+    }
+
+    @Test func unlockDuringLaunchTokenProbeRetriesAndRestoresSession() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let validatedUser = CMUXAuthUser(id: "validated", primaryEmail: "valid@example.com", displayName: "Validated")
+        let client = LockedStorageAuthClient(
+            access: "access",
+            refresh: "refresh",
+            user: validatedUser,
+            locked: false,
+            locksFirstReads: 2
+        )
+        let availability = TokenStorageAvailabilityProbe(available: true, unavailableFirstReads: 1)
+        let (coordinator, store) = try makeCoordinator(
+            client: client,
+            cachedUser: cachedUser,
+            availability: availability
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated == true)
+        #expect(coordinator.currentUser == validatedUser)
+        #expect(store.bool(forKey: "has_tokens") == true)
+        #expect(await client.clearLocalSessionCallCount == 0)
     }
 
     @Test func availableEmptyStorageClearsSeededCache() async throws {
