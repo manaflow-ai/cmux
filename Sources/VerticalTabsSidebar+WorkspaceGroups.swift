@@ -175,11 +175,15 @@ extension VerticalTabsSidebar {
             },
             onDelete: { [weak tabManager, groupId = group.id] in
                 guard let tabManager,
-                      let confirmation = tabManager.workspaceGrouping.deletionConfirmation(groupId: groupId) else { return }
-                if confirmation.memberCount > 0 {
+                      let confirmation = tabManager.workspaceGrouping.deletionConfirmation(
+                        groupId: groupId,
+                        fallbackGroupName: group.name,
+                        fallbackAnchorWorkspaceId: group.anchorWorkspaceId
+                      ) else { return }
+                if confirmation.containedWorkspaceCount > 0 {
                     guard confirmDeleteWorkspaceGroup(
                         groupName: confirmation.groupName,
-                        memberCount: confirmation.memberCount
+                        memberCount: confirmation.containedWorkspaceCount
                     ) else { return }
                 }
                 tabManager.workspaceGrouping.deleteWorkspaceGroup(confirmed: confirmation)

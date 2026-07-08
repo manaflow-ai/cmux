@@ -28,6 +28,32 @@ extension WorkspaceGroupCoordinator {
         )
     }
 
+    /// Resolves delete intent from a rendered group header.
+    ///
+    /// The sidebar header row can briefly outlive the backing group record
+    /// while SwiftUI drains an old list snapshot. From the user's perspective
+    /// the folder is still on screen and its Delete Group menu item must delete
+    /// that visible header workspace instead of no-oping on the stale group id.
+    public func deletionConfirmation(
+        groupId: UUID,
+        fallbackGroupName: String,
+        fallbackAnchorWorkspaceId: UUID
+    ) -> WorkspaceGroupDeletionConfirmation? {
+        if let confirmation = deletionConfirmation(groupId: groupId) {
+            return confirmation
+        }
+        guard model.tabs.contains(where: { $0.id == fallbackAnchorWorkspaceId }) else {
+            return nil
+        }
+        return WorkspaceGroupDeletionConfirmation(
+            groupId: groupId,
+            groupName: fallbackGroupName,
+            anchorWorkspaceId: fallbackAnchorWorkspaceId,
+            includesAnchorWorkspace: true,
+            memberWorkspaceIds: [fallbackAnchorWorkspaceId]
+        )
+    }
+
     /// Deletes a group using the exact membership the user confirmed.
     ///
     /// Confirmation sheets run a nested modal loop, so other entrypoints can
@@ -41,7 +67,8 @@ extension WorkspaceGroupCoordinator {
         recordHistory: Bool = true
     ) -> Int {
         guard let host else { return 0 }
-        guard model.workspaceGroups.contains(where: { $0.id == confirmation.groupId }) else {
+        guard model.workspaceGroups.contains(where: { $0.id == confirmation.groupId })
+            || model.tabs.contains(where: { $0.id == confirmation.anchorWorkspaceId }) else {
             return 0
         }
 
