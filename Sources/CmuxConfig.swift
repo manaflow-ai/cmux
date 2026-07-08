@@ -2137,8 +2137,8 @@ final class CmuxConfigStore: ObservableObject {
             }
         )
         let resolvedAgentChat = CmuxAgentChatConfiguration.resolved(
-            local: localConfig?.agentChat,
-            global: globalConfig?.agentChat
+            local: localConfig?.agentChat, global: globalConfig?.agentChat,
+            localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath
         )
 
         loadedCommands = commands

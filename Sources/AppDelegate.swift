@@ -7781,180 +7781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    @discardableResult
-    func performNewAgentChatAction(
-        tabManager: TabManager,
-        agentChat: CmuxAgentChatConfiguration,
-        onExecuted: (() -> Void)? = nil
-    ) -> Bool {
-        Task { @MainActor [weak self, weak tabManager] in
-            let isReachable = await Self.ensureAgentChatServerAvailable(agentChat)
-            guard let self, let tabManager else { return }
-            guard let workspace = self.openAgentChatWorkspace(
-                tabManager: tabManager,
-                agentChat: agentChat
-            ) else {
-                NSSound.beep()
-                return
-            }
-            if !isReachable {
-                self.postAgentChatServerUnavailableNotification(
-                    workspace: workspace,
-                    agentChat: agentChat
-                )
-            }
-            onExecuted?()
-        }
-        return true
-    }
-
-    @discardableResult
-    private func openAgentChatWorkspace(
-        tabManager: TabManager,
-        agentChat: CmuxAgentChatConfiguration
-    ) -> Workspace? {
-        let beforeIds = Set(tabManager.tabs.map(\.id))
-        let workspaceName = String(
-            localized: "workspace.agentChat.defaultTitle",
-            defaultValue: "Agent Chat"
-        )
-        let workspaceDefinition = CmuxWorkspaceDefinition(
-            name: workspaceName,
-            layout: .pane(CmuxPaneDefinition(surfaces: [
-                CmuxSurfaceDefinition(
-                    type: .browser,
-                    name: workspaceName,
-                    command: nil,
-                    cwd: nil,
-                    env: nil,
-                    url: agentChat.url.absoluteString,
-                    focus: true
-                ),
-            ]))
-        )
-        let command = CmuxCommandDefinition(
-            name: workspaceName,
-            workspace: workspaceDefinition
-        )
-        let baseCwd = tabManager.selectedWorkspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-        guard CmuxConfigExecutor.executeWorkspaceCommand(
-            command: command,
-            workspace: workspaceDefinition,
-            tabManager: tabManager,
-            baseCwd: baseCwd
-        ) else {
-            return nil
-        }
-        return tabManager.tabs.first { !beforeIds.contains($0.id) } ?? tabManager.selectedWorkspace
-    }
-
-    private func postAgentChatServerUnavailableNotification(
-        workspace: Workspace,
-        agentChat: CmuxAgentChatConfiguration
-    ) {
-        let body: String
-        if let startCommand = agentChat.startCommand {
-            let format = String(
-                localized: "notification.agentChat.serverUnavailable.bodyWithCommand",
-                defaultValue: "cmux couldn't reach %@. Start it with: %@"
-            )
-            body = String(format: format, agentChat.url.absoluteString, startCommand)
-        } else {
-            let format = String(
-                localized: "notification.agentChat.serverUnavailable.bodyDefault",
-                defaultValue: "cmux couldn't reach %@. Start the server with cmux-chat or configure agentChat.startCommand in cmux.json."
-            )
-            body = String(format: format, agentChat.url.absoluteString)
-        }
-        TerminalNotificationStore.shared.addNotification(
-            tabId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
-            title: String(
-                localized: "notification.agentChat.serverUnavailable.title",
-                defaultValue: "Agent chat server isn't running"
-            ),
-            subtitle: String(
-                localized: "notification.agentChat.serverUnavailable.subtitle",
-                defaultValue: "Opened Agent Chat"
-            ),
-            body: body,
-            cooldownKey: "agent-chat-server-unavailable.\(agentChat.url.absoluteString)",
-            cooldownInterval: 30
-        )
-    }
-
-    nonisolated private static func ensureAgentChatServerAvailable(
-        _ agentChat: CmuxAgentChatConfiguration
-    ) async -> Bool {
-        if await agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
-            return true
-        }
-        guard let startCommand = agentChat.startCommand else {
-            return false
-        }
-        _ = launchDetachedAgentChatStartCommand(startCommand)
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(10))
-        while !Task.isCancelled, clock.now < deadline {
-            if await agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
-                return true
-            }
-            do {
-                // Bounded, cancellable health polling after a configured server start.
-                try await clock.sleep(for: .milliseconds(250))
-            } catch {
-                return false
-            }
-        }
-        return false
-    }
-
-    nonisolated private static func agentChatServerIsHealthy(
-        healthURL: URL,
-        timeout: TimeInterval
-    ) async -> Bool {
-        var request = URLRequest(
-            url: healthURL,
-            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
-            timeoutInterval: timeout
-        )
-        request.httpMethod = "GET"
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else { return false }
-            return (200..<300).contains(httpResponse.statusCode)
-        } catch {
-            return false
-        }
-    }
-
-    nonisolated private static func launchDetachedAgentChatStartCommand(_ command: String) -> Bool {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return false }
-        let environment = ProcessInfo.processInfo.environment
-        guard let shellPath = environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !shellPath.isEmpty else {
-            NSLog("[AgentChat] SHELL is not set; cannot launch startCommand")
-            return false
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shellPath)
-        process.arguments = ["-lc", trimmedCommand]
-        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            return true
-        } catch {
-            NSLog("[AgentChat] failed to launch startCommand: %@", String(describing: error))
-            return false
-        }
-    }
-
-    private func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
+    func mainWindowContext(for tabManager: TabManager) -> MainWindowContext? {
         mainWindowContexts.values.first(where: { $0.tabManager === tabManager })
     }
 
@@ -7992,9 +7819,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var asyncObserverId: UUID?
         // Named workspace commands and inline workspace actions both create a
         // workspace, so both must retire the throwaway initial workspace.
-        let actionCreatesWorkspace = action.workspaceCommandName != nil
-            || action.action.inlineWorkspace != nil
-            || action.action == .builtIn(.newAgentChat)
+        let actionCreatesWorkspace = action.workspaceCommandName != nil || action.action.inlineWorkspace != nil || action.action == .builtIn(.newAgentChat)
         let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
             if let context,
                let workspaceGroupTarget,
@@ -15685,12 +15510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.addWorkspace()
                 onExecuted?()
                 return true
-            case .newAgentChat:
-                return performNewAgentChatAction(
-                    tabManager: context.tabManager,
-                    agentChat: context.cmuxConfigStore?.agentChat ?? .default,
-                    onExecuted: onExecuted
-                )
+            case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
             case .cloudVM:
                 let didStart = performCloudVMAction(
                     tabManager: context.tabManager,
@@ -15764,23 +15584,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .actionReference:
             return false
         }
-    }
-
-    @discardableResult
-    func executeConfiguredCmuxAction(
-        id actionID: String,
-        tabManager: TabManager,
-        preferredWindow: NSWindow? = nil
-    ) -> Bool {
-        guard let context = mainWindowContext(for: tabManager),
-              let action = context.cmuxConfigStore?.resolvedAction(id: actionID) else {
-            return false
-        }
-        return executeConfiguredCmuxAction(
-            action,
-            context: context,
-            preferredWindow: preferredWindow
-        )
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.

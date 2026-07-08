@@ -60,15 +60,41 @@ struct CmuxAgentChatConfigDefinition: Codable, Sendable, Hashable {
     }
 }
 
+enum CmuxAgentChatConfigurationSource: Sendable, Hashable {
+    case local(path: String)
+    case global(path: String)
+    case defaults
+
+    var sourcePath: String? {
+        switch self {
+        case .local(let path), .global(let path):
+            return path
+        case .defaults:
+            return nil
+        }
+    }
+
+    var isLocal: Bool {
+        if case .local = self { return true }
+        return false
+    }
+}
+
 struct CmuxAgentChatConfiguration: Sendable, Hashable {
     static let defaultURLString = "http://127.0.0.1:7739"
     static let `default` = CmuxAgentChatConfiguration(
         url: URL(string: defaultURLString)!,
-        startCommand: nil
+        startCommand: nil,
+        source: .defaults
     )
 
     var url: URL
     var startCommand: String?
+    var source: CmuxAgentChatConfigurationSource
+
+    var startCommandRequiresTrust: Bool {
+        source.isLocal && startCommand != nil
+    }
 
     var healthURL: URL {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -83,11 +109,37 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
         local: CmuxAgentChatConfigDefinition?,
         global: CmuxAgentChatConfigDefinition?
     ) -> CmuxAgentChatConfiguration {
-        let definition = local ?? global
+        resolved(
+            local: local,
+            global: global,
+            localSourcePath: nil,
+            globalSourcePath: nil
+        )
+    }
+
+    static func resolved(
+        local: CmuxAgentChatConfigDefinition?,
+        global: CmuxAgentChatConfigDefinition?,
+        localSourcePath: String?,
+        globalSourcePath: String?
+    ) -> CmuxAgentChatConfiguration {
+        let definition: CmuxAgentChatConfigDefinition?
+        let source: CmuxAgentChatConfigurationSource
+        if let local {
+            definition = local
+            source = localSourcePath.map { .local(path: $0) } ?? .defaults
+        } else if let global {
+            definition = global
+            source = globalSourcePath.map { .global(path: $0) } ?? .defaults
+        } else {
+            definition = nil
+            source = .defaults
+        }
         let rawURL = definition?.url ?? Self.defaultURLString
         return CmuxAgentChatConfiguration(
             url: URL(string: rawURL) ?? Self.default.url,
-            startCommand: definition?.startCommand
+            startCommand: definition?.startCommand,
+            source: source
         )
     }
 }

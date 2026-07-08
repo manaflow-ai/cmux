@@ -54,42 +54,59 @@ final class CmuxAgentChatConfigTests: XCTestCase {
     }
 
     func testResolveLocalURLOnlyDoesNotInheritGlobalStartCommand() {
+        let localPath = "/repo/cmux.json"
+        let globalPath = "/Users/me/.config/cmux/cmux.json"
         let resolved = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(url: "http://127.0.0.1:9010"),
             global: CmuxAgentChatConfigDefinition(
                 url: "http://127.0.0.1:9000",
                 startCommand: "cmux-chat --port 9000"
-            )
+            ),
+            localSourcePath: localPath,
+            globalSourcePath: globalPath
         )
 
         XCTAssertEqual(resolved.url.absoluteString, "http://127.0.0.1:9010")
         XCTAssertNil(resolved.startCommand)
+        XCTAssertEqual(resolved.source, .local(path: localPath))
+        XCTAssertEqual(resolved.source.sourcePath, localPath)
+        XCTAssertFalse(resolved.startCommandRequiresTrust)
     }
 
     func testResolveLocalStartCommandOnlyUsesDefaultURL() {
+        let localPath = "/repo/cmux.json"
         let resolved = CmuxAgentChatConfiguration.resolved(
             local: CmuxAgentChatConfigDefinition(startCommand: "cmux-chat --port 9010"),
             global: CmuxAgentChatConfigDefinition(
                 url: "http://127.0.0.1:9000",
                 startCommand: "cmux-chat --port 9000"
-            )
+            ),
+            localSourcePath: localPath,
+            globalSourcePath: "/Users/me/.config/cmux/cmux.json"
         )
 
         XCTAssertEqual(resolved.url.absoluteString, CmuxAgentChatConfiguration.defaultURLString)
         XCTAssertEqual(resolved.startCommand, "cmux-chat --port 9010")
+        XCTAssertEqual(resolved.source, .local(path: localPath))
+        XCTAssertTrue(resolved.startCommandRequiresTrust)
     }
 
     func testResolveNoLocalUsesGlobalBlock() {
+        let globalPath = "/Users/me/.config/cmux/cmux.json"
         let resolved = CmuxAgentChatConfiguration.resolved(
             local: nil,
             global: CmuxAgentChatConfigDefinition(
                 url: "http://127.0.0.1:9000",
                 startCommand: "cmux-chat --port 9000"
-            )
+            ),
+            localSourcePath: nil,
+            globalSourcePath: globalPath
         )
 
         XCTAssertEqual(resolved.url.absoluteString, "http://127.0.0.1:9000")
         XCTAssertEqual(resolved.startCommand, "cmux-chat --port 9000")
+        XCTAssertEqual(resolved.source, .global(path: globalPath))
+        XCTAssertFalse(resolved.startCommandRequiresTrust)
     }
 
     func testResolveNeitherUsesDefaultBlock() {
@@ -97,5 +114,8 @@ final class CmuxAgentChatConfigTests: XCTestCase {
 
         XCTAssertEqual(resolved.url.absoluteString, CmuxAgentChatConfiguration.defaultURLString)
         XCTAssertNil(resolved.startCommand)
+        XCTAssertEqual(resolved.source, .defaults)
+        XCTAssertNil(resolved.source.sourcePath)
+        XCTAssertFalse(resolved.startCommandRequiresTrust)
     }
 }
