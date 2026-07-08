@@ -805,25 +805,36 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             ? ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             : ["CODEX_HOME": "/tmp/codex"]
 
+        // Claude hook records are only restorable when a non-empty transcript
+        // file exists on disk (claude --resume fails without one), so back the
+        // record with a real temp transcript.
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId.uuidString,
+            "surfaceId": panelId.uuidString,
+            "cwd": "/tmp/repo",
+            "updatedAt": Date().timeIntervalSince1970,
+        ]
+        if kind == .claude {
+            let transcriptURL = home.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try Data("{\"type\":\"summary\"}\n".utf8).write(to: transcriptURL, options: .atomic)
+            record["transcriptPath"] = transcriptURL.path
+        }
+
+        record["launchCommand"] = [
+            "launcher": executableName,
+            "executablePath": executablePath,
+            "arguments": arguments,
+            "workingDirectory": "/tmp/repo",
+            "environment": environment,
+            "capturedAt": Date().timeIntervalSince1970,
+            "source": "process",
+        ] as [String: Any]
+
         let jsonObject: [String: Any] = [
             "version": 1,
             "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId.uuidString,
-                    "surfaceId": panelId.uuidString,
-                    "cwd": "/tmp/repo",
-                    "updatedAt": Date().timeIntervalSince1970,
-                    "launchCommand": [
-                        "launcher": executableName,
-                        "executablePath": executablePath,
-                        "arguments": arguments,
-                        "workingDirectory": "/tmp/repo",
-                        "environment": environment,
-                        "capturedAt": Date().timeIntervalSince1970,
-                        "source": "process",
-                    ],
-                ],
+                sessionId: record,
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
