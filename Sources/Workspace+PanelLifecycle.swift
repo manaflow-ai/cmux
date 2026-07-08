@@ -5,25 +5,8 @@ import Darwin
 import Foundation
 import CmuxSidebar
 
-/// Immutable per-pane agent status row consumed by the sidebar (a value
-/// snapshot only, per the sidebar list snapshot-boundary rule).
-struct SidebarAgentStatusRow: Equatable, Identifiable {
-    let panelId: UUID
-    let statusKey: String
-    let value: String?
-    let icon: String?
-    let color: String?
-    let url: URL?
-    let lifecycle: AgentHibernationLifecycleState?
-    let paneLabel: String?
-    let priority: Int
-    let timestamp: Date
-
-    var id: String { "\(panelId.uuidString)|\(statusKey)" }
-}
-
 extension Workspace {
-    private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
+    static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
@@ -52,45 +35,6 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
-    var statusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] {
-        get { sidebarAgentRuntimeObservation.statusEntriesByPanelId }
-        set { sidebarAgentRuntimeObservation.setStatusEntriesByPanelId(newValue) }
-    }
-
-    /// Records the panel-scoped copy of a structured agent status report, so
-    /// each agent pane keeps its own row even when several agents of the same
-    /// type share the workspace (the workspace-level `statusEntries` slot is
-    /// last-write-wins per agent type).
-    func recordPanelStatusEntry(_ entry: SidebarStatusEntry, panelId: UUID) {
-        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else { return }
-        statusEntriesByPanelId[panelId, default: [:]][entry.key] = entry
-    }
-
-    @discardableResult
-    func clearPanelStatusEntry(statusKey: String, panelId: UUID) -> Bool {
-        guard var entries = statusEntriesByPanelId[panelId],
-              entries.removeValue(forKey: statusKey) != nil else {
-            return false
-        }
-        if entries.isEmpty {
-            statusEntriesByPanelId.removeValue(forKey: panelId)
-        } else {
-            statusEntriesByPanelId[panelId] = entries
-        }
-        return true
-    }
-
-    @discardableResult
-    func clearPanelStatusEntries(statusKey: String) -> Bool {
-        var didChange = false
-        for panelId in statusEntriesByPanelId.keys where statusEntriesByPanelId[panelId]?[statusKey] != nil {
-            if clearPanelStatusEntry(statusKey: statusKey, panelId: panelId) {
-                didChange = true
-            }
-        }
-        return didChange
-    }
-
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -103,7 +47,14 @@ extension Workspace {
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntriesByPanelId[panelId]?[statusKey] ?? statusEntries[statusKey] {
+            if let statusEntry = statusEntriesByPanelId[panelId]?[statusKey] {
+                statusEntriesForPanel[statusKey] = statusEntry
+            } else if panelsOwningAgentStatusKey(statusKey).isSubset(of: [panelId]),
+                      let statusEntry = statusEntries[statusKey] {
+                // The workspace-level slot is last-write-wins across panes, so
+                // only attribute it to this panel when no other pane can own
+                // the key; otherwise a transferred pane would adopt a sibling
+                // agent's status text as its own.
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
@@ -121,7 +72,7 @@ extension Workspace {
         )
     }
 
-    private func agentStatusKey(forAgentPIDKey key: String) -> String {
+    func agentStatusKey(forAgentPIDKey key: String) -> String {
         if statusEntries[key] != nil {
             return key
         }
@@ -295,150 +246,6 @@ extension Workspace {
             return false
         }
         return Self.truthyStartupEnvironmentValues.contains(rawValue)
-    }
-
-    func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
-        let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
-        return statusEntries.values.filter { entry in
-            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
-        }
-    }
-
-    private func shouldDisplaySidebarStatusEntry(
-        _ entry: SidebarStatusEntry,
-        visibleStructuredStatusKeys: Set<String>
-    ) -> Bool {
-        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
-            return true
-        }
-        return visibleStructuredStatusKeys.contains(entry.key)
-    }
-
-    private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
-        var statusKeysByPanelId: [UUID: Set<String>] = [:]
-        for (key, panelId) in agentPIDPanelIdsByKey
-        where panels[panelId] != nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            statusKeysByPanelId[panelId, default: []].insert(statusKey)
-        }
-        var visibleStatusKeys = Set<String>()
-        for statusKeys in statusKeysByPanelId.values {
-            let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
-                isSidebarStatusEntryLessCurrent($0, than: $1)
-            }
-            if let winningEntry {
-                visibleStatusKeys.insert(winningEntry.key)
-            }
-        }
-
-        for key in agentPIDs.keys where agentPIDPanelIdsByKey[key] == nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            visibleStatusKeys.insert(statusKey)
-        }
-
-        return visibleStatusKeys
-    }
-
-    /// One sidebar row per live agent pane, so several agents in one workspace
-    /// never collapse into a single last-write-wins pill. A panel-scoped report
-    /// wins; the workspace-level entry is only trusted when a single pane owns
-    /// that status key; otherwise the per-panel lifecycle drives the row.
-    func sidebarAgentStatusRows() -> [SidebarAgentStatusRow] {
-        var statusKeysByPanel: [UUID: Set<String>] = [:]
-        for (key, panelId) in agentPIDPanelIdsByKey where panels[panelId] != nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey) else { continue }
-            statusKeysByPanel[panelId, default: []].insert(statusKey)
-        }
-        for (panelId, entries) in statusEntriesByPanelId where panels[panelId] != nil {
-            for statusKey in entries.keys where Self.structuredAgentHookStatusKeys.contains(statusKey) {
-                statusKeysByPanel[panelId, default: []].insert(statusKey)
-            }
-        }
-
-        var chosenByPanel: [(panelId: UUID, statusKey: String, entry: SidebarStatusEntry?)] = []
-        for (panelId, statusKeys) in statusKeysByPanel {
-            let candidates = statusKeys.map { ($0, statusEntriesByPanelId[panelId]?[$0]) }
-            let chosen = candidates.max { lhs, rhs in
-                switch (lhs.1, rhs.1) {
-                case let (lhsEntry?, rhsEntry?):
-                    return isSidebarStatusEntryLessCurrent(lhsEntry, than: rhsEntry)
-                case (nil, .some):
-                    return true
-                case (.some, nil):
-                    return false
-                case (nil, nil):
-                    return lhs.0 > rhs.0
-                }
-            }
-            if let chosen {
-                chosenByPanel.append((panelId: panelId, statusKey: chosen.0, entry: chosen.1))
-            }
-        }
-
-        var panelCountByStatusKey: [String: Int] = [:]
-        for item in chosenByPanel {
-            panelCountByStatusKey[item.statusKey, default: 0] += 1
-        }
-
-        let includePaneLabels = chosenByPanel.count > 1
-        let rows = chosenByPanel.map { item -> SidebarAgentStatusRow in
-            let workspaceEntry = statusEntries[item.statusKey]
-            let soleOwner = panelCountByStatusKey[item.statusKey] == 1
-            let entry = item.entry ?? (soleOwner ? workspaceEntry : nil)
-            return SidebarAgentStatusRow(
-                panelId: item.panelId,
-                statusKey: item.statusKey,
-                value: entry?.value,
-                icon: entry?.icon ?? workspaceEntry?.icon,
-                color: entry?.color ?? workspaceEntry?.color,
-                url: entry?.url,
-                lifecycle: agentLifecycleStatesByPanelId[item.panelId]?[item.statusKey],
-                paneLabel: includePaneLabels ? agentStatusRowPaneLabel(panelId: item.panelId) : nil,
-                priority: entry?.priority ?? workspaceEntry?.priority ?? 0,
-                timestamp: entry?.timestamp ?? workspaceEntry?.timestamp ?? .distantPast
-            )
-        }
-        return rows.sorted { lhs, rhs in
-            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-            return lhs.id < rhs.id
-        }
-    }
-
-    private func agentStatusRowPaneLabel(panelId: UUID) -> String? {
-        let candidates = [
-            panelCustomTitles[panelId],
-            panelDirectoryDisplayLabels[panelId],
-            panelTitles[panelId],
-        ]
-        for candidate in candidates {
-            if let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return nil
-    }
-
-    private func isSidebarStatusEntryLessCurrent(
-        _ lhs: SidebarStatusEntry,
-        than rhs: SidebarStatusEntry
-    ) -> Bool {
-        if lhs.timestamp != rhs.timestamp {
-            return lhs.timestamp < rhs.timestamp
-        }
-        if lhs.priority != rhs.priority {
-            return lhs.priority < rhs.priority
-        }
-        return lhs.key > rhs.key
     }
 
     private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {

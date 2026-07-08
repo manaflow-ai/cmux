@@ -22,6 +22,41 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
     }
 
     @MainActor
+    func testIdenticalPanelStatusReportDoesNotReplaceStoredEntry() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        let first = makeEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 100))
+        workspace.recordPanelStatusEntry(first, panelId: panelId)
+        let repeated = makeEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 200))
+        workspace.recordPanelStatusEntry(repeated, panelId: panelId)
+        // Same display content, newer timestamp: dropped so agent heartbeats
+        // do not invalidate the sidebar snapshot.
+        XCTAssertEqual(workspace.statusEntriesByPanelId[panelId]?["claude_code"], first)
+
+        let changed = makeEntry(key: "claude_code", value: "Idle", timestamp: Date(timeIntervalSince1970: 300))
+        workspace.recordPanelStatusEntry(changed, panelId: panelId)
+        XCTAssertEqual(workspace.statusEntriesByPanelId[panelId]?["claude_code"], changed)
+    }
+
+    @MainActor
+    func testAmbiguousWorkspaceStatusIsNotAttributedDuringTransfer() throws {
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.recordAgentPID(key: "claude_code.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
+        // Only the workspace-level last-write-wins slot has text; either pane
+        // could have written it, so it must not ride along with a transfer.
+        workspace.statusEntries["claude_code"] = makeEntry(key: "claude_code", value: "Running")
+
+        let runtimeState = try XCTUnwrap(workspace.agentRuntimeState(forPanelId: secondPanelId))
+        XCTAssertNil(runtimeState.statusEntries["claude_code"])
+    }
+
+    @MainActor
     func testTwoAgentsOfSameTypeKeepSeparateRows() throws {
         let workspace = Workspace()
         let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -82,8 +117,34 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
         // The ambiguous workspace-level text must not be attributed to either pane.
         XCTAssertNil(byPanel[firstPanelId]?.value)
         XCTAssertNil(byPanel[secondPanelId]?.value)
+        // Nor its decorations: the last writer's icon/color must not bleed
+        // onto the other pane's row.
+        XCTAssertNil(byPanel[firstPanelId]?.icon)
+        XCTAssertNil(byPanel[secondPanelId]?.icon)
+        XCTAssertNil(byPanel[firstPanelId]?.color)
+        XCTAssertNil(byPanel[secondPanelId]?.color)
         XCTAssertEqual(byPanel[firstPanelId]?.lifecycle, .running)
         XCTAssertEqual(byPanel[secondPanelId]?.lifecycle, .needsInput)
+    }
+
+    @MainActor
+    func testPanelEntryWithoutAgentPIDDoesNotCreateRow() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        // A bare panel-scoped text report with no recorded agent PID has no
+        // deterministic owner to clear it, so it must not create a row.
+        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: panelId)
+        XCTAssertTrue(workspace.sidebarAgentStatusRows().isEmpty)
+
+        // Recording the PID makes the same entry visible; clearing the PID
+        // without clearing status removes the row again (no stale rows).
+        workspace.recordAgentPID(key: "claude_code.owner", pid: 111, panelId: panelId, refreshPorts: false)
+        XCTAssertEqual(workspace.sidebarAgentStatusRows().map(\.panelId), [panelId])
+        XCTAssertTrue(
+            workspace.clearAgentPID(key: "claude_code.owner", panelId: panelId, clearStatus: false, refreshPorts: false)
+        )
+        XCTAssertTrue(workspace.sidebarAgentStatusRows().isEmpty)
     }
 
     @MainActor

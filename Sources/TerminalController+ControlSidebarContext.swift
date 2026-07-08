@@ -43,9 +43,11 @@ extension TerminalController: ControlSidebarContext {
                 format: appFormat,
                 timestamp: Date()
             )
-            // The panel-scoped copy is written unconditionally: the workspace
-            // slot is last-write-wins per key, so "no change" there can still
-            // be a change for this panel's own row.
+            // The panel-scoped copy is recorded independently of the workspace
+            // guard below: the workspace slot is last-write-wins per key, so
+            // "no change" there can still be a change for this panel's own row.
+            // recordPanelStatusEntry drops identical repeats itself so agent
+            // heartbeats do not churn the sidebar snapshot.
             if let panelId = panelID {
                 tab.recordPanelStatusEntry(entry, panelId: panelId)
             }
