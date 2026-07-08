@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,8 +8,9 @@ import XCTest
 @testable import cmux
 #endif
 
-final class ClaudeForkFallbackSessionIndexTests: XCTestCase {
-    func testUnpromptedForkPaneUsesParentSessionFallbackWithoutStealingParentPane() throws {
+@Suite
+struct ClaudeForkFallbackSessionIndexTests {
+    @Test func unpromptedForkPaneUsesParentSessionFallbackWithoutStealingParentPane() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -19,20 +20,20 @@ final class ClaudeForkFallbackSessionIndexTests: XCTestCase {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        let forkSnapshot = try XCTUnwrap(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
-        XCTAssertEqual(forkSnapshot.kind, .claude)
-        XCTAssertEqual(forkSnapshot.sessionId, fixture.parentSessionId)
-        XCTAssertEqual(forkSnapshot.workingDirectory, fixture.cwd.path)
-        XCTAssertEqual(forkSnapshot.launchCommand?.arguments, ["/usr/local/bin/claude", "--model", "sonnet"])
-        let forkCommand = try XCTUnwrap(forkSnapshot.forkCommand)
-        XCTAssertTrue(forkCommand.contains(fixture.parentSessionId), forkCommand)
-        XCTAssertTrue(forkCommand.contains("--fork-session"), forkCommand)
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        #expect(forkSnapshot.kind == .claude)
+        #expect(forkSnapshot.sessionId == fixture.parentSessionId)
+        #expect(forkSnapshot.workingDirectory == fixture.cwd.path)
+        #expect(forkSnapshot.launchCommand?.arguments == ["/usr/local/bin/claude", "--model", "sonnet"])
+        let forkCommand = try #require(forkSnapshot.forkCommand)
+        #expect(forkCommand.contains(fixture.parentSessionId), "\(forkCommand)")
+        #expect(forkCommand.contains("--fork-session"), "\(forkCommand)")
 
-        let parentSnapshot = try XCTUnwrap(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId))
-        XCTAssertEqual(parentSnapshot.sessionId, fixture.parentSessionId)
+        let parentSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId))
+        #expect(parentSnapshot.sessionId == fixture.parentSessionId)
     }
 
-    func testPromptedForkPaneHookIdentityWinsOverParentFallback() throws {
+    @Test func promptedForkPaneHookIdentityWinsOverParentFallback() throws {
         let fixture = try makeFixture(forkedSessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb")
         defer { fixture.cleanup() }
 
@@ -42,12 +43,13 @@ final class ClaudeForkFallbackSessionIndexTests: XCTestCase {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        let forkSnapshot = try XCTUnwrap(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
-        XCTAssertEqual(forkSnapshot.sessionId, try XCTUnwrap(fixture.forkedSessionId))
-        XCTAssertEqual(index.processIDs(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId), [fixture.forkProcessID])
+        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        let forkedSessionId = try #require(fixture.forkedSessionId)
+        #expect(forkSnapshot.sessionId == forkedSessionId)
+        #expect(index.processIDs(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == [fixture.forkProcessID])
     }
 
-    func testForkParentFallbackIgnoresWrapperInjectedSessionID() throws {
+    @Test func forkParentFallbackIgnoresWrapperInjectedSessionID() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -61,13 +63,13 @@ final class ClaudeForkFallbackSessionIndexTests: XCTestCase {
             ]
         )
 
-        XCTAssertNil(detected[RestorableAgentSessionIndex.PanelKey(
+        #expect(detected[RestorableAgentSessionIndex.PanelKey(
             workspaceId: fixture.workspaceId,
             panelId: fixture.forkPanelId
-        )])
+        )] == nil)
     }
 
-    func testForkParentFallbackDoesNotEvictParentHookEntryForSameSession() throws {
+    @Test func forkParentFallbackDoesNotEvictParentHookEntryForSameSession() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -77,17 +79,17 @@ final class ClaudeForkFallbackSessionIndexTests: XCTestCase {
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
-        XCTAssertEqual(
-            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId,
-            fixture.parentSessionId
+        #expect(
+            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId)?.sessionId
+                == fixture.parentSessionId
         )
-        XCTAssertEqual(
-            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId,
-            fixture.parentSessionId
+        #expect(
+            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId
+                == fixture.parentSessionId
         )
     }
 
-    func testUnpromptedForkPaneIsForkValidatedFromLiveProcessFallback() throws {
+    @Test func unpromptedForkPaneIsForkValidatedFromLiveProcessFallback() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -111,7 +113,7 @@ final class ClaudeForkFallbackSessionIndexTests: XCTestCase {
             processIdentityProvider: { $0 == fixture.forkProcessID ? identity : nil }
         ).loadResultSynchronously()
 
-        XCTAssertTrue(result.forkValidatedPanels.contains(RestorableAgentSessionIndex.PanelKey(
+        #expect(result.forkValidatedPanels.contains(RestorableAgentSessionIndex.PanelKey(
             workspaceId: fixture.workspaceId,
             panelId: fixture.forkPanelId
         )))

@@ -8,6 +8,10 @@ import XCTest
 @testable import cmux
 #endif
 
+// Stays on XCTest deliberately: this extends the existing XCTest socket harness
+// (`CLINotifyProcessIntegrationRegressionTests`: bundled-CLI process runner, mock
+// unix-socket server, XCTestExpectation-based server waits). Porting only these
+// assertions to Swift Testing would fork that harness across frameworks.
 extension CLINotifyProcessIntegrationRegressionTests {
     func testClaudeSecondLevelForkSessionStartKeepsForkParentBoundUntilPromptMintsChild() throws {
         let context = try makeForkOfForkContext(name: "claude-fork-of-fork")
