@@ -6,8 +6,12 @@ export async function readLines(
 ) {
   const decoder = new TextDecoder();
   let buf = "";
+  const reader = stream.getReader();
   try {
-    for await (const chunk of stream) {
+    for (;;) {
+      const { done, value: chunk } = await reader.read();
+      if (done) break;
+      if (!chunk?.byteLength) continue;
       buf += decoder.decode(chunk, { stream: true });
       let idx: number;
       while ((idx = buf.indexOf("\n")) >= 0) {
@@ -18,6 +22,8 @@ export async function readLines(
     }
   } catch {
     // stream torn down with the process; fall through to onClose
+  } finally {
+    reader.releaseLock();
   }
   buf += decoder.decode(); // flush any buffered trailing multi-byte sequence
   if (buf.trim()) onLine(buf.trim());

@@ -27,7 +27,7 @@
     "start": "next start",
     "test": "bun test",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "bun x --no-install -p typescript-7 tsc --noEmit",
     "lint": "eslint"
   },
   "dependencies": {
@@ -79,13 +79,13 @@
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
     "@types/ws": "^8.18.1",
-    "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "drizzle-kit": "1.0.0-beta.23",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
     "pagefind": "^1.5.2",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5.9.3",
+    "typescript-7": "npm:typescript@^7.0.2"
   },
   "overrides": {
     "fast-xml-builder": "^1.2.0",

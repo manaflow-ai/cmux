@@ -9,7 +9,7 @@
     "lint:ci": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --deny-warnings",
     "lint:fix": "oxlint . --react-plugin --jsx-a11y-plugin --import-plugin --fix",
     "test": "bun test",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "bun x --no-install -p typescript-7 tsc --noEmit",
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none"
@@ -34,12 +34,12 @@
     "@types/jsdom": "^28.0.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^29.1.1",
     "oxlint": "^1.68.0",
     "react-doctor": "^0.2.4",
     "tailwindcss": "^4.3.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-7": "npm:typescript@^7.0.2"
   }
 }
