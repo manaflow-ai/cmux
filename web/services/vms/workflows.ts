@@ -33,7 +33,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { maxActiveVmsForPlan } from "./entitlements";
-import { isProviderNotFoundError } from "./providerErrors";
+import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
   VmRepository,
@@ -70,7 +70,18 @@ export type CloudVmSessionEntry = CloudVmSessionRow;
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
+const EXPIRED_IDENTITY_REVOKE_BATCH = 5;
+const EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS = 10 * 60 * 1000;
+const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
+const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+
+type ExistingVmAccessInput = {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+};
 
 export type VmProviderStatusReconcileResult = {
   readonly checked: number;
@@ -101,12 +112,13 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
 export function getVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const vm = yield* requireUserVm(input);
     const providerVmId = vm.providerVmId ?? input.providerVmId;
     const getStatus = providers.getStatus;
     if (!getStatus) return vmEntryFromRow(vm);
@@ -346,6 +358,7 @@ function finishBaseCreate(
     readonly billingCustomerType: BillingCustomerType;
     readonly billingTeamId: string;
     readonly billingPlanId: string;
+    readonly maxActiveVms: number;
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
@@ -371,6 +384,17 @@ function finishBaseCreate(
         return yield* Effect.fail(
           new VmCreateInProgressError({ idempotencyKey: existing.idempotencyKey ?? "" }),
         );
+      }
+      const replacement = yield* reopenBaseIfProviderDeleted(
+        repo,
+        providers,
+        input,
+        create,
+        existing,
+        existing.providerVmId,
+      );
+      if (replacement) {
+        return yield* finishBaseCreate(repo, providers, billing, input, replacement);
       }
       return baseVmEntryFromRows(create.base, create.generation, existing, null);
     }
@@ -488,16 +512,65 @@ function finishBaseCreate(
   });
 }
 
+function reopenBaseIfProviderDeleted(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & { readonly timing?: VmTimingSink },
+  create: Extract<BeginBaseCreateResult, { readonly kind: "existing" }>,
+  existing: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<BeginBaseCreateResult | null, VmWorkflowError, never> {
+  const getStatus = providers.getStatus;
+  if (!getStatus) return Effect.succeed(null);
+  return getStatus(existing.provider, providerVmId).pipe(
+    Effect.as(null),
+    Effect.catchAll((err) =>
+      isProviderNotFoundError(err)
+        ? Effect.gen(function* () {
+          const markedDestroyed = yield* repo.markProviderObservedStatus({
+            id: existing.id,
+            providerVmId,
+            status: "destroyed",
+          });
+          if (!markedDestroyed) {
+            return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+          }
+          yield* repo.recordUsageEvent({
+            userId: existing.userId,
+            billingTeamId: existing.billingTeamId,
+            billingPlanId: existing.billingPlanId,
+            vmId: existing.id,
+            eventType: "vm.destroyed",
+            provider: existing.provider,
+            imageId: existing.imageId,
+            metadata: {
+              source: "base_open_provider_missing",
+              baseName: input.baseName ?? "base",
+              generation: create.generation.generation,
+            },
+          }).pipe(Effect.catchAll(() => Effect.void));
+          return yield* measureVmEffect(
+            input.timing,
+            "begin_base_open",
+            repo.beginBaseOpen(input),
+          );
+        })
+        : Effect.succeed(null)
+    ),
+  );
+}
+
 export function snapshotVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly name?: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const vm = yield* requireUserVm(input);
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmProviderOperationError({
@@ -656,6 +729,7 @@ export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
+  readonly teamIds?: readonly string[];
   readonly billingPlanId: string;
   readonly maxActiveVms: number;
   readonly providerVmId: string;
@@ -667,7 +741,7 @@ export function forkVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const source = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const source = yield* requireUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId, "fork");
 
     if (source.provider === "freestyle" && providers.fork) {
@@ -811,6 +885,7 @@ export function forkVm(input: {
 
     const snapshot = yield* snapshotVm({
       userId: input.userId,
+      teamIds: input.teamIds,
       billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,
@@ -1093,11 +1168,11 @@ function preflightResumeIfSuspended(
   vm: CloudVmRow,
   providerVmId: string,
   resumeSource: VmResumeSource,
-): Effect.Effect<void, VmWorkflowError> {
+): Effect.Effect<boolean, VmWorkflowError> {
   return Effect.gen(function* () {
     const getStatus = providers.getStatus;
     const resume = providers.resume;
-    if (!getStatus || !resume) return;
+    if (!getStatus || !resume) return false;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeoutFail({
@@ -1144,7 +1219,7 @@ function preflightResumeIfSuspended(
       if (!recorded) {
         return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
       }
-      return;
+      return false;
     }
     if (status === "running") {
       // Freestyle's SSH gateway can resume a VM entirely outside the control
@@ -1160,9 +1235,9 @@ function preflightResumeIfSuspended(
           return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
         }
       }
-      return;
+      return false;
     }
-    if (status !== "paused") return;
+    if (status !== "paused") return false;
 
     const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
@@ -1178,6 +1253,7 @@ function preflightResumeIfSuspended(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
     if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+    return true;
   });
 }
 
@@ -1265,14 +1341,15 @@ function recordRunningTransition<E extends VmWorkflowError>(
 export function destroyVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const vm = yield* requireUserVm(input);
 
-    yield* revokeActiveIdentities(vm);
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
       Effect.catchAll((err) => {
         if (isProviderNotFoundError(err.cause)) return Effect.void;
@@ -1292,9 +1369,48 @@ export function destroyVm(input: {
   });
 }
 
+export function revokeExpiredIdentityLeases(input: {
+  readonly now?: Date;
+  readonly limit?: number;
+} = {}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const expiredIdentityLeases = repo.expiredIdentityLeases;
+    if (!expiredIdentityLeases) return 0;
+    const now = input.now ?? new Date();
+    const leases = yield* expiredIdentityLeases({
+      now,
+      limit: input.limit ?? EXPIRED_IDENTITY_REVOKE_BATCH,
+    });
+    const revokedIds: string[] = [];
+    for (const lease of leases) {
+      const identityHandle = lease.providerIdentityHandle;
+      if (!identityHandle) continue;
+      const retryAfter = new Date(now.getTime() + EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS);
+      yield* (repo.markLeaseRevocationRetry?.({
+        id: lease.id,
+        retryAfter,
+        error: "revoke pending",
+      }) ?? Effect.void).pipe(Effect.catchAll(() => Effect.void));
+      const revoked = yield* revokeSSHIdentityForCleanup(providers, lease.provider, identityHandle).pipe(
+        Effect.as(true),
+        Effect.catchAll((err) => {
+          if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
+          return Effect.succeed(false);
+        }),
+      );
+      if (revoked) revokedIds.push(lease.id);
+    }
+    yield* repo.markLeasesRevoked(revokedIds);
+    return revokedIds.length;
+  });
+}
+
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly command: string;
   readonly timeoutMs: number;
@@ -1302,7 +1418,7 @@ export function execVm(input: {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const vm = yield* requireUserVm(input);
     yield* preflightResumeIfSuspended(
       repo,
       providers,
@@ -1330,6 +1446,7 @@ export function execVm(input: {
 type OpenAttachEndpointInput = {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly options?: AttachOptions;
   readonly sessionTitle?: string | null;
@@ -1345,6 +1462,7 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
 export function openVmSession(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly sessionId?: string;
   readonly attachmentId?: string;
@@ -1355,6 +1473,7 @@ export function openVmSession(input: {
   return openAttachEndpointResult({
     userId: input.userId,
     billingTeamId: input.billingTeamId,
+    teamIds: input.teamIds,
     providerVmId: input.providerVmId,
     sessionTitle: input.title,
     options: {
@@ -1368,11 +1487,12 @@ export function openVmSession(input: {
 export function listVmSessions(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
+    const vm = yield* requireUserVm(input);
     return yield* repo.listVmSessions({ userId: input.userId, vmId: vm.id });
   });
 }
@@ -1381,14 +1501,12 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
-    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
-    // grants an identity), which would hand out an endpoint while Postgres
-    // still says paused. Preflight-resume first — and before revoking the
-    // user's existing identities, so a preflight failure never strands them
-    // with old credentials revoked and no replacement minted.
+    const vm = yield* requireUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
-    yield* revokeActiveIdentities(vm);
+    // Once preflight records the VM as running, that state is externally
+    // visible to concurrent attach/SSH requests. Later cleanup failures must
+    // fail closed without pausing a VM another request may have attached to.
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -1444,19 +1562,15 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 export function openSshEndpoint(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
   readonly providerVmId: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireUserVm(input.userId, input.providerVmId, input.billingTeamId);
-    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
-    // grants an identity), which would hand out an endpoint while Postgres
-    // still says paused. Preflight-resume first — and before revoking the
-    // user's existing identities, so a preflight failure never strands them
-    // with old credentials revoked and no replacement minted.
+    const vm = yield* requireUserVm(input);
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
-    yield* revokeActiveIdentities(vm);
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -1486,29 +1600,86 @@ export function openSshEndpoint(input: {
   });
 }
 
-function requireUserVm(userId: string, providerVmId: string, billingTeamId?: string | null) {
+function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const vm = yield* repo.findUserVm({ userId, billingTeamId, providerVmId });
+    const vm = yield* repo.findUserVm({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      providerVmId: input.providerVmId,
+    });
     if (!vm || !vm.providerVmId) {
-      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+    if (!callerStillOwnsBillingScope(input, vm)) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     return vm;
   });
 }
 
-function revokeActiveIdentities(vm: CloudVmRow) {
+function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRow): boolean {
+  const billingTeamId = vm.billingTeamId?.trim();
+  if (!billingTeamId) return true;
+  if (billingTeamId === input.userId) return true;
+  if (!input.teamIds) return false;
+  return new Set(input.teamIds).has(billingTeamId);
+}
+
+function revokeActiveIdentities(
+  vm: CloudVmRow,
+  options: { readonly failOnCleanupError?: boolean; readonly limit?: number } = {},
+) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const leases = yield* repo.activeIdentityLeases(vm.id);
+    const leases = yield* repo.activeIdentityLeases(
+      vm.id,
+      options.failOnCleanupError ? ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT + 1 : options.limit,
+    );
+    if (options.failOnCleanupError && leases.length > ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT) {
+      return yield* Effect.fail(new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "revokeSSHIdentity",
+        cause: new Error(`too many active identity leases pending cleanup: ${leases.length}`),
+      }));
+    }
+    const revokedIds: string[] = [];
     for (const lease of leases) {
       const identityHandle = lease.providerIdentityHandle;
       if (!identityHandle) continue;
-      yield* providers.revokeSSHIdentity(vm.provider, identityHandle);
+      const revoked = yield* revokeSSHIdentityForCleanup(providers, vm.provider, identityHandle).pipe(
+        Effect.as(true),
+        Effect.catchAll((err) => {
+          if (isProviderIdentityNotFoundError(err.cause)) return Effect.succeed(true);
+          if (!options.failOnCleanupError) return Effect.succeed(false);
+          return repo.markLeasesRevoked(revokedIds).pipe(
+            Effect.andThen(Effect.fail(err)),
+          );
+        }),
+      );
+      if (revoked) revokedIds.push(lease.id);
     }
-    yield* repo.markLeasesRevoked(leases.map((lease) => lease.id));
+    yield* repo.markLeasesRevoked(revokedIds);
   });
+}
+
+function revokeSSHIdentityForCleanup(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  identityHandle: string,
+): Effect.Effect<void, VmProviderOperationError> {
+  return providers.revokeSSHIdentity(provider, identityHandle).pipe(
+    Effect.timeoutFail({
+      duration: IDENTITY_REVOKE_PROVIDER_TIMEOUT,
+      onTimeout: () =>
+        new VmProviderOperationError({
+          provider,
+          operation: "revokeSSHIdentity",
+          cause: new Error("identity revoke timed out"),
+        }),
+    }),
+  );
 }
 
 function storeEndpointLeases(vm: CloudVmRow, endpoint: AttachEndpoint | SSHEndpoint) {

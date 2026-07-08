@@ -207,34 +207,105 @@ check_release_build_disk_cleanup() {
   echo "PASS: release-build reclaims runner disk before large cache restores"
 }
 
-check_release_helper_upload_retry() {
+check_release_helper_artifact_from_package_lane() {
   if ! awk '
-    /^  release-ghostty-cli-helper:/ { in_job=1; next }
+    /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /- name: Upload universal Ghostty CLI helper/ { in_upload=1; next }
-    in_upload && /^[[:space:]]*- name:/ { in_upload=0 }
-    in_upload && /id:[[:space:]]*upload-ghostty-cli-helper/ { upload_id=1 }
-    in_upload && /continue-on-error:[[:space:]]*true/ { upload_continue=1 }
-    in_upload && /uses: actions\/upload-artifact@/ { upload_action=1 }
-    in_upload && /if-no-files-found:[[:space:]]*error/ { upload_required=1 }
-
-    in_job && /- name: Retry universal Ghostty CLI helper upload/ { in_retry=1; retry_step=1; next }
-    in_retry && /^[[:space:]]*- name:/ { in_retry=0 }
-    in_retry && index($0, "steps.upload-ghostty-cli-helper.outcome == '\''failure'\''") { retry_if=1 }
-    in_retry && /uses: actions\/upload-artifact@/ { retry_action=1 }
-    in_retry && /if-no-files-found:[[:space:]]*error/ { retry_required=1 }
-    in_retry && /overwrite:[[:space:]]*true/ { retry_overwrite=1 }
+    in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
+    in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
+    in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
+    in_job && /CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15/ { saw_helper_sdk_pin=1 }
+    in_job && /- name: Select Xcode/ { saw_select=1; after_select=1; next }
+    in_job && /- name: Build universal Ghostty CLI helper/ {
+      saw_build_step=1
+      if (after_select) {
+        saw_build_after_select=1
+      }
+      next
+    }
+    in_job && /\.\/scripts\/build-ghostty-cli-helper\.sh --universal --output ghostty-cli-helper\/ghostty/ { saw_build=1 }
+    in_job && /lipo ghostty-cli-helper\/ghostty -verify_arch arm64 x86_64/ { saw_lipo=1 }
+    in_job && /- name: Upload universal Ghostty CLI helper/ {
+      saw_upload_step=1
+      if (after_select) {
+        saw_upload_after_select=1
+      }
+      next
+    }
+    in_job && /uses: actions\/upload-artifact@/ { saw_upload=1 }
+    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /\[\[ "\$HELPER_SDK_VERSION" == 15\.\* \]\]/ { saw_helper_sdk_validation=1 }
 
     END {
-      exit !(upload_id && upload_continue && upload_action && upload_required && retry_step && retry_if && retry_action && retry_required && retry_overwrite)
+      exit !(saw_timeout && saw_helper_xcode_env && saw_helper_select && saw_helper_sdk_pin && saw_build_step && saw_build && saw_lipo && saw_helper_sdk_validation && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: release-ghostty-cli-helper must retry required Ghostty helper artifact uploads instead of failing on a single transient upload error"
+    echo "FAIL: swift-package-tests must pin and validate the macOS 15 Ghostty helper before selecting Xcode 26"
     exit 1
   fi
 
-  echo "PASS: release-ghostty-cli-helper retries required Ghostty helper artifact uploads"
+  if ! awk '
+    /^  release-build:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- swift-package-tests/ { saw_need=1 }
+    in_job && /- name: Download universal Ghostty CLI helper/ { saw_download_step=1; next }
+    in_job && /uses: actions\/download-artifact@/ { saw_download=1 }
+    in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /- name: Install universal Ghostty CLI helper/ { saw_install_step=1; next }
+    in_job && /\.\/scripts\/install-prebuilt-ghostty-cli-helper\.sh/ { saw_install=1 }
+
+    END {
+      exit !(saw_need && saw_download_step && saw_download && saw_artifact_name && saw_install_step && saw_install)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: release-build must depend on swift-package-tests, download the helper artifact, and install it into the app"
+    exit 1
+  fi
+
+  if grep -Fq "release-ghostty-cli-helper:" "$CI_FILE"; then
+    echo "FAIL: CI must not queue a separate release-ghostty-cli-helper job"
+    exit 1
+  fi
+
+  echo "PASS: release-build consumes the Ghostty helper artifact built by swift-package-tests"
+}
+
+check_runtime_regressions_collapsed() {
+  if grep -Fq "ui-regressions:" "$CI_FILE"; then
+    echo "FAIL: CI must not queue a separate ui-regressions job"
+    exit 1
+  fi
+
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /build-for-testing/ { saw_build_for_testing=1 }
+    in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
+    in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
+    in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
+    in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
+
+    END { exit !(saw_build_for_testing && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests-build-and-lag must build once, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
+    exit 1
+  fi
+
+  if ! awk '
+    /^run_browser_find_focus\(\) \{/ { in_func=1; next }
+    in_func && /^}/ { in_func=0 }
+    in_func && /persistent_display_id="\$\(tr -d/ { saw_display_id_read=1 }
+    in_func && /CMUX_UI_TEST_TARGET_DISPLAY_ID="\$persistent_display_id"/ { saw_display_env=1 }
+    END { exit !(saw_display_id_read && saw_display_env) }
+  ' "$ROOT_DIR/scripts/ci/run-display-ui-regressions.sh"; then
+    echo "FAIL: browser-find UI regression must target the persistent virtual display"
+    exit 1
+  fi
+
+  echo "PASS: runtime display regressions are collapsed into tests-build-and-lag"
 }
 
 check_signing_intermediate_imports() {
@@ -796,12 +867,9 @@ check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
-check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
-check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
@@ -817,7 +885,8 @@ check_e2e_runner_fallbacks
 check_xcode_selection
 check_release_build_signal
 check_release_build_disk_cleanup
-check_release_helper_upload_retry
+check_release_helper_artifact_from_package_lane
+check_runtime_regressions_collapsed
 check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
