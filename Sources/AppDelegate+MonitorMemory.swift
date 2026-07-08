@@ -73,12 +73,12 @@ extension AppDelegate {
     /// unreachable (#6913 safety net).
     ///
     /// CoreGraphics/AppKit display-change callbacks advance the display
-    /// generation. CoreGraphics begin callbacks are counted in aggregate, not
-    /// by raw display id, so multi-display changes only reconcile after all
-    /// observed begin callbacks have a matching post-change callback. The
-    /// capture firewall is only released by a later capture attempt that
-    /// observes the reconciled signature from the latest generation. A nil
-    /// signature leaves the previous restore baseline intact.
+    /// generation. CoreGraphics callbacks only invalidate any previously
+    /// reconciled release signature; AppKit's screen-parameters notification
+    /// owns the reconcile scheduling. The capture firewall is only released by
+    /// a later capture attempt that observes the reconciled signature from the
+    /// latest generation. A nil signature leaves the previous restore baseline
+    /// intact.
     func scheduleScreenChangeReconcileWhenIdle() {
         NotificationQueue.default.enqueue(
             Notification(name: Self.screenChangeReconcileNotification, object: self),
@@ -106,25 +106,15 @@ extension AppDelegate {
         didRegisterDisplayReconfigurationCallback = false
     }
 
-    func handleDisplayReconfiguration(isBeginning: Bool) {
+    func handleDisplayReconfiguration(isBeginning _: Bool) {
         displayReconfigurationGeneration += 1
         beginScreenChangeCaptureSuppression()
-        if isBeginning {
-            pendingDisplayReconfigurationCallbacks += 1
-        } else {
-            pendingDisplayReconfigurationCallbacks = max(0, pendingDisplayReconfigurationCallbacks - 1)
-        }
-        if pendingDisplayReconfigurationCallbacks == 0 {
-            scheduleScreenChangeReconcileWhenIdle()
-        }
     }
 
     func handleScreenParametersDidChange() {
         displayReconfigurationGeneration += 1
         beginScreenChangeCaptureSuppression()
-        if pendingDisplayReconfigurationCallbacks == 0 {
-            scheduleScreenChangeReconcileWhenIdle()
-        }
+        scheduleScreenChangeReconcileWhenIdle()
     }
 
     func reconcileMainWindowFramesAfterScreenChange() {
@@ -133,7 +123,6 @@ extension AppDelegate {
         // mid-teardown geometry. Leaving suppression armed fails closed; restore
         // completion reruns this pass if a screen change was skipped.
         guard !isApplyingSessionRestore, !isTerminatingApp else { return }
-        guard pendingDisplayReconfigurationCallbacks == 0 else { return }
         let displays = currentDisplayGeometries()
         guard !displays.available.isEmpty else {
             requeueScreenChangeReconcileIfPossible()
