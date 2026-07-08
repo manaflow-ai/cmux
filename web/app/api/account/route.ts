@@ -70,8 +70,7 @@ export async function DELETE(request: Request): Promise<Response> {
         destroyedVms,
       }, 500);
     }
-    await deleteVaultObjectsForAccount(user.id);
-    await deleteCollectedVaultObjects(await deleteCmuxOwnedAccountRows(user.id));
+    await finishPostStackAccountCleanup(user.id);
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
     logAccountDeleteError("account.delete.failed", error);
@@ -155,6 +154,15 @@ async function deleteVaultObjectsForAccount(userId: string): Promise<void> {
 async function deleteCollectedVaultObjects(rows: DeletedAccountRows): Promise<void> {
   for (const objectKey of rows.vaultObjectKeys) {
     await deleteObject(objectKey);
+  }
+}
+
+async function finishPostStackAccountCleanup(userId: string): Promise<void> {
+  try {
+    await deleteVaultObjectsForAccount(userId);
+    await deleteCollectedVaultObjects(await deleteCmuxOwnedAccountRows(userId));
+  } catch (error) {
+    logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
   }
 }
 

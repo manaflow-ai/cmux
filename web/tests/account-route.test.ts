@@ -73,6 +73,9 @@ const deleteObject = mock(async (...args: unknown[]) => {
   routeEvents.push("vault-delete");
   deletedVaultObjects.push(objectKey);
   if (vaultDeleteError) throw vaultDeleteError;
+  if (postStackVaultDeleteError && routeEvents.includes("stack-delete")) {
+    throw postStackVaultDeleteError;
+  }
 });
 const cancelSubscription = mock(async (...args: unknown[]) => {
   const [subscriptionId] = args as [string];
@@ -95,6 +98,7 @@ let stackUserIds: Array<string | undefined> = [];
 let selectResults: unknown[][] = [];
 let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
+let postStackVaultDeleteError: unknown = null;
 let stripeConfigured = true;
 let cancelledStripeSubscriptions: string[] = [];
 let deletedStripeCustomers: string[] = [];
@@ -278,6 +282,7 @@ beforeEach(() => {
   selectResults = [[], [], [], [], [], []];
   deletedVaultObjects = [];
   vaultDeleteError = null;
+  postStackVaultDeleteError = null;
   stripeConfigured = true;
   cancelledStripeSubscriptions = [];
   deletedStripeCustomers = [];
@@ -456,6 +461,27 @@ describe("account deletion route", () => {
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.stack_user_failed_after_data_delete",
       "Error: raw [redacted] leaked by upstream",
+    );
+  });
+
+  test("returns success when post-Stack cleanup fails after the account is deleted", async () => {
+    postStackVaultDeleteError = new Error("post-delete vault unavailable");
+    transactionVaultRows = {
+      sessions: [],
+      deletedSessions: [{ latestObjectKey: "vault/u/account-user-1/post-stack-latest.jsonl.zst" }],
+      deletedSnapshots: [],
+      deletedGrants: [],
+      deletedTombstones: [],
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.post_stack_cleanup_failed",
+      "Error: post-delete vault unavailable",
     );
   });
 
