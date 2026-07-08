@@ -263,7 +263,7 @@
 518	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/TerminalImageTransfer.swift
-516	cmuxTests/SidebarWorkspaceSnapshotRefreshPolicyTests.swift
+519	cmuxTests/SidebarWorkspaceSnapshotRefreshPolicyTests.swift
 515	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateStateModel.swift
 515	Sources/SessionTranscriptLoader.swift
 515	Sources/WindowRegistry.swift
