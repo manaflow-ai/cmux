@@ -144,7 +144,11 @@ extension Workspace {
         // Registered-agent icons resolve from the panel's restorable-agent
         // registration, which is already in memory. Icon sync runs on the
         // agent PID/status mutation path, so it must never load the Vault
-        // registry (directory walk + config reads) itself.
+        // registry (directory walk + config reads) itself. Known limit: a
+        // custom registered agent running live before any restorable snapshot
+        // is recorded shows the generic terminal icon; fixing that means
+        // carrying the registration into live agent state at the lifecycle
+        // recording boundary (TerminalController), not loading config here.
         let snapshot = restoredAgentSnapshotsByPanelId[panelId]
         let registration = snapshot?.registration
         return TerminalTabAgentIconResolver().assetName(
