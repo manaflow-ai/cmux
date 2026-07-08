@@ -185,23 +185,29 @@ export async function applySubscriptionUpdate(
   if (!stackUserId) return { skipped: true };
 
   const isActive = isActiveStripeSubscriptionStatus(subscription.status);
-  const hasLocalBillingRecord =
-    mappedStackUserId === stackUserId ||
-    (await userStripeSubscriptionExists(db, {
-      subscriptionId: subscription.id,
-      stackUserId,
-    }));
-  if (!hasLocalBillingRecord) return { skipped: true };
+  const hasUserSubscription = await userStripeSubscriptionExists(db, {
+    subscriptionId: subscription.id,
+    stackUserId,
+  });
+  if (!hasUserSubscription && mappedStackUserId !== stackUserId) return { skipped: true };
 
   const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
   if (!user) return { skipped: true };
 
-  await updateExistingStripeSubscription(db, {
-    subscription,
-    customerId,
-    stackUserId,
-    scope: "user",
-  });
+  if (hasUserSubscription) {
+    await updateExistingUserStripeSubscription(db, {
+      subscription,
+      customerId,
+      stackUserId,
+    });
+  } else {
+    await upsertStripeSubscription(db, {
+      subscription,
+      customerId,
+      stackUserId,
+      scope: "user",
+    });
+  }
 
   await syncProPlanMetadata(user, isActive);
   if (!isActive) {
@@ -470,27 +476,29 @@ async function upsertStripeSubscription(
     });
 }
 
-async function updateExistingStripeSubscription(
+async function updateExistingUserStripeSubscription(
   db: BillingDb,
   input: {
     subscription: Stripe.Subscription;
     customerId: string;
     stackUserId: string;
-    stackTeamId?: string | null;
-    scope: "user" | "team";
   },
 ): Promise<void> {
+  const values = stripeSubscriptionValues({
+    ...input,
+    scope: "user",
+  });
   await db
     .update(stripeSubscriptions)
     .set({
-      ...stripeSubscriptionValues(input),
+      ...values,
       updatedAt: sql`now()`,
     })
     .where(
       and(
         eq(stripeSubscriptions.id, input.subscription.id),
         eq(stripeSubscriptions.stackUserId, input.stackUserId),
-        eq(stripeSubscriptions.scope, input.scope),
+        eq(stripeSubscriptions.scope, "user"),
         isNull(stripeSubscriptions.stackTeamId),
       ),
     );

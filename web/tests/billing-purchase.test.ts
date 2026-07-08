@@ -6,7 +6,7 @@ process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
 process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
 process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
-process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "test-stack-project";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 
 const { applySubscriptionUpdate, recordCheckoutCompletion } = await import(
@@ -476,7 +476,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update,
     };
-    selectResults = [[{ stackUserId: "user_123" }]];
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
     const result = await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,
@@ -503,7 +503,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "user_123" }]];
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
     const result = await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,
@@ -539,7 +539,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update: mock(async () => undefined),
     };
-    selectResults = [[{ stackUserId: "user_123" }]];
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
     await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,
@@ -576,6 +576,36 @@ describe("recordCheckoutCompletion", () => {
     expect(result).toEqual({ skipped: true });
     expect(getUser).not.toHaveBeenCalled();
     expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
+  });
+
+  test("creates a missing user subscription row when the customer mapping already exists", async () => {
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    selectResults = [[{ stackUserId: "user_123" }], []];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "active" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: true });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeSubscriptions &&
+          insert.values.id === "sub_user" &&
+          insert.values.scope === "user" &&
+          insert.values.stackUserId === "user_123",
+      ),
+    ).toBe(true);
     expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
