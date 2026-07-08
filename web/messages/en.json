@@ -1660,6 +1660,28 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "agentChat": {
+          "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probes /healthz first, and can run a configured start command when the server is down.",
+          "url": "Base URL for the machine-local Agent Chat GUI server. cmux probes <url>/healthz before opening the workspace.",
+          "startCommand": "Optional shell command to start the Agent Chat server when <url>/healthz is unreachable. cmux runs it detached with the user's SHELL, polls healthz for a short bounded window, then opens the workspace either way.",
+          "keys": {
+            "description": "Keyboard behavior overrides for the Agent Chat web UI.",
+            "ctrlJ": "Behavior for Ctrl+J in Agent Chat text fields. Use newline to insert a line break, or menu to move to the next popup item while a menu is open."
+          },
+          "fonts": {
+            "description": "Font overrides for the Agent Chat web UI. Omitted values fall back to Ghostty and built-in defaults.",
+            "sansFamily": "CSS font family used for Agent Chat body and UI text.",
+            "bodyFamily": "Alias for sansFamily.",
+            "family": "Alias for sansFamily.",
+            "baseSize": "Base Agent Chat font size in CSS pixels.",
+            "bodySize": "Alias for baseSize.",
+            "monoFamily": "CSS font family used for Agent Chat code and monospace text.",
+            "codeFamily": "Alias for monoFamily.",
+            "codeSize": "Agent Chat code font size in CSS pixels.",
+            "monoSize": "Alias for codeSize.",
+            "codeLineHeight": "Line-height multiplier used for Agent Chat code blocks."
+          }
+        },
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
