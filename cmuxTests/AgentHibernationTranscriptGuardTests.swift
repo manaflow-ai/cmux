@@ -127,13 +127,11 @@ struct AgentHibernationTranscriptGuardTests {
             ) == accountTranscript.path
         )
 
-        let snapshot = try #require(
-            AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let snapshot = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: accountAgent,
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
-            )
-        )
+        )))
         #expect(snapshot.transcriptPath == accountTranscript.path)
         #expect(try String(contentsOfFile: snapshot.snapshotPath, encoding: .utf8) == populatedTranscript)
 
@@ -195,6 +193,51 @@ struct AgentHibernationTranscriptGuardTests {
     }
 
     @Test
+    func resolveTranscriptPathPrefersRecordedHookTranscriptPath() throws {
+        let home = try temporaryDirectory()
+        let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let cwd = "/tmp/repo"
+        let sessionId = "session-recorded"
+        let recordedTranscript = home.appendingPathComponent("outside/recorded.jsonl")
+        try FileManager.default.createDirectory(
+            at: recordedTranscript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try populatedTranscript.write(to: recordedTranscript, atomically: true, encoding: .utf8)
+
+        let derivedTranscript = transcriptURL(home: home, cwd: cwd, sessionId: sessionId)
+        try FileManager.default.createDirectory(
+            at: derivedTranscript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try (populatedTranscript + #"{"type":"assistant","message":{"content":"derived"}}"# + "\n")
+            .write(to: derivedTranscript, atomically: true, encoding: .utf8)
+
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        {"version":1,"sessions":{"hook-key":{"sessionId":" \(sessionId) ","transcriptPath":"~/outside/recorded.jsonl"}}}
+        """.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let claudeAgent = agent(sessionId: sessionId, workingDirectory: cwd)
+        #expect(
+            AgentHibernationTranscriptGuard.resolveTranscriptPath(
+                agent: claudeAgent,
+                homeDirectory: home.path
+            ) == recordedTranscript.path
+        )
+        let protected = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: claudeAgent,
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
+        #expect(protected.transcriptPath == recordedTranscript.path)
+        #expect(try String(contentsOfFile: protected.snapshotPath, encoding: .utf8) == populatedTranscript)
+    }
+
+    @Test
     func snapshotBeforeTeardownCopiesOnlyPopulatedTranscriptAndOverwrites() throws {
         let home = try temporaryDirectory()
         let snapshots = home.appendingPathComponent("snapshots", isDirectory: true)
@@ -208,13 +251,11 @@ struct AgentHibernationTranscriptGuardTests {
         let oldDate = Date(timeIntervalSinceNow: -15 * 24 * 60 * 60)
         try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: live.path)
 
-        let first = try #require(
-            AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let first = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: agent(sessionId: sessionId, workingDirectory: "/tmp/repo"),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
-            )
-        )
+        )))
         #expect(first.transcriptPath == live.path)
         #expect(first.snapshotPath == snapshots.appendingPathComponent("\(sessionId).jsonl").path)
         #expect(try String(contentsOfFile: first.snapshotPath, encoding: .utf8) == firstContent)
@@ -223,39 +264,44 @@ struct AgentHibernationTranscriptGuardTests {
         let peerLive = transcriptURL(home: home, cwd: "/tmp/repo", sessionId: peerSessionId)
         try populatedTranscript.write(to: peerLive, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.modificationDate: oldDate], ofItemAtPath: peerLive.path)
-        let peer = try #require(
-            AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let peer = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: agent(sessionId: peerSessionId, workingDirectory: "/tmp/repo"),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
-            )
-        )
+        )))
         #expect(FileManager.default.fileExists(atPath: first.snapshotPath))
         #expect(FileManager.default.fileExists(atPath: peer.snapshotPath))
 
         let secondContent = populatedTranscript + #"{"type":"assistant","message":{"content":"again"}}"# + "\n"
         try secondContent.write(to: live, atomically: true, encoding: .utf8)
-        let second = try #require(
-            AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        let second = try #require(snapshot(from: AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: agent(sessionId: sessionId, workingDirectory: "/tmp/repo"),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
-            )
-        )
+        )))
         #expect(second.snapshotPath == first.snapshotPath)
         #expect(try String(contentsOfFile: second.snapshotPath, encoding: .utf8) == secondContent)
 
         let stubSession = "session-stub"
         let stubLive = transcriptURL(home: home, cwd: "/tmp/repo", sessionId: stubSession)
         try metadataStub.write(to: stubLive, atomically: true, encoding: .utf8)
-        #expect(
-            AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+        #expect(outcomeIsNothingToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
                 agent: agent(sessionId: stubSession, workingDirectory: "/tmp/repo"),
                 homeDirectory: home.path,
                 snapshotDirectory: snapshots
-            ) == nil
-        )
+        )))
         #expect(FileManager.default.fileExists(atPath: snapshots.appendingPathComponent("\(stubSession).jsonl").path) == false)
+
+        #expect(outcomeIsUnableToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(sessionId: "session-missing", workingDirectory: "/tmp/repo"),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
+        #expect(outcomeIsNothingToProtect(AgentHibernationTranscriptGuard.snapshotBeforeTeardown(
+            agent: agent(kind: .codex, sessionId: "session-codex", workingDirectory: "/tmp/repo"),
+            homeDirectory: home.path,
+            snapshotDirectory: snapshots
+        )))
     }
 
     @Test
@@ -373,6 +419,27 @@ struct AgentHibernationTranscriptGuardTests {
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("messages", isDirectory: true)
             .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+    }
+
+    private func snapshot(
+        from outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome
+    ) -> AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot? {
+        guard case .snapshot(let snapshot) = outcome else { return nil }
+        return snapshot
+    }
+
+    private func outcomeIsNothingToProtect(
+        _ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome
+    ) -> Bool {
+        guard case .nothingToProtect = outcome else { return false }
+        return true
+    }
+
+    private func outcomeIsUnableToProtect(
+        _ outcome: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome
+    ) -> Bool {
+        guard case .unableToProtect = outcome else { return false }
+        return true
     }
 
     private func agent(

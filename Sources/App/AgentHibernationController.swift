@@ -102,9 +102,10 @@ final class AgentHibernationController {
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
-    private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
-    private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
-    private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    var teardownValidationEpochByPanel: [AgentHibernationPanelKey: UInt64] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
 
@@ -162,8 +163,13 @@ final class AgentHibernationController {
     private func recordActivity(workspaceId: UUID, panelId: UUID, recordedAt: Date) -> AgentHibernationPanelKey {
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         activityByPanel[key] = recordedAt.timeIntervalSince1970
+        bumpTeardownValidationEpoch(key)
         confirmations.removeValue(forKey: key)
         return key
+    }
+
+    private func bumpTeardownValidationEpoch(_ key: AgentHibernationPanelKey) {
+        teardownValidationEpochByPanel[key] = (teardownValidationEpochByPanel[key] ?? 0) &+ 1
     }
 
     private func updateTimerForCurrentSettings() {
@@ -226,6 +232,7 @@ final class AgentHibernationController {
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
             if record.hasLiveProcess {
+                bumpTeardownValidationEpoch(record.key)
                 tailFingerprintSamples.removeValue(forKey: record.key)
                 confirmations.removeValue(forKey: record.key)
             }
@@ -312,62 +319,6 @@ final class AgentHibernationController {
         )
     }
 
-    /// Runs the transcript snapshot off the main actor, then resumes teardown on the
-    /// main actor only if the pane still qualifies. The snapshot MUST complete before
-    /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
-    /// so the teardown is sequenced after it rather than racing it; the re-validation
-    /// below covers disable/stop and anything else that changed during the brief I/O hop.
-    private func beginConfirmedTeardown(
-        record: AgentHibernationRecord,
-        confirmationFingerprint: String,
-        effectiveLastActivityAt: TimeInterval
-    ) {
-        let agent = record.agent
-        Task { @MainActor in
-            let snapshot = await Task.detached(priority: .utility) {
-                AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
-            }.value
-            // Re-validate: the pane must still be exactly as confirmed. Any activity,
-            // scrollback change, visibility/protection change, hibernation disable,
-            // hibernation, or surface loss during the hop aborts; the regular 30s
-            // tick will re-arm if still idle.
-            // Live-process state is not re-scanned here: a full index reload costs
-            // 350ms-1.8s; new agents bump lifecycle/input hooks checked below.
-            guard AgentHibernationTrackingGate.isEnabled(),
-                  !record.terminalPanel.isAgentHibernated,
-                  record.terminalPanel.surface.hasLiveSurface,
-                  AppDelegate.shared?.agentHibernationPanelIsProtected(
-                      workspace: record.workspace,
-                      panelId: record.key.panelId
-                  ) == false,
-                  record.workspace.agentHibernationLifecycleState(
-                      panelId: record.key.panelId,
-                      fallback: record.lifecycle
-                  ).allowsHibernation,
-                  (self.terminalInputByPanel[record.key] ?? 0) <=
-                      (self.lifecycleChangeByPanel[record.key] ?? 0),
-                  let currentFingerprint = self.hibernationFingerprint(for: record),
-                  currentFingerprint == confirmationFingerprint,
-                  (self.activityByPanel[record.key] ?? 0) <= effectiveLastActivityAt else {
-                return
-            }
-            self.terminateScopedProcessesForHibernation(record: record)
-            record.workspace.enterAgentHibernation(
-                panelId: record.key.panelId,
-                agent: record.agent,
-                lastActivityAt: Date(timeIntervalSince1970: effectiveLastActivityAt)
-            )
-            guard let snapshot else { return }
-            let processIDs = record.processIDs
-            Task.detached(priority: .utility) {
-                await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
-                    snapshot: snapshot,
-                    processIDs: processIDs
-                )
-            }
-        }
-    }
-
     private func updateTailFingerprintSample(
         record: AgentHibernationRecord,
         now: TimeInterval
@@ -401,7 +352,7 @@ final class AgentHibernationController {
         return stableSince
     }
 
-    private func hibernationFingerprint(for record: AgentHibernationRecord) -> String? {
+    func hibernationFingerprint(for record: AgentHibernationRecord) -> String? {
         guard let tail = tailFingerprint(for: record.terminalPanel) else { return nil }
         return Self.scrollbackFingerprint(tail: tail, processIDs: record.processIDs)
     }
@@ -435,7 +386,7 @@ final class AgentHibernationController {
         )
     }
 
-    private func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) {
+    func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) {
         guard !record.processIDs.isEmpty else { return }
         let currentProcessID = getpid()
         let currentProcessGroupID = getpgrp()
@@ -462,6 +413,7 @@ final class AgentHibernationController {
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
+        teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
     }
@@ -473,6 +425,7 @@ final class AgentHibernationController {
         activityByPanel = activityByPanel.filter { currentKeys.contains($0.key) }
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
         lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
+        teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)
         }

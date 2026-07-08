@@ -36,6 +36,7 @@
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
 		F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760030000000000000002 /* AgentHibernationController+Records.swift */; };
+		F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760060000000000000002 /* AgentHibernationController+Teardown.swift */; };
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
@@ -1587,6 +1588,7 @@
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
 		F65760030000000000000002 /* AgentHibernationController+Records.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Records.swift"; sourceTree = "<group>"; };
+		F65760060000000000000002 /* AgentHibernationController+Teardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Teardown.swift"; sourceTree = "<group>"; };
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPlannerSwiftTests.swift; sourceTree = "<group>"; };
@@ -3331,6 +3333,7 @@
 				9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */,
 				D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */,
 				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
+				F65760060000000000000002 /* AgentHibernationController+Teardown.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
 				F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */,
 				7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */,
@@ -5017,6 +5020,7 @@
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
 				F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */,
+				F65760060000000000000001 /* AgentHibernationController+Teardown.swift in Sources */,
 				D36A00010000000000000001 /* AgentHibernationController.swift in Sources */,
 				D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
 				F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */,

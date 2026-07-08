@@ -8,6 +8,21 @@ enum AgentHibernationTranscriptGuard {
         let snapshotPath: String
     }
 
+    enum TeardownSnapshotOutcome: Sendable {
+        case snapshot(TeardownTranscriptSnapshot)
+        case nothingToProtect
+        case unableToProtect
+    }
+
+    private struct HookStoreFileMirror: Decodable {
+        struct Record: Decodable {
+            let sessionId: String?
+            let transcriptPath: String?
+        }
+
+        let sessions: [String: Record]?
+    }
+
     static let restoreCheckDelaysSeconds: [UInt64] = [20, 60, 180, 600]
 
     static func runPostTeardownRestoreChecks(
@@ -48,10 +63,15 @@ enum AgentHibernationTranscriptGuard {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> String? {
-        guard agent.kind == .claude,
-              let workingDirectory = normalized(agent.workingDirectory) else {
+        guard agent.kind == .claude else {
             return nil
         }
+
+        if let recordedPath = recordedTranscriptPath(agent: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
+            return recordedPath
+        }
+
+        guard let workingDirectory = normalized(agent.workingDirectory) else { return nil }
 
         for configRoot in claudeConfigRoots(for: agent, homeDirectory: homeDirectory, fileManager: fileManager) {
             let projectRoot = ((configRoot as NSString).appendingPathComponent("projects") as NSString)
@@ -97,15 +117,23 @@ enum AgentHibernationTranscriptGuard {
         homeDirectory: String = NSHomeDirectory(),
         snapshotDirectory: URL? = nil,
         fileManager: FileManager = .default
-    ) -> TeardownTranscriptSnapshot? {
+    ) -> TeardownSnapshotOutcome {
+        guard agent.kind == .claude else { return .nothingToProtect }
+
         guard let transcriptPath = resolveTranscriptPath(
             agent: agent,
             homeDirectory: homeDirectory,
             fileManager: fileManager
-        ),
-            transcriptHasConversationTurns(atPath: transcriptPath, fileManager: fileManager),
-            let directory = snapshotDirectory ?? defaultSnapshotDirectoryURL() else {
-            return nil
+        ) else {
+            return .unableToProtect
+        }
+
+        guard transcriptHasConversationTurns(atPath: transcriptPath, fileManager: fileManager) else {
+            return .nothingToProtect
+        }
+
+        guard let directory = snapshotDirectory ?? defaultSnapshotDirectoryURL() else {
+            return .unableToProtect
         }
 
         do {
@@ -116,13 +144,15 @@ enum AgentHibernationTranscriptGuard {
                 try fileManager.removeItem(at: snapshotURL)
             }
             try fileManager.copyItem(atPath: transcriptPath, toPath: snapshotURL.path)
-            try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: snapshotURL.path)
-            return TeardownTranscriptSnapshot(
-                transcriptPath: transcriptPath,
-                snapshotPath: snapshotURL.path
+            try fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: snapshotURL.path)
+            return .snapshot(
+                TeardownTranscriptSnapshot(
+                    transcriptPath: transcriptPath,
+                    snapshotPath: snapshotURL.path
+                )
             )
         } catch {
-            return nil
+            return .unableToProtect
         }
     }
 
@@ -167,20 +197,48 @@ enum AgentHibernationTranscriptGuard {
         return [directPath, nestedPath]
     }
 
+    // Mirrors regularNonEmptyFileExists in RestorableAgentSession.swift: an empty
+    // recorded/derived file must not shadow a populated transcript elsewhere.
     private static func isRegularFile(atPath path: String, fileManager: FileManager) -> Bool {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
               !isDirectory.boolValue,
               let attributes = try? fileManager.attributesOfItem(atPath: path),
-              let fileType = attributes[.type] as? FileAttributeType else {
+              let fileType = attributes[.type] as? FileAttributeType,
+              fileType == .typeRegular else {
             return false
         }
-        return fileType == .typeRegular
+        return ((attributes[.size] as? NSNumber)?.int64Value ?? 0) > 0
     }
 
     private static func directoryExists(atPath path: String, fileManager: FileManager) -> Bool {
         var isDirectory: ObjCBool = false
         return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private static func recordedTranscriptPath(
+        agent: SessionRestorableAgentSnapshot,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> String? {
+        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: homeDirectory)
+        guard let data = fileManager.contents(atPath: storeURL.path),
+              let store = try? JSONDecoder().decode(HookStoreFileMirror.self, from: data),
+              let sessions = store.sessions else {
+            return nil
+        }
+
+        for record in sessions.values {
+            guard normalized(record.sessionId) == agent.sessionId,
+                  let transcriptPath = normalized(record.transcriptPath) else {
+                continue
+            }
+            let expandedPath = expandTilde(in: transcriptPath, homeDirectory: homeDirectory)
+            if isRegularFile(atPath: expandedPath, fileManager: fileManager) {
+                return expandedPath
+            }
+        }
+        return nil
     }
 
     private static func claudeConfigRoots(
