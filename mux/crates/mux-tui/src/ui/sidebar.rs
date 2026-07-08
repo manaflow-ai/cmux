@@ -13,6 +13,27 @@ use ratatui::Frame;
 use super::truncate;
 use crate::app::{App, Hit};
 
+/// The color of a workspace's unread indicator, or `None` when nothing is
+/// unread. Mirrors the tab-bar severity cue (`error` > `warning` > `info`)
+/// so the sidebar dot carries the same meaning as the per-tab marker.
+fn workspace_unread_color(
+    theme: &crate::config::Theme,
+    ws: &crate::session::WorkspaceView,
+) -> Option<Color> {
+    ws.screens
+        .iter()
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .filter_map(|tab| tab.notification.filter(|notification| notification.unread))
+        .map(|notification| match notification.level {
+            "error" => (2u8, theme.notification_error),
+            "warning" => (1, theme.notification_warning),
+            _ => (0, theme.notification_info),
+        })
+        .max_by_key(|(rank, _)| *rank)
+        .map(|(_, color)| color)
+}
+
 pub fn draw(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let width = app.sidebar_width;
@@ -74,6 +95,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             let rail_style = active_style.fg(rail);
             buf[(0, y)].set_symbol("▎").set_style(rail_style);
             buf[(0, y + 1)].set_symbol("▎").set_style(rail_style);
+        }
+        if content_w > 1 {
+            if let Some(color) = workspace_unread_color(&app.config.theme, ws) {
+                let dot_style = style.fg(color).add_modifier(Modifier::BOLD);
+                buf[(0, y)].set_symbol("•").set_style(dot_style);
+            }
         }
         set_line_from(buf, 1, y, &truncate(&ws.name, content_w - 1), style);
         hits.push((row_rect(y), Hit::Workspace { index: i, id: ws.id }));

@@ -30,6 +30,7 @@ base64 = "0.22"
 libc = "0.2"
 tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
+regex = "1"
 
 [profile.release]
 lto = "thin"
