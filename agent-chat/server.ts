@@ -1284,6 +1284,12 @@ function requiredColor(value: unknown): string {
 export function validateCmuxThemePayload(body: unknown): GhosttyTheme {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("theme payload must be an object");
   const obj = body as Record<string, unknown>;
+  // JSON encoders commonly omit null fields entirely (Swift's synthesized
+  // Codable does), so absent nullable keys are treated as null; unexpected
+  // keys are still rejected.
+  for (const key of ["selectionBackground", "cursorColor", "fontFamily", "fontSize"]) {
+    if (!(key in obj)) obj[key] = null;
+  }
   const keys = Object.keys(obj).sort();
   const expected = [...THEME_POST_KEYS].sort();
   if (keys.length !== expected.length || keys.some((key, i) => key !== expected[i])) throw new Error("theme payload has unexpected keys");
