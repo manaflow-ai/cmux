@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -33,6 +34,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -251,6 +253,23 @@ struct WorkspaceDetailView: View {
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .overlay {
+                        if loadingDiagnosticsConnectionStatus == .connected {
+                            TerminalLoadingDiagnosticsOverlay(
+                                workspace: workspace,
+                                host: host,
+                                connectionStatus: loadingDiagnosticsConnectionStatus,
+                                tailnetStatus: tailscaleStatusMonitor?.status,
+                                activeRoute: activeLoadingDiagnosticsRoute,
+                                storedRouteDescription: loadingDiagnosticsStoredRouteDescription,
+                                connectionError: loadingDiagnosticsConnectionError,
+                                connectionErrorGuidance: loadingDiagnosticsConnectionErrorGuidance,
+                                createTerminal: createTerminal,
+                                refreshConnection: refreshLoadingDiagnosticsConnection,
+                                canCreateTerminal: true
+                            )
+                        }
+                    }
             }
             #else
             TerminalPalette.background
@@ -265,8 +284,11 @@ struct WorkspaceDetailView: View {
         }
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
-            if connectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+            if loadingDiagnosticsConnectionStatus != .connected {
+                TerminalDisconnectedOverlay(
+                    status: loadingDiagnosticsConnectionStatus,
+                    host: workspace.macDisplayName ?? host
+                ) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,
