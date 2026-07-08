@@ -5320,6 +5320,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func resetTerminalOutputTracking() {
         cancelAllTerminalReplayTasks()
+        for surfaceID in terminalByteContinuationsBySurfaceID.keys {
+            terminalSyncDiagnostics.surfaceResolved(
+                surface: Self.diagnosticSurfaceHandle(surfaceID),
+                how: .reconnect,
+                transport: terminalOutputTransport.debugName
+            )
+        }
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         viewportReportGenerationsBySurfaceID = [:]
         // reportedViewportSizesByTerminalKey deliberately survives this reset:
@@ -6455,7 +6462,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSyncDiagnostics.resyncTriggered(
             trigger: .streamEnded,
             restartedStream: true,
-            surfaceCount: terminalByteContinuationsBySurfaceID.count
+            surfaces: terminalByteContinuationsBySurfaceID.keys.map(Self.diagnosticSurfaceHandle)
         )
         markMacConnectionReconnecting()
         terminalEventListenerTask = nil

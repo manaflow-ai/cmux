@@ -166,6 +166,14 @@ extension MobileShellComposite {
             surfaceID: renderGrid.surfaceID,
             bypassReplayBarrier: bypassLiveBaselineBarrier
         ) else { return }
+        if establishesRenderGridBaseline {
+            terminalSyncDiagnostics.gateResolved(
+                surface: Self.diagnosticSurfaceHandle(renderGrid.surfaceID),
+                gate: .baselineWait,
+                how: .catchupFrame,
+                transport: terminalOutputTransport.debugName
+            )
+        }
         if bypassLiveBaselineBarrier,
            terminalReplayBarrierAckStreamTokensBySurfaceID[renderGrid.surfaceID] != nil {
             cancelTerminalReplayInFlight(surfaceID: renderGrid.surfaceID)
@@ -379,6 +387,11 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
+        terminalSyncDiagnostics.surfaceResolved(
+            surface: Self.diagnosticSurfaceHandle(surfaceID),
+            how: .manualRefresh,
+            transport: terminalOutputTransport.debugName
+        )
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
                 terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
@@ -445,6 +458,11 @@ extension MobileShellComposite {
     public func terminalOutputNeedsReplay(surfaceID: String) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
         recordTerminalManualRecovery(action: .renderReset, surfaceID: surfaceID)
+        terminalSyncDiagnostics.surfaceResolved(
+            surface: Self.diagnosticSurfaceHandle(surfaceID),
+            how: .manualRefresh,
+            transport: terminalOutputTransport.debugName
+        )
         if let pendingAckToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID],
            terminalReplayBarrierTokensBySurfaceID[surfaceID] == pendingAckToken {
             // A pending viewport acknowledgement owns the next replay

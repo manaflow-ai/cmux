@@ -64,10 +64,7 @@ final class MobileTerminalSyncDiagnostics {
     }
 
     func frameApplied(surface: UInt32, transport: String) {
-        emit(stallMonitor.noteFrameApplied(surface: surface, now: now())) {
-            ["transport": .string(transport)]
-        }
-        resetDropCounts(surface: surface)
+        stallMonitor.noteFrameApplied(surface: surface, now: now())
     }
 
     func gateResolved(
@@ -187,6 +184,7 @@ final class MobileTerminalSyncDiagnostics {
             surface: surface,
             a: ViewportOutcome.cancelledSuperseded.rawValue
         ))
+        captureViewportOutcome(.cancelledSuperseded)
     }
 
     func viewportEchoStale(surface: UInt32? = nil) {
@@ -227,17 +225,21 @@ final class MobileTerminalSyncDiagnostics {
         ])
     }
 
-    func resyncTriggered(trigger: ResyncTrigger, restartedStream: Bool, surfaceCount: Int) {
+    func resyncTriggered(trigger: ResyncTrigger, restartedStream: Bool, surfaces: [UInt32]) {
+        let timestamp = now()
+        for surface in Set(surfaces) {
+            stallMonitor.noteResyncTriggered(surface: surface, now: timestamp)
+        }
         diagnosticLog?.record(DiagnosticEvent(
             .resyncTriggered,
             a: trigger.rawValue,
             b: restartedStream ? 1 : 0,
-            c: surfaceCount
+            c: surfaces.count
         ))
         captureRateLimited("ios_terminal_resync", [
             "trigger": .string(trigger.analyticsValue),
             "restarted_stream": .bool(restartedStream),
-            "surface_count": .int(surfaceCount),
+            "surface_count": .int(surfaces.count),
         ])
     }
 

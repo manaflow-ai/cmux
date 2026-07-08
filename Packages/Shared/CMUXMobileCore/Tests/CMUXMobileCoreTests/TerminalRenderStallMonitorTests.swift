@@ -34,25 +34,33 @@ import Testing
         #expect(repeated.isEmpty)
     }
 
-    @Test func frameAppliedRecoversDetectedEpisodesOnly() {
+    @Test func frameAppliedUpdatesTimestampWithoutResolvingEpisodes() {
         let start = Date(timeIntervalSince1970: 200)
         var monitor = TerminalRenderStallMonitor(stallThreshold: 5)
 
         _ = monitor.noteFrameDropped(surface: 1, gate: .replayBarrier, now: start)
         _ = monitor.noteFrameDropped(surface: 1, gate: .replayBarrier, now: start.addingTimeInterval(6))
-        let recovered = monitor.noteFrameApplied(surface: 1, now: start.addingTimeInterval(7))
+        monitor.noteFrameApplied(surface: 1, now: start.addingTimeInterval(7))
 
+        #expect(monitor.secondsSinceLastAppliedFrame(surface: 1, now: start.addingTimeInterval(10)) == 3)
+        #expect(monitor.snapshot(surface: 1, now: start.addingTimeInterval(8)).count == 1)
+        let recovered = monitor.noteGateResolved(
+            surface: 1,
+            gate: .replayBarrier,
+            how: .replayAck,
+            now: start.addingTimeInterval(9)
+        )
         #expect(recovered == [.stallRecovered(
             surface: 1,
             gate: .replayBarrier,
-            how: .catchupFrame,
-            duration: 7,
+            how: .replayAck,
+            duration: 9,
             droppedFrames: 2
         )])
-        #expect(monitor.snapshot(surface: 1, now: start.addingTimeInterval(8)).isEmpty)
 
         _ = monitor.noteFrameDropped(surface: 1, gate: .baselineWait, now: start.addingTimeInterval(9))
-        #expect(monitor.noteFrameApplied(surface: 1, now: start.addingTimeInterval(10)).isEmpty)
+        monitor.noteFrameApplied(surface: 1, now: start.addingTimeInterval(10))
+        #expect(monitor.snapshot(surface: 1, now: start.addingTimeInterval(10)).count == 1)
     }
 
     @Test func gateResolvedRecoversOnlyNamedGate() {
@@ -126,11 +134,35 @@ import Testing
         #expect(monitor.snapshot(surface: 6, now: start.addingTimeInterval(3)).count == 1)
     }
 
+    @Test func resyncTriggerAttributesEventualGateRecovery() {
+        let start = Date(timeIntervalSince1970: 375)
+        var monitor = TerminalRenderStallMonitor(stallThreshold: 1)
+
+        _ = monitor.noteFrameDropped(surface: 4, gate: .replayBarrier, now: start)
+        _ = monitor.noteFrameDropped(surface: 4, gate: .replayBarrier, now: start.addingTimeInterval(2))
+        monitor.noteResyncTriggered(surface: 4, now: start.addingTimeInterval(3))
+
+        let recovered = monitor.noteGateResolved(
+            surface: 4,
+            gate: .replayBarrier,
+            how: .replayAck,
+            now: start.addingTimeInterval(4)
+        )
+
+        #expect(recovered == [.stallRecovered(
+            surface: 4,
+            gate: .replayBarrier,
+            how: .resync,
+            duration: 4,
+            droppedFrames: 2
+        )])
+    }
+
     @Test func snapshotReportsActiveGateBitmaskAndLastAppliedAge() {
         let start = Date(timeIntervalSince1970: 400)
         var monitor = TerminalRenderStallMonitor(stallThreshold: 5)
 
-        _ = monitor.noteFrameApplied(surface: 9, now: start)
+        monitor.noteFrameApplied(surface: 9, now: start)
         _ = monitor.noteFrameDropped(surface: 9, gate: .pendingInputSeq, now: start.addingTimeInterval(1))
         _ = monitor.noteFrameDropped(surface: 9, gate: .viewportBarrier, now: start.addingTimeInterval(2))
 

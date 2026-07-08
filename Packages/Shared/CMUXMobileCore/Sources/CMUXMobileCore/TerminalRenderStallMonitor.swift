@@ -84,6 +84,7 @@ public struct TerminalRenderStallMonitor: Sendable {
         var startedAt: Date
         var droppedFrames: Int
         var detected: Bool
+        var recoveryAttribution: TerminalStallRecoveryCause?
     }
 
     /// The elapsed time after which a drop episode becomes a stall.
@@ -113,7 +114,12 @@ public struct TerminalRenderStallMonitor: Sendable {
         now: Date
     ) -> [TerminalStallEmission] {
         let key = SurfaceGate(surface: surface, gate: gate)
-        var episode = episodes[key] ?? Episode(startedAt: now, droppedFrames: 0, detected: false)
+        var episode = episodes[key] ?? Episode(
+            startedAt: now,
+            droppedFrames: 0,
+            detected: false,
+            recoveryAttribution: nil
+        )
         episode.droppedFrames += 1
         let duration = now.timeIntervalSince(episode.startedAt)
         if !episode.detected, duration >= stallThreshold {
@@ -130,21 +136,35 @@ public struct TerminalRenderStallMonitor: Sendable {
         return []
     }
 
-    /// Records that a frame applied successfully and closes open episodes.
+    /// Records that a frame applied successfully.
     ///
-    /// A painted frame proves every render gate for the surface stopped
-    /// dropping output, so this intentionally resolves all open gate episodes.
+    /// A painted frame updates the last-applied timestamp used by snapshots and
+    /// stall analytics. It does not resolve gate episodes, because other gates
+    /// may still be armed for the same surface. Call ``noteGateResolved`` or
+    /// ``noteSurfaceResolved`` when a specific gate or reset actually clears.
     ///
     /// - Parameters:
     ///   - surface: Compact numeric surface handle.
     ///   - now: Caller-injected current time.
-    /// - Returns: Recovery emissions for episodes that had crossed the stall threshold.
     public mutating func noteFrameApplied(
         surface: UInt32,
         now: Date
-    ) -> [TerminalStallEmission] {
+    ) {
         lastAppliedFrameAt[surface] = now
-        return closeEpisodes(surface: surface, how: .catchupFrame, now: now)
+    }
+
+    /// Marks currently open surface episodes as resync-attributed.
+    ///
+    /// This does not emit recovery. If one of the marked episodes later
+    /// resolves through an actual gate clear, the recovery cause is reported as
+    /// ``TerminalStallRecoveryCause/resync``.
+    public mutating func noteResyncTriggered(surface: UInt32, now: Date) {
+        let keys = episodes.keys.filter { $0.surface == surface }
+        for key in keys {
+            guard var episode = episodes[key] else { continue }
+            episode.recoveryAttribution = .resync
+            episodes[key] = episode
+        }
     }
 
     /// Records that an external gate resolution closed one gate's episode.
@@ -166,13 +186,13 @@ public struct TerminalRenderStallMonitor: Sendable {
     /// Records that a surface-level reset closed all open gate episodes.
     ///
     /// Use this only for recoveries that genuinely reset every gate for a
-    /// surface, such as resync, reconnect, manual refresh, or detach.
+    /// surface, such as reconnect, manual refresh, or detach.
     public mutating func noteSurfaceResolved(
         surface: UInt32,
         how: TerminalStallRecoveryCause,
         now: Date
     ) -> [TerminalStallEmission] {
-        closeEpisodes(surface: surface, how: how, now: now)
+        closeEpisodes(surface: surface, how: how, now: now, useAttribution: false)
     }
 
     /// Returns open episodes for one surface.
@@ -213,7 +233,8 @@ public struct TerminalRenderStallMonitor: Sendable {
     private mutating func closeEpisodes(
         surface: UInt32,
         how: TerminalStallRecoveryCause,
-        now: Date
+        now: Date,
+        useAttribution: Bool
     ) -> [TerminalStallEmission] {
         let keys = episodes.keys.filter { $0.surface == surface }
         var emissions: [TerminalStallEmission] = []
@@ -223,10 +244,11 @@ public struct TerminalRenderStallMonitor: Sendable {
                   episode.detected else {
                 continue
             }
+            let recoveredHow = useAttribution ? (episode.recoveryAttribution ?? how) : how
             emissions.append(.stallRecovered(
                 surface: surface,
                 gate: key.gate,
-                how: how,
+                how: recoveredHow,
                 duration: now.timeIntervalSince(episode.startedAt),
                 droppedFrames: episode.droppedFrames
             ))
@@ -245,10 +267,11 @@ public struct TerminalRenderStallMonitor: Sendable {
               episode.detected else {
             return []
         }
+        let recoveredHow = episode.recoveryAttribution ?? how
         return [.stallRecovered(
             surface: surface,
             gate: gate,
-            how: how,
+            how: recoveredHow,
             duration: now.timeIntervalSince(episode.startedAt),
             droppedFrames: episode.droppedFrames
         )]

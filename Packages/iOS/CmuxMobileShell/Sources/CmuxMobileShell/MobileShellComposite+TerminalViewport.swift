@@ -133,6 +133,12 @@ extension MobileShellComposite {
                 MobileDebugLog.anchormux(
                     "terminal.output.viewport_resync surface=\(surfaceID) grid=\(effectiveGrid.columns)x\(effectiveGrid.rows)"
                 )
+                terminalSyncDiagnostics.gateResolved(
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
+                    gate: .viewportBarrier,
+                    how: .barrierCleared,
+                    transport: terminalOutputTransport.debugName
+                )
                 requestTerminalReplay(
                     surfaceID: surfaceID,
                     replayBarrierToken: replayBarrierToken,
@@ -156,6 +162,12 @@ extension MobileShellComposite {
                 terminalSyncDiagnostics.viewportBarrierOutcome(
                     .rearmExhausted,
                     surface: Self.diagnosticSurfaceHandle(surfaceID)
+                )
+                terminalSyncDiagnostics.gateResolved(
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
+                    gate: .viewportBarrier,
+                    how: .barrierCleared,
+                    transport: terminalOutputTransport.debugName
                 )
                 requestTerminalReplay(
                     surfaceID: surfaceID,
@@ -306,6 +318,12 @@ extension MobileShellComposite {
            hasTerminalOutputSink(surfaceID: surfaceID),
            remoteClient != nil {
             MobileDebugLog.anchormux("terminal.output.viewport_replay_after_\(reason) surface=\(surfaceID)")
+            terminalSyncDiagnostics.gateResolved(
+                surface: Self.diagnosticSurfaceHandle(surfaceID),
+                gate: .viewportBarrier,
+                how: .barrierCleared,
+                transport: terminalOutputTransport.debugName
+            )
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: token, trigger: .viewport)
             return
         }

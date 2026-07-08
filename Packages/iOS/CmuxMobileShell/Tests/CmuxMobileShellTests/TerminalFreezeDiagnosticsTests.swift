@@ -210,6 +210,158 @@ import Testing
     #expect(resyncRows.last.map { diagnosticColumn($0, 4) } == "5")
 }
 
+@MainActor
+@Test func resyncTriggerWaitsForActualGateClearAndAttributesRecovery() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let analytics = RecordingFreezeAnalytics()
+    let diagnosticLog = DiagnosticLog(capacity: 64)
+    let store = try await makeConnectedFreezeDiagnosticsStore(
+        router: router,
+        box: box,
+        clock: clock,
+        analytics: analytics,
+        diagnosticLog: diagnosticLog
+    )
+
+    let surfaceID = "live-terminal"
+    let outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    _ = outputIterator
+    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    #expect(!store.deliverTerminalBytes(Data("drop-1".utf8), surfaceID: surfaceID))
+    clock.advance(by: 6)
+    #expect(!store.deliverTerminalBytes(Data("drop-2".utf8), surfaceID: surfaceID))
+
+    store.resyncTerminalOutput(reason: "liveness", restartEventStream: false, surfaceIDs: [surfaceID])
+
+    #expect(analytics.events(named: "ios_terminal_resync").last?["trigger"] == .string("liveness"))
+    #expect(analytics.events(named: "ios_terminal_render_stall_recovered").isEmpty)
+
+    #expect(store.clearTerminalReplayBarrierIfCurrent(
+        surfaceID: surfaceID,
+        token: barrierToken,
+        reason: "empty"
+    ))
+
+    let recoveredEvents = analytics.events(named: "ios_terminal_render_stall_recovered")
+    #expect(recoveredEvents.count == 1)
+    #expect(recoveredEvents.first?["gate"] == .string("replay_barrier"))
+    #expect(recoveredEvents.first?["recovery"] == .string("resync"))
+}
+
+@MainActor
+@Test func appliedFrameDoesNotResolveStillArmedReplayBarrier() async throws {
+    let clock = TestClock()
+    let analytics = RecordingFreezeAnalytics()
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+        analytics: analytics
+    )
+
+    let surfaceID = "live-terminal"
+    let outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    _ = outputIterator
+    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    #expect(!store.deliverTerminalBytes(Data("drop-1".utf8), surfaceID: surfaceID))
+    clock.advance(by: 6)
+    #expect(!store.deliverTerminalBytes(Data("drop-2".utf8), surfaceID: surfaceID))
+
+    store.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: 42)
+
+    #expect(analytics.events(named: "ios_terminal_render_stall").count == 1)
+    #expect(analytics.events(named: "ios_terminal_render_stall_recovered").isEmpty)
+
+    #expect(store.clearTerminalReplayBarrierIfCurrent(
+        surfaceID: surfaceID,
+        token: barrierToken,
+        reason: "empty"
+    ))
+    #expect(analytics.events(named: "ios_terminal_render_stall_recovered").count == 1)
+}
+
+@MainActor
+@Test func inputSeqCatchUpResolvesOnlyPendingInputGate() async throws {
+    let clock = TestClock()
+    let analytics = RecordingFreezeAnalytics()
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+        analytics: analytics
+    )
+
+    let surfaceID = "live-terminal"
+    let surfaceHandle = MobileShellComposite.diagnosticSurfaceHandle(surfaceID)
+    store.terminalSyncDiagnostics.renderGridDropped(
+        surface: surfaceHandle,
+        gate: .pendingInputSeq,
+        droppedFrames: 1,
+        replayRetryCount: 0,
+        barrierFollowUpCount: 0,
+        transport: "renderGrid"
+    )
+    store.terminalSyncDiagnostics.renderGridDropped(
+        surface: surfaceHandle,
+        gate: .replayBarrier,
+        droppedFrames: 1,
+        replayRetryCount: 0,
+        barrierFollowUpCount: 0,
+        transport: "renderGrid"
+    )
+    clock.advance(by: 6)
+    store.terminalSyncDiagnostics.renderGridDropped(
+        surface: surfaceHandle,
+        gate: .pendingInputSeq,
+        droppedFrames: 2,
+        replayRetryCount: 0,
+        barrierFollowUpCount: 0,
+        transport: "renderGrid"
+    )
+    store.terminalSyncDiagnostics.renderGridDropped(
+        surface: surfaceHandle,
+        gate: .replayBarrier,
+        droppedFrames: 2,
+        replayRetryCount: 0,
+        barrierFollowUpCount: 0,
+        transport: "renderGrid"
+    )
+    store.pendingTerminalByteEndSeqBySurfaceID[surfaceID] = 20
+
+    store.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: 20)
+
+    let recoveredEvents = analytics.events(named: "ios_terminal_render_stall_recovered")
+    #expect(recoveredEvents.count == 1)
+    #expect(recoveredEvents.first?["gate"] == .string("pending_input_seq"))
+    #expect(recoveredEvents.first?["recovery"] == .string("catchup_frame"))
+}
+
+@MainActor
+@Test func cancelledViewportReportCapturesBarrierOutcomeAnalytics() async throws {
+    let analytics = RecordingFreezeAnalytics()
+    let store = MobileShellComposite(
+        workspaces: PreviewMobileHost.workspaces,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+        analytics: analytics
+    )
+
+    store.terminalViewportReportCancelled(surfaceID: "live-terminal")
+
+    let viewportEvents = analytics.events(named: "ios_terminal_viewport_barrier")
+    #expect(viewportEvents.count == 1)
+    #expect(viewportEvents.first?["outcome"] == .string("cancelled_superseded"))
+}
+
 private final class RecordingFreezeAnalytics: AnalyticsEmitting, @unchecked Sendable {
     private var recorded: [(name: String, properties: [String: AnalyticsValue])] = []
 

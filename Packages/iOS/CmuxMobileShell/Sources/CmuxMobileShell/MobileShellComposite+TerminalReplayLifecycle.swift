@@ -47,6 +47,12 @@ extension MobileShellComposite {
             pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
             terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
+            terminalSyncDiagnostics.gateResolved(
+                surface: Self.diagnosticSurfaceHandle(surfaceID),
+                gate: .pendingInputSeq,
+                how: .catchupFrame,
+                transport: terminalOutputTransport.debugName
+            )
         }
         terminalSyncDiagnostics.frameApplied(
             surface: Self.diagnosticSurfaceHandle(surfaceID),
