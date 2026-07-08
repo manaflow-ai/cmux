@@ -2,7 +2,7 @@ import Foundation
 import IOKit.pwr_mgt
 import OSLog
 
-private let powerAssertionLog = Logger(subsystem: "dev.cmux", category: "power-assertion")
+nonisolated private let powerAssertionLog = Logger(subsystem: "com.cmuxterm.app", category: "power-assertion")
 
 @MainActor
 final class PowerAssertionHolder {
