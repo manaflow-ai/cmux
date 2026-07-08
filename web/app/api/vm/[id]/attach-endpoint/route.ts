@@ -44,6 +44,7 @@ export async function POST(
         const endpoint = await runVmWorkflow(openAttachEndpoint({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
           providerVmId: id,
           sessionTitle,
           options: { requireDaemon, sessionId, attachmentId },
