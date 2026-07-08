@@ -3255,14 +3255,14 @@ final class BrowserPanel: Panel, ObservableObject {
             "discard_blockers": discardBlockers,
             "restore_pending": hiddenWebViewDiscardManager.isRestoreNavigationPending,
             "has_committed_document": hasCommittedDocumentSinceWebViewReplacement,
-            "discarded_at": BrowserDiscardRestoreHeal.webViewLifecycleTimestamp(hiddenWebViewDiscardManager.discardedAt),
+            "discarded_at": Self.webViewLifecycleTimestamp(hiddenWebViewDiscardManager.discardedAt),
             "last_discard_reason": hiddenWebViewDiscardManager.lastDiscardReason.map { $0 as Any } ?? NSNull(),
             "last_restore_reason": hiddenWebViewDiscardManager.lastRestoreReason.map { $0 as Any } ?? NSNull(),
-            "last_visible_at": BrowserDiscardRestoreHeal.webViewLifecycleTimestamp(webViewLastVisibleAt),
-            "last_hidden_at": BrowserDiscardRestoreHeal.webViewLifecycleTimestamp(webViewLastHiddenAt),
-            "last_visibility_change_at": BrowserDiscardRestoreHeal.webViewLifecycleTimestamp(webViewLastVisibilityChangeAt),
+            "last_visible_at": Self.webViewLifecycleTimestamp(webViewLastVisibleAt),
+            "last_hidden_at": Self.webViewLifecycleTimestamp(webViewLastHiddenAt),
+            "last_visibility_change_at": Self.webViewLifecycleTimestamp(webViewLastVisibilityChangeAt),
             "last_visibility_change_reason": webViewLastVisibilityChangeReason.map { $0 as Any } ?? NSNull(),
-            "hidden_duration_ms": BrowserDiscardRestoreHeal.webViewHiddenDurationMilliseconds(
+            "hidden_duration_ms": Self.webViewHiddenDurationMilliseconds(
                 hiddenAt: webViewLastHiddenAt,
                 visible: isWebViewVisibleInUI,
                 now: now
@@ -3402,7 +3402,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
         allowBlankShellHeal: Bool = true
     ) -> Bool {
-        if BrowserDiscardRestoreHeal.isRestoreStalled(
+        if Self.isRestoreStalled(
             isRestoreNavigationPending: hiddenWebViewDiscardManager.isRestoreNavigationPending,
             isWebViewLoading: webView.isLoading,
             isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive,
@@ -3440,7 +3440,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> Bool {
         let intentURL = restoredHistoryCurrentURL ?? currentURL
         let isNavigationBlockedPendingConsent = intentURL.map { browserShouldBlockInsecureHTTPURL($0) } ?? false
-        guard BrowserDiscardRestoreHeal.shouldHealBlankShell(
+        guard Self.shouldHealBlankShell(
             shouldRenderWebView: shouldRenderWebView,
             isClosing: isClosingWebViewLifecycle,
             hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
@@ -3467,8 +3467,8 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshWebViewLifecycleState()
     }
 
-    private func noteDiscardedWebViewRestoreNavigationCommitted() {
-        guard hiddenWebViewDiscardManager.noteRestoreNavigationCommitted(reason: "navigation_commit") else {
+    private func noteDiscardedWebViewRestoreNavigationCommitted(reason: String = "navigation_commit") {
+        guard hiddenWebViewDiscardManager.noteRestoreNavigationCommitted(reason: reason) else {
             return
         }
         refreshWebViewLifecycleState()
@@ -3928,6 +3928,13 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.navigationDelegate?.clearAttemptedRequest()
                 self.refreshBackgroundAppearance()
                 self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
+            }
+        }
+        navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame in
+            MainActor.assumeIsolated {
+                guard isMainFrame else { return }
+                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
             }
         }
     }

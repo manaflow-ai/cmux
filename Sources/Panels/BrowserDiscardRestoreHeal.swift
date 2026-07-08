@@ -1,16 +1,11 @@
 import Foundation
 
-@MainActor
-enum BrowserDiscardRestoreHeal {
-    private static let webViewLifecycleTimestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
+extension BrowserPanel {
     static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
         guard let date else { return NSNull() }
-        return webViewLifecycleTimestampFormatter.string(from: date)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     static func webViewHiddenDurationMilliseconds(
@@ -22,13 +17,13 @@ enum BrowserDiscardRestoreHeal {
         return max(0, Int((now.timeIntervalSince(hiddenAt) * 1000.0).rounded()))
     }
 
-    static func isAboutBlankURL(_ url: URL?) -> Bool {
+    nonisolated static func isAboutBlankURL(_ url: URL?) -> Bool {
         guard let url else { return false }
         let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
         return value.caseInsensitiveCompare("about:blank") == .orderedSame
     }
 
-    static func shouldHealBlankShell(
+    nonisolated static func shouldHealBlankShell(
         shouldRenderWebView: Bool,
         isClosing: Bool,
         hasPendingRemoteNavigation: Bool,
@@ -49,7 +44,7 @@ enum BrowserDiscardRestoreHeal {
         return !isAboutBlankURL(intentURL)
     }
 
-    static func isRestoreStalled(
+    nonisolated static func isRestoreStalled(
         isRestoreNavigationPending: Bool,
         isWebViewLoading: Bool,
         isMainFrameProvisionalNavigationActive: Bool,

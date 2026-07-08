@@ -260,6 +260,9 @@ final class BrowserHiddenWebViewDiscardManager {
     func noteRestoreNavigationStarted(reason: String) {
         guard isDiscardedForMemory else { return }
         isRestoreNavigationPending = true
+#if DEBUG
+        cmuxDebugLog("browser.discard.restoreNavigation.start reason=\(reason)")
+#endif
     }
 
     @discardableResult
@@ -271,6 +274,9 @@ final class BrowserHiddenWebViewDiscardManager {
     func noteRestoreNavigationDidNotCommit(reason: String) {
         guard isDiscardedForMemory else { return }
         isRestoreNavigationPending = false
+#if DEBUG
+        cmuxDebugLog("browser.discard.restoreNavigation.didNotCommit reason=\(reason)")
+#endif
     }
 
     @discardableResult
@@ -278,7 +284,7 @@ final class BrowserHiddenWebViewDiscardManager {
         guard isDiscardedForMemory else { return false }
         cancel()
         performReactivate()
-        return true
+        return clearDiscardState(reason: reason)
     }
 
     func updateRestoredSessionRenderIntent(_ shouldRenderWebView: Bool?) {
@@ -292,6 +298,7 @@ final class BrowserHiddenWebViewDiscardManager {
         isRestoreNavigationPending = false
         discardedAt = nil
         lastRestoreReason = reason
+        updateRestoredSessionRenderIntent(nil)
         return true
     }
 

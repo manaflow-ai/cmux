@@ -10,6 +10,7 @@ import WebKit
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView) -> Void)?
+    var didBecomeDownload: ((WKWebView, Bool) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -591,6 +592,7 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
+        didBecomeDownload?(webView, navigationAction.targetFrame?.isMainFrame ?? true)
         download.delegate = downloadDelegate
     }
 
@@ -599,6 +601,7 @@ import WebKit
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
+        didBecomeDownload?(webView, navigationResponse.isForMainFrame)
         download.delegate = downloadDelegate
     }
 }
