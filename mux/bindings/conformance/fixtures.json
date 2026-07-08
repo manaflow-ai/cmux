@@ -138,6 +138,9 @@
     },
     {
       "name": "implemented-verbs-json",
+      "requires": {
+        "commands": ["run", "wait-for", "send-key", "copy", "ids", "notify", "list-agents", "report-agent"]
+      },
       "steps": [
         {
           "type": "command",
