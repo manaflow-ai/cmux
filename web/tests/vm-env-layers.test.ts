@@ -108,6 +108,46 @@ describe("env layer cache", () => {
     expect(shallow?.stepIndex).toBe(0);
   });
 
+  dbTest("resolve derives depth from the requested chain, not stored stepIndex", async () => {
+    const scope = { userId: "user-envlayer-5", billingTeamId: "team-envlayer-depth" };
+    // Register the chain's FIRST hash with a bogus deep stepIndex. Resolve
+    // must skip it (stored index disagrees with the hash's position in the
+    // requested chain) instead of letting it outrank the honest layer below,
+    // which would make builds skip real steps.
+    const bogusSnapshot = "snap-envlayer-depth-bogus";
+    await grantSnapshotOwnership({ ...scope, snapshotId: bogusSnapshot });
+    await run(recordEnvLayer({
+      ...scope,
+      provider: "freestyle",
+      baseImageId: "img-envlayer",
+      chainHash: "hash-envlayer-depth-0",
+      stepIndex: 5,
+      stepName: "bogus",
+      specDigest: "digest-envlayer-depth",
+      snapshotId: bogusSnapshot,
+    }));
+    const honestSnapshot = "snap-envlayer-depth-1";
+    await grantSnapshotOwnership({ ...scope, snapshotId: honestSnapshot });
+    await run(recordEnvLayer({
+      ...scope,
+      provider: "freestyle",
+      baseImageId: "img-envlayer",
+      chainHash: "hash-envlayer-depth-1",
+      stepIndex: 1,
+      stepName: "step 1",
+      specDigest: "digest-envlayer-depth",
+      snapshotId: honestSnapshot,
+    }));
+
+    const layer = await run(resolveEnvLayers({
+      billingTeamId: scope.billingTeamId,
+      provider: "freestyle",
+      chainHashes: ["hash-envlayer-depth-0", "hash-envlayer-depth-1", "hash-envlayer-depth-2"],
+    }));
+    expect(layer?.snapshotId).toBe(honestSnapshot);
+    expect(layer?.stepIndex).toBe(1);
+  });
+
   dbTest("layers are isolated per billing team", async () => {
     const owner = { userId: "user-envlayer-2", billingTeamId: "team-envlayer-owner" };
     const snapshotId = "snap-envlayer-isolated";

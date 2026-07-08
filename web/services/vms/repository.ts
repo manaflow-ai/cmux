@@ -1353,7 +1353,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
     dbEffect("findDeepestEnvLayer", async () => {
       if (input.chainHashes.length === 0) return null;
       const db = cloudDb();
-      const [layer] = await db
+      const rows = await db
         .select()
         .from(cloudVmEnvLayers)
         .where(
@@ -1363,15 +1363,29 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             inArray(cloudVmEnvLayers.chainHash, [...input.chainHashes]),
             isNull(cloudVmEnvLayers.invalidatedAt),
           ),
-        )
-        .orderBy(desc(cloudVmEnvLayers.stepIndex))
-        .limit(1);
-      if (!layer) return null;
+        );
+      // Depth comes from the position of the hash in the caller's chain, not
+      // from the stored (client-supplied) stepIndex: a chain hash encodes its
+      // whole step prefix, so each hash has exactly one valid depth for this
+      // request. Rows whose stored index disagrees are skipped as corrupt so a
+      // stale or manual registration can never make resolve skip real steps.
+      const depthByHash = new Map(input.chainHashes.map((hash, index) => [hash, index]));
+      let deepest: CloudVmEnvLayerRow | null = null;
+      let deepestDepth = -1;
+      for (const row of rows) {
+        const depth = depthByHash.get(row.chainHash);
+        if (depth === undefined || row.stepIndex !== depth) continue;
+        if (depth > deepestDepth) {
+          deepest = row;
+          deepestDepth = depth;
+        }
+      }
+      if (!deepest) return null;
       await db
         .update(cloudVmEnvLayers)
         .set({ lastUsedAt: new Date() })
-        .where(eq(cloudVmEnvLayers.id, layer.id));
-      return layer;
+        .where(eq(cloudVmEnvLayers.id, deepest.id));
+      return deepest;
     }),
 
   insertEnvLayer: (input) =>

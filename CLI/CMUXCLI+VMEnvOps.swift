@@ -162,7 +162,12 @@ extension CMUXCLI {
         }
         let command: String
         if let stepOpt {
-            command = "tail -c 65536 \(Self.vmEnvDir)/step-\(stepOpt).log 2>/dev/null || echo 'no log for step \(stepOpt)'"
+            // Parse as an integer before interpolating into the in-VM shell
+            // command; a raw value could smuggle arbitrary shell text.
+            guard let stepIndex = Int(stepOpt), stepIndex >= 0 else {
+                throw CLIError(message: "vm env logs: --step must be a non-negative integer")
+            }
+            command = "tail -c 65536 \(Self.vmEnvDir)/step-\(stepIndex).log 2>/dev/null || echo 'no log for step \(stepIndex)'"
         } else {
             command = "ls -la \(Self.vmEnvDir) 2>/dev/null && for f in \(Self.vmEnvDir)/*.log; do echo \"== $f\"; tail -c 4096 \"$f\"; done"
         }
