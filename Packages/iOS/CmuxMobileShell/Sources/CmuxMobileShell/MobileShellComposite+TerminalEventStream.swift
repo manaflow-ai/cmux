@@ -223,7 +223,7 @@ extension MobileShellComposite {
             "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
         )
         for surfaceID in surfaceIDs {
-            terminalSyncDiagnostics.gateResolved(
+            terminalSyncDiagnostics.surfaceResolved(
                 surface: Self.diagnosticSurfaceHandle(surfaceID),
                 how: .resync,
                 transport: terminalOutputTransport.debugName

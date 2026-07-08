@@ -60,10 +60,12 @@ import Testing
 @MainActor
 @Test func nonUTF8RawInputEmitsExistingDroppedInputEventWithReason() async throws {
     let analytics = RecordingFreezeAnalytics()
+    let diagnosticLog = DiagnosticLog(capacity: 64)
     let store = MobileShellComposite(
         workspaces: PreviewMobileHost.workspaces,
         deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
-        analytics: analytics
+        analytics: analytics,
+        diagnosticLog: diagnosticLog
     )
 
     await store.submitTerminalRawInput(Data([0xff, 0xfe]), surfaceID: "live-terminal")
@@ -72,6 +74,57 @@ import Testing
     #expect(dropped.count == 1)
     #expect(dropped.first?["reason"] == .string("non_utf8"))
     #expect(dropped.first?["pending_byte_count"] == nil)
+
+    await waitForDiagnosticEvents(diagnosticLog, atLeast: 1)
+    let rows = diagnosticRows(await diagnosticLog.export())
+    let inputDropRows = rows.filter { diagnosticColumn($0, 1) == "46" }
+    #expect(inputDropRows.count == 1)
+    #expect(inputDropRows.first.map { diagnosticColumn($0, 4) } == "2")
+    #expect(inputDropRows.first.map { diagnosticColumn($0, 5) } == "")
+}
+
+@MainActor
+@Test func replayBarrierFailureClearDoesNotRecoverAsReplayAck() async throws {
+    let clock = TestClock()
+    let analytics = RecordingFreezeAnalytics()
+    let diagnosticLog = DiagnosticLog(capacity: 64)
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+        analytics: analytics,
+        diagnosticLog: diagnosticLog
+    )
+
+    let surfaceID = "live-terminal"
+    let outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    _ = outputIterator
+    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    #expect(!store.deliverTerminalBytes(Data("drop-1".utf8), surfaceID: surfaceID))
+    clock.advance(by: 6)
+    #expect(!store.deliverTerminalBytes(Data("drop-2".utf8), surfaceID: surfaceID))
+
+    #expect(store.clearTerminalReplayBarrierIfCurrent(
+        surfaceID: surfaceID,
+        token: barrierToken,
+        reason: "empty"
+    ))
+
+    let recoveredEvents = analytics.events(named: "ios_terminal_render_stall_recovered")
+    #expect(recoveredEvents.count == 1)
+    #expect(recoveredEvents.first?["gate"] == .string("replay_barrier"))
+    #expect(recoveredEvents.first?["recovery"] == .string("barrier_cleared"))
+    #expect(recoveredEvents.first?["recovery"] != .string("replay_ack"))
+
+    await waitForDiagnosticEvents(diagnosticLog, atLeast: 5)
+    let rows = diagnosticRows(await diagnosticLog.export())
+    let recoveryRows = rows.filter { diagnosticColumn($0, 1) == "26" }
+    #expect(recoveryRows.count == 1)
+    #expect(recoveryRows.first.map { diagnosticColumn($0, 5) } == "7")
 }
 
 @MainActor
@@ -126,6 +179,9 @@ import Testing
     let preservedRows = rows.filter { diagnosticColumn($0, 1) == "34" }
     #expect(preservedRows.count == 1)
     #expect(preservedRows.first.map { diagnosticColumn($0, 4) } == "15")
+    let leakedRows = rows.filter { diagnosticColumn($0, 1) == "45" }
+    #expect(leakedRows.count == 1)
+    #expect(leakedRows.first.map { diagnosticColumn($0, 4) } == "3")
 }
 
 @MainActor

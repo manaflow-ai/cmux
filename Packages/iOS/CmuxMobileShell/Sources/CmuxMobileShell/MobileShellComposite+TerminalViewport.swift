@@ -75,11 +75,18 @@ extension MobileShellComposite {
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else {
-                clearTerminalReplayBarrierIfCurrent(
+                if clearTerminalReplayBarrierIfCurrent(
                     surfaceID: surfaceID,
                     token: prearmedReplayBarrierToken,
                     reason: "viewport_stale_client"
-                )
+                ) {
+                    terminalSyncDiagnostics.gateResolved(
+                        surface: Self.diagnosticSurfaceHandle(surfaceID),
+                        gate: .viewportBarrier,
+                        how: .barrierCleared,
+                        transport: terminalOutputTransport.debugName
+                    )
+                }
                 return nil
             }
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
@@ -302,10 +309,17 @@ extension MobileShellComposite {
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: token, trigger: .viewport)
             return
         }
-        clearTerminalReplayBarrierIfCurrent(
+        if clearTerminalReplayBarrierIfCurrent(
             surfaceID: surfaceID,
             token: token,
             reason: reason
-        )
+        ) {
+            terminalSyncDiagnostics.gateResolved(
+                surface: Self.diagnosticSurfaceHandle(surfaceID),
+                gate: .viewportBarrier,
+                how: .barrierCleared,
+                transport: terminalOutputTransport.debugName
+            )
+        }
     }
 }

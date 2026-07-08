@@ -6493,7 +6493,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func unregisterTerminalOutput(surfaceID: String) {
-        terminalSyncDiagnostics.gateResolved(
+        terminalSyncDiagnostics.surfaceResolved(
             surface: Self.diagnosticSurfaceHandle(surfaceID),
             how: .surfaceDetached,
             transport: terminalOutputTransport.debugName

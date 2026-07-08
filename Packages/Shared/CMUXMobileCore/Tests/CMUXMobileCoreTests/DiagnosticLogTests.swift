@@ -153,7 +153,7 @@ import Testing
     @Test func exportRowsIncludeRenderFreezeDiagnosticCodes() async {
         let log = DiagnosticLog(capacity: 32)
         let events = DiagnosticEventCode.allCases
-            .filter { (25...44).contains($0.rawValue) }
+            .filter { (25...46).contains($0.rawValue) }
             .enumerated()
             .map { index, code in
                 DiagnosticEvent(
@@ -170,7 +170,7 @@ import Testing
         }
 
         let text = String(decoding: await log.export(), as: UTF8.self)
-        for code in 25...44 {
+        for code in 25...46 {
             #expect(text.contains(",\(code),9,123,1,2,"))
         }
     }

@@ -3,136 +3,6 @@ internal import CmuxMobileDiagnostics
 import Foundation
 @MainActor
 final class MobileTerminalSyncDiagnostics {
-    enum ReplayTrigger: Int, Sendable {
-        case coldAttach = 1, barrier = 2, droppedRenderGrid = 3, resync = 4
-        case baseline = 5, viewport = 6, pendingInput = 7
-        var analyticsValue: String {
-            switch self {
-            case .coldAttach: "cold_attach"
-            case .barrier: "barrier"
-            case .droppedRenderGrid: "dropped_render_grid"
-            case .resync: "resync"
-            case .baseline: "baseline"
-            case .viewport: "viewport"
-            case .pendingInput: "pending_input"
-            }
-        }
-    }
-    enum ReplayFailureReason: Int, Sendable {
-        case rpcError = 1, empty = 2, staleSequence = 3, bytesNoSeq = 4
-        case notDelivered = 5, pendingInputExhausted = 6, staleClient = 7
-        case workspaceNotFound = 8, noRemoteClient = 9
-        var analyticsValue: String {
-            switch self {
-            case .rpcError: "rpc_error"
-            case .empty: "empty"
-            case .staleSequence: "stale_sequence"
-            case .bytesNoSeq: "bytes_no_seq"
-            case .notDelivered: "not_delivered"
-            case .pendingInputExhausted: "pending_input_exhausted"
-            case .staleClient: "stale_client"
-            case .workspaceNotFound: "workspace_not_found"
-            case .noRemoteClient: "no_remote_client"
-            }
-        }
-    }
-    enum BarrierReason: Int, Sendable {
-        case replayAck = 1, staleClient = 2, staleSequence = 3
-        case pendingInputExhausted = 4, notDelivered = 5, empty = 6, bytesNoSeq = 7
-        case viewportMissingGrid = 8, viewportUnchanged = 9, viewportFailed = 10
-        case viewportStaleClient = 11, coldAttachFailed = 12, noRemoteClient = 13
-        case workspaceNotFound = 14, failed = 15, resetReplayAck = 16
-        static func from(_ reason: String) -> BarrierReason {
-            switch reason {
-            case "stale_client": .staleClient
-            case "stale_sequence": .staleSequence
-            case "pending_input_exhausted": .pendingInputExhausted
-            case "not_delivered": .notDelivered
-            case "empty": .empty
-            case "bytes_no_seq": .bytesNoSeq
-            case "viewport_missing_grid": .viewportMissingGrid
-            case "viewport_unchanged": .viewportUnchanged
-            case "viewport_failed": .viewportFailed
-            case "viewport_stale_client": .viewportStaleClient
-            case "cold_attach_failed": .coldAttachFailed
-            case "no_remote_client": .noRemoteClient
-            case "workspace_not_found": .workspaceNotFound
-            case "reset_replay_ack": .resetReplayAck
-            default: .failed
-            }
-        }
-    }
-    enum ViewportOutcome: Int, Sendable {
-        case staleEchoRejected = 1, rearmExhausted = 2
-        case leakedPreserved = 3, cancelledSuperseded = 4
-        var analyticsValue: String {
-            switch self {
-            case .staleEchoRejected: "stale_echo_rejected"
-            case .rearmExhausted: "rearm_exhausted"
-            case .leakedPreserved: "leaked_preserved"
-            case .cancelledSuperseded: "cancelled_superseded"
-            }
-        }
-    }
-    enum LivenessResult: Int, Sendable {
-        case ok = 1, repaired = 2, failedResync = 3
-        var analyticsValue: String {
-            switch self {
-            case .ok: "ok"
-            case .repaired: "repaired"
-            case .failedResync: "failed_resync"
-            }
-        }
-    }
-    enum ResyncTrigger: Int, Sendable {
-        case liveness = 1, foreground = 2, networkChange = 3
-        case manual = 4, inputSeqBehind = 5, streamEnded = 6, other = 7
-        var analyticsValue: String {
-            switch self {
-            case .liveness: "liveness"
-            case .foreground: "foreground"
-            case .networkChange: "network_change"
-            case .manual: "manual"
-            case .inputSeqBehind: "input_seq_behind"
-            case .streamEnded: "stream_ended"
-            case .other: "other"
-            }
-        }
-
-        static func from(reason: String) -> ResyncTrigger {
-            if reason == "liveness" { return .liveness }
-            if reason == "foreground" { return .foreground }
-            if reason.contains("networkRecovery.networkChange") { return .networkChange }
-            if reason.contains("networkRecovery.manual") { return .manual }
-            if reason == "input_seq_behind" || reason == "seq_gap" { return .inputSeqBehind }
-            if reason == "stream_ended" { return .streamEnded }
-            return .other
-        }
-    }
-
-    enum ManualRecoveryAction: Int, Sendable {
-        case pullToRefresh = 1, reconnectTap = 2, renderReset = 3
-
-        var analyticsValue: String {
-            switch self {
-            case .pullToRefresh: "pull_to_refresh"
-            case .reconnectTap: "reconnect_tap"
-            case .renderReset: "render_reset"
-            }
-        }
-    }
-
-    enum InputDropReason: Int, Sendable {
-        case queueFull = 1, nonUTF8 = 2
-
-        var analyticsValue: String {
-            switch self {
-            case .queueFull: "queue_full"
-            case .nonUTF8: "non_utf8"
-            }
-        }
-    }
-
     private let diagnosticLog: DiagnosticLog?
     private let analytics: any AnalyticsEmitting
     private let now: () -> Date
@@ -174,6 +44,9 @@ final class MobileTerminalSyncDiagnostics {
         let sampleCount = droppedFrames > previousDropCount ? droppedFrames : previousDropCount + 1
         dropCountsBySurfaceGate[dropKey] = sampleCount
         if TerminalDiagnosticsRateLimiter.shouldSampleFrameDrop(count: sampleCount) {
+            if gate == .baselineWait {
+                diagnosticLog?.record(DiagnosticEvent(.baselineWaitStarted, surface: surface))
+            }
             diagnosticLog?.record(DiagnosticEvent(
                 .renderGridDropped,
                 surface: surface,
@@ -197,8 +70,20 @@ final class MobileTerminalSyncDiagnostics {
         resetDropCounts(surface: surface)
     }
 
-    func gateResolved(surface: UInt32, how: TerminalStallRecoveryCause, transport: String) {
-        emit(stallMonitor.noteGateResolved(surface: surface, how: how, now: now())) {
+    func gateResolved(
+        surface: UInt32,
+        gate: TerminalRenderDropGate,
+        how: TerminalStallRecoveryCause,
+        transport: String
+    ) {
+        emit(stallMonitor.noteGateResolved(surface: surface, gate: gate, how: how, now: now())) {
+            ["transport": .string(transport)]
+        }
+        resetDropCount(surface: surface, gate: gate)
+    }
+
+    func surfaceResolved(surface: UInt32, how: TerminalStallRecoveryCause, transport: String) {
+        emit(stallMonitor.noteSurfaceResolved(surface: surface, how: how, now: now())) {
             ["transport": .string(transport)]
         }
         resetDropCounts(surface: surface)
@@ -276,7 +161,12 @@ final class MobileTerminalSyncDiagnostics {
             ms: latency,
             a: reason.rawValue
         ))
-        gateResolved(surface: surface, how: .replayAck, transport: transport)
+        gateResolved(
+            surface: surface,
+            gate: .replayBarrier,
+            how: reason.stallRecoveryCause,
+            transport: transport
+        )
     }
 
     func barrierPreserved(surface: UInt32, reason: BarrierReason) {
@@ -287,20 +177,24 @@ final class MobileTerminalSyncDiagnostics {
         ))
     }
 
-    func baselineWaitStarted(surface: UInt32) {
-        diagnosticLog?.record(DiagnosticEvent(.baselineWaitStarted, surface: surface))
-    }
-
     func viewportReportSuperseded(surface: UInt32? = nil) {
         diagnosticLog?.record(DiagnosticEvent(.viewportReportSuperseded, surface: surface))
     }
 
     func viewportReportCancelled(surface: UInt32? = nil) {
-        diagnosticLog?.record(DiagnosticEvent(.viewportReportCancelled, surface: surface))
+        diagnosticLog?.record(DiagnosticEvent(
+            .viewportReportCancelled,
+            surface: surface,
+            a: ViewportOutcome.cancelledSuperseded.rawValue
+        ))
     }
 
     func viewportEchoStale(surface: UInt32? = nil) {
-        diagnosticLog?.record(DiagnosticEvent(.viewportEchoStale, surface: surface))
+        diagnosticLog?.record(DiagnosticEvent(
+            .viewportEchoStale,
+            surface: surface,
+            a: ViewportOutcome.staleEchoRejected.rawValue
+        ))
         captureViewportOutcome(.staleEchoRejected)
     }
 
@@ -308,8 +202,7 @@ final class MobileTerminalSyncDiagnostics {
         let code: DiagnosticEventCode
         switch outcome {
         case .leakedPreserved:
-            captureViewportOutcome(outcome, count: count)
-            return
+            code = .viewportBarrierLeakedPreserved
         case .rearmExhausted:
             code = .viewportBarrierRearmExhausted
         case .cancelledSuperseded:
@@ -406,6 +299,11 @@ final class MobileTerminalSyncDiagnostics {
     }
 
     func inputDropped(reason: InputDropReason, pendingBytes: Int?) {
+        diagnosticLog?.record(DiagnosticEvent(
+            .inputDropped,
+            a: reason.rawValue,
+            b: pendingBytes
+        ))
         var props: [String: AnalyticsValue] = ["reason": .string(reason.analyticsValue)]
         if let pendingBytes { props["pending_byte_count"] = .int(pendingBytes) }
         analytics.capture("ios_terminal_input_dropped", props)
@@ -472,28 +370,8 @@ final class MobileTerminalSyncDiagnostics {
         let prefix = "\(surface):"
         dropCountsBySurfaceGate = dropCountsBySurfaceGate.filter { !$0.key.hasPrefix(prefix) }
     }
-}
 
-extension TerminalRenderDropGate {
-    var analyticsValue: String {
-        switch self {
-        case .pendingInputSeq: "pending_input_seq"
-        case .replayBarrier: "replay_barrier"
-        case .baselineWait: "baseline_wait"
-        case .viewportBarrier: "viewport_barrier"
-        }
-    }
-}
-
-extension TerminalStallRecoveryCause {
-    var analyticsValue: String {
-        switch self {
-        case .catchupFrame: "catchup_frame"
-        case .replayAck: "replay_ack"
-        case .resync: "resync"
-        case .manualRefresh: "manual_refresh"
-        case .reconnect: "reconnect"
-        case .surfaceDetached: "surface_detached"
-        }
+    private func resetDropCount(surface: UInt32, gate: TerminalRenderDropGate) {
+        dropCountsBySurfaceGate.removeValue(forKey: "\(surface):\(gate.rawValue)")
     }
 }

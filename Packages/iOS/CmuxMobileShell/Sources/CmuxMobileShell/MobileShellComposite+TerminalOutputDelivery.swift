@@ -106,7 +106,6 @@ extension MobileShellComposite {
                 deliverTerminalViewportPolicy(renderGrid.mobileViewportPolicy, surfaceID: renderGrid.surfaceID)
             }
             MobileDebugLog.anchormux("sync.render_grid_waiting_for_baseline source=\(source) surface=\(renderGrid.surfaceID) seq=\(renderGrid.stateSeq)")
-            terminalSyncDiagnostics.baselineWaitStarted(surface: Self.diagnosticSurfaceHandle(renderGrid.surfaceID))
             terminalSyncDiagnostics.renderGridDropped(
                 surface: Self.diagnosticSurfaceHandle(renderGrid.surfaceID),
                 gate: .baselineWait,

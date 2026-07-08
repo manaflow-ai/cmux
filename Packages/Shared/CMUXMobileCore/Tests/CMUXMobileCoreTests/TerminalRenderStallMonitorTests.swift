@@ -55,7 +55,7 @@ import Testing
         #expect(monitor.noteFrameApplied(surface: 1, now: start.addingTimeInterval(10)).isEmpty)
     }
 
-    @Test func gateResolvedRecoversAllDetectedGatesForSurface() {
+    @Test func gateResolvedRecoversOnlyNamedGate() {
         let start = Date(timeIntervalSince1970: 300)
         var monitor = TerminalRenderStallMonitor(stallThreshold: 1)
 
@@ -68,7 +68,43 @@ import Testing
 
         let recovered = monitor.noteGateResolved(
             surface: 5,
+            gate: .replayBarrier,
             how: .replayAck,
+            now: start.addingTimeInterval(3)
+        )
+
+        #expect(recovered == [.stallRecovered(
+            surface: 5,
+            gate: .replayBarrier,
+            how: .replayAck,
+            duration: 3,
+            droppedFrames: 2
+        )])
+        let remaining = monitor.snapshot(surface: 5, now: start.addingTimeInterval(4))
+        #expect(remaining == [TerminalRenderStallSnapshot(
+            surface: 5,
+            gate: .pendingInputSeq,
+            droppedFrames: 2,
+            duration: 4,
+            stallDetected: true
+        )])
+        #expect(monitor.snapshot(surface: 6, now: start.addingTimeInterval(3)).count == 1)
+    }
+
+    @Test func surfaceResolvedRecoversAllDetectedGatesForSurface() {
+        let start = Date(timeIntervalSince1970: 350)
+        var monitor = TerminalRenderStallMonitor(stallThreshold: 1)
+
+        _ = monitor.noteFrameDropped(surface: 5, gate: .pendingInputSeq, now: start)
+        _ = monitor.noteFrameDropped(surface: 5, gate: .replayBarrier, now: start)
+        _ = monitor.noteFrameDropped(surface: 6, gate: .viewportBarrier, now: start)
+        _ = monitor.noteFrameDropped(surface: 5, gate: .pendingInputSeq, now: start.addingTimeInterval(2))
+        _ = monitor.noteFrameDropped(surface: 5, gate: .replayBarrier, now: start.addingTimeInterval(2))
+        _ = monitor.noteFrameDropped(surface: 6, gate: .viewportBarrier, now: start.addingTimeInterval(2))
+
+        let recovered = monitor.noteSurfaceResolved(
+            surface: 5,
+            how: .resync,
             now: start.addingTimeInterval(3)
         )
 
@@ -76,14 +112,14 @@ import Testing
         #expect(recovered.contains(.stallRecovered(
             surface: 5,
             gate: .pendingInputSeq,
-            how: .replayAck,
+            how: .resync,
             duration: 3,
             droppedFrames: 2
         )))
         #expect(recovered.contains(.stallRecovered(
             surface: 5,
             gate: .replayBarrier,
-            how: .replayAck,
+            how: .resync,
             duration: 3,
             droppedFrames: 2
         )))

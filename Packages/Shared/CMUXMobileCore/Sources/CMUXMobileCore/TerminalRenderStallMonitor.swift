@@ -31,6 +31,8 @@ public enum TerminalStallRecoveryCause: UInt8, Sendable, Codable, CaseIterable {
     case reconnect = 5
     /// The surface detached, so the episode is no longer relevant.
     case surfaceDetached = 6
+    /// A barrier cleared for a non-ack reason.
+    case barrierCleared = 7
 }
 
 /// A stall monitor emission that callers can record or upload.
@@ -130,6 +132,9 @@ public struct TerminalRenderStallMonitor: Sendable {
 
     /// Records that a frame applied successfully and closes open episodes.
     ///
+    /// A painted frame proves every render gate for the surface stopped
+    /// dropping output, so this intentionally resolves all open gate episodes.
+    ///
     /// - Parameters:
     ///   - surface: Compact numeric surface handle.
     ///   - now: Caller-injected current time.
@@ -142,7 +147,7 @@ public struct TerminalRenderStallMonitor: Sendable {
         return closeEpisodes(surface: surface, how: .catchupFrame, now: now)
     }
 
-    /// Records that an external gate resolution closed open episodes.
+    /// Records that an external gate resolution closed one gate's episode.
     ///
     /// - Parameters:
     ///   - surface: Compact numeric surface handle.
@@ -150,6 +155,19 @@ public struct TerminalRenderStallMonitor: Sendable {
     ///   - now: Caller-injected current time.
     /// - Returns: Recovery emissions for episodes that had crossed the stall threshold.
     public mutating func noteGateResolved(
+        surface: UInt32,
+        gate: TerminalRenderDropGate,
+        how: TerminalStallRecoveryCause,
+        now: Date
+    ) -> [TerminalStallEmission] {
+        closeEpisode(surface: surface, gate: gate, how: how, now: now)
+    }
+
+    /// Records that a surface-level reset closed all open gate episodes.
+    ///
+    /// Use this only for recoveries that genuinely reset every gate for a
+    /// surface, such as resync, reconnect, manual refresh, or detach.
+    public mutating func noteSurfaceResolved(
         surface: UInt32,
         how: TerminalStallRecoveryCause,
         now: Date
@@ -214,5 +232,25 @@ public struct TerminalRenderStallMonitor: Sendable {
             ))
         }
         return emissions
+    }
+
+    private mutating func closeEpisode(
+        surface: UInt32,
+        gate: TerminalRenderDropGate,
+        how: TerminalStallRecoveryCause,
+        now: Date
+    ) -> [TerminalStallEmission] {
+        let key = SurfaceGate(surface: surface, gate: gate)
+        guard let episode = episodes.removeValue(forKey: key),
+              episode.detected else {
+            return []
+        }
+        return [.stallRecovered(
+            surface: surface,
+            gate: gate,
+            how: how,
+            duration: now.timeIntervalSince(episode.startedAt),
+            droppedFrames: episode.droppedFrames
+        )]
     }
 }
