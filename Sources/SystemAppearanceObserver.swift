@@ -124,7 +124,9 @@ final class SystemAppearanceObserver {
         let prefersDark = environment.effectivePrefersDark()
         guard prefersDark != lastResolvedPrefersDark else { return }
         lastResolvedPrefersDark = prefersDark
+#if DEBUG
         cmuxDebugLog("systemAppearance.observer.change prefersDark=\(prefersDark)")
+#endif
         environment.postSystemAppearanceDidChange()
     }
 }
