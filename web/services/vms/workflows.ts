@@ -356,6 +356,7 @@ function finishBaseCreate(
     readonly billingCustomerType: BillingCustomerType;
     readonly billingTeamId: string;
     readonly billingPlanId: string;
+    readonly maxActiveVms: number;
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
@@ -381,6 +382,17 @@ function finishBaseCreate(
         return yield* Effect.fail(
           new VmCreateInProgressError({ idempotencyKey: existing.idempotencyKey ?? "" }),
         );
+      }
+      const replacement = yield* reopenBaseIfProviderDeleted(
+        repo,
+        providers,
+        input,
+        create,
+        existing,
+        existing.providerVmId,
+      );
+      if (replacement) {
+        return yield* finishBaseCreate(repo, providers, billing, input, replacement);
       }
       return baseVmEntryFromRows(create.base, create.generation, existing, null);
     }
@@ -496,6 +508,54 @@ function finishBaseCreate(
       create.previousVm?.providerVmId ?? null,
     );
   });
+}
+
+function reopenBaseIfProviderDeleted(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & { readonly timing?: VmTimingSink },
+  create: Extract<BeginBaseCreateResult, { readonly kind: "existing" }>,
+  existing: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<BeginBaseCreateResult | null, VmWorkflowError, never> {
+  const getStatus = providers.getStatus;
+  if (!getStatus) return Effect.succeed(null);
+  return getStatus(existing.provider, providerVmId).pipe(
+    Effect.as(null),
+    Effect.catchAll((err) =>
+      isProviderNotFoundError(err)
+        ? Effect.gen(function* () {
+          const markedDestroyed = yield* repo.markProviderObservedStatus({
+            id: existing.id,
+            providerVmId,
+            status: "destroyed",
+          });
+          if (!markedDestroyed) {
+            return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+          }
+          yield* repo.recordUsageEvent({
+            userId: existing.userId,
+            billingTeamId: existing.billingTeamId,
+            billingPlanId: existing.billingPlanId,
+            vmId: existing.id,
+            eventType: "vm.destroyed",
+            provider: existing.provider,
+            imageId: existing.imageId,
+            metadata: {
+              source: "base_open_provider_missing",
+              baseName: input.baseName ?? "base",
+              generation: create.generation.generation,
+            },
+          }).pipe(Effect.catchAll(() => Effect.void));
+          return yield* measureVmEffect(
+            input.timing,
+            "begin_base_open",
+            repo.beginBaseOpen(input),
+          );
+        })
+        : Effect.succeed(null)
+    ),
+  );
 }
 
 export function snapshotVm(input: {

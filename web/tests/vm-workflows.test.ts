@@ -1684,6 +1684,103 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
+  dbTest("reopens Base with a new generation when the active provider VM was deleted", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    let createCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () =>
+        Effect.sync(() => {
+          createCalls += 1;
+          return {
+            provider: "freestyle" as const,
+            providerVmId: `provider-vm-base-reopen-${createCalls}`,
+            status: "running" as const,
+            image: "snapshot-test",
+            createdAt: Date.now(),
+          };
+        }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+      getStatus: (_provider, providerVmId) =>
+        Effect.suspend(() => {
+          statusCalls += 1;
+          const deleted = new Error(`VM_DELETED: Vm ${providerVmId} is marked as deleted but still exists in the database`);
+          deleted.name = "VmDeletedError";
+          return Effect.fail(new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "getStatus",
+            cause: deleted,
+          }));
+        }),
+    };
+    const layer = providerLayer(provider);
+
+    const first = await Effect.runPromise(openBaseVm({
+      userId: "user-base-reopen-deleted",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reopen-deleted",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+    const reopened = await Effect.runPromise(openBaseVm({
+      userId: "user-base-reopen-deleted",
+      billingCustomerType: "team",
+      billingTeamId: "team-base-reopen-deleted",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: "test-version",
+    }).pipe(Effect.provide(layer)));
+
+    expect(first.providerVmId).toBe("provider-vm-base-reopen-1");
+    expect(reopened.providerVmId).toBe("provider-vm-base-reopen-2");
+    expect(reopened.generation).toBe(2);
+    expect(createCalls).toBe(2);
+    expect(statusCalls).toBe(1);
+
+    const vms = await sql<{ providerVmId: string; status: string; destroyedAt: Date | null }[]>`
+      select provider_vm_id as "providerVmId", status, destroyed_at as "destroyedAt"
+      from cloud_vms
+      where billing_team_id = 'team-base-reopen-deleted'
+      order by provider_vm_id
+    `;
+    expect(vms[0]?.providerVmId).toBe("provider-vm-base-reopen-1");
+    expect(vms[0]?.status).toBe("destroyed");
+    expect(vms[0]?.destroyedAt).toBeInstanceOf(Date);
+    expect(vms[1]).toEqual({
+      providerVmId: "provider-vm-base-reopen-2",
+      status: "running",
+      destroyedAt: null,
+    });
+
+    const bases = await sql<{ activeProviderVmId: string; activeGeneration: number }[]>`
+      select active_provider_vm_id as "activeProviderVmId", active_generation as "activeGeneration"
+      from cloud_vm_bases
+      where scope_id = 'team-base-reopen-deleted'
+    `;
+    expect(bases).toEqual([
+      { activeProviderVmId: "provider-vm-base-reopen-2", activeGeneration: 2 },
+    ]);
+
+    const [{ destroyedUsageCount }] = await sql<{ destroyedUsageCount: string }[]>`
+      select count(*)::text as "destroyedUsageCount"
+      from cloud_vm_usage_events
+      where event_type = 'vm.destroyed'
+        and metadata->>'source' = 'base_open_provider_missing'
+    `;
+    expect(destroyedUsageCount).toBe("1");
+  });
+
   dbTest("resets Base by retaining the previous generation when capacity allows", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
