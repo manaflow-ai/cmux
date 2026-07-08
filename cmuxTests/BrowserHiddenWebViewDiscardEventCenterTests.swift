@@ -54,9 +54,8 @@ struct BrowserHiddenWebViewDiscardEventCenterTests {
                 observerQueue: nil
             )
 
-            let installCount = eventCenter.observerInstallCountForTesting
-            #expect(installCount.defaults == 1)
-            #expect(installCount.workspace == 2)
+            #expect(eventCenter.defaultsObserver != nil)
+            #expect(eventCenter.sleepObservers.count == 2)
         }
     }
 
@@ -104,13 +103,13 @@ struct BrowserHiddenWebViewDiscardEventCenterTests {
             do {
                 let subscriber = BrowserHiddenWebViewDiscardEventCenterTestSubscriber()
                 eventCenter.add(subscriber)
-                #expect(eventCenter.subscriberCountForTesting == 1)
+                #expect(eventCenter.subscribers.count == 1)
             }
 
             defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
             defaultsCenter.post(name: UserDefaults.didChangeNotification, object: nil)
 
-            #expect(eventCenter.subscriberCountForTesting == 0)
+            #expect(eventCenter.subscribers.count == 0)
         }
     }
 

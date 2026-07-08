@@ -175,7 +175,7 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
             #expect(delegate.discardRequestCount == 0)
 
             delegate.snapshot = clearSnapshot
-            #expect(manager.performScheduledBlockedRecheckForTesting(now: now.addingTimeInterval(60)))
+            #expect(manager.performBlockedRecheckNow(now: now.addingTimeInterval(60)))
 
             #expect(!manager.hasScheduledBlockedRecheck)
             #expect(delegate.discardRequestCount == 1)

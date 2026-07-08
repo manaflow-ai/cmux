@@ -17,7 +17,7 @@ protocol BrowserHiddenWebViewDiscardEventSubscriber: AnyObject {
 final class BrowserHiddenWebViewDiscardEventCenter {
     static let shared = BrowserHiddenWebViewDiscardEventCenter()
 
-    private final class WeakSubscriber {
+    final class WeakSubscriber {
         weak var value: BrowserHiddenWebViewDiscardEventSubscriber?
 
         init(_ value: BrowserHiddenWebViewDiscardEventSubscriber) {
@@ -29,10 +29,13 @@ final class BrowserHiddenWebViewDiscardEventCenter {
     private let defaultsNotificationCenter: NotificationCenter
     private let workspaceNotificationCenter: NotificationCenter
     private let observerQueue: OperationQueue?
-    private var defaultsObserver: NSObjectProtocol?
-    private var sleepObservers: [NSObjectProtocol] = []
+    // Observer handles and the subscriber list are internal (not private) so
+    // tests observe them directly via @testable import; see
+    // .github/review-bot-rules/no-test-debug-seam-in-production-source.md.
+    private(set) var defaultsObserver: NSObjectProtocol?
+    private(set) var sleepObservers: [NSObjectProtocol] = []
     private var policyState: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
-    private var subscribers: [WeakSubscriber] = []
+    private(set) var subscribers: [WeakSubscriber] = []
 
     init(
         defaults: UserDefaults = .standard,
@@ -56,15 +59,6 @@ final class BrowserHiddenWebViewDiscardEventCenter {
 
     func remove(_ subscriber: BrowserHiddenWebViewDiscardEventSubscriber) {
         subscribers.removeAll { $0.value == nil || $0.value === subscriber }
-    }
-
-    var subscriberCountForTesting: Int {
-        compactSubscribers()
-        return subscribers.count
-    }
-
-    var observerInstallCountForTesting: (defaults: Int, workspace: Int) {
-        (defaultsObserver == nil ? 0 : 1, sleepObservers.count)
     }
 
     private func installObservers() {

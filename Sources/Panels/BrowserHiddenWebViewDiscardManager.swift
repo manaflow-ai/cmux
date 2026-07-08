@@ -156,8 +156,12 @@ final class BrowserHiddenWebViewDiscardManager {
         timer.resume()
     }
 
+    /// Fires an armed blocked-recheck immediately. This is the single re-check
+    /// path: the production recheck timer routes through it, and tests drive it
+    /// directly instead of waiting out the coarse timer. A discard that results
+    /// from this path reports "blocked_recheck" as its reason.
     @discardableResult
-    func performScheduledBlockedRecheckForTesting(now: Date = Date()) -> Bool {
+    func performBlockedRecheckNow(now: Date = Date()) -> Bool {
         guard blockedRecheckTimer != nil else { return false }
         blockedRecheckTimer?.cancel()
         blockedRecheckTimer = nil
@@ -311,12 +315,7 @@ final class BrowserHiddenWebViewDiscardManager {
                 guard self.scheduleGeneration == generation else { return }
                 guard let delegate = self.delegate else { return }
                 guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
-                self.blockedRecheckTimer?.cancel()
-                self.blockedRecheckTimer = nil
-                // Match performScheduledBlockedRecheckForTesting: a discard that
-                // fires via the blocked-recheck path reports "blocked_recheck",
-                // not the reason captured when the pane was first blocked.
-                self.scheduleIfNeeded(reason: "blocked_recheck", now: Date())
+                self.performBlockedRecheckNow(now: Date())
             }
         }
         blockedRecheckTimer = timer
