@@ -8,7 +8,7 @@
 //! queries then work identically in both cases.
 
 mod remote;
-mod tree;
+pub(crate) mod tree;
 
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
@@ -22,7 +22,7 @@ use mux_core::{
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
-pub use tree::TreeView;
+pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
 pub enum Session {
     Local(Arc<Mux>),
@@ -95,7 +95,12 @@ impl Session {
 
     pub fn tree(&self) -> TreeView {
         match self {
-            Session::Local(mux) => mux.with_state(tree::tree_from_state),
+            Session::Local(mux) => {
+                let notifications = mux.surface_notifications();
+                mux.with_state(|state| {
+                    tree::tree_from_state_with_notifications(state, &notifications)
+                })
+            }
             Session::Remote(remote) => remote.tree().unwrap_or_default(),
         }
     }

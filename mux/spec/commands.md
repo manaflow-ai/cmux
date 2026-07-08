@@ -46,6 +46,7 @@ object{
       name: string|null,
       active: boolean,
       active_pane: Id,
+      zoomed_pane: Id|null,
       layout: Layout,
       panes: array<Pane>
     }>
@@ -58,6 +59,13 @@ object{
 ```text
 object{type:"leaf",pane:Id}
 | object{type:"split",dir:"right"|"down",ratio:float32,a:Layout,b:Layout}
+```
+
+`DeclarativeLayout`:
+
+```text
+object{type:"leaf",cwd?:string,command?:array<string>}
+| object{type:"split",dir:"right"|"down",ratio:float32,a:DeclarativeLayout,b:DeclarativeLayout}
 ```
 
 `Pane`:
@@ -166,6 +174,60 @@ Example:
 {"id":2,"cmd":"list-workspaces"}
 {"id":2,"ok":true,"data":{"workspaces":[{"id":4,"name":"1","active":true,"screens":[{"id":3,"name":null,"active":true,"active_pane":2,"layout":{"type":"leaf","pane":2},"panes":[{"id":2,"name":null,"active_tab":0,"tabs":[{"surface":1,"kind":"pty","browser_source":null,"name":null,"title":"","size":{"cols":80,"rows":24},"dead":false}]}]}]}]}}
 ```
+
+### export-layout
+
+| Field | Value |
+| --- | --- |
+| name | `export-layout` |
+| status | implemented |
+| since | protocol 6 |
+
+Returns one screen's canonical split tree and the surface ids attached to each leaf pane. Zoom state does not rewrite the exported tree.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `screen` | `Id` | default active screen | Must identify a screen |
+
+Result:
+
+```text
+object{layout:Layout,panes:array<object{pane:Id,surfaces:array<Id>}>}
+```
+
+Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
+
+CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSON stdout both print the exact result object.
+
+### apply-layout
+
+| Field | Value |
+| --- | --- |
+| name | `apply-layout` |
+| status | implemented |
+| since | protocol 6 |
+
+Creates a new screen in the given or active workspace from a declarative split tree. Each leaf creates a new pane with one PTY surface. `command` is argv (`array<string>`), not a shell string. Ratios use the same clamp path as `set-ratio`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | default active workspace | Existing workspace; if omitted and none exists, one is created |
+| `name` | `string` | default null | New screen name |
+| `layout` | `DeclarativeLayout` | required | Must contain at least one leaf |
+
+Result:
+
+```text
+object{screen:Id,panes:array<object{pane:Id,surface:Id}>}
+```
+
+Errors: `unknown workspace <id>`, `layout must contain at least one leaf`, `leaf command must not be empty`, spawn or PTY error string, `bad request: ...`.
+
+CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] --layout <json>`; plain stdout prints the new screen and created pane/surface pairs; JSON stdout prints the exact result object.
 
 ### send
 
@@ -617,6 +679,112 @@ Example:
 {"id":11,"cmd":"set-ratio","pane":2,"dir":"right","ratio":0.7}
 {"id":11,"ok":true,"data":{}}
 ```
+
+### pane-neighbor
+
+| Field | Value |
+| --- | --- |
+| name | `pane-neighbor` |
+| status | implemented |
+| since | protocol 6 |
+
+Queries the directional adjacent pane in the screen split layout. It does not change focus.
+
+Params: `object{pane:Id,dir:"left"|"right"|"up"|"down"}`.
+
+Result:
+
+```text
+object{pane:Id|null}
+```
+
+Errors: `unknown pane <id>`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `pane-neighbor`; flags `--pane <id> --dir left|right|up|down`; plain stdout prints the pane id or `null`; JSON stdout prints the exact result object.
+
+### focus-direction
+
+| Field | Value |
+| --- | --- |
+| name | `focus-direction` |
+| status | implemented |
+| since | protocol 6 |
+
+Moves focus from the supplied pane, or the active pane, to its directional neighbor.
+
+Params: `object{pane?:Id,dir:"left"|"right"|"up"|"down"}`.
+
+Result:
+
+```text
+object{pane:Id}
+```
+
+Errors: `no active pane`, `unknown pane <id>`, `no neighbor`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `focus-direction`; flags `[--pane <id>] --dir left|right|up|down`; plain stdout prints the focused pane id; JSON stdout prints the exact result object.
+
+### swap-pane
+
+| Field | Value |
+| --- | --- |
+| name | `swap-pane` |
+| status | implemented |
+| since | protocol 6 |
+
+Exchanges two pane leaves in the split tree, preserving each pane's tabs and all split ratios. The target is either a directional neighbor or an explicit pane id.
+
+Params: `object{pane:Id,dir:"left"|"right"|"up"|"down"}` or `object{pane:Id,target:Id}`.
+
+Result: `object{}`.
+
+Errors: `one of dir or target is required`, `use only one of dir or target`, `no neighbor`, `unknown pane/target`, bad `dir`, `bad request: ...`.
+
+CLI mapping: verb `swap-pane`; flags `--pane <id> (--dir left|right|up|down | --target <id>)`; plain stdout no output; JSON stdout exact result object.
+
+### zoom-pane
+
+| Field | Value |
+| --- | --- |
+| name | `zoom-pane` |
+| status | implemented |
+| since | protocol 6 |
+
+Sets per-screen zoom state. A zoomed pane renders as the only pane in its screen; the canonical split tree is preserved for restore and export.
+
+Params: `object{pane?:Id,mode?:"toggle"|"on"|"off"}`. Defaults: active pane and `toggle`.
+
+Result:
+
+```text
+object{pane:Id,zoomed:boolean,zoomed_pane:Id|null}
+```
+
+Errors: `no active pane`, `unknown pane <id>`, bad `mode`, `bad request: ...`.
+
+CLI mapping: verb `zoom-pane`; flags `[--pane <id>] [--mode toggle|on|off]`; plain stdout prints zoom state; JSON stdout prints the exact result object.
+
+### process-info
+
+| Field | Value |
+| --- | --- |
+| name | `process-info` |
+| status | implemented |
+| since | protocol 6 |
+
+Returns PTY child metadata for a surface.
+
+Params: `object{surface:Id}`.
+
+Result:
+
+```text
+object{pid:uint32|null,command:string|null,cwd:string|null}
+```
+
+Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
+
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
 
 ### set-default-colors
 
@@ -1524,8 +1692,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `wait-for` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
@@ -1575,8 +1743,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `run` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead.
 
@@ -1605,6 +1773,7 @@ Errors:
 | --- | --- |
 | `argv or command is required` | Neither is supplied |
 | `argv and command are mutually exclusive` | Both are supplied |
+| `pane and new_workspace are mutually exclusive` | Both placement options are supplied by a raw socket caller |
 | `unknown pane <id>` | Supplied pane does not exist |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
@@ -1631,8 +1800,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `send-key` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Sends named key chords to a surface without requiring callers to hand-encode escape sequences. PTY surfaces use the same Ghostty key encoder as the TUI, synced to the surface terminal modes. Browser surfaces translate supported keys to CDP keyboard input when the browser runtime is local.
 
@@ -1683,8 +1852,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `copy` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Extracts text from a surface. `screen` returns the current plain-text viewport. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
 
@@ -1734,10 +1903,10 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `ids` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
-Returns the session id mapping and establishes the short-id scheme. Every workspace, screen, pane, and surface has a numeric id and a stable short id for the lifetime of the session. Short ids are content-independent, collision-checked per session, and usable anywhere an `IdRef` is accepted.
+Returns the session id mapping. Every workspace, screen, pane, and surface has a numeric id and a stable short id for the lifetime of the session. Short ids are content-independent and collision-checked per session. Accepting short ids anywhere an `IdRef` is accepted remains proposed; implemented command parameters currently accept numeric ids only.
 
 Params:
 
@@ -1751,9 +1920,9 @@ Short id format:
 [a-z0-9]{6}
 ```
 
-Generation rule: the server derives a candidate from a per-session random seed plus numeric id, encodes it base36, and checks for collisions across all live ids. On collision, it rehashes with an incrementing salt. Short ids never depend on names, titles, command text, cwd, or layout position. A short id is not reused while the session is alive.
+Generation rule: implemented short ids are stable six-character base36 ids collision-checked across live ids. The proposed future scheme derives a candidate from a per-session random seed plus numeric id, encodes it base36, and checks for collisions across all live ids. On collision, it rehashes with an incrementing salt. Short ids never depend on names, titles, command text, cwd, or layout position.
 
-Resolution rule: numeric JSON ids resolve first. String ids matching `[0-9]+` are rejected as ambiguous. String ids matching the short-id format resolve by exact short id. Unknown or ambiguous strings error.
+Resolution rule: short-id / `IdRef` string resolution across commands is still proposed and not yet accepted by the implementation. Implemented commands currently deserialize id parameters as numeric JSON ids. Proposed behavior is: numeric JSON ids resolve first; string ids matching `[0-9]+` are rejected as ambiguous; string ids matching the short-id format resolve by exact short id; unknown or ambiguous strings error.
 
 Result:
 
@@ -1790,8 +1959,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `notify` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Posts a notification into the mux notification area. This is a telemetry command and must not change app focus or pane selection.
 
@@ -1841,8 +2010,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `list-agents` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Returns known agent status records. Records may come from detection, explicit reports, or hooks. Explicit hook-authority reports override detection for the same surface until another explicit report changes the state or the surface closes.
 
@@ -1897,8 +2066,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `report-agent` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` have hook authority and override detector-derived state. Reports with `source:"socket"` override detector-derived state but are lower priority than a newer hook report.
 
