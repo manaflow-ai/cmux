@@ -421,4 +421,36 @@ struct PerAgentSidebarStatusRowTests {
         #expect(runningOnly.accentColorHex == "#4C8DFF")
         #expect(SidebarAgentStatusRowsSummary(rows: [row(lifecycle: .idle)]).accentColorHex == nil)
     }
+
+    @Test
+    func testDisplacedBareKeyPaneKeepsRowWithItsOwnPid() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        // Pane A reports first with the bare shared key (real claude hook shape).
+        workspace.recordAgentPID(key: "claude_code", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: firstPanelId, lifecycle: .running)
+        // Pane B's report displaces A's bare-key ownership.
+        workspace.recordAgentPID(key: "claude_code", pid: 222, panelId: secondPanelId, refreshPorts: false)
+
+        let rows = workspace.sidebarAgentStatusRows()
+        #expect(rows.count == 2)
+        #expect(Set(rows.map(\.panelId)) == [firstPanelId, secondPanelId])
+        // A's runtime moved to a synthesized key with its own pid intact, so
+        // the liveness sweep still owns its cleanup.
+        let synthesizedKey = Workspace.synthesizedDisplacedPIDKey(statusKey: "claude_code", panelId: firstPanelId)
+        #expect(workspace.agentPIDs[synthesizedKey] == 111)
+        #expect(workspace.agentPIDs["claude_code"] == 222)
+        #expect(workspace.agentLifecycleStatesByPanelId[firstPanelId]?["claude_code"] == .running)
+
+        // A reports again: the bare key returns to A, the synthesized key is
+        // reaped, and A's panel-scoped entry survives the key-shape change.
+        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: firstPanelId)
+        workspace.recordAgentPID(key: "claude_code", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        #expect(workspace.agentPIDs[synthesizedKey] == nil)
+        #expect(workspace.statusEntriesByPanelId[firstPanelId]?["claude_code"]?.value == "Running")
+        #expect(workspace.sidebarAgentStatusRows().count == 2)
+    }
 }

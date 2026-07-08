@@ -12627,16 +12627,29 @@ private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
+    @EnvironmentObject private var tabManager: TabManager
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Renders only while the globalSection debug variant is selected.
+            SidebarGlobalAgentsSection(
+                tabManager: tabManager,
+                fontScale: 1,
+                onFocus: { workspaceId, panelId in
+                    guard let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+                    tabManager.selectedTabId = workspaceId
+                    tab.focusPanel(panelId)
+                }
+            )
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+            SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
+            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+                .padding(.leading, 6)
+                .padding(.trailing, 10)
+                .padding(.bottom, 6)
 #endif
+        }
     }
 }
 
@@ -13801,6 +13814,19 @@ struct TabItemView: View, Equatable {
             if detailVisibility.showsMetadata {
                 let metadataEntries = workspaceSnapshot.metadataEntries
                 let metadataBlocks = workspaceSnapshot.metadataBlocks
+                if !workspaceSnapshot.agentStatusRows.isEmpty {
+                    // Renders only while an in-card debug variant is selected.
+                    SidebarAgentStatusInCardRows(
+                        rows: workspaceSnapshot.agentStatusRows,
+                        isActive: usesInvertedActiveForeground,
+                        activeForegroundColor: activeSecondaryColor(0.95),
+                        fontScale: fontScale,
+                        onFocusPanel: { panelId in
+                            updateSelection()
+                            tab.focusPanel(panelId)
+                        }
+                    )
+                }
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,

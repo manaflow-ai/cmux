@@ -190,7 +190,6 @@ extension Workspace {
             panelCountByStatusKey[item.statusKey, default: 0] += 1
         }
 
-        let includePaneLabels = chosenByPanel.count > 1
         let rows = chosenByPanel.map { item -> SidebarAgentStatusRow in
             let workspaceEntry = statusEntries[item.statusKey]
             let soleOwner = panelCountByStatusKey[item.statusKey] == 1
@@ -204,7 +203,7 @@ extension Workspace {
                 url: entry?.url,
                 format: entry?.format ?? .plain,
                 lifecycle: agentLifecycleStatesByPanelId[item.panelId]?[item.statusKey],
-                paneLabel: includePaneLabels ? agentStatusRowPaneLabel(panelId: item.panelId) : nil,
+                paneLabel: agentStatusRowPaneLabel(panelId: item.panelId),
                 // No workspace fallback here: when the pane is not the sole
                 // owner, the last-write-wins workspace entry's freshness must
                 // not influence this row's sort position either.
@@ -219,11 +218,15 @@ extension Workspace {
         }
     }
 
-    private func agentStatusRowPaneLabel(panelId: UUID) -> String? {
+    /// The row's identity label: an explicit rename wins, then the live
+    /// surface title (agents set it to their session name/topic), then the
+    /// directory label. This is what makes a row say the session's name
+    /// instead of a generic "Claude Code".
+    func agentStatusRowPaneLabel(panelId: UUID) -> String? {
         let candidates = [
             panelCustomTitles[panelId],
-            panelDirectoryDisplayLabels[panelId],
             panelTitles[panelId],
+            panelDirectoryDisplayLabels[panelId],
         ]
         for candidate in candidates {
             if let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {

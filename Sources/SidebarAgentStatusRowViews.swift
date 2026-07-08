@@ -3,37 +3,98 @@ import CmuxFoundation
 import CmuxSidebar
 import SwiftUI
 
-/// Sidebar per-agent-pane status rows: one row per live agent pane plus its
-/// private entry row. With more than one agent the block becomes an accordion:
-/// a summary header ("2 agents · 1 needs input") that folds the rows. Rows
-/// receive immutable value snapshots and closure action bundles only, per the
-/// sidebar list snapshot-boundary rule.
+/// Aggregate over the agent rows of one workspace, shown in the accordion
+/// header (and standing in for the rows while collapsed).
+struct SidebarAgentStatusRowsSummary: Equatable {
+    let agentCount: Int
+    let needsInputCount: Int
+    let runningCount: Int
+
+    init(rows: [SidebarAgentStatusRow]) {
+        agentCount = rows.count
+        needsInputCount = rows.filter { $0.lifecycle == .needsInput }.count
+        runningCount = rows.filter { $0.lifecycle == .running }.count
+    }
+
+    var text: String {
+        var parts: [String] = []
+        if agentCount == 1 {
+            parts.append(String(localized: "sidebar.agentStatus.summary.oneAgent", defaultValue: "1 agent"))
+        } else {
+            parts.append(String(
+                format: String(localized: "sidebar.agentStatus.summary.agentCount", defaultValue: "%lld agents"),
+                agentCount
+            ))
+        }
+        if needsInputCount == 1 {
+            parts.append(String(localized: "sidebar.agentStatus.summary.oneNeedsInput", defaultValue: "1 needs input"))
+        } else if needsInputCount > 1 {
+            parts.append(String(
+                format: String(localized: "sidebar.agentStatus.summary.needsInputCount", defaultValue: "%lld need input"),
+                needsInputCount
+            ))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Worst-state accent: needs-input beats running beats idle.
+    var accentColorHex: String? {
+        if needsInputCount > 0 { return "#FF9F0A" }
+        if runningCount > 0 { return "#4C8DFF" }
+        return nil
+    }
+}
+
+/// Below-card presentation of the per-agent rows. Owns the variant switch for
+/// every below-card style; renders nothing when an in-card or global variant
+/// is active. Rows receive immutable value snapshots and closure action
+/// bundles only, per the sidebar list snapshot-boundary rule (the variant
+/// store is a deliberate, temporary debug-lab exception; it changes only on
+/// explicit user picks).
 struct SidebarAgentStatusRows: View {
     let rows: [SidebarAgentStatusRow]
     let fontScale: CGFloat
     let onFocus: () -> Void
     let onFocusPanel: (UUID) -> Void
 
+    @ObservedObject private var variantStore = SidebarAgentRowsVariantStore.shared
     @State private var isCollapsed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if rows.count > 1 {
-                accordionHeader
-                if !isCollapsed {
-                    rowList
+        switch variantStore.variant {
+        case .belowAccordion:
+            VStack(alignment: .leading, spacing: 2) {
+                if rows.count > 1 {
+                    accordionHeader
+                    if !isCollapsed {
+                        rowList(layout: .nameFirst)
+                    }
+                } else {
+                    rowList(layout: .nameFirst)
                 }
-            } else {
-                rowList
             }
+        case .belowFlat:
+            VStack(alignment: .leading, spacing: 2) {
+                rowList(layout: .nameFirst)
+            }
+        case .belowTree:
+            VStack(alignment: .leading, spacing: 0) {
+                rowList(layout: .tree)
+            }
+        case .belowChips:
+            SidebarAgentChipsFlow(rows: rows, fontScale: fontScale, onFocusPanel: onFocusPanel)
+        case .inCardRows, .inCardCompact, .globalSection:
+            EmptyView()
         }
     }
 
-    private var rowList: some View {
+    @ViewBuilder
+    private func rowList(layout: SidebarAgentRowLayout) -> some View {
         ForEach(rows) { row in
-            SidebarAgentStatusEntryRow(
+            SidebarAgentStatusEntryRowView(
                 row: row,
                 fontScale: fontScale,
+                layout: layout,
                 onFocusPanel: onFocusPanel
             )
         }
@@ -53,14 +114,14 @@ struct SidebarAgentStatusRows: View {
                     pointSize: 7 * fontScale,
                     weight: .semibold
                 )
-                .foregroundColor(headerSecondaryColor)
+                .foregroundColor(.secondary.opacity(0.8))
                 if isCollapsed, let accent = summary.accentColorHex, let color = Color(hex: accent) {
                     Circle()
                         .fill(color)
                         .frame(width: 5 * fontScale, height: 5 * fontScale)
                 }
                 Text(summary.text)
-                    .foregroundColor(headerForegroundColor)
+                    .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -72,160 +133,127 @@ struct SidebarAgentStatusRows: View {
         .buttonStyle(.plain)
         .safeHelp(summary.text)
     }
-
-    private var headerForegroundColor: Color {
-        .secondary
-    }
-
-    private var headerSecondaryColor: Color {
-        .secondary.opacity(0.8)
-    }
 }
 
-private struct SidebarAgentStatusEntryRow: View {
-    let row: SidebarAgentStatusRow
+/// In-card presentation (variants `inCardRows` / `inCardCompact`), mounted
+/// inside the workspace card so it inherits the selection background. Renders
+/// nothing for the below-card and global variants.
+struct SidebarAgentStatusInCardRows: View {
+    let rows: [SidebarAgentStatusRow]
+    let isActive: Bool
+    let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocusPanel: (UUID) -> Void
 
-    @State private var isHovering = false
+    @ObservedObject private var variantStore = SidebarAgentRowsVariantStore.shared
 
     var body: some View {
-        Group {
-            if let url = row.url {
-                Button {
-                    onFocusPanel(row.panelId)
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    rowContent(underlined: true)
+        switch variantStore.variant {
+        case .inCardRows:
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(rows) { row in
+                    SidebarAgentStatusEntryRowView(
+                        row: row,
+                        fontScale: fontScale,
+                        layout: .inCard(isActive: isActive, activeForeground: activeForegroundColor),
+                        onFocusPanel: onFocusPanel
+                    )
                 }
-                .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
-            } else {
-                Button {
-                    onFocusPanel(row.panelId)
-                } label: {
-                    rowContent(underlined: false)
-                }
-                .buttonStyle(.plain)
-                .safeHelp(helpText)
             }
+        case .inCardCompact:
+            compactLine
+        case .belowAccordion, .belowFlat, .belowTree, .belowChips, .globalSection:
+            EmptyView()
         }
-        .background(
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(Color.primary.opacity(isHovering ? 0.07 : 0))
-        )
-        .onHover { isHovering = $0 }
     }
 
-    @ViewBuilder
-    private func rowContent(underlined: Bool) -> some View {
-        HStack(spacing: 4) {
-            if let brandAssetName {
-                Image(brandAssetName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 11 * fontScale, height: 11 * fontScale)
-                if let stateColor {
-                    Circle()
-                        .fill(stateColor)
-                        .frame(width: 5 * fontScale, height: 5 * fontScale)
+    private var compactLine: some View {
+        let summary = SidebarAgentStatusRowsSummary(rows: rows)
+        return HStack(spacing: 5) {
+            ForEach(rows) { row in
+                Button {
+                    onFocusPanel(row.panelId)
+                } label: {
+                    HStack(spacing: 2) {
+                        SidebarAgentBrandIcon(row: row, fontScale: fontScale)
+                        if let color = SidebarAgentRowStateStyle.stateColor(for: row) {
+                            Circle()
+                                .fill(color)
+                                .frame(width: 4.5 * fontScale, height: 4.5 * fontScale)
+                        }
+                    }
+                    .contentShape(Rectangle())
                 }
-            } else if let icon = iconView {
-                icon
-                    .foregroundColor(foregroundColor.opacity(0.95))
+                .buttonStyle(.plain)
+                .safeHelp(rowTooltip(row))
             }
-            statusText(underlined: underlined)
+            Text(summary.text)
+                .cmuxFont(size: 9 * fontScale)
+                .foregroundColor(isActive ? activeForegroundColor.opacity(0.7) : .secondary.opacity(0.9))
                 .lineLimit(1)
-                .truncationMode(.tail)
-            if let paneLabel = row.paneLabel {
-                Text(paneLabel)
-                    .foregroundColor(.secondary.opacity(0.8))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
             Spacer(minLength: 0)
         }
-        .cmuxFont(size: 10 * fontScale)
-        .padding(.vertical, 3)
-        .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
     }
 
-    /// Mirrors `SidebarMetadataEntryRow.metadataText`: a markdown-formatted
-    /// reported value keeps its inline markdown rendering after moving from
-    /// the generic metadata renderer into the per-agent row. Lifecycle/name
-    /// fallback text is always plain.
-    @ViewBuilder
-    private func statusText(underlined: Bool) -> some View {
-        if row.format == .markdown,
-           reportedValueText != nil,
-           let attributed = try? AttributedString(
-                markdown: displayText,
-                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-           ) {
-            Text(attributed)
-                .underline(underlined)
-                .foregroundColor(foregroundColor)
-        } else {
-            Text(displayText)
-                .underline(underlined)
-                .foregroundColor(foregroundColor)
+    private func rowTooltip(_ row: SidebarAgentStatusRow) -> String {
+        [row.paneLabel, row.value].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+/// Wrapping chips variant: one capsule per agent, border tinted by state.
+struct SidebarAgentChipsFlow: View {
+    let rows: [SidebarAgentStatusRow]
+    let fontScale: CGFloat
+    let onFocusPanel: (UUID) -> Void
+
+    var body: some View {
+        // Simple two-column-ish flow: chips wrap by rendering in an adaptive grid.
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 96 * fontScale), spacing: 4, alignment: .leading)],
+            alignment: .leading,
+            spacing: 4
+        ) {
+            ForEach(rows) { row in
+                Button {
+                    onFocusPanel(row.panelId)
+                } label: {
+                    HStack(spacing: 3) {
+                        SidebarAgentBrandIcon(row: row, fontScale: fontScale)
+                        Text(row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey))
+                            .cmuxFont(size: 9.5 * fontScale, weight: .medium)
+                            .foregroundColor(.primary.opacity(0.85))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(.vertical, 2.5)
+                    .padding(.horizontal, 6)
+                    .background(
+                        Capsule()
+                            .strokeBorder(
+                                SidebarAgentRowStateStyle.stateColor(for: row) ?? Color.secondary.opacity(0.35),
+                                lineWidth: 1
+                            )
+                    )
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .safeHelp([row.paneLabel, row.value].compactMap { $0 }.joined(separator: " · "))
+            }
         }
     }
+}
 
-    private var reportedValueText: String? {
-        guard let value = row.value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
-        return value
-    }
+enum SidebarAgentRowLayout: Equatable {
+    case nameFirst
+    case tree
+    case inCard(isActive: Bool, activeForeground: Color)
+}
 
-    private var displayText: String {
-        if let value = reportedValueText {
-            return value
-        }
-        let name = Self.agentDisplayName(statusKey: row.statusKey)
-        if let lifecycleText {
-            return String(
-                localized: "sidebar.agentStatus.nameWithLifecycle",
-                defaultValue: "\(name): \(lifecycleText)"
-            )
-        }
-        return name
-    }
-
-    private var helpText: String {
-        guard let paneLabel = row.paneLabel else { return displayText }
-        return String(
-            localized: "sidebar.agentStatus.valueWithPaneLabel",
-            defaultValue: "\(displayText) (\(paneLabel))"
-        )
-    }
-
-    private var lifecycleText: String? {
-        switch row.lifecycle {
-        case .running:
-            return String(localized: "sidebar.agentStatus.running", defaultValue: "Running")
-        case .needsInput:
-            return String(localized: "sidebar.agentStatus.needsInput", defaultValue: "Needs input")
-        case .idle:
-            return String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle")
-        case .unknown, nil:
-            return nil
-        }
-    }
-
-    static func agentDisplayName(statusKey: String) -> String {
-        statusKey
-            .split(separator: "_")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
-    }
-
+/// Shared state-styling helpers used by every variant.
+enum SidebarAgentRowStateStyle {
     /// Brand marks for the structured agent status keys that have assets in
-    /// `Assets.xcassets/AgentIcons`; keys without a mark keep the reported or
-    /// lifecycle-derived SF symbol.
+    /// `Assets.xcassets/AgentIcons`; keys without a mark fall back to the
+    /// reported or lifecycle-derived SF symbol.
     static let brandAssetsByStatusKey: [String: String] = [
         "antigravity": "AgentIcons/Antigravity",
         "claude_code": "AgentIcons/Claude",
@@ -237,34 +265,14 @@ private struct SidebarAgentStatusEntryRow: View {
         "rovodev": "AgentIcons/RovoDev",
     ]
 
-    private var brandAssetName: String? {
-        Self.brandAssetsByStatusKey[row.statusKey]
+    static func agentDisplayName(statusKey: String) -> String {
+        statusKey
+            .split(separator: "_")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 
-    /// Lifecycle/report state shown as a dot next to the brand mark, which
-    /// replaces the state-colored SF symbol when a brand asset exists.
-    private var stateColor: Color? {
-        guard let raw = effectiveColorHex else { return nil }
-        return Color(hex: raw)
-    }
-
-    private var effectiveIcon: String? {
-        if let icon = row.icon?.trimmingCharacters(in: .whitespacesAndNewlines), !icon.isEmpty {
-            return icon
-        }
-        switch row.lifecycle {
-        case .running:
-            return "bolt.fill"
-        case .needsInput:
-            return "exclamationmark.bubble.fill"
-        case .idle:
-            return "checkmark.circle"
-        case .unknown, nil:
-            return nil
-        }
-    }
-
-    private var effectiveColorHex: String? {
+    static func effectiveColorHex(for row: SidebarAgentStatusRow) -> String? {
         if let color = row.color {
             return color
         }
@@ -278,32 +286,172 @@ private struct SidebarAgentStatusEntryRow: View {
         }
     }
 
-    private var foregroundColor: Color {
-        if let raw = effectiveColorHex, let explicit = Color(hex: raw) {
-            return explicit
-        }
-        return .secondary
+    static func stateColor(for row: SidebarAgentStatusRow) -> Color? {
+        guard let raw = effectiveColorHex(for: row) else { return nil }
+        return Color(hex: raw)
     }
 
-    private var iconView: AnyView? {
-        guard let iconRaw = effectiveIcon else { return nil }
-        if iconRaw.hasPrefix("emoji:") {
-            let value = String(iconRaw.dropFirst("emoji:".count))
-            guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).cmuxFont(size: 9 * fontScale))
+    static func lifecycleText(for row: SidebarAgentStatusRow) -> String? {
+        switch row.lifecycle {
+        case .running:
+            return String(localized: "sidebar.agentStatus.running", defaultValue: "Running")
+        case .needsInput:
+            return String(localized: "sidebar.agentStatus.needsInput", defaultValue: "Needs input")
+        case .idle:
+            return String(localized: "sidebar.agentStatus.idle", defaultValue: "Idle")
+        case .unknown, nil:
+            return nil
         }
-        if iconRaw.hasPrefix("text:") {
-            let value = String(iconRaw.dropFirst("text:".count))
-            guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).cmuxFont(size: 8 * fontScale, weight: .semibold))
+    }
+
+    /// The row's status line: the reported value, else the lifecycle text.
+    static func statusText(for row: SidebarAgentStatusRow) -> String? {
+        if let value = row.value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            return value
         }
-        let symbolName: String
-        if iconRaw.hasPrefix("sf:") {
-            symbolName = String(iconRaw.dropFirst("sf:".count))
+        return lifecycleText(for: row)
+    }
+}
+
+/// The agent's brand mark, or the reported/lifecycle SF symbol fallback.
+struct SidebarAgentBrandIcon: View {
+    let row: SidebarAgentStatusRow
+    let fontScale: CGFloat
+
+    var body: some View {
+        if let asset = SidebarAgentRowStateStyle.brandAssetsByStatusKey[row.statusKey] {
+            Image(asset)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 11 * fontScale, height: 11 * fontScale)
+        } else if let symbol = fallbackSymbol {
+            CmuxSystemSymbolImage(magnified: symbol, pointSize: 8 * fontScale, weight: .medium)
+                .foregroundColor((SidebarAgentRowStateStyle.stateColor(for: row) ?? .secondary).opacity(0.95))
+        }
+    }
+
+    private var fallbackSymbol: String? {
+        if let icon = row.icon?.trimmingCharacters(in: .whitespacesAndNewlines), !icon.isEmpty {
+            if icon.hasPrefix("sf:") { return String(icon.dropFirst(3)) }
+            if icon.hasPrefix("emoji:") || icon.hasPrefix("text:") { return nil }
+            return icon
+        }
+        switch row.lifecycle {
+        case .running: return "bolt.fill"
+        case .needsInput: return "exclamationmark.bubble.fill"
+        case .idle: return "checkmark.circle"
+        case .unknown, nil: return "person.crop.square"
+        }
+    }
+}
+
+/// One agent row. Primary text is the session/tab name (rename wins, then the
+/// live surface title); the status rides second. Each row is its own
+/// hover-highlighted button so clicks never fight workspace selection.
+struct SidebarAgentStatusEntryRowView: View {
+    let row: SidebarAgentStatusRow
+    let fontScale: CGFloat
+    let layout: SidebarAgentRowLayout
+    let onFocusPanel: (UUID) -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            onFocusPanel(row.panelId)
+            if let url = row.url {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            content
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(Color.primary.opacity(isHovering && !isInCard ? 0.07 : 0))
+        )
+        .onHover { isHovering = $0 }
+        .safeHelp(helpText)
+    }
+
+    private var isInCard: Bool {
+        if case .inCard = layout { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        HStack(spacing: 4) {
+            if case .tree = layout {
+                Text(verbatim: "└")
+                    .cmuxFont(size: 9 * fontScale)
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+            SidebarAgentBrandIcon(row: row, fontScale: fontScale)
+            if let stateColor = SidebarAgentRowStateStyle.stateColor(for: row) {
+                Circle()
+                    .fill(stateColor)
+                    .frame(width: 5 * fontScale, height: 5 * fontScale)
+            }
+            Text(primaryText)
+                .cmuxFont(size: 10 * fontScale, weight: .medium)
+                .foregroundColor(primaryColor)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let status = statusLineText {
+                statusTextView(status)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, isInCard ? 1 : 3)
+        .padding(.horizontal, isInCard ? 0 : 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    /// Session/tab name first; agent-type name when the pane has no title yet.
+    private var primaryText: String {
+        row.paneLabel ?? SidebarAgentRowStateStyle.agentDisplayName(statusKey: row.statusKey)
+    }
+
+    private var statusLineText: String? {
+        SidebarAgentRowStateStyle.statusText(for: row)
+    }
+
+    @ViewBuilder
+    private func statusTextView(_ status: String) -> some View {
+        if row.format == .markdown,
+           let attributed = try? AttributedString(
+                markdown: status,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+           ) {
+            Text(attributed)
+                .cmuxFont(size: 9.5 * fontScale)
+                .foregroundColor(secondaryColor)
         } else {
-            symbolName = iconRaw
+            Text(status)
+                .cmuxFont(size: 9.5 * fontScale)
+                .foregroundColor(secondaryColor)
         }
-        guard !symbolName.isEmpty else { return nil }
-        return AnyView(CmuxSystemSymbolImage(magnified: symbolName, pointSize: 8 * fontScale, weight: .medium))
+    }
+
+    private var primaryColor: Color {
+        if case let .inCard(isActive, activeForeground) = layout, isActive {
+            return activeForeground
+        }
+        return .primary.opacity(0.85)
+    }
+
+    private var secondaryColor: Color {
+        if case let .inCard(isActive, activeForeground) = layout, isActive {
+            return activeForeground.opacity(0.65)
+        }
+        return .secondary.opacity(0.9)
+    }
+
+    private var helpText: String {
+        [primaryText, statusLineText].compactMap { $0 }.joined(separator: " · ")
     }
 }

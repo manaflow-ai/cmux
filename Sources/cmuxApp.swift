@@ -515,6 +515,10 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                Button(String(localized: "debug.menu.agentRowsStyle", defaultValue: "Agent Rows Style…")) {
+                    AgentRowsVariantLabWindowController.shared.show()
+                }
+
                 Button("New Tab With Lorem Search Text") {
                     appDelegate.openDebugLoremTab(nil)
                 }
