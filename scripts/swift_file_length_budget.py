@@ -51,6 +51,90 @@ def collect_file_lengths(repo_root: pathlib.Path, roots: tuple[str, ...]) -> Fil
     return budget
 
 
+def is_in_roots(rel_path: str, roots: tuple[str, ...]) -> bool:
+    return any(rel_path == root or rel_path.startswith(f"{root}/") for root in roots)
+
+
+def count_blob_lines(content: bytes) -> int:
+    return content.count(b"\n") + (0 if content.endswith(b"\n") or not content else 1)
+
+
+def list_tree_swift_paths(repo_root: pathlib.Path, tree: str, roots: tuple[str, ...]) -> list[str]:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-tree", "-r", "--name-only", "-z", tree],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode("utf-8", errors="replace").strip())
+
+    paths: list[str] = []
+    for raw_path in result.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        rel_path = raw_path.decode("utf-8", errors="surrogateescape")
+        if not rel_path.endswith(".swift"):
+            continue
+        if not is_in_roots(rel_path, roots):
+            continue
+        if is_ignored_path(pathlib.Path(rel_path)):
+            continue
+        paths.append(rel_path)
+    return sorted(paths)
+
+
+def collect_file_lengths_at_ref(repo_root: pathlib.Path, ref: str, roots: tuple[str, ...]) -> FileLengthBudget:
+    paths = list_tree_swift_paths(repo_root, ref, roots)
+    if not paths:
+        return {}
+
+    batch_input = "".join(f"{ref}:{rel_path}\n" for rel_path in paths).encode(
+        "utf-8",
+        errors="surrogateescape",
+    )
+    try:
+        process = subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "--batch"],
+            input=batch_input,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    if process.returncode != 0:
+        raise RuntimeError(process.stderr.decode("utf-8", errors="replace").strip())
+
+    budget: FileLengthBudget = {}
+    offset = 0
+    stdout = process.stdout
+    for rel_path in paths:
+        header_end = stdout.find(b"\n", offset)
+        if header_end == -1:
+            raise RuntimeError(f"missing git cat-file header for {rel_path}")
+        header = stdout[offset:header_end]
+        header_parts = header.split()
+        if len(header_parts) == 2 and header_parts[1] == b"missing":
+            raise RuntimeError(f"missing object for {ref}:{rel_path}")
+        if len(header_parts) != 3:
+            raise RuntimeError(f"unexpected git cat-file header for {rel_path}: {header!r}")
+        try:
+            size = int(header_parts[2])
+        except ValueError as exc:
+            raise RuntimeError(f"invalid git cat-file size for {rel_path}: {header!r}") from exc
+        content_start = header_end + 1
+        content_end = content_start + size
+        if content_end > len(stdout):
+            raise RuntimeError(f"truncated git cat-file content for {rel_path}")
+        budget[rel_path] = count_blob_lines(stdout[content_start:content_end])
+        offset = content_end
+        if offset < len(stdout) and stdout[offset : offset + 1] == b"\n":
+            offset += 1
+    return budget
+
+
 def tracked_file_lengths(file_lengths: FileLengthBudget, threshold: int) -> FileLengthBudget:
     return {
         rel_path: line_count
@@ -72,7 +156,7 @@ def count_lines_at_ref(repo_root: pathlib.Path, ref: str, rel_path: str) -> int 
 
     if result.returncode != 0:
         return None
-    return result.stdout.count(b"\n") + (0 if result.stdout.endswith(b"\n") or not result.stdout else 1)
+    return count_blob_lines(result.stdout)
 
 
 def parse_budget(text: str, source: str) -> FileLengthBudget:
@@ -141,6 +225,51 @@ def write_budget(path: pathlib.Path, budget: FileLengthBudget) -> None:
 def print_file_summary(label: str, file_lengths: FileLengthBudget) -> None:
     total = sum(file_lengths.values())
     print(f"{label}: {total} line(s) across {len(file_lengths)} Swift file(s)")
+
+
+def speculative_merge_tree(repo_root: pathlib.Path, merge_ref: str, merge_head: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "merge-tree", "--write-tree", merge_ref, merge_head],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        print(
+            f"Speculative merge of {merge_ref} and {merge_head} could not run; "
+            "falling back to working-tree evaluation.",
+        )
+        print(str(exc), file=sys.stderr)
+        return None
+
+    if result.returncode == 0:
+        tree = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
+        if tree:
+            return tree
+        print(
+            f"Speculative merge of {merge_ref} and {merge_head} did not produce a tree; "
+            "falling back to working-tree evaluation.",
+        )
+        if result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
+        return None
+
+    if result.returncode == 1:
+        print(
+            f"Speculative merge of {merge_ref} and {merge_head} conflicts; "
+            "falling back to working-tree evaluation.",
+        )
+        return None
+
+    print(
+        f"Speculative merge of {merge_ref} and {merge_head} failed; "
+        "falling back to working-tree evaluation.",
+    )
+    if result.stderr.strip():
+        print(result.stderr.strip(), file=sys.stderr)
+    return None
 
 
 def compare_budget(
@@ -305,6 +434,15 @@ def main(argv: list[str]) -> int:
         help="git ref used to allow small PR-local growth in files already over budget",
     )
     parser.add_argument(
+        "--merge-ref",
+        help="git ref to speculatively merge with --merge-head before evaluating the budget",
+    )
+    parser.add_argument(
+        "--merge-head",
+        default="HEAD",
+        help="git ref for the PR side of a speculative merge",
+    )
+    parser.add_argument(
         "--incidental-growth",
         default=DEFAULT_INCIDENTAL_GROWTH,
         type=int,
@@ -327,9 +465,59 @@ def main(argv: list[str]) -> int:
     if args.hard_cap < args.threshold:
         print("--hard-cap must be at least --threshold", file=sys.stderr)
         return 2
+    if args.write_budget and args.merge_ref:
+        print("--write-budget cannot be used with --merge-ref", file=sys.stderr)
+        return 2
 
     repo_root = args.repo_root.resolve(strict=False)
     budget_path = args.budget if args.budget.is_absolute() else repo_root / args.budget
+
+    merged_tree: str | None = None
+    if args.merge_ref:
+        merged_tree = speculative_merge_tree(repo_root, args.merge_ref, args.merge_head)
+
+    if merged_tree:
+        print(
+            f"Evaluating speculative merge of {args.merge_ref} and {args.merge_head} "
+            f"(tree {merged_tree})."
+        )
+        try:
+            file_lengths = collect_file_lengths_at_ref(repo_root, merged_tree, tuple(args.roots))
+        except RuntimeError as exc:
+            print(f"Error reading Swift files from merged tree: {exc}", file=sys.stderr)
+            return 2
+        actual = tracked_file_lengths(file_lengths, args.threshold)
+        print_file_summary("All scanned cmux-owned Swift files", file_lengths)
+        print_file_summary(f"Tracked Swift files >= {args.threshold} lines", actual)
+
+        budget_ref_path = repo_relative_path(repo_root, budget_path)
+        try:
+            allowed = load_budget_at_ref(repo_root, merged_tree, budget_ref_path) if budget_ref_path else None
+        except ValueError as exc:
+            print(f"Error reading Swift file length budget: {exc}", file=sys.stderr)
+            return 2
+        if allowed is None:
+            print(f"Missing Swift file length budget: {budget_path}", file=sys.stderr)
+            return 2
+        base_allowed: FileLengthBudget | None = None
+        try:
+            base_allowed = load_budget_at_ref(repo_root, args.merge_ref, budget_ref_path)
+        except ValueError as exc:
+            print(f"Error reading base Swift file length budget: {exc}", file=sys.stderr)
+            return 2
+        print_file_summary("Allowed Swift file length budget", allowed)
+        return compare_budget(
+            actual,
+            allowed,
+            base_allowed,
+            args.threshold,
+            file_lengths,
+            repo_root,
+            args.merge_ref,
+            args.incidental_growth,
+            args.hard_cap,
+        )
+
     file_lengths = collect_file_lengths(repo_root, tuple(args.roots))
     actual = tracked_file_lengths(file_lengths, args.threshold)
     print_file_summary("All scanned cmux-owned Swift files", file_lengths)

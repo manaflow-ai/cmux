@@ -13,8 +13,8 @@ private let workspaceGroupLogger = Logger(subsystem: "com.cmuxterm.app", categor
 /// through `WorkspaceGroupHosting`.
 @MainActor
 public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
-    private let model: WorkspacesModel<Tab>
-    private weak var host: (any WorkspaceGroupHosting<Tab>)?
+    let model: WorkspacesModel<Tab>
+    weak var host: (any WorkspaceGroupHosting<Tab>)?
 
     /// Creates the coordinator over the window's workspace model.
     public init(model: WorkspacesModel<Tab>) {
@@ -304,31 +304,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// out of the prompt cleanly.
     @discardableResult
     public func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
-        guard let host else { return 0 }
-        guard model.workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
-        let members = model.tabs.filter { $0.groupId == groupId }
-        var closed = 0
-        for tab in members {
-            // closeWorkspace short-circuits when tabs.count <= 1, so the last
-            // remaining workspace would be left alive with a stale groupId.
-            // Convert the holdout into a regular workspace (clear groupId)
-            // instead, and let the caller's surrounding flow decide whether
-            // to close the window. We still report it in the count of items
-            // "removed from the group" so the response is accurate.
-            if model.tabs.count <= 1 {
-                model.assignGroup(workspaceId: tab.id, groupId: nil)
-                continue
-            }
-            let countBefore = model.tabs.count
-            host.closeWorkspaceForGroupDeletion(tab, recordHistory: recordHistory)
-            if model.tabs.count < countBefore { closed += 1 }
-        }
-        // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
-        // when the anchor is among the closed members, but if every member
-        // was non-anchor (callers can construct that shape via socket
-        // workspace.group.set_anchor races) the group survives — clean up.
-        model.workspaceGroups.removeAll { $0.id == groupId }
-        return closed
+        guard let confirmation = deletionConfirmation(groupId: groupId) else { return 0 }
+        return deleteWorkspaceGroup(confirmed: confirmation, recordHistory: recordHistory)
     }
 
     // MARK: - Group properties

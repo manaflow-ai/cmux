@@ -284,7 +284,7 @@ pub(crate) fn new_surface(
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
     Arc::new(Surface::Browser(BrowserSurface {
-        meta: SurfaceMeta { id, name: Mutex::new(None) },
+        meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
         session: Mutex::new(None),
         state: Mutex::new(BrowserState {
             latest_frame: None,
