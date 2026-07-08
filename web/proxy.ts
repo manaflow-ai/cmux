@@ -5,6 +5,7 @@ import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
+  remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
 
@@ -91,6 +92,20 @@ export default function middleware(request: NextRequest) {
       url.pathname = rest;
       return NextResponse.redirect(url, 301);
     }
+  }
+
+  const remoteTmuxMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/remote-tmux\/?$/,
+  );
+  if (
+    remoteTmuxMatch &&
+    !remoteTmuxDocsLocales.includes(
+      remoteTmuxMatch[1] as (typeof remoteTmuxDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/remote-tmux";
+    return NextResponse.redirect(url, 301);
   }
 
   const response = intlMiddleware(request);

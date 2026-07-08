@@ -4,7 +4,7 @@ import {
   featureWorkflowContentLocales,
   hasFeatureWorkflowContent,
 } from "@/i18n/locale-availability";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
@@ -17,10 +17,20 @@ export async function generateMetadata({
   const { locale } = await params;
   if (!hasFeatureWorkflowContent(locale)) notFound();
   const t = await getTranslations({ locale, namespace: "docs.vault" });
+  const alternates = buildAlternates(locale, "/docs/vault", featureWorkflowContentLocales);
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/vault", featureWorkflowContentLocales),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "website"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(title, description),
   };
 }
 

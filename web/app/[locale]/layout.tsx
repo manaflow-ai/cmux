@@ -7,7 +7,13 @@ import {
 } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "../../i18n/routing";
-import { buildAlternates } from "../../i18n/seo";
+import {
+  buildAlternates,
+  defaultOpenGraphImage,
+  openGraphDefaults,
+  seoDescription,
+  twitterSummary,
+} from "../../i18n/seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
 import { ThemeBootstrapScript } from "./theme-bootstrap-script";
@@ -59,9 +65,12 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "");
+  const title = t("title");
+  const description = seoDescription(locale, t("description"));
+  const ogDescription = seoDescription(locale, t("ogDescription"));
   return {
-    title: t("title"),
-    description: t("description"),
+    title,
+    description,
     keywords: [
       "terminal",
       "macOS",
@@ -77,17 +86,12 @@ export async function generateMetadata({
       "terminal for AI agents",
     ],
     openGraph: {
-      title: t("title"),
-      description: t("ogDescription"),
+      ...openGraphDefaults(locale, "website"),
+      title,
+      description: ogDescription,
       url: alternates.canonical,
-      siteName: "cmux",
-      type: "website",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("title"),
-      description: t("ogDescription"),
-    },
+    twitter: twitterSummary(title, ogDescription),
     alternates,
     metadataBase: new URL("https://cmux.com"),
   };
@@ -113,29 +117,52 @@ export default async function LocaleLayout({
   setRequestLocale(locale);
 
   const messages = pruneClientMessages(await getMessages());
+  const t = await getTranslations({ locale, namespace: "meta" });
+  const webSiteDescription = seoDescription(locale, t("description"));
 
-  const jsonLd = {
+  const organizationJsonLd = {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
+    "@type": "Organization",
     name: "cmux",
-    operatingSystem: "macOS",
-    applicationCategory: "DeveloperApplication",
     url: "https://cmux.com",
-    downloadUrl: DOWNLOAD_URL,
-    description:
-      "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
-    keywords:
-      "terminal, macOS, open source terminal, Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, AI coding agents, Ghostty",
-    isAccessibleForFree: true,
-    license: "https://github.com/manaflow-ai/cmux/blob/main/LICENSE",
-    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    logo: "https://cmux.com/logo.png",
+    sameAs: [
+      "https://github.com/manaflow-ai/cmux",
+      "https://twitter.com/manaflowai",
+    ],
   };
-  const jsonLdScript = JSON.stringify(jsonLd).replace(/</g, "\\u003c");
+  const webSiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "cmux",
+    url: "https://cmux.com",
+    description: webSiteDescription,
+    publisher: {
+      "@type": "Organization",
+      name: "cmux",
+      url: "https://cmux.com",
+      logo: "https://cmux.com/logo.png",
+    },
+    image: defaultOpenGraphImage.url,
+    potentialAction: {
+      "@type": "ReadAction",
+      target: DOWNLOAD_URL,
+    },
+  };
+  const organizationJsonLdScript = JSON.stringify(organizationJsonLd).replace(
+    /</g,
+    "\\u003c",
+  );
+  const webSiteJsonLdScript = JSON.stringify(webSiteJsonLd).replace(
+    /</g,
+    "\\u003c",
+  );
 
   return (
     <>
       <meta name="theme-color" content={darkThemeColor} />
-      <script type="application/ld+json">{jsonLdScript}</script>
+      <script type="application/ld+json">{organizationJsonLdScript}</script>
+      <script type="application/ld+json">{webSiteJsonLdScript}</script>
       <ThemeBootstrapScript script={themeBootstrapScript} />
       <NextIntlClientProvider messages={messages}>
         <Providers>
