@@ -199,12 +199,6 @@ struct SessionRectSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-struct SessionDisplaySnapshot: Codable, Sendable {
-    var displayID: UInt32?
-    var frame: SessionRectSnapshot?
-    var visibleFrame: SessionRectSnapshot?
-}
-
 enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
     case tabs
     case notifications
@@ -1843,6 +1837,9 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+    /// Per-display-configuration remembered frames (LRU ring). Optional and
+    /// additive so older persisted snapshots decode unchanged.
+    var configFrames: [SessionConfigFrameEntry]? = nil
 }
 
 struct AppSessionSnapshot: Codable, Sendable {
