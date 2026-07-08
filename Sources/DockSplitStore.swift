@@ -34,7 +34,7 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
-    private let browserProfileStoreProvider: () -> BrowserProfileStore
+    private let browserProfileStoreProvider: (() -> BrowserProfileStore)?
     // Internal so cross-container transfers can move live panels without tearing them down.
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -79,7 +79,7 @@ final class DockSplitStore: BonsplitDelegate {
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
-        browserProfileStoreProvider: @escaping () -> BrowserProfileStore = { .shared }
+        browserProfileStoreProvider: (() -> BrowserProfileStore)? = nil
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
@@ -128,7 +128,7 @@ final class DockSplitStore: BonsplitDelegate {
     func currentRemoteBrowserSettings() -> DockRemoteBrowserSettings { remoteBrowserSettingsProvider() }
 
     func isBrowserPanelAvailable() -> Bool { browserAvailabilityProvider() }
-    func browserProfileStore() -> BrowserProfileStore { browserProfileStoreProvider() }
+    func browserProfileStore() -> BrowserProfileStore { browserProfileStoreProvider?() ?? BrowserProfileStore.shared }
 
     func panel(for tabId: TabID) -> (any Panel)? {
         guard let panelId = surfaceIdToPanelId[tabId] else { return nil }

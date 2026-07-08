@@ -3971,7 +3971,7 @@ final class BrowserPanel: Panel, ObservableObject {
     init(
         workspaceId: UUID,
         profileID: UUID? = nil,
-        browserProfileStore: BrowserProfileStore = .shared,
+        browserProfileStore: BrowserProfileStore? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
         renderInitialNavigation: Bool = true,
@@ -3989,13 +3989,14 @@ final class BrowserPanel: Panel, ObservableObject {
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
-        self.browserProfileStore = browserProfileStore
-        let requestedProfileID = profileID ?? browserProfileStore.effectiveLastUsedProfileID
-        let resolvedProfileID = browserProfileStore.profileDefinition(id: requestedProfileID) != nil
+        let resolvedBrowserProfileStore = browserProfileStore ?? BrowserProfileStore.shared
+        self.browserProfileStore = resolvedBrowserProfileStore
+        let requestedProfileID = profileID ?? resolvedBrowserProfileStore.effectiveLastUsedProfileID
+        let resolvedProfileID = resolvedBrowserProfileStore.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID
-            : browserProfileStore.builtInDefaultProfileID
+            : resolvedBrowserProfileStore.builtInDefaultProfileID
         self.profileID = resolvedProfileID
-        self.historyStore = browserProfileStore.historyStore(for: resolvedProfileID)
+        self.historyStore = resolvedBrowserProfileStore.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -4006,13 +4007,13 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesTransparentBackground = transparentBackground
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
-            : browserProfileStore.websiteDataStore(for: resolvedProfileID)
+            : resolvedBrowserProfileStore.websiteDataStore(for: resolvedProfileID)
         let webView = Self.makeWebView(websiteDataStore: websiteDataStore)
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
         applyProxyConfigurationIfAvailable()
-        browserProfileStore.noteUsed(resolvedProfileID)
+        resolvedBrowserProfileStore.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
