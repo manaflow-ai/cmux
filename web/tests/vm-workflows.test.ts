@@ -1738,6 +1738,61 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
+  dbTest("does not run unbounded SSH identity cleanup before minting a replacement", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-ssh-cleanup-bound', 'freestyle', 'provider-vm-ssh-cleanup-bound', 'snapshot-test', 'running')
+      returning id
+    `;
+    await sql`
+      insert into cloud_vm_leases (
+        vm_id, user_id, kind, token_hash, expires_at, provider_identity_handle, transport, metadata
+      )
+      select ${vm.id}, 'user-workflow-ssh-cleanup-bound', 'ssh', 'cleanup-bound-token-' || n,
+        now() + interval '15 minutes', 'identity-cleanup-bound-' || n, 'ssh', '{}'::jsonb
+      from generate_series(1, 9) as n
+    `;
+
+    let revokeCalls = 0;
+    let mintCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () =>
+        Effect.sync(() => {
+          mintCalls += 1;
+          return {
+            transport: "ssh" as const,
+            host: "vm-ssh.freestyle.sh",
+            port: 22,
+            username: "provider-vm-ssh-cleanup-bound+cmux",
+            publicKeyFingerprint: null,
+            credential: { kind: "password" as const, value: "token" },
+            identityHandle: "identity-cleanup-bound-new",
+          };
+        }),
+      revokeSSHIdentity: () =>
+        Effect.sync(() => {
+          revokeCalls += 1;
+        }),
+    };
+
+    await expect(
+      Effect.runPromise(
+        openSshEndpoint({
+          userId: "user-workflow-ssh-cleanup-bound",
+          providerVmId: "provider-vm-ssh-cleanup-bound",
+        }).pipe(Effect.provide(providerLayer(provider))),
+      ),
+    ).rejects.toThrow();
+    expect(revokeCalls).toBe(0);
+    expect(mintCalls).toBe(0);
+  });
+
   dbTest("resumes a paused VM before minting SSH credentials", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;

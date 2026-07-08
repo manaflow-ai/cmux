@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -27,8 +27,6 @@ export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
-
-const ACTIVE_IDENTITY_LEASE_REVOKE_LIMIT = 8;
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -1319,11 +1317,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             eq(cloudVmLeases.vmId, vmId),
             isNotNull(cloudVmLeases.providerIdentityHandle),
             isNull(cloudVmLeases.revokedAt),
-            gt(cloudVmLeases.expiresAt, new Date()),
           ),
         )
-        .orderBy(desc(cloudVmLeases.createdAt))
-        .limit(ACTIVE_IDENTITY_LEASE_REVOKE_LIMIT);
+        .orderBy(desc(cloudVmLeases.createdAt));
     }),
 
   markLeasesRevoked: (ids) =>

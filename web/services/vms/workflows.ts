@@ -69,6 +69,7 @@ export type CloudVmSessionEntry = CloudVmSessionRow;
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
 const EXPIRED_IDENTITY_REVOKE_BATCH = 50;
+const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 
 type ExistingVmAccessInput = {
@@ -1470,6 +1471,13 @@ function revokeActiveIdentities(
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const leases = yield* repo.activeIdentityLeases(vm.id);
+    if (options.failOnCleanupError && leases.length > ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT) {
+      return yield* Effect.fail(new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "revokeSSHIdentity",
+        cause: new Error(`too many active identity leases pending cleanup: ${leases.length}`),
+      }));
+    }
     const revokedIds: string[] = [];
     for (const lease of leases) {
       const identityHandle = lease.providerIdentityHandle;
