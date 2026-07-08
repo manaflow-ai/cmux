@@ -182,6 +182,27 @@ extension NotesTreeStore {
         #expect(fm.fileExists(atPath: moved2))
     }
 
+    /// A repo can commit a broken symlink at the predictable new-note name
+    /// (`untitled.md -> outside`); `fileExists` follows links and reports it
+    /// free, but creation must neither write through it (that would create
+    /// the target outside `.cmux/notes`) nor land on it — the name counts as
+    /// occupied and the note gets the next unique name.
+    @Test func newNoteNeverCreatesThroughPlantedSymlink() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS"
+        )
+        let escapeTarget = (projectRoot as NSString).appendingPathComponent("escaped-note.md")
+        let planted = (root as NSString).appendingPathComponent("untitled.md")
+        try fm.createSymbolicLink(atPath: planted, withDestinationPath: escapeTarget)
+
+        let note = try NotesTreeStorage.newNote(inFolder: root, preferredName: "untitled")
+
+        #expect((note as NSString).lastPathComponent == "untitled-2.md")
+        #expect(fm.fileExists(atPath: note))
+        #expect(!fm.fileExists(atPath: escapeTarget), "creation must not follow the planted link")
+        #expect(NotesTreeStorage.isSymlink(planted), "the planted link itself must be untouched")
+    }
+
     @Test func renameKeepsNoteExtensionAndSanitizesName() throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS"

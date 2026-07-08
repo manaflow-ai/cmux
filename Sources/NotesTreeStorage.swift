@@ -301,11 +301,16 @@ enum NotesTreeStorage {
     static func newNote(inFolder folder: String, preferredName: String = "untitled") throws -> String {
         let base = slugify(preferredName, fallback: "untitled")
         let path = uniquePath(inFolder: folder, base: base, ext: "md")
-        let fm = FileManager.default
-        try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        guard fm.createFile(atPath: path, contents: Data()) else {
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        // O_EXCL + O_NOFOLLOW: createFile(atPath:) follows a symlink planted
+        // at the new name (a repo can commit `untitled.md -> /elsewhere`), so
+        // the leaf must be created exclusively and never through a link —
+        // even if one appears between the uniquePath probe and this open.
+        let fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644)
+        guard fd >= 0 else {
             throw NotesTreeStorageError.writeFailed(path)
         }
+        close(fd)
         return path
     }
 
@@ -648,7 +653,10 @@ enum NotesTreeStorage {
         }
         var candidate = compose(base)
         var counter = 2
-        while fm.fileExists(atPath: candidate) {
+        // fileExists follows symlinks, so a project-controlled BROKEN link at
+        // the candidate name would read as free; lstat (isSymlink) treats any
+        // link as occupied so creation never lands on one.
+        while fm.fileExists(atPath: candidate) || isSymlink(candidate) {
             candidate = compose("\(base)-\(counter)")
             counter += 1
         }
