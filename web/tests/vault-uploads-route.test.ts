@@ -205,6 +205,36 @@ describe("Vault uploads route", () => {
     expect(rows[0].reservationToken).not.toBe(originalGrant!.reservationToken);
   });
 
+  dbTest("reuses an expired staging key when cleanup has not completed", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    const uploadObjectKey = `${objectKey}.expired-upload`;
+    await db.insert(vaultUploadGrants).values({
+      userId,
+      objectKey,
+      uploadObjectKey,
+      compressedSizeBytes: 123,
+      createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+    beforeNextDelete = async (key) => {
+      expect(key).toBe(uploadObjectKey);
+      throw new Error("storage cleanup failed");
+    };
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).items[0].status).toBe("upload");
+    expect(presignPut).toHaveBeenCalledWith(uploadObjectKey, 456);
+    const rows = await db
+      .select({ uploadObjectKey: vaultUploadGrants.uploadObjectKey })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].uploadObjectKey).toBe(uploadObjectKey);
+  });
+
   dbTest("removes a newly-created upload grant when presign fails", async () => {
     const db = cloudDb();
     const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);

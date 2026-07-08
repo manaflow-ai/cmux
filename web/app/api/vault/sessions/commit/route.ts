@@ -48,149 +48,111 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
   const config = vaultConfig();
   const db = cloudDb();
   const stagingCleanups: { grantId: string; objectKey: string; uploadObjectKey: string }[] = [];
-  const copiedFinalObjectKeys: string[] = [];
-  let results;
-  try {
-    results = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
-      // Re-check the per-user quota at commit time under the same lock used by
-      // presign. The current grant must still match this commit, so older
-      // presigned URLs cannot outlive a later downsized reservation.
-      let projectedUserBytes = await getVaultStoredCompressedBytes(lockedDb, userId);
-      const lockedResults = [];
-      for (const item of batch.value) {
-        // Per-item so one oversized transcript cannot block the rest of the batch.
-        if (item.compressedSizeBytes > config.maxUploadBytes) {
-          lockedResults.push(itemResult(item, "error", "upload_too_large"));
-          continue;
-        }
-
-        const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
-        const now = new Date();
-        const existingCommit = await findCommittedSnapshot(lockedDb, userId, item, objectKey);
-        if (existingCommit) {
-          lockedResults.push({
-            agent: item.agent,
-            agentSessionId: item.agentSessionId,
-            relPath: item.relPath,
-            status: "committed",
-            sessionId: existingCommit.sessionId,
-          });
-          continue;
-        }
-
-        const [grant] = await lockedDb
-          .select({
-            id: vaultUploadGrants.id,
-            uploadObjectKey: vaultUploadGrants.uploadObjectKey,
-            compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
-          })
-          .from(vaultUploadGrants)
-          .where(and(
-            eq(vaultUploadGrants.userId, userId),
-            eq(vaultUploadGrants.objectKey, objectKey),
-            gt(vaultUploadGrants.expiresAt, now),
-          ))
-          .limit(1);
-        if (!grant) {
-          lockedResults.push(itemResult(item, "error", "upload_grant_missing"));
-          continue;
-        }
-        if (grant.compressedSizeBytes !== item.compressedSizeBytes) {
-          lockedResults.push(itemResult(item, "error", "upload_grant_mismatch"));
-          continue;
-        }
-
-        if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
-          lockedResults.push(itemResult(item, "error", "quota_exceeded"));
-          continue;
-        }
-
-        const legacyFinalKeyGrant = grant.uploadObjectKey === objectKey;
-        const object = await headObject(grant.uploadObjectKey);
-        if (!object) {
-          lockedResults.push(itemResult(item, "error", "object_missing"));
-          continue;
-        }
-        // Some S3-compatible stores omit Content-Length on HEAD; only enforce the
-        // size check when the store reports one.
-        if (object.contentLength != null && object.contentLength !== item.compressedSizeBytes) {
-          lockedResults.push(itemResult(item, "error", "size_mismatch"));
-          continue;
-        }
-
-        if (!legacyFinalKeyGrant) {
-          await copyObject(grant.uploadObjectKey, objectKey);
-          copiedFinalObjectKeys.push(objectKey);
-        }
-
-        const [session] = await lockedDb
-          .insert(vaultSessions)
-          .values({
-            userId,
-            agent: item.agent,
-            agentSessionId: item.agentSessionId,
-            relPath: item.relPath,
-            cwd: item.cwd,
-            latestSha256: item.sha256,
-            latestObjectKey: objectKey,
-            sizeBytes: item.sizeBytes,
-            compressedSizeBytes: item.compressedSizeBytes,
-            firstUploadedAt: now,
-            lastUploadedAt: now,
-            metadata: {},
-          })
-          .onConflictDoUpdate({
-            target: [vaultSessions.userId, vaultSessions.agent, vaultSessions.agentSessionId],
-            set: {
-              relPath: item.relPath,
-              cwd: item.cwd,
-              latestSha256: item.sha256,
-              latestObjectKey: objectKey,
-              sizeBytes: item.sizeBytes,
-              compressedSizeBytes: item.compressedSizeBytes,
-              lastUploadedAt: now,
-            },
-          })
-          .returning({ id: vaultSessions.id });
-
-        await lockedDb
-          .insert(vaultSnapshots)
-          .values({
-            sessionId: session.id,
-            sha256: item.sha256,
-            objectKey,
-            sizeBytes: item.sizeBytes,
-            compressedSizeBytes: item.compressedSizeBytes,
-            uploadedAt: now,
-          })
-          .onConflictDoNothing({
-            target: [vaultSnapshots.sessionId, vaultSnapshots.sha256],
-          });
-
-        if (legacyFinalKeyGrant) {
-          await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
-        } else {
-          stagingCleanups.push({
-            grantId: grant.id,
-            objectKey,
-            uploadObjectKey: grant.uploadObjectKey,
-          });
-        }
-
-        projectedUserBytes += item.compressedSizeBytes;
-        lockedResults.push({
-          agent: item.agent,
-          agentSessionId: item.agentSessionId,
-          relPath: item.relPath,
-          status: "committed",
-          sessionId: session.id,
-        });
+  const initialResults = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
+    // Re-check the per-user quota at commit time under the same lock used by
+    // presign. The current grant must still match this commit, so older
+    // presigned URLs cannot outlive a later downsized reservation.
+    let projectedUserBytes = await getVaultStoredCompressedBytes(lockedDb, userId);
+    const lockedResults = [];
+    for (const item of batch.value) {
+      // Per-item so one oversized transcript cannot block the rest of the batch.
+      if (item.compressedSizeBytes > config.maxUploadBytes) {
+        lockedResults.push(itemResult(item, "error", "upload_too_large"));
+        continue;
       }
-      return lockedResults;
+
+      const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
+      const now = new Date();
+      const existingCommit = await findCommittedSnapshot(lockedDb, userId, item, objectKey);
+      if (existingCommit) {
+        lockedResults.push(committedResult(item, existingCommit.sessionId));
+        continue;
+      }
+
+      const [grant] = await lockedDb
+        .select({
+          id: vaultUploadGrants.id,
+          uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+          compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
+        })
+        .from(vaultUploadGrants)
+        .where(and(
+          eq(vaultUploadGrants.userId, userId),
+          eq(vaultUploadGrants.objectKey, objectKey),
+          gt(vaultUploadGrants.expiresAt, now),
+        ))
+        .limit(1);
+      if (!grant) {
+        lockedResults.push(itemResult(item, "error", "upload_grant_missing"));
+        continue;
+      }
+      if (grant.compressedSizeBytes !== item.compressedSizeBytes) {
+        lockedResults.push(itemResult(item, "error", "upload_grant_mismatch"));
+        continue;
+      }
+
+      if (projectedUserBytes + item.compressedSizeBytes > config.maxUserBytes) {
+        lockedResults.push(itemResult(item, "error", "quota_exceeded"));
+        continue;
+      }
+
+      const object = await headObject(grant.uploadObjectKey);
+      if (!object) {
+        lockedResults.push(itemResult(item, "error", "object_missing"));
+        continue;
+      }
+      // Some S3-compatible stores omit Content-Length on HEAD; only enforce the
+      // size check when the store reports one.
+      if (object.contentLength != null && object.contentLength !== item.compressedSizeBytes) {
+        lockedResults.push(itemResult(item, "error", "size_mismatch"));
+        continue;
+      }
+
+      if (grant.uploadObjectKey !== objectKey) {
+        lockedResults.push({
+          status: "pending_staged_commit" as const,
+          item,
+          objectKey,
+          grantId: grant.id,
+          uploadObjectKey: grant.uploadObjectKey,
+        });
+        projectedUserBytes += item.compressedSizeBytes;
+        continue;
+      }
+
+      const sessionId = await commitVaultSnapshotRows(lockedDb, userId, item, objectKey, now);
+      await lockedDb.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
+      projectedUserBytes += item.compressedSizeBytes;
+      lockedResults.push(committedResult(item, sessionId));
+    }
+    return lockedResults;
+  });
+
+  const results = [];
+  for (const result of initialResults) {
+    if (!isPendingStagedCommit(result)) {
+      results.push(result);
+      continue;
+    }
+    await copyObject(result.uploadObjectKey, result.objectKey);
+    let finalized;
+    try {
+      finalized = await finalizeStagedCommit(db, userId, result, config.maxUserBytes);
+    } catch (error) {
+      await deleteObject(result.objectKey).catch(() => undefined);
+      throw error;
+    }
+    if (finalized.status !== "committed") {
+      await deleteObject(result.objectKey).catch(() => undefined);
+      results.push(finalized);
+      continue;
+    }
+    stagingCleanups.push({
+      grantId: result.grantId,
+      objectKey: result.objectKey,
+      uploadObjectKey: result.uploadObjectKey,
     });
-  } catch (error) {
-    await Promise.allSettled(copiedFinalObjectKeys.map((objectKey) => deleteObject(objectKey)));
-    throw error;
+    results.push(finalized);
   }
   await cleanupCommittedStagingGrants(db, stagingCleanups);
   setSpanAttributes(span, {
@@ -199,6 +161,136 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
     "cmux.vault.result.error_count": countResultStatus(results, "error"),
   });
   return jsonResponse({ items: results });
+}
+
+type VaultCommitItem = {
+  readonly agent: string;
+  readonly agentSessionId: string;
+  readonly relPath: string;
+  readonly cwd: string | null;
+  readonly sha256: string;
+  readonly sizeBytes: number;
+  readonly compressedSizeBytes: number;
+};
+
+type PendingStagedCommit = {
+  readonly status: "pending_staged_commit";
+  readonly item: VaultCommitItem;
+  readonly objectKey: string;
+  readonly grantId: string;
+  readonly uploadObjectKey: string;
+};
+
+function isPendingStagedCommit(result: unknown): result is PendingStagedCommit {
+  return typeof result === "object" &&
+    result !== null &&
+    "status" in result &&
+    result.status === "pending_staged_commit";
+}
+
+async function finalizeStagedCommit(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  pending: PendingStagedCommit,
+  maxUserBytes: number,
+) {
+  return await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
+    const existingCommit = await findCommittedSnapshot(
+      lockedDb,
+      userId,
+      pending.item,
+      pending.objectKey,
+    );
+    if (existingCommit) return committedResult(pending.item, existingCommit.sessionId);
+
+    const now = new Date();
+    const [grant] = await lockedDb
+      .select({
+        id: vaultUploadGrants.id,
+        compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
+      })
+      .from(vaultUploadGrants)
+      .where(and(
+        eq(vaultUploadGrants.id, pending.grantId),
+        eq(vaultUploadGrants.userId, userId),
+        eq(vaultUploadGrants.objectKey, pending.objectKey),
+        eq(vaultUploadGrants.uploadObjectKey, pending.uploadObjectKey),
+        gt(vaultUploadGrants.expiresAt, now),
+      ))
+      .limit(1);
+    if (!grant) return itemResult(pending.item, "error", "upload_grant_missing");
+    if (grant.compressedSizeBytes !== pending.item.compressedSizeBytes) {
+      return itemResult(pending.item, "error", "upload_grant_mismatch");
+    }
+
+    const storedBytes = await getVaultStoredCompressedBytes(lockedDb, userId);
+    if (storedBytes + pending.item.compressedSizeBytes > maxUserBytes) {
+      return itemResult(pending.item, "error", "quota_exceeded");
+    }
+
+    const sessionId = await commitVaultSnapshotRows(
+      lockedDb,
+      userId,
+      pending.item,
+      pending.objectKey,
+      now,
+    );
+    return committedResult(pending.item, sessionId);
+  });
+}
+
+async function commitVaultSnapshotRows(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  item: VaultCommitItem,
+  objectKey: string,
+  now: Date,
+): Promise<string> {
+  const [session] = await db
+    .insert(vaultSessions)
+    .values({
+      userId,
+      agent: item.agent,
+      agentSessionId: item.agentSessionId,
+      relPath: item.relPath,
+      cwd: item.cwd,
+      latestSha256: item.sha256,
+      latestObjectKey: objectKey,
+      sizeBytes: item.sizeBytes,
+      compressedSizeBytes: item.compressedSizeBytes,
+      firstUploadedAt: now,
+      lastUploadedAt: now,
+      metadata: {},
+    })
+    .onConflictDoUpdate({
+      target: [vaultSessions.userId, vaultSessions.agent, vaultSessions.agentSessionId],
+      set: {
+        relPath: item.relPath,
+        cwd: item.cwd,
+        latestSha256: item.sha256,
+        latestObjectKey: objectKey,
+        sizeBytes: item.sizeBytes,
+        compressedSizeBytes: item.compressedSizeBytes,
+        lastUploadedAt: now,
+      },
+    })
+    .returning({ id: vaultSessions.id });
+
+  await db
+    .insert(vaultSnapshots)
+    .values({
+      sessionId: session.id,
+      sha256: item.sha256,
+      objectKey,
+      sizeBytes: item.sizeBytes,
+      compressedSizeBytes: item.compressedSizeBytes,
+      uploadedAt: now,
+    })
+    .onConflictDoNothing({
+      target: [vaultSnapshots.sessionId, vaultSnapshots.sha256],
+    });
+
+  return session.id;
 }
 
 async function cleanupCommittedStagingGrants(
@@ -255,6 +347,19 @@ function itemResult(
     relPath: item.relPath,
     status,
     error,
+  };
+}
+
+function committedResult(
+  item: { agent: string; agentSessionId: string; relPath: string },
+  sessionId: string,
+) {
+  return {
+    agent: item.agent,
+    agentSessionId: item.agentSessionId,
+    relPath: item.relPath,
+    status: "committed",
+    sessionId,
   };
 }
 

@@ -209,7 +209,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .from(vaultUploadGrants)
         .where(eq(vaultUploadGrants.objectKey, objectKey))
         .limit(1);
-      const reusePreviousUploadKey = previousGrant && previousGrant.expiresAt > now;
+      const reusePreviousUploadKey = !!previousGrant;
       const grantReservationToken = randomUUID();
       const uploadObjectKey = reusePreviousUploadKey
         ? previousGrant.uploadObjectKey
