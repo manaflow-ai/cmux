@@ -175,6 +175,22 @@ struct DockControlDefinitionDecodingTests {
         }
     }
 
+    @Test("Dock controls reject oversized text fields before trust rendering")
+    func controlRejectsOversizedTextFields() throws {
+        let oversized = String(repeating: "x", count: DockControlDefinition.maximumTextFieldByteCount + 1)
+
+        #expect(throws: (any Error).self) {
+            _ = try decode(#"{"id":"huge-command","command":"\#(oversized)"}"#)
+        }
+
+        let data = try JSONSerialization.data(
+            withJSONObject: ["id": "huge-env", "command": "echo ok", "env": ["BIG": oversized]]
+        )
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(DockControlDefinition.self, from: data)
+        }
+    }
+
     @Test("Project config identity follows the resolved dock file, not child cwd")
     @MainActor
     func projectConfigIdentityUsesResolvedDockFile() throws {

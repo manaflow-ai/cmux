@@ -3,6 +3,7 @@ import Foundation
 /// A single Dock control loaded from `dock.json`.
 struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     static let maximumEnvironmentVariableCount = 64
+    static let maximumTextFieldByteCount = 4096
 
     let id: String
     let title: String
@@ -66,6 +67,7 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawID = try container.decode(String.self, forKey: .id)
+        try Self.validateTextField(rawID)
         let normalizedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedID.isEmpty else {
             throw Self.validationError(
@@ -74,15 +76,22 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             )
         }
 
-        let rawType = try container.decodeIfPresent(String.self, forKey: .type)?
+        let decodedType = try container.decodeIfPresent(String.self, forKey: .type)
+        if let decodedType { try Self.validateTextField(decodedType) }
+        let rawType = decodedType?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         let rawCommand = try container.decodeIfPresent(String.self, forKey: .command)
+        if let rawCommand { try Self.validateTextField(rawCommand) }
         let normalizedCommand = rawCommand?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedURL = try container.decodeIfPresent(String.self, forKey: .url)?
+        let rawURL = try container.decodeIfPresent(String.self, forKey: .url)
+        if let rawURL { try Self.validateTextField(rawURL) }
+        let normalizedURL = rawURL?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedProfile = try container.decodeIfPresent(String.self, forKey: .profile)?
+        let rawProfile = try container.decodeIfPresent(String.self, forKey: .profile)
+        if let rawProfile { try Self.validateTextField(rawProfile) }
+        let normalizedProfile = rawProfile?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let resolvedVariant: DockControlVariant
@@ -126,13 +135,15 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
         }
 
         let rawTitle = try container.decodeIfPresent(String.self, forKey: .title) ?? rawID
+        try Self.validateTextField(rawTitle)
         let normalizedTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
 
         id = normalizedID
         title = normalizedTitle.isEmpty ? normalizedID : normalizedTitle
         variant = resolvedVariant
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawCWD = try container.decodeIfPresent(String.self, forKey: .cwd)
+        if let rawCWD { try Self.validateTextField(rawCWD) }
+        cwd = rawCWD?.trimmingCharacters(in: .whitespacesAndNewlines)
         height = try container.decodeIfPresent(Double.self, forKey: .height)
         let decodedEnv = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
         guard decodedEnv.count <= Self.maximumEnvironmentVariableCount else {
@@ -146,6 +157,10 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
                     Int64(Self.maximumEnvironmentVariableCount)
                 )
             )
+        }
+        for (key, value) in decodedEnv {
+            try Self.validateTextField(key)
+            try Self.validateTextField(value)
         }
         env = decodedEnv
     }
@@ -177,5 +192,20 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             code: code,
             userInfo: [NSLocalizedDescriptionKey: message]
         )
+    }
+
+    private static func validateTextField(_ value: String) throws {
+        guard value.utf8.count <= Self.maximumTextFieldByteCount else {
+            throw Self.validationError(
+                code: 10,
+                message: String(
+                    format: String(
+                        localized: "dock.error.textFieldTooLong",
+                        defaultValue: "Dock control text fields must be at most %lld bytes."
+                    ),
+                    Int64(Self.maximumTextFieldByteCount)
+                )
+            )
+        }
     }
 }
