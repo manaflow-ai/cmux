@@ -125,13 +125,12 @@ extension Workspace {
 
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        let previousPID = agentPIDs[key]
         let previousPanelId = agentPIDPanelIdsByKey[key]
         var didClearOtherStructuredAgentRuntime = false
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
-        let previousPID = agentPIDs[key]
-        let previousPanelId = agentPIDPanelIdsByKey[key]
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
         if let panelId {
