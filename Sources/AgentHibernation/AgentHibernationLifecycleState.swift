@@ -59,6 +59,7 @@ enum AgentHibernationLifecycleStatusKeys {
         "grok",
         "hermes-agent",
         "kiro",
+        "omp",
         "opencode",
         "pi",
         "qoder",
