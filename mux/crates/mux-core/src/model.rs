@@ -32,6 +32,26 @@ impl Node {
         }
     }
 
+    pub(crate) fn swap_leaves(&mut self, first: PaneId, second: PaneId) -> bool {
+        if first == second || !self.contains(first) || !self.contains(second) {
+            return false;
+        }
+        self.swap_leaf_ids(first, second);
+        true
+    }
+
+    fn swap_leaf_ids(&mut self, first: PaneId, second: PaneId) {
+        match self {
+            Node::Leaf(id) if *id == first => *id = second,
+            Node::Leaf(id) if *id == second => *id = first,
+            Node::Leaf(_) => {}
+            Node::Split { a, b, .. } => {
+                a.swap_leaf_ids(first, second);
+                b.swap_leaf_ids(first, second);
+            }
+        }
+    }
+
     pub(crate) fn split_leaf(&mut self, target: PaneId, dir: SplitDir, new_pane: PaneId) -> bool {
         match self {
             Node::Leaf(id) if *id == target => {
@@ -129,6 +149,7 @@ pub struct Screen {
     pub name: Option<String>,
     pub root: Node,
     pub active_pane: PaneId,
+    pub zoomed_pane: Option<PaneId>,
 }
 
 #[derive(Debug)]

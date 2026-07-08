@@ -8,7 +8,6 @@ import WebKit
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
 private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
-private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
 #if DEBUG
@@ -22,18 +21,6 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
 }
 #endif
-
-private extension NSObject {
-    @discardableResult
-    func browserPortalCallVoidIfAvailable(_ rawSelector: String) -> Bool {
-        let selector = NSSelectorFromString(rawSelector)
-        guard responds(to: selector) else { return false }
-        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
-        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
-        fn(self, selector)
-        return true
-    }
-}
 
 private extension NSResponder {
     var browserPortalOwningView: NSView? {
@@ -72,78 +59,6 @@ private extension NSWindow {
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }
-    }
-}
-
-private extension WKWebView {
-    private var browserPortalNeedsRenderingStateReattach: Bool {
-        get {
-            (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsRenderingStateReattachKey) as? NSNumber)?
-                .boolValue ?? false
-        }
-        set {
-            objc_setAssociatedObject(
-                self,
-                &cmuxBrowserPortalNeedsRenderingStateReattachKey,
-                NSNumber(value: newValue),
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-    }
-
-    var browserPortalRequiresRenderingStateReattach: Bool {
-        browserPortalNeedsRenderingStateReattach
-    }
-
-    func browserPortalNotifyHidden(reason: String) {
-        browserPortalNeedsRenderingStateReattach = true
-        let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
-            browserPortalCallVoidIfAvailable($0)
-        }
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "browser.portal.webview.hidden web=\(browserPortalDebugToken(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
-            )
-        }
-#endif
-    }
-
-    func browserPortalReattachRenderingState(reason: String) {
-        guard browserPortalNeedsRenderingStateReattach else { return }
-        guard window != nil else { return }
-        browserPortalNeedsRenderingStateReattach = false
-
-        let firedSelectors = [
-            "viewDidUnhide",
-            "_enterInWindow",
-            "_endDeferringViewInWindowChangesSync",
-        ].filter {
-            browserPortalCallVoidIfAvailable($0)
-        }
-
-        if let scrollView = enclosingScrollView {
-            scrollView.needsLayout = true
-            scrollView.needsDisplay = true
-            scrollView.setNeedsDisplay(scrollView.bounds)
-            scrollView.contentView.needsLayout = true
-            scrollView.contentView.needsDisplay = true
-        }
-
-        needsLayout = true
-        needsDisplay = true
-        setNeedsDisplay(bounds)
-
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "browser.portal.webview.reattach web=\(browserPortalDebugToken(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
-                "frame=\(browserPortalDebugFrame(frame))"
-            )
-        }
-#endif
     }
 }
 
@@ -2269,22 +2184,6 @@ final class WindowBrowserPortal: NSObject {
             frame.maxY > bounds.maxY + epsilon
     }
 
-    private static func hasVisibleInspectorDescendant(in root: NSView) -> Bool {
-        var stack: [NSView] = [root]
-        while let current = stack.popLast() {
-            if current !== root {
-                if cmuxIsWebInspectorObject(current),
-                   !current.isHidden,
-                   current.alphaValue > 0,
-                   current.frame.width > 1,
-                   current.frame.height > 1 {
-                    return true
-                }
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
 
     private static func inferredBottomDockedInspectorFrame(
         in containerView: NSView,
@@ -2296,7 +2195,7 @@ final class WindowBrowserPortal: NSObject {
 
         let candidates = containerView.subviews.compactMap { candidate -> NSRect? in
             guard candidate !== primaryWebView else { return nil }
-            guard hasVisibleInspectorDescendant(in: candidate) else { return nil }
+            guard hasVisibleInspectorView(in: candidate) else { return nil }
 
             let frame = candidate.frame
             guard frame.width > 1, frame.height > 1 else { return nil }
@@ -3615,25 +3514,37 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             refreshReasons.append("webFrameBottomDock")
-        } else if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
-            let oldWebFrame = preNormalizeWebFrame
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            webView.frame = containerBounds
-            CATransaction.commit()
+        } else if containerOwnsWebView &&
+            Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+            if Self.hasVisibleInspectorView(in: containerView) {
 #if DEBUG
-            cmuxDebugLog(
-                "browser.portal.webframe.normalize web=\(browserPortalDebugToken(webView)) " +
-                "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
-                "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
-                "inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) " +
-                "inspectorInsets=\(String(format: "%.1f", inspectorHeightFromInsets)) " +
-                "inspectorOverflow=\(String(format: "%.1f", inspectorHeightFromOverflow)) " +
-                "inspectorSubviews=\(inspectorSubviews) " +
-                "source=\(source)"
-            )
+                cmuxDebugLog(
+                    "browser.portal.webframe.preserveInspectorLayout web=\(browserPortalDebugToken(webView)) " +
+                    "container=\(browserPortalDebugToken(containerView)) frame=\(browserPortalDebugFrame(preNormalizeWebFrame)) " +
+                    "bounds=\(browserPortalDebugFrame(containerBounds)) source=\(source)"
+                )
 #endif
-            refreshReasons.append("webFrame")
+                refreshReasons.append("webFrameBottomDock")
+            } else {
+                let oldWebFrame = preNormalizeWebFrame
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                webView.frame = containerBounds
+                CATransaction.commit()
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.portal.webframe.normalize web=\(browserPortalDebugToken(webView)) " +
+                    "container=\(browserPortalDebugToken(containerView)) old=\(browserPortalDebugFrame(oldWebFrame)) " +
+                    "new=\(browserPortalDebugFrame(webView.frame)) bounds=\(browserPortalDebugFrame(containerBounds)) " +
+                    "inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) " +
+                    "inspectorInsets=\(String(format: "%.1f", inspectorHeightFromInsets)) " +
+                    "inspectorOverflow=\(String(format: "%.1f", inspectorHeightFromOverflow)) " +
+                    "inspectorSubviews=\(inspectorSubviews) " +
+                    "source=\(source)"
+                )
+#endif
+                refreshReasons.append("webFrame")
+            }
         }
 
         let revealedForDisplay = !shouldHide && containerView.isHidden

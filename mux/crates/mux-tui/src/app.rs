@@ -840,6 +840,21 @@ impl App {
         }
     }
 
+    fn reload_config(&mut self) {
+        let config = crate::config::load();
+        self.session.apply_config(&config);
+        self.config = config;
+    }
+
+    fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
+        let lock = self.stdout_lock.clone();
+        let _guard = lock.lock().unwrap();
+        let mut stdout = std::io::stdout();
+        stdout.write_all(&mux_core::server::window_title_osc(title))?;
+        stdout.flush()?;
+        Ok(())
+    }
+
     /// Refresh the tree snapshot, recompute the active screen's layout
     /// (each pane's border box eats one cell on every side), and push
     /// content sizes to surfaces.
@@ -862,7 +877,13 @@ impl App {
         let layout = self
             .tree
             .active_screen()
-            .map(|screen| layout_screen(&screen.layout, area))
+            .map(|screen| {
+                if let Some(pane) = screen.zoomed_pane {
+                    layout_screen(&mux_core::Node::Leaf(pane), area)
+                } else {
+                    layout_screen(&screen.layout, area)
+                }
+            })
             .unwrap_or_default();
 
         self.pane_areas.clear();
@@ -922,6 +943,14 @@ impl App {
             AppEvent::Mux(MuxEvent::Status(message)) => {
                 self.status_message = Some(message);
                 Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::ConfigReloadRequested) => {
+                self.reload_config();
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::WindowTitleRequested(title)) => {
+                self.write_window_title(&title)?;
+                Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
                 if self.frame_only_browser_update(id) {
@@ -1042,14 +1071,7 @@ impl App {
         };
         let Some(surface_id) = self.selection.map(|sel| sel.surface) else { return false };
         let Some(surface) = self.session.surface(surface_id) else { return false };
-        let moved = surface
-            .with_terminal(|t| {
-                let before = t.scrollbar().map(|sb| sb.offset).unwrap_or(0);
-                t.scroll_delta(dir as isize);
-                let after = t.scrollbar().map(|sb| sb.offset).unwrap_or(0);
-                before != after
-            })
-            .unwrap_or(false);
+        let moved = surface.scroll_delta(dir as isize).unwrap_or(false);
         let edge_row = if dir < 0 { 0 } else { content.height.saturating_sub(1) };
         let offset = self.surface_scroll_offset(surface_id);
         if let Some(sel) = self.selection.as_mut() {
@@ -1612,7 +1634,7 @@ impl App {
             if surface.kind() == SurfaceKind::Browser {
                 return;
             }
-            let _ = surface.with_terminal(|t| t.scroll_delta(delta));
+            let _ = surface.scroll_delta(delta);
         }
     }
 
@@ -1627,9 +1649,8 @@ impl App {
         let Some(input) = keys::key_input_from(key) else { return };
         let Some(surface) = self.active_surface_handle() else { return };
         self.encode_buf.clear();
+        let _ = surface.scroll_to_bottom();
         let Some(encoded) = surface.with_terminal(|term| {
-            // New input snaps the viewport back to the live screen.
-            term.scroll_to_bottom();
             self.encoder.sync_from_terminal(term);
             self.encoder.encode(&input, &mut self.encode_buf)
         }) else {
@@ -2266,6 +2287,9 @@ impl App {
         if text.is_empty() {
             return;
         }
+        if let SurfaceHandle::Local(local) = &surface {
+            local.set_selection_text(Some(text.clone()));
+        }
         self.copy_text_to_clipboard(&text);
         self.show_toast("Copied".to_string());
     }
@@ -2308,23 +2332,27 @@ impl App {
     /// outside it jumps first, then anchors at the clicked position.
     fn start_scrollbar_drag(&mut self, surface: SurfaceId, track: Rect, y: u16) {
         let Some(handle) = self.session.surface(surface) else { return };
-        let mut anchor_offset = None;
-        let _ = handle.with_terminal(|t| {
-            let Some(sb) = t.scrollbar() else { return };
-            let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
-            let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
-            let on_thumb = rel_y >= thumb_y && rel_y < thumb_y + thumb_len;
-            if !on_thumb {
+        let jump_delta = handle
+            .with_terminal(|t| {
+                let sb = t.scrollbar()?;
+                let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+                let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
+                let on_thumb = rel_y >= thumb_y && rel_y < thumb_y + thumb_len;
+                if on_thumb {
+                    return None;
+                }
                 let denom = track.height.saturating_sub(1).max(1) as f64;
                 let frac = (rel_y as f64 / denom).clamp(0.0, 1.0);
                 let target = ((sb.total - sb.len) as f64 * frac).round() as i64;
                 let delta = target - sb.offset as i64;
-                if delta != 0 {
-                    t.scroll_delta(delta as isize);
-                }
-            }
-            anchor_offset = t.scrollbar().map(|after| after.offset);
-        });
+                (delta != 0).then_some(delta as isize)
+            })
+            .flatten();
+        if let Some(delta) = jump_delta {
+            let _ = handle.scroll_delta(delta);
+        }
+        let anchor_offset =
+            handle.with_terminal(|t| t.scrollbar().map(|scrollbar| scrollbar.offset)).flatten();
         if let Some(anchor_offset) = anchor_offset {
             self.drag = Some(Drag::Scrollbar { surface, track, anchor_y: y, anchor_offset });
         }
@@ -2340,20 +2368,23 @@ impl App {
         y: u16,
     ) {
         let Some(handle) = self.session.surface(surface) else { return };
-        handle.with_terminal(|t| {
-            let Some(sb) = t.scrollbar() else { return };
-            let (_, thumb_len) = thumb_geometry(&sb, track.height);
-            let range = sb.total.saturating_sub(sb.len);
-            let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
-            let dy = y as i128 - anchor_y as i128;
-            let delta = dy * range as i128 / travel;
-            let target = (anchor_offset as i128 + delta).clamp(0, range as i128) as i64;
-            let current = sb.offset as i64;
-            let scroll_delta = target - current;
-            if scroll_delta != 0 {
-                t.scroll_delta(scroll_delta as isize);
-            }
-        });
+        let delta = handle
+            .with_terminal(|t| {
+                let sb = t.scrollbar()?;
+                let (_, thumb_len) = thumb_geometry(&sb, track.height);
+                let range = sb.total.saturating_sub(sb.len);
+                let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
+                let dy = y as i128 - anchor_y as i128;
+                let delta = dy * range as i128 / travel;
+                let target = (anchor_offset as i128 + delta).clamp(0, range as i128) as i64;
+                let current = sb.offset as i64;
+                let scroll_delta = target - current;
+                (scroll_delta != 0).then_some(scroll_delta as isize)
+            })
+            .flatten();
+        if let Some(delta) = delta {
+            let _ = handle.scroll_delta(delta);
+        }
     }
 
     fn resize_focused_split(&mut self, delta: f32) {
@@ -2517,21 +2548,18 @@ impl App {
             return Ok(RenderAction::None);
         }
         let Some(sent_arrows) = surface.with_terminal(|term| {
-            if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
-                term.scroll_to_bottom();
-                true
-            } else {
-                term.scroll_delta(if down { 3 } else { -3 });
-                false
-            }
+            term.active_screen() == Screen::Alternate && !term.mouse_tracking()
         }) else {
             return Ok(RenderAction::None);
         };
         if sent_arrows {
+            let _ = surface.scroll_to_bottom();
             // Alt-screen apps without mouse support get arrow keys
             // (the usual alternate-scroll behavior).
             let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
             surface.write_bytes(seq);
+        } else {
+            let _ = surface.scroll_delta(if down { 3 } else { -3 });
         }
         Ok(RenderAction::Draw)
     }
@@ -2653,10 +2681,21 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
+        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect, App,
+        PaneArea,
     };
-    use crate::config::ScrollbarPosition;
-    use mux_core::{BrowserStatus, Rect};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use ghostty_vt::{KeyEncoder, RenderState};
+    use mux_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    use crate::browser_input::BrowserInputDispatcher;
+    use crate::config::{Config, ScrollbarPosition};
+    use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
+    use crate::session::{Session, TreeView};
 
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
@@ -2693,5 +2732,137 @@ mod tests {
             false
         ));
         assert!(!browser_hover_forward_allowed(None, false));
+    }
+
+    #[test]
+    fn notify_unread_indicators_render_and_clear() {
+        let mux = Mux::new(
+            "notify-render-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 12;
+        app.tree = notify_tree(surface.id, true);
+        app.pane_areas.push(PaneArea {
+            pane: 2,
+            surface: surface.id,
+            rect: Rect { x: 12, y: 1, width: 26, height: 8 },
+            bar: Some(Rect { x: 12, y: 1, width: 26, height: 1 }),
+            omnibar: None,
+            content: Rect { x: 13, y: 2, width: 23, height: 6 },
+            track: None,
+        });
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::draw(&mut app, frame);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(12, 2)].symbol(), "│");
+        assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.notification_warning));
+        assert!(row_contains(buffer, 1, "•"), "tab bar should contain unread dot");
+        assert_eq!(buffer[(0, 2)].symbol(), "•", "sidebar should contain unread dot");
+
+        app.tree = notify_tree(surface.id, false);
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::draw(&mut app, frame);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(12, 2)].style().fg, Some(app.config.theme.border_active));
+        assert!(!row_contains(buffer, 1, "•"), "tab bar dot should clear");
+        assert_ne!(buffer[(0, 2)].symbol(), "•", "sidebar dot should clear");
+
+        mux.close_surface(surface.id);
+    }
+
+    fn test_app(session: Session) -> App {
+        App {
+            session,
+            config: Config::default(),
+            tree: TreeView::default(),
+            render_states: HashMap::<u64, RenderState>::new(),
+            graphics_writer: None,
+            graphics_supported: false,
+            stdout_lock: Arc::new(Mutex::new(())),
+            pane_areas: Vec::new(),
+            prefix_armed: false,
+            session_label: "test".to_string(),
+            sidebar_visible: true,
+            sidebar_width: 0,
+            sidebar_width_override: None,
+            content_area: Rect::default(),
+            hits: Vec::new(),
+            tab_scroll: HashMap::new(),
+            hover: None,
+            menu: None,
+            prompt: None,
+            omnibar: None,
+            toast: None,
+            shake_frames: 0,
+            selection: None,
+            status_message: None,
+            cell_pixels: (8, 16),
+            pointer_shape: false,
+            last_browser_hover: None,
+            browser_input: BrowserInputDispatcher::spawn().unwrap(),
+            drag: None,
+            encoder: KeyEncoder::new().unwrap(),
+            encode_buf: Vec::new(),
+            quit: false,
+        }
+    }
+
+    fn notify_tree(surface: u64, unread: bool) -> TreeView {
+        TreeView {
+            active_workspace: 0,
+            workspaces: vec![WorkspaceView {
+                id: 4,
+                short_id: "000004".to_string(),
+                name: "work".to_string(),
+                active_screen: 0,
+                screens: vec![ScreenView {
+                    id: 3,
+                    short_id: "000003".to_string(),
+                    name: None,
+                    layout: Node::Leaf(2),
+                    active_pane: 2,
+                    zoomed_pane: None,
+                    panes: vec![PaneView {
+                        id: 2,
+                        short_id: "000002".to_string(),
+                        name: None,
+                        active_tab: 0,
+                        tabs: vec![TabView {
+                            surface,
+                            short_id: "000001".to_string(),
+                            name: Some("tab".to_string()),
+                            title: "shell".to_string(),
+                            kind: SurfaceKind::Pty,
+                            browser_source: None,
+                            browser_frames_stalled: false,
+                            notification: unread
+                                .then_some(TabNotificationView { unread: true, level: "warning" }),
+                        }],
+                    }],
+                }],
+            }],
+        }
+    }
+
+    fn row_contains(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> bool {
+        (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == needle)
     }
 }

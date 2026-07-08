@@ -3,6 +3,7 @@ import Foundation
 
 enum VMClientError: Error, CustomStringConvertible {
     case notSignedIn
+    case sessionRefreshFailed
     case backendUnreachable(url: String, detail: String)
     case httpStatus(Int, String)
     case malformedResponse(String)
@@ -16,6 +17,14 @@ enum VMClientError: Error, CustomStringConvertible {
                 What to do:
                   cmux auth login
                   cmux auth status
+                """
+        case .sessionRefreshFailed:
+            return """
+                You are signed in, but cmux could not refresh your session (network or server issue).
+
+                What to do:
+                  Retry in a moment.
+                  If it keeps failing, run `cmux auth status` to check your session.
                 """
         case .backendUnreachable(let url, let detail):
             return """
@@ -714,18 +723,18 @@ actor VMClient {
 
     // MARK: - HTTP
 
-    // Internal (not private) so extensions in sibling files (VMClientEnvLayers.swift) can share the HTTP path.
-    func request(
+    func request( // internal: sibling extension files (VMClientEnvLayers.swift) share the HTTP path
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
-        timeoutSeconds: TimeInterval? = nil,
-        queryItems: [URLQueryItem] = []
+        timeoutSeconds: TimeInterval? = nil, queryItems: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
         }
@@ -835,8 +844,7 @@ actor VMClient {
 
     func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "<binary>"
-            throw VMClientError.httpStatus(http.statusCode, body)
+            throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<binary>")
         }
     }
 

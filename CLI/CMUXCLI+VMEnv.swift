@@ -167,7 +167,7 @@ extension CMUXCLI {
             )
             if let layer = resolve["layer"] as? [String: Any],
                let stepIndex = layer["step_index"] as? Int,
-               let snapshotId = layer["snapshot_id"] as? String,
+               let snapshotId = layer["snapshot_id"] as? String, !snapshotId.isEmpty,
                stepIndex >= 0, stepIndex < spec.steps.count {
                 cachedLayerIndex = stepIndex
                 restoredSnapshotId = snapshotId
@@ -237,14 +237,6 @@ extension CMUXCLI {
                 : "created VM \(vmId) (\(restoreMs)ms)")
         }
 
-        // Ship the runner + remaining step/verify scripts in one exec.
-        try vmEnvShipScripts(
-            vmId: vmId,
-            spec: spec,
-            stepIndices: Array(startIndex..<spec.steps.count),
-            client: client
-        )
-
         var failingStepIndex: Int?
         var failureKind: String?
         // The final step is snapshotted and registered only after verify
@@ -256,6 +248,15 @@ extension CMUXCLI {
         for index in startIndex..<spec.steps.count {
             let step = spec.steps[index]
             if !jsonOutput { print("step \(index) [\(step.name)] running...") }
+            // Stage exactly this step's script (plus the runner) so the layer
+            // snapshot taken after it never contains future step/verify text.
+            try vmEnvShipScripts(
+                vmId: vmId,
+                spec: spec,
+                stepIndices: [index],
+                includeVerify: false,
+                client: client
+            )
             let started = Date()
             let outcome = try vmEnvRunScript(
                 vmId: vmId,
@@ -325,7 +326,16 @@ extension CMUXCLI {
         // read-only checks, so their filesystem footprint in the final layer
         // is expected to be nil.
         var verifyReports: [[String: Any]] = []
-        if failingStepIndex == nil {
+        if failingStepIndex == nil, !spec.verify.isEmpty {
+            // Verify scripts are staged only now, after every step snapshot,
+            // so no intermediate layer contains verify text.
+            try vmEnvShipScripts(
+                vmId: vmId,
+                spec: spec,
+                stepIndices: [],
+                includeVerify: true,
+                client: client
+            )
             for (index, _) in spec.verify.enumerated() {
                 if !jsonOutput { print("verify \(index) running...") }
                 let started = Date()
@@ -360,6 +370,9 @@ extension CMUXCLI {
         }
 
         let ok = failingStepIndex == nil
+        // True once the final layer is registered (or refreshed) for the
+        // current spec digest; `cmux vm env up` refuses the spec otherwise.
+        var finalLayerRegistered = false
         if ok {
             let finalIndex = spec.steps.count - 1
             if finalStepRanOK {
@@ -381,6 +394,7 @@ extension CMUXCLI {
                         specDigest: loaded.digest,
                         snapshotId: snapshotId
                     )
+                    finalLayerRegistered = true
                     if !jsonOutput { print("final layer registered") }
                 } else if !jsonOutput {
                     print("final snapshot returned no id; layer NOT cached, `cmux vm env up` will refuse until a re-build caches it")
@@ -398,6 +412,7 @@ extension CMUXCLI {
                     specDigest: loaded.digest,
                     snapshotId: restoredSnapshotId
                 )
+                finalLayerRegistered = true
             }
         }
         let report: [String: Any] = [
@@ -416,15 +431,18 @@ extension CMUXCLI {
             "verify": verifyReports,
             "failingStepIndex": failingStepIndex ?? NSNull(),
             "error": failureKind ?? NSNull(),
+            "finalLayerRegistered": finalLayerRegistered,
             "hint": ok
-                ? "All layers cached. `cmux vm env up` now boots this environment in seconds."
+                ? finalLayerRegistered
+                    ? "All layers cached. `cmux vm env up` now boots this environment in seconds."
+                    : "Build succeeded but the final layer could not be cached (snapshot returned no id), so `cmux vm env up` will refuse this spec until a re-build caches it. VM \(vmId) is usable directly via `cmux vm shell \(vmId)`."
                 : failureKind == "verify_failed"
                     ? "Verify failed, so the final layer was not registered and `cmux vm env up` will refuse this spec. Fix `verify` (or the steps) and re-run `cmux vm env build`; cached layers will not re-run. Inspect with `cmux vm exec \(vmId) -- <cmd>`."
                     : "Fix the failing step in the spec and re-run `cmux vm env build`; cached layers before it will not re-run. Inspect with `cmux vm env logs \(vmId) --step \(failingStepIndex ?? 0)` or `cmux vm exec \(vmId) -- <cmd>`.",
         ]
         if jsonOutput {
             print(jsonString(report))
-        } else if ok {
+        } else if ok, finalLayerRegistered {
             print("OK env build complete (\(spec.steps.count) layers cached). VM \(vmId) left running.")
             print("Next: cmux vm env up")
         }

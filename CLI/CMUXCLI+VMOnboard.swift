@@ -9,6 +9,23 @@ import Foundation
 /// instant. Linear prompts + streaming lines by design; onboarding is a flow,
 /// not a screen.
 extension CMUXCLI {
+    /// Shared dispatch for `cmux vm onboard` and `cmux vm env`, hosted here so
+    /// the >900-line `cmux.swift` needs exactly one case line for the family.
+    func runVMEnvFamilyCommand(
+        subcommand: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        windowId: String?,
+        idFormat: CLIIDFormat
+    ) throws {
+        if subcommand == "onboard" {
+            try runVMOnboardCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
+        } else {
+            try runVMEnvCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
+        }
+    }
+
     func runVMOnboardCommand(
         commandArgs: [String],
         client: SocketClient,

@@ -12,8 +12,7 @@ export default async function AiAccountsRedirectPage({
   params: Promise<{ locale: string }>;
   searchParams: Promise<{ team?: string | string[] }>;
 }) {
-  const { locale } = await params;
-  const { team: teamParam } = await searchParams;
+  const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
   const target = getPathname({
     locale,

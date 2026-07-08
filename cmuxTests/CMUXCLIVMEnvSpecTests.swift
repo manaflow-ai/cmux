@@ -54,6 +54,18 @@ struct CMUXCLIVMEnvSpecTests {
     }
 
     @Test
+    func rejectsEnvKeyThatIsNotAShellIdentifier() {
+        // Env keys are emitted as `export KEY=...` in bash step scripts; a
+        // hyphenated key would break every step under `set -e` at runtime.
+        #expect(throws: VMEnvSpecParseError.self) {
+            try VMEnvSpecCodec.parse("version: 1\nenv:\n  MY-VAR: x\nsteps:\n  - run: echo hi\n")
+        }
+        #expect(throws: VMEnvSpecParseError.self) {
+            try VMEnvSpecCodec.parse("version: 1\nenv:\n  1BAD: x\nsteps:\n  - run: echo hi\n")
+        }
+    }
+
+    @Test
     func rejectsUnknownTopLevelKey() {
         #expect(throws: VMEnvSpecParseError.self) {
             try VMEnvSpecCodec.parse("version: 1\nsteos:\n  - run: echo hi\n")

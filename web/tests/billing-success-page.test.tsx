@@ -21,10 +21,12 @@ mock.module("next/navigation", () => ({
   permanentRedirect: redirect,
 }));
 
+let acceptLanguage = "en";
+
 mock.module("next/headers", () => ({
   headers: async () =>
     new Headers({
-      "accept-language": "en",
+      "accept-language": acceptLanguage,
       host: "cmux.test",
       "x-forwarded-proto": "https",
     }),
@@ -56,15 +58,46 @@ mock.module("../services/billing/purchase", () => ({
 const { default: BillingSuccessPage } = await import("../app/billing/success/page");
 
 describe("billing success page", () => {
-  test("renders a Manage billing link after an active purchase", async () => {
+  test("falls back to English copy for a locale without billingSuccess", async () => {
+    acceptLanguage = "fr";
+    try {
+      const element = await BillingSuccessPage({
+        searchParams: Promise.resolve({ session_id: "cs_123" }),
+      });
+      const html = renderToStaticMarkup(element);
+      expect(html).toContain("cmux Pro is active");
+      expect(html).toContain("What you unlocked");
+    } finally {
+      acceptLanguage = "en";
+    }
+  });
+
+  test("renders welcome sections and links after an active purchase", async () => {
     const element = await BillingSuccessPage({
       searchParams: Promise.resolve({ session_id: "cs_123" }),
     });
     const html = renderToStaticMarkup(element);
 
+    expect(html).toContain("cmux Pro is active");
+    expect(html).toContain("buyer@example.com");
+    expect(html).toContain("What you unlocked");
+    expect(html).toContain("Cloud agents on Cloud VMs");
+    expect(html).toContain("Run agents in isolated remote sandboxes.");
+    expect(html).toContain("Model gateway");
+    expect(html).toContain("Route across providers with usage and cost analytics, plus 20 compute-hours a month.");
+    expect(html).toContain("Connect your AI accounts");
+    expect(html).toContain("Add provider accounts so cmux can route work through them.");
+    expect(html).toContain("cmux iOS app");
+    expect(html).toContain("Use cmux on your phone.");
+    expect(html).toContain('href="https://cmux.test/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback"');
+    expect(html).toContain('href="/dashboard/subrouter"');
+    expect(html).toContain('href="/dashboard/ai-accounts"');
+    expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain('href="/api/billing/portal"');
+    expect(html).toContain('href="/handler/account-settings"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Open cmux");
+    expect(html).toContain("Manage sign-in methods");
     expect(redirect).not.toHaveBeenCalled();
     expect(retrieveSession).toHaveBeenCalledWith("cs_123", {
       expand: ["subscription", "customer"],
