@@ -28,6 +28,7 @@ export async function GET(
         const vm = await runVmWorkflow(getVm({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
           providerVmId: id,
         }));
         return jsonResponse({
@@ -64,6 +65,7 @@ export async function DELETE(
         await runVmWorkflow(destroyVm({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
           providerVmId: id,
         }));
       } catch (err) {

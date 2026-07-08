@@ -305,7 +305,7 @@ func itemKey(agent, relPath string) string {
 }
 
 func sha256File(path string) (string, error) {
-	file, err := os.Open(path)
+	file, _, err := agentdirs.OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return "", err
 	}
@@ -332,7 +332,7 @@ func compressFile(path, tempDir string) (compressResult, error) {
 	if err := os.MkdirAll(tempDir, 0o700); err != nil {
 		return result, err
 	}
-	in, err := os.Open(path)
+	in, _, err := agentdirs.OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return result, err
 	}

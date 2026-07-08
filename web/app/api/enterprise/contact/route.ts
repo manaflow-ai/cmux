@@ -155,7 +155,10 @@ function resolveEnterpriseConfig() {
     fromEmail,
     rateLimitId,
     slackWebhookUrl:
-      env.SLACK_ENTERPRISE_WEBHOOK_URL ?? env.SLACK_WAITLIST_WEBHOOK_URL,
+      env.SLACK_ENTERPRISE_WEBHOOK_URL
+      ?? env.SLACK_WAITLIST_WEBHOOK_URL
+      ?? process.env.SLACK_ENTERPRISE_WEBHOOK_URL?.trim()
+      ?? process.env.SLACK_WAITLIST_WEBHOOK_URL?.trim(),
   };
 }
 
