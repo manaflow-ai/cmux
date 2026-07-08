@@ -128,23 +128,37 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
     }
 
     @MainActor
-    func testPanelEntryWithoutAgentPIDDoesNotCreateRow() throws {
+    func testBareSharedPIDKeyHookSequenceKeepsBothPanesRows() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
 
-        // A bare panel-scoped text report with no recorded agent PID has no
-        // deterministic owner to clear it, so it must not create a row.
-        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: panelId)
-        XCTAssertTrue(workspace.sidebarAgentStatusRows().isEmpty)
+        // Mirrors the real Claude Code hook sequence, which shares ONE bare
+        // PID key per agent type across all panes of a workspace
+        // (`set_agent_pid claude_code <pid> --panel ...` then
+        // `set_status claude_code ... --pid --panel ...`). Bare-key ownership
+        // migrates to the last reporting pane, so the panel-scoped entry must
+        // keep the earlier pane's row alive.
+        workspace.recordAgentPID(key: "claude_code", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: firstPanelId)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: firstPanelId, lifecycle: .running)
 
-        // Recording the PID makes the same entry visible; clearing the PID
-        // without clearing status removes the row again (no stale rows).
-        workspace.recordAgentPID(key: "claude_code.owner", pid: 111, panelId: panelId, refreshPorts: false)
-        XCTAssertEqual(workspace.sidebarAgentStatusRows().map(\.panelId), [panelId])
-        XCTAssertTrue(
-            workspace.clearAgentPID(key: "claude_code.owner", panelId: panelId, clearStatus: false, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code", pid: 222, panelId: secondPanelId, refreshPorts: false)
+        workspace.recordPanelStatusEntry(
+            makeEntry(key: "claude_code", value: "Claude is waiting for your input"),
+            panelId: secondPanelId
         )
-        XCTAssertTrue(workspace.sidebarAgentStatusRows().isEmpty)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: secondPanelId, lifecycle: .needsInput)
+
+        let rows = workspace.sidebarAgentStatusRows()
+        XCTAssertEqual(rows.count, 2)
+        let valuesByPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0.value) })
+        XCTAssertEqual(valuesByPanel[firstPanelId], "Running")
+        XCTAssertEqual(valuesByPanel[secondPanelId], "Claude is waiting for your input")
+        let lifecyclesByPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0.lifecycle) })
+        XCTAssertEqual(lifecyclesByPanel[firstPanelId], .running)
+        XCTAssertEqual(lifecyclesByPanel[secondPanelId], .needsInput)
     }
 
     @MainActor

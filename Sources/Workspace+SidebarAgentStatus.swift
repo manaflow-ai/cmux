@@ -140,19 +140,27 @@ extension Workspace {
     }
 
     /// One sidebar row per live agent pane, so several agents in one workspace
-    /// never collapse into a single last-write-wins pill. Rows are keyed off
-    /// recorded agent PID ownership (the deterministic cmux-owned signal), so a
-    /// bare panel-scoped text report can neither create an unowned row nor keep
-    /// a stale one alive after the agent's PID is cleared. A panel-scoped
-    /// report wins; the workspace-level entry is only trusted when a single
-    /// pane owns that status key; otherwise the per-panel lifecycle drives the
-    /// row.
+    /// never collapse into a single last-write-wins pill. Candidate
+    /// (panel, statusKey) pairs are the UNION of recorded agent PID ownership
+    /// and live panels holding a panel-scoped structured entry: Claude-style
+    /// hooks share one bare PID key per agent type across panes (ownership
+    /// migrates to the last reporter), so the panel-scoped entry must keep a
+    /// pane's row alive independently. Stale entries stay bounded because
+    /// `clear_status`, `clearAgentPID(clearStatus: true)`, and pane close all
+    /// drop panel-scoped entries. A panel-scoped report wins; the
+    /// workspace-level entry is only trusted when a single pane owns that
+    /// status key; otherwise the per-panel lifecycle drives the row.
     func sidebarAgentStatusRows() -> [SidebarAgentStatusRow] {
         var statusKeysByPanel: [UUID: Set<String>] = [:]
         for (key, panelId) in agentPIDPanelIdsByKey where panels[panelId] != nil {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             guard Self.structuredAgentHookStatusKeys.contains(statusKey) else { continue }
             statusKeysByPanel[panelId, default: []].insert(statusKey)
+        }
+        for (panelId, entries) in statusEntriesByPanelId where panels[panelId] != nil {
+            for statusKey in entries.keys where Self.structuredAgentHookStatusKeys.contains(statusKey) {
+                statusKeysByPanel[panelId, default: []].insert(statusKey)
+            }
         }
 
         var chosenByPanel: [(panelId: UUID, statusKey: String, entry: SidebarStatusEntry?)] = []
