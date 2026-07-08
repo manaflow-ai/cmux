@@ -61,6 +61,23 @@ private func waitForDiscardRestoreRetryWebViewToSettle(
 }
 
 @MainActor
+@discardableResult
+private func waitForDiscardRestoreRetryWebViewToBecomeRetryable(
+    _ panel: BrowserPanel,
+    timeout: TimeInterval = 20.0
+) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        let restorePending = panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool ?? false
+        if !restorePending, !panel.webView.isLoading, !panel.isLoading {
+            return true
+        }
+        _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    return false
+}
+
+@MainActor
 @Suite(.serialized)
 struct BrowserDiscardedWebViewRestoreRetryTests {
     @Test func discardedManagerRetriesWhenRestoreNeverStartsOrCommits() {
@@ -104,7 +121,7 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         #expect(panel.webView !== originalWebView)
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore1"))
-        _ = waitForDiscardRestoreRetryWebViewToSettle(panel)
+        #expect(waitForDiscardRestoreRetryWebViewToBecomeRetryable(panel))
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
     }

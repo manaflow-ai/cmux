@@ -3883,7 +3883,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.resetMediaPlaybackTracking()
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
-                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
                     self.noteDiscardedWebViewRestoreNavigationCommitted()
                 }
             }
@@ -3937,6 +3937,12 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
             }
         }
+    }
+
+    private func shouldTreatCommitAsDiscardedRestoreCommit(from webView: WKWebView) -> Bool {
+        guard navigationDelegate?.activeErrorPageDisplayURL == nil else { return false }
+        guard let committedURL = webView.url else { return false }
+        return !Self.isAboutBlankURL(committedURL)
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
