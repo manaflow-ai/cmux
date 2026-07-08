@@ -245,16 +245,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// surface. The Mac sync server reads the tee'd bytes to broadcast
     /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
     var mobileByteTeeLease: (any TerminalByteTeeLease)?
-    /// The desired focus state for the Ghostty C surface. May be set before the
-    /// C surface exists (e.g. during layout restoration); `createSurface`
-    /// reapplies this value once the runtime surface exists, then keeps using it
-    /// as a dedup guard to avoid redundant `ghostty_surface_set_focus` calls
-    /// (prevents prompt redraws with P10k).
-    ///
-    /// Start unfocused and only opt into focus when the workspace/AppKit focus
-    /// path explicitly requests it so background panes do not keep a focused
-    /// state unless the workspace focus path requests it.
+    /// Desired Ghostty focus, tracked before creation and replayed afterward.
+    /// Starts false: only the workspace/AppKit focus path opts a pane into
+    /// focus, so background panes never keep a focused state.
     var desiredFocusState: Bool = false
+    /// UI/window visibility axes applied to Ghostty occlusion when a surface exists.
+    var occlusionState = SurfaceOcclusionState()
+    /// Last effective occlusion value sent to the Ghostty C surface.
+    var lastAppliedOcclusionVisible: Bool?
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
