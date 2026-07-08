@@ -186,6 +186,22 @@ struct BrowserPrewarmedWebViewPoolTests {
         #expect(webView.window == nil)
     }
 
+    @Test func prewarmAllowsLocalhostHTTPButNotUnlistedHTTPHosts() {
+        let harness = PrewarmPoolHarness()
+        let localhostURL = URL(string: "http://localhost:3777/app-pricing")!
+        harness.pool.prewarm(url: localhostURL, profileID: profileID)
+        #expect(harness.pool.hasEntry(url: localhostURL, profileID: profileID))
+        harness.pool.discard(reason: "test-teardown")
+
+        // Non-allowlisted plain-http hosts would hit the insecure-HTTP
+        // interstitial in a panel, which the hidden prewarm load can't show.
+        harness.pool.prewarm(url: URL(string: "http://example.com/")!, profileID: profileID)
+        #expect(harness.madeWebViews.count == 1)
+
+        harness.pool.prewarm(url: URL(string: "file:///etc/hosts")!, profileID: profileID)
+        #expect(harness.madeWebViews.count == 1)
+    }
+
     @Test func webContentProcessTerminationDiscardsEntry() {
         let harness = PrewarmPoolHarness()
         harness.pool.prewarm(url: pricingURL, profileID: profileID)

@@ -70,10 +70,16 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     /// Starts (or keeps) a hidden webview loading `url`. Replaces any entry
     /// for a different URL or profile; restarts the expiry clock either way.
     ///
-    /// HTTPS only: the hidden load runs without the panel's navigation
-    /// delegate, so the insecure-HTTP interstitial can't be shown here.
+    /// Web URLs only, and never a URL the panel's insecure-HTTP interstitial
+    /// would intercept: the hidden load runs without the panel's navigation
+    /// delegate, so no prompt could be shown here. Sharing the panel's
+    /// allowlist policy keeps http://localhost dev origins prewarmable.
     func prewarm(url: URL, profileID: UUID) {
-        guard url.scheme?.lowercased() == "https" else { return }
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              !browserShouldBlockInsecureHTTPURL(url) else {
+            return
+        }
         if hasEntry(url: url, profileID: profileID) {
             scheduleExpiry()
             return
