@@ -13809,6 +13809,7 @@ struct TabItemView: View, Equatable {
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         fontScale: fontScale,
+                        onFocus: { updateSelection() },
                         onFocusPanel: { panelId in
                             updateSelection()
                             tab.focusPanel(panelId)

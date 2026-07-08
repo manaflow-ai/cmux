@@ -266,4 +266,37 @@ struct PerAgentSidebarStatusRowTests {
         #expect(workspace.statusEntriesByPanelId[secondPanelId] == nil)
         #expect(workspace.sidebarAgentStatusRows().isEmpty)
     }
+
+    @Test
+    func testAccordionSummaryCounts() {
+        func row(lifecycle: AgentHibernationLifecycleState?) -> SidebarAgentStatusRow {
+            SidebarAgentStatusRow(
+                panelId: UUID(),
+                statusKey: "claude_code",
+                value: nil,
+                icon: nil,
+                color: nil,
+                url: nil,
+                format: .plain,
+                lifecycle: lifecycle,
+                paneLabel: nil,
+                priority: 0,
+                timestamp: Date(timeIntervalSince1970: 0)
+            )
+        }
+
+        let summary = SidebarAgentStatusRowsSummary(rows: [
+            row(lifecycle: .running),
+            row(lifecycle: .needsInput),
+            row(lifecycle: .idle),
+        ])
+        #expect(summary.agentCount == 3)
+        #expect(summary.needsInputCount == 1)
+        #expect(summary.runningCount == 1)
+        #expect(summary.accentColorHex == "#FF9F0A")
+
+        let runningOnly = SidebarAgentStatusRowsSummary(rows: [row(lifecycle: .running)])
+        #expect(runningOnly.accentColorHex == "#4C8DFF")
+        #expect(SidebarAgentStatusRowsSummary(rows: [row(lifecycle: .idle)]).accentColorHex == nil)
+    }
 }
