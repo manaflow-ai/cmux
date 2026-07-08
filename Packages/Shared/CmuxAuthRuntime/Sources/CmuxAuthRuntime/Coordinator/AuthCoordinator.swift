@@ -56,6 +56,8 @@ public final class AuthCoordinator {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
     }
 
+    var apiBaseURL: String { config.apiBaseURL }
+
     let client: any AuthClient
     let sessionCache: CMUXAuthSessionCache
     private let userCache: CMUXAuthIdentityStore
