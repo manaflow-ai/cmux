@@ -51,10 +51,13 @@ final class BrowserHiddenWebViewDiscardManager {
 
     init(
         policyDefaults: UserDefaults = .standard,
-        eventCenter: BrowserHiddenWebViewDiscardEventCenter = .shared
+        // nil resolves to .shared inside this main-actor-isolated init body; a
+        // `.shared` default argument would be evaluated in a nonisolated
+        // context and trip the Swift 6 actor-isolation warning.
+        eventCenter: BrowserHiddenWebViewDiscardEventCenter? = nil
     ) {
         self.policyDefaults = policyDefaults
-        self.eventCenter = eventCenter
+        self.eventCenter = eventCenter ?? .shared
     }
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
