@@ -11,6 +11,7 @@ struct NoteTitleRenameField: View {
     let title: String
     let filePath: String
     let foregroundColor: NSColor
+    var onBeginEditing: () -> Void = {}
     let onRename: (String) -> Void
 
     @State private var draft: String = ""
@@ -51,6 +52,7 @@ struct NoteTitleRenameField: View {
                         isFocused: $isFocused,
                         font: titleNSFont,
                         foregroundColor: foregroundColor,
+                        onBeginEditing: onBeginEditing,
                         onCommit: commit,
                         onCancel: { draft = title }
                     )

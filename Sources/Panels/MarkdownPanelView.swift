@@ -125,10 +125,11 @@ struct MarkdownPanelView: View {
                     title: panel.displayTitle,
                     filePath: panel.filePath,
                     foregroundColor: themeForegroundColor,
+                    onBeginEditing: onRequestPanelFocus,
                     onRename: { panel.renameNoteTitle($0) }
                 )
                 Spacer(minLength: 8)
-                headerTrailingControls
+                noteHeaderTrailingControls
             }
             .padding(.horizontal, 12)
             .frame(height: 30)
@@ -141,6 +142,55 @@ struct MarkdownPanelView: View {
             ) {
                 headerTrailingControls
             }
+        }
+    }
+
+    /// Compact, Zed-style controls for note headers: the mode toggle plus a
+    /// single overflow menu. Copy actions live in the menu (no inline
+    /// confirmation text), and external-open collapses to Reveal in Finder.
+    @ViewBuilder
+    private var noteHeaderTrailingControls: some View {
+        HStack(spacing: 2) {
+            noteModeButton
+            Menu {
+                Button(String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown")) {
+                    copyAsMarkdown()
+                }
+                Button(String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML")) {
+                    copyAsHTML()
+                }
+                Divider()
+                Button(String(localized: "notes.action.reveal", defaultValue: "Reveal in Finder")) {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: panel.filePath)])
+                }
+            } label: {
+                PanelHeaderIconGlyph(systemName: "ellipsis", pointSize: 11)
+            }
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .fixedSize()
+            .foregroundColor(.secondary)
+            .help(String(localized: "note.header.moreActions", defaultValue: "More actions"))
+            .accessibilityLabel(String(localized: "note.header.moreActions", defaultValue: "More actions"))
+        }
+    }
+
+    private var noteModeButton: some View {
+        switch panel.displayMode {
+        case .preview:
+            PanelHeaderIconButton(
+                systemName: "doc.plaintext",
+                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
+                pointSize: 11,
+                action: { panel.setDisplayMode(.text) }
+            )
+        case .text:
+            PanelHeaderIconButton(
+                systemName: "eye",
+                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                pointSize: 11,
+                action: { panel.setDisplayMode(.preview) }
+            )
         }
     }
 

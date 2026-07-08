@@ -3739,28 +3739,29 @@ final class FilePreviewPanelTextSavingTests {
         }
 
         textView.string = "alpha\nbeta\ngamma"
-        XCTAssertEqual(ruler.lineStartsForTesting(), [0, 6, 11])
+        ruler.rebuildLineStartsIfNeeded()
+        XCTAssertEqual(ruler.lineStarts, [0, 6, 11])
 
         // Every subsequent edit goes through the incremental text-storage
         // path with no full invalidation in between; the cache must keep
         // matching a naive whole-document rescan.
         storage.replaceCharacters(in: NSRange(location: 5, length: 0), with: "X")
-        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+        XCTAssertEqual(ruler.lineStarts, naiveLineStarts(textView.string))
 
         storage.replaceCharacters(in: NSRange(location: 3, length: 0), with: "one\ntwo\n")
-        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+        XCTAssertEqual(ruler.lineStarts, naiveLineStarts(textView.string))
 
         storage.replaceCharacters(in: NSRange(location: 2, length: 9), with: "")
-        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+        XCTAssertEqual(ruler.lineStarts, naiveLineStarts(textView.string))
 
         storage.replaceCharacters(in: NSRange(location: 0, length: 4), with: "a\nb")
-        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+        XCTAssertEqual(ruler.lineStarts, naiveLineStarts(textView.string))
 
         storage.replaceCharacters(in: NSRange(location: storage.length, length: 0), with: "\ntail\n")
-        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+        XCTAssertEqual(ruler.lineStarts, naiveLineStarts(textView.string))
 
         storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: "solo")
-        XCTAssertEqual(ruler.lineStartsForTesting(), [0])
+        XCTAssertEqual(ruler.lineStarts, [0])
     }
 
     @Test func testPendingTextFocusAppliesWhenTextViewAttaches() throws {

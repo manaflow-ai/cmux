@@ -65,7 +65,9 @@ final class FilePreviewLineNumberRulerView: NSRulerView {
     private weak var trackedScrollView: NSScrollView?
     private weak var trackedTextStorage: NSTextStorage?
     private var visibleBoundsObserver: NSObjectProtocol?
-    private var lineStarts: [Int] = [0]
+    // Internal (not private) so tests can verify the incremental edit
+    // tracking against a naive whole-document scan via @testable access.
+    private(set) var lineStarts: [Int] = [0]
     private var lineCacheNeedsRebuild = true
     private var pendingThicknessUpdate = false
 
@@ -164,13 +166,6 @@ final class FilePreviewLineNumberRulerView: NSRulerView {
         storage != nil && trackedTextStorage === storage && storage?.delegate === self
     }
 
-    /// Test hook: the cached line-start offsets (UTF-16), rebuilding first if
-    /// a full invalidation is pending. Lets tests verify the incremental
-    /// edit tracking against a naive whole-document scan.
-    func lineStartsForTesting() -> [Int] {
-        rebuildLineStartsIfNeeded()
-        return lineStarts
-    }
 
     /// Patches `lineStarts` in place for a single text-storage edit.
     ///
@@ -240,7 +235,7 @@ final class FilePreviewLineNumberRulerView: NSRulerView {
     private func scheduleThicknessUpdateIfNeeded() {
         guard !pendingThicknessUpdate else { return }
         pendingThicknessUpdate = true
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             self.pendingThicknessUpdate = false
             let needed = self.requiredThickness
@@ -319,7 +314,7 @@ final class FilePreviewLineNumberRulerView: NSRulerView {
         return sourceLineIndex(containingCharacterAt: selection.location)
     }
 
-    private func rebuildLineStartsIfNeeded() {
+    func rebuildLineStartsIfNeeded() {
         guard lineCacheNeedsRebuild, let text = trackedTextView?.string else { return }
         var starts: [Int] = [0]
         starts.reserveCapacity(max(1, text.utf16.count / 48))

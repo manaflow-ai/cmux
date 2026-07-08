@@ -343,11 +343,12 @@ struct PanelHeaderIconButton: View {
     let systemName: String
     let label: String
     var isDisabled: Bool = false
+    var pointSize: CGFloat = 13
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            PanelHeaderIconGlyph(systemName: systemName)
+            PanelHeaderIconGlyph(systemName: systemName, pointSize: pointSize)
         }
         .buttonStyle(.plain)
         .foregroundColor(.secondary)
@@ -359,10 +360,11 @@ struct PanelHeaderIconButton: View {
 
 struct PanelHeaderIconGlyph: View {
     let systemName: String
+    var pointSize: CGFloat = 13
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
-            .frame(width: 20, height: 20, alignment: .center)
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: pointSize)
+            .frame(width: pointSize + 7, height: pointSize + 7, alignment: .center)
             .contentShape(Rectangle())
     }
 }

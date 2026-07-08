@@ -10,6 +10,7 @@ struct NoteTitleTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let font: NSFont
     let foregroundColor: NSColor
+    let onBeginEditing: () -> Void
     let onCommit: () -> Void
     let onCancel: () -> Void
 
@@ -26,6 +27,7 @@ struct NoteTitleTextFieldRepresentable: NSViewRepresentable {
         field.isEditable = true
         field.isSelectable = true
         field.isEnabled = true
+        field.onBeginEditingClick = onBeginEditing
         applyStyle(to: field)
         field.stringValue = text
         return field
@@ -33,6 +35,7 @@ struct NoteTitleTextFieldRepresentable: NSViewRepresentable {
 
     func updateNSView(_ field: NoteTitleNativeTextField, context: Context) {
         context.coordinator.parent = self
+        field.onBeginEditingClick = onBeginEditing
         applyStyle(to: field)
         if field.currentEditor() == nil, field.stringValue != text {
             context.coordinator.isProgrammaticMutation = true
