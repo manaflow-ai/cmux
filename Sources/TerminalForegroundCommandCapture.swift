@@ -73,8 +73,9 @@ enum TerminalForegroundCommandCapture {
     /// Turns a captured argv into a re-runnable one-liner. argv[0] is preserved
     /// verbatim for ordinary commands (it is the form the user invoked — bare
     /// name, `./gradlew`, or an absolute path — and panes replay from their
-    /// saved cwd). node/bun-hosted known agents unwrap to the bare agent name
-    /// first so replay resolves through cmux's per-surface PATH shim. Known
+    /// saved cwd). node/bun-hosted known agents (package-installed under a
+    /// node_modules path — never a user's own script) unwrap to the bare agent
+    /// name first so replay resolves through cmux's per-surface PATH shim. Known
     /// agent argv then goes through the shared provider-aware
     /// `AgentLaunchSanitizer` so stale session/resume artifacts never replay,
     /// and every token including the executable is shell-quoted so nothing

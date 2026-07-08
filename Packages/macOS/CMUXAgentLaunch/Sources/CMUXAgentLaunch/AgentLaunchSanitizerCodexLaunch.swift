@@ -16,6 +16,13 @@ extension AgentLaunchSanitizer {
 
     static func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {
         guard containsCmuxInjectedCodexHookConfig(args) else { return args }
+        // The cmux codex wrapper splices exactly one `--enable hooks` and one
+        // `--dangerously-bypass-hook-trust` alongside its marker `-c hooks.*`
+        // configs (see CMUXCLI.emitCodexWrapperInjectArgs), so strip exactly one
+        // instance of each. Any further instance is the user's own flag and must
+        // survive so preserved user `hooks.*` config stays enabled on replay.
+        var strippedEnableHooks = false
+        var strippedHookTrust = false
         var result: [String] = []
         var index = 0
         while index < args.count {
@@ -30,11 +37,18 @@ extension AgentLaunchSanitizer {
                 index += 2
                 continue
             }
-            if arg == "--enable", index + 1 < args.count, args[index + 1] == "hooks" {
+            if !strippedEnableHooks, arg == "--enable", index + 1 < args.count, args[index + 1] == "hooks" {
+                strippedEnableHooks = true
                 index += 2
                 continue
             }
-            if arg == "--enable=hooks" || arg == "--dangerously-bypass-hook-trust" {
+            if !strippedEnableHooks, arg == "--enable=hooks" {
+                strippedEnableHooks = true
+                index += 1
+                continue
+            }
+            if !strippedHookTrust, arg == "--dangerously-bypass-hook-trust" {
+                strippedHookTrust = true
                 index += 1
                 continue
             }
@@ -51,6 +65,13 @@ extension AgentLaunchSanitizer {
     /// bare executable name such as `codex` deliberately routes replay through
     /// the per-surface PATH shim and cmux wrapper, so hooks are re-injected fresh
     /// instead of persisting the runtime script path.
+    ///
+    /// A basename match alone is not enough: a user's own local script named
+    /// like an agent (`node ./tools/claude.js`) must never be rewritten into a
+    /// different program. Unwrapping therefore also requires the script to live
+    /// under a `node_modules` path component — true for every package-manager
+    /// install (npm, pnpm, yarn, bun, nvm, volta) that produces these runtime
+    /// wrappers. Anything else keeps its original argv.
     public static func unwrappedJavaScriptRuntimeAgentArgv(
         _ argv: [String],
         isKnownAgentExecutableName: (String) -> Bool
@@ -58,7 +79,8 @@ extension AgentLaunchSanitizer {
         guard let executable = argv.first else { return nil }
         let runtimeName = (executable as NSString).lastPathComponent.lowercased()
         guard runtimeName == "node" || runtimeName == "bun",
-              let scriptIndex = javaScriptRuntimeScriptArgumentIndex(argv) else {
+              let scriptIndex = javaScriptRuntimeScriptArgumentIndex(argv),
+              isPackageInstalledScriptPath(argv[scriptIndex]) else {
             return nil
         }
         let scriptName = (argv[scriptIndex] as NSString).lastPathComponent
@@ -171,6 +193,12 @@ extension AgentLaunchSanitizer {
 
     private static func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
         value.hasPrefix("hooks.") && value.contains("cmux-codex-hook")
+    }
+
+    /// Whether a JavaScript runtime script path points at a package-manager
+    /// install (a `node_modules` path component) rather than a user's own script.
+    private static func isPackageInstalledScriptPath(_ path: String) -> Bool {
+        path.components(separatedBy: "/").contains("node_modules")
     }
 
     private static func javaScriptRuntimeScriptArgumentIndex(_ argv: [String]) -> Int? {
