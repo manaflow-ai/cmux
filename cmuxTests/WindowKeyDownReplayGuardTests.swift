@@ -172,7 +172,11 @@ struct WindowKeyDownReplayGuardTests {
     private func installResponderChainUndoMenu() -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
-        let undoItem = NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let undoItem = NSMenuItem(
+            title: "Undo",
+            action: #selector(EditableUndoProbeTextView.undo(_:)),
+            keyEquivalent: "z"
+        )
         undoItem.keyEquivalentModifierMask = [.command]
         menu.addItem(undoItem)
         NSApp.mainMenu = menu
@@ -215,10 +219,7 @@ struct WindowKeyDownReplayGuardTests {
         #expect(window.performKeyEquivalent(with: event))
         #expect(
             responder.keyDownEvents.count == 1,
-            "The same in-flight key event must not be force-dispatched into keyDown again " +
-            "while the first dispatch is still on the stack; unbounded re-dispatch is the " +
-            "infinite key-routing loop from " +
-            "https://github.com/manaflow-ai/cmux/issues/5887"
+            Comment(rawValue: "The same in-flight key event must not be force-dispatched into keyDown again while the first dispatch is still on the stack; unbounded re-dispatch is the infinite key-routing loop from https://github.com/manaflow-ai/cmux/issues/5887")
         )
     }
 
@@ -299,8 +300,7 @@ struct WindowKeyDownReplayGuardTests {
 
         #expect(
             probe.callCount == 0,
-            "Terminal-focused Cmd+Z/Cmd+Shift+Z must not invoke AppKit menu Undo/Redo; " +
-            "that path can dispatch a stale NSUndoManager target and crash in _NSUndoStack.popAndInvoke"
+            Comment(rawValue: "Terminal-focused Cmd+Z/Cmd+Shift+Z must not invoke AppKit menu Undo/Redo; that path can dispatch a stale NSUndoManager target and crash in _NSUndoStack.popAndInvoke")
         )
         #expect(
             terminal.afterMenuMissEvents.map { $0.charactersIgnoringModifiers } == ["z", "z"],
