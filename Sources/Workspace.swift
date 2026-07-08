@@ -6744,7 +6744,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
-        sourcePanelId: UUID?, inheritedWorkingDirectory: String? = nil
+        sourcePanelId: UUID?,
+        inheritedWorkingDirectory: String? = nil
     ) -> String? {
         if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
             return requested
@@ -6765,38 +6766,32 @@ final class Workspace: Identifiable, ObservableObject {
         guard let inherited = Self.normalizedTerminalWorkingDirectory(inheritedWorkingDirectory),
               let sourcePanelId,
               restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] == nil,
+              restoredAgentResumeStatesByPanelId[sourcePanelId] != .awaitingAutoResumeCommand,
               restoredAgentResumeStatesByPanelId[sourcePanelId] != .autoResumeCommandRunning,
               !isRemoteTerminalSurface(sourcePanelId),
               let terminalPanel = terminalPanel(for: sourcePanelId),
               terminalPanel.surface.surface != nil,
-              !(terminalPanel.surface.initialCommand != nil &&
-                  Self.normalizedTerminalWorkingDirectory(terminalPanel.requestedWorkingDirectory) == nil &&
+              !((terminalPanel.surface.initialCommand != nil || terminalPanel.surface.tmuxStartCommand != nil) &&
                   panelShellActivityStates[sourcePanelId] != .promptIdle) else { return nil }
         return inherited
     }
 
-    /// The foreground-process cwd read consulted by
-    /// ``resumedAgentPaneWorkingDirectoryRescue(panelId:)``. Nil selects the
-    /// libproc-backed default, which requires a live foreground process on the
-    /// pane's surface; injecting a substitute decouples callers from libproc.
+    /// Foreground-process cwd provider; nil uses libproc on the live foreground pid.
     var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
 
-    /// Rescues cwd inheritance while a restored agent's auto-resume command owns the foreground.
-    ///
-    /// Until the shell reaches a prompt, tracked cwd can be stranded on a
-    /// default/home report. Prefer the live foreground process cwd when that
-    /// happens, then the recorded session directory. Remote panes are excluded
-    /// because their cwd is not locally inspectable.
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
+        let resumeState = restoredAgentResumeStatesByPanelId[panelId]
+        guard resumeState == .awaitingAutoResumeCommand || resumeState == .autoResumeCommandRunning else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
-        // No recorded session directory means the resume launcher targets no directory of its own.
         guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
         ) else { return nil }
         let trackedDirectory = Self.normalizedTerminalWorkingDirectory(panelDirectories[panelId])
         if trackedDirectory == sessionDirectory { return nil }
-        for candidate in [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory] {
+        let candidates = resumeState == .awaitingAutoResumeCommand
+            ? [sessionDirectory]
+            : [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory]
+        for candidate in candidates {
             guard let candidate = Self.normalizedTerminalWorkingDirectory(candidate) else { continue }
             if candidate == trackedDirectory {
                 continue
@@ -7129,11 +7124,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
         var inheritedConfigSourcePanelId: UUID?
-        var inheritedConfig = inheritedTerminalConfig(
-            preferredPanelId: panelId,
-            inPane: paneId,
-            sourcePanelId: { inheritedConfigSourcePanelId = $0 }
-        )
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId) { inheritedConfigSourcePanelId = $0 }
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -7445,9 +7436,12 @@ final class Workspace: Identifiable, ObservableObject {
         let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && startupCommand == nil
         var inheritedConfigSourcePanelId: UUID?
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId, sourcePanelId: { inheritedConfigSourcePanelId = $0 })
-        let inheritedWorkingDirectory = shouldInheritWorkingDirectoryFallback && inheritedConfigSourcePanelId == fallbackSourcePanelId
-            ? inheritedConfig?.workingDirectory
+        let fallbackLiveWorkingDirectory = shouldInheritWorkingDirectoryFallback && inheritedConfigSourcePanelId != fallbackSourcePanelId
+            ? fallbackSourcePanelId.flatMap { liveForegroundProcessWorkingDirectory(panelId: $0) }
             : nil
+        let inheritedWorkingDirectory = inheritedConfigSourcePanelId == fallbackSourcePanelId
+            ? inheritedConfig?.workingDirectory
+            : fallbackLiveWorkingDirectory
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
