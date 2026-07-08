@@ -100,7 +100,9 @@ import Testing
             process(pid: firstAgent.pid, parentPID: appPID, name: "2.1.204", path: SpawnedVersionedClaudeProcess.executablePath),
             process(pid: secondAgent.pid, parentPID: appPID, name: "2.1.204", path: SpawnedVersionedClaudeProcess.executablePath),
             process(pid: 201, parentPID: appPID, name: "com.apple.WebKi", path: "/System/Library/com.apple.WebKit.WebContent"),
-            process(pid: 202, parentPID: appPID, name: "com.apple.WebKi", path: "/System/Library/com.apple.WebKit.WebContent")
+            process(pid: 202, parentPID: appPID, name: "com.apple.WebKi", path: "/System/Library/com.apple.WebKit.WebContent"),
+            process(pid: 203, parentPID: appPID, name: "node", path: "/usr/local/bin/node"),
+            process(pid: 204, parentPID: appPID, name: "Node", path: "/usr/local/bin/Node")
         ])
 
         let payload = snapshot.memoryDiagnosticPayload(appPID: appPID, topGroupLimit: 10)
@@ -115,6 +117,8 @@ import Testing
         #expect(groupIds.contains("com.apple.WebKit.WebContent"))
         #expect(!groupNames.contains("2.1.204"))
         #expect(!groupNames.contains("com.apple.WebKi"))
+        // Casing variants of the same executable fold into one group.
+        #expect(groupNames.filter { $0.lowercased() == "node" }.count == 1)
     }
 
     @Test func totalsMemoryBytesRemainClampedSum() {
