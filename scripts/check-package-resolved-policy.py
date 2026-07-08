@@ -192,6 +192,51 @@ def package_roots_requiring_lockfiles(
     }
 
 
+def dependency_call_delta_affects_pins(
+    current_calls: list[str],
+    previous_calls: list[str],
+    manifest: Path,
+    current_manifests: dict[str, Path],
+    current_graph: dict[str, tuple[bool, list[str]]],
+    previous_manifests: dict[str, Path],
+    previous_graph: dict[str, tuple[bool, list[str]]],
+    current_memo: dict[str, bool],
+    previous_memo: dict[str, bool],
+) -> bool:
+    """Whether an edited manifest's dependency-call delta can change remote pins.
+
+    A path-only dependency edit whose added/removed packages have no remote
+    dependencies anywhere in their closure cannot add or remove pins in any
+    consumer's Package.resolved, and a consumer's originHash covers only its
+    own manifest, so honest regeneration leaves consumer lockfiles
+    byte-identical.
+    """
+    added = [call for call in current_calls if call not in previous_calls]
+    removed = [call for call in previous_calls if call not in current_calls]
+    if dependency_calls_include_url(added + removed):
+        return True
+    for calls, manifests, graph, memo in (
+        (added, current_manifests, current_graph, current_memo),
+        (removed, previous_manifests, previous_graph, previous_memo),
+    ):
+        root_by_resolved_path = {
+            candidate.parent.resolve(): root for root, candidate in manifests.items()
+        }
+        for call in calls:
+            path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)
+            if path_match is None:
+                # Unrecognized dependency form: stay strict.
+                return True
+            dependency_root = root_by_resolved_path.get(
+                (manifest.parent / path_match.group(1)).resolve()
+            )
+            if dependency_root is None:
+                return True
+            if has_remote_dependency(dependency_root, graph, memo, set()):
+                return True
+    return False
+
+
 def package_lockfile_path(root: str) -> str:
     if root == ".":
         return "Package.resolved"
@@ -292,6 +337,7 @@ def main() -> int:
     merge_base = merge_base_with_base_ref()
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
+    pin_affecting_dependency_roots: set[str] = set()
 
     if merge_base is not None:
         current_remote_memo: dict[str, bool] = {}
@@ -327,6 +373,18 @@ def main() -> int:
                 )
             ):
                 changed_dependency_roots.add(root)
+            if dependency_call_delta_affects_pins(
+                current_calls,
+                previous_calls,
+                manifest,
+                all_manifests,
+                graph,
+                previous_manifests,
+                previous_graph,
+                current_remote_memo,
+                previous_remote_memo,
+            ):
+                pin_affecting_dependency_roots.add(root)
 
     if (
         xcode_package_reference_changed(merge_base, changed_files)
@@ -366,9 +424,16 @@ def main() -> int:
         )
         if not has_or_requires_lockfile:
             continue
-        affected_dependency_roots = (
-            package_dependency_closure(root, graph) & changed_dependency_roots
-        )
+        closure = package_dependency_closure(root, graph)
+        if root in changed_dependency_roots:
+            affected_dependency_roots = closure & changed_dependency_roots
+        else:
+            # A consumer's Package.resolved can only change when the edited
+            # manifest's dependency-call delta can add or remove remote pins;
+            # a path-only, pin-neutral change leaves consumer resolution
+            # byte-identical, so an honest regeneration cannot produce the
+            # required diff (only the edited package's own originHash moves).
+            affected_dependency_roots = closure & pin_affecting_dependency_roots
         if not affected_dependency_roots:
             continue
         if expected_lockfile in changed_files:
