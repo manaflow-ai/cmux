@@ -495,12 +495,24 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         "app-host-unit-tests",
         "swift-package-tests",
         "tests-build-and-lag",
-        "release-build",
     ]:
         block = workflow_job_block(job_name)
         assert "      - changes" in block
         assert "      - linux-preflight" in block
-        assert "if: ${{ needs.changes.outputs.macos == 'true' }}" in block
+        assert (
+            "if: ${{ always() && needs.changes.outputs.macos == 'true' "
+            "&& needs.linux-preflight.result == 'success' }}"
+        ) in block
+
+    release_block = workflow_job_block("release-build")
+    assert "      - changes" in release_block
+    assert "      - linux-preflight" in release_block
+    assert "      - swift-package-tests" in release_block
+    assert (
+        "if: ${{ always() && needs.changes.outputs.macos == 'true' "
+        "&& needs.linux-preflight.result == 'success' "
+        "&& needs.swift-package-tests.result == 'success' }}"
+    ) in release_block
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
