@@ -43,6 +43,33 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
+	}
+	return string(output)
+}
+
 func withStdin(t *testing.T, input string, fn func()) {
 	t.Helper()
 	original := os.Stdin
@@ -61,6 +88,28 @@ func withStdin(t *testing.T, input string, fn func()) {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close stdin writer: %v", err)
 	}
+	fn()
+}
+
+func withStdinFile(t *testing.T, input string, fn func()) {
+	t.Helper()
+	file, err := os.CreateTemp(t.TempDir(), "stdin-*")
+	if err != nil {
+		t.Fatalf("create stdin file: %v", err)
+	}
+	if _, err := file.WriteString(input); err != nil {
+		t.Fatalf("write stdin file: %v", err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatalf("seek stdin file: %v", err)
+	}
+	original := os.Stdin
+	os.Stdin = file
+	defer func() {
+		os.Stdin = original
+		_ = file.Close()
+	}()
+
 	fn()
 }
 
@@ -498,6 +547,49 @@ func TestCLIHooksClaudeForwardsRelayPayloadWithCallerContext(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for hooks relay request")
+	}
+}
+
+func TestCLIHooksClaudePrintsHookStdoutFromRelayResult(t *testing.T) {
+	response, _ := json.Marshal(map[string]any{
+		"id": "hook-stdout",
+		"ok": true,
+		"result": map[string]any{
+			"stdout": "{\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}\n",
+		},
+	})
+	sockPath := startMockSocket(t, string(response))
+
+	output := captureStdout(t, func() {
+		withStdin(t, `{"hook_event_name":"PreToolUse"}`, func() {
+			code := runCLI([]string{"--socket", sockPath, "hooks", "claude", "cron-create-guard"})
+			if code != 0 {
+				t.Fatalf("hooks claude should return 0, got %d", code)
+			}
+		})
+	})
+	if got := strings.TrimSpace(output); got != `{"hookSpecificOutput":{"permissionDecision":"deny"}}` {
+		t.Fatalf("expected hook stdout to be printed, got %q", output)
+	}
+}
+
+func TestCLIHooksClaudeRejectsOversizedPayload(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	output := captureStderr(t, func() {
+		withStdinFile(t, strings.Repeat("x", int(hooksRelayMaxPayloadBytes)+1), func() {
+			code := runCLI([]string{"--socket", sockPath, "hooks", "claude", "stop"})
+			if code != 1 {
+				t.Fatalf("oversized hooks claude payload should return 1, got %d", code)
+			}
+		})
+	})
+	if !strings.Contains(output, "hook payload exceeds") {
+		t.Fatalf("expected oversized payload error, got %q", output)
+	}
+	select {
+	case req := <-requests:
+		t.Fatalf("oversized payload should not send socket request, got %v", req)
+	default:
 	}
 }
 

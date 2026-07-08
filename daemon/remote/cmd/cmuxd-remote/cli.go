@@ -18,6 +18,8 @@ import (
 	"time"
 )
 
+const hooksRelayMaxPayloadBytes int64 = 16 * 1024 * 1024
+
 type relayAuthState struct {
 	RelayID    string `json:"relay_id"`
 	RelayToken string `json:"relay_token"`
@@ -508,9 +510,13 @@ func runHooksRelay(socketPath string, args []string, jsonOutput bool, refreshAdd
 		return 2
 	}
 
-	payloadBytes, err := io.ReadAll(os.Stdin)
+	payloadBytes, err := io.ReadAll(io.LimitReader(os.Stdin, hooksRelayMaxPayloadBytes+1))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux hooks claude: failed to read hook payload: %v\n", err)
+		return 1
+	}
+	if int64(len(payloadBytes)) > hooksRelayMaxPayloadBytes {
+		fmt.Fprintf(os.Stderr, "cmux hooks claude: hook payload exceeds %d bytes\n", hooksRelayMaxPayloadBytes)
 		return 1
 	}
 
