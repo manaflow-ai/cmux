@@ -2,6 +2,7 @@
 import CmuxMobileSupport
 import FluidAudio
 public import Foundation
+import os
 import OSLog
 
 private let parakeetSessionLog = Logger(subsystem: "dev.cmux.ios", category: "parakeet-session")
@@ -19,9 +20,10 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
     private let startupTask: Task<Bool, Never>
     private let updateTask: Task<Void, Never>
     private let audioTask: Task<Void, Never>
+    private let watchdogTask: Task<Void, Never>
+    private let settlement: ParakeetSessionSettlement
     private let startupDeadline: Duration
     private let sleepForStartupDeadline: @Sendable (Duration) async throws -> Void
-    private var isFinished = false
 
     /// Upper bound on tap buffers queued between the audio tap and the ASR
     /// actor; see the `makeStream` comment in `init` for the sizing rationale.
@@ -145,6 +147,8 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
         self.sleepForStartupDeadline = sleepForStartupDeadline
         self.finishTranscript = finishTranscript
         self.cancelManager = cancelManager
+        let settlement = ParakeetSessionSettlement()
+        self.settlement = settlement
         let startupTask = Task {
             do {
                 return try await startup()
@@ -154,11 +158,13 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
                 return false
             } catch {
                 parakeetSessionLog.error("Parakeet startup failed: \(error.localizedDescription, privacy: .public)")
-                continuation.yield(.failed(L10n.string(
-                    "mobile.voice.transcription.startFailed",
-                    defaultValue: "Couldn't start voice transcription. Try again."
-                )))
-                continuation.finish()
+                if settlement.claim() {
+                    continuation.yield(.failed(L10n.string(
+                        "mobile.voice.transcription.startFailed",
+                        defaultValue: "Couldn't start voice transcription. Try again."
+                    )))
+                    continuation.finish()
+                }
                 return false
             }
         }
@@ -168,6 +174,16 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
             audioStream: audioStream,
             startupTask: startupTask,
             streamAudioToManager: streamAudioToManager
+        )
+        self.watchdogTask = Self.makeStartupWatchdogTask(
+            continuation: continuation,
+            updateTask: self.updateTask,
+            audioTask: self.audioTask,
+            startupTask: startupTask,
+            startupDeadline: startupDeadline,
+            sleepForStartupDeadline: sleepForStartupDeadline,
+            cancelManager: cancelManager,
+            settlement: settlement
         )
     }
 
@@ -182,8 +198,8 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
 
     /// Finishes the session and emits the final transcript.
     public func finish() {
-        guard !isFinished else { return }
-        isFinished = true
+        guard settlement.claim() else { return }
+        watchdogTask.cancel()
         audioContinuation.finish()
         let job = FinishAfterStartupJob(
             continuation: continuation,
@@ -202,7 +218,8 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
 
     /// Cancels recognition and closes the update stream.
     public func cancel() {
-        isFinished = true
+        _ = settlement.claim()
+        watchdogTask.cancel()
         startupTask.cancel()
         audioContinuation.finish()
         audioTask.cancel()
@@ -210,6 +227,30 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
         Task { [cancelManager, continuation] in
             await cancelManager()
             continuation.finish()
+        }
+    }
+
+    private static func makeStartupWatchdogTask(
+        continuation: AsyncStream<VoiceTranscriptionUpdate>.Continuation,
+        updateTask: Task<Void, Never>,
+        audioTask: Task<Void, Never>,
+        startupTask: Task<Bool, Never>,
+        startupDeadline: Duration,
+        sleepForStartupDeadline: @escaping @Sendable (Duration) async throws -> Void,
+        cancelManager: @escaping @Sendable () async -> Void,
+        settlement: ParakeetSessionSettlement
+    ) -> Task<Void, Never> {
+        Task {
+            await startupWatchdog(
+                continuation: continuation,
+                updateTask: updateTask,
+                audioTask: audioTask,
+                startupTask: startupTask,
+                startupDeadline: startupDeadline,
+                sleepForStartupDeadline: sleepForStartupDeadline,
+                cancelManager: cancelManager,
+                settlement: settlement
+            )
         }
     }
 
@@ -279,7 +320,8 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
     private static func waitForStartup(
         _ startupTask: Task<Bool, Never>,
         deadline: Duration,
-        sleepForDeadline: @escaping @Sendable (Duration) async throws -> Void
+        sleepForDeadline: @escaping @Sendable (Duration) async throws -> Void,
+        cancelOnTimeout: Bool = true
     ) async -> StartupWaitResult {
         let (stream, continuation) = AsyncStream<StartupWaitResult>.makeStream(bufferingPolicy: .bufferingOldest(1))
         let startupWaiter = Task {
@@ -297,13 +339,57 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
         }
         var iterator = stream.makeAsyncIterator()
         let result = await iterator.next() ?? .timedOut
-        if case .timedOut = result {
+        if case .timedOut = result, cancelOnTimeout {
             startupTask.cancel()
         }
         startupWaiter.cancel()
         timeoutWaiter.cancel()
         continuation.finish()
         return result
+    }
+
+    fileprivate static func startupWatchdog(
+        continuation: AsyncStream<VoiceTranscriptionUpdate>.Continuation,
+        updateTask: Task<Void, Never>,
+        audioTask: Task<Void, Never>,
+        startupTask: Task<Bool, Never>,
+        startupDeadline: Duration,
+        sleepForStartupDeadline: @escaping @Sendable (Duration) async throws -> Void,
+        cancelManager: @escaping @Sendable () async -> Void,
+        settlement: ParakeetSessionSettlement
+    ) async {
+        let startupResult = await waitForStartup(
+            startupTask,
+            deadline: startupDeadline,
+            sleepForDeadline: sleepForStartupDeadline,
+            cancelOnTimeout: false
+        )
+        guard case .timedOut = startupResult, settlement.claim() else { return }
+        await cancelAfterStartupTimeout(
+            continuation: continuation,
+            updateTask: updateTask,
+            audioTask: audioTask,
+            startupTask: startupTask,
+            cancelManager: cancelManager
+        )
+    }
+
+    fileprivate static func cancelAfterStartupTimeout(
+        continuation: AsyncStream<VoiceTranscriptionUpdate>.Continuation,
+        updateTask: Task<Void, Never>,
+        audioTask: Task<Void, Never>,
+        startupTask: Task<Bool, Never>,
+        cancelManager: @escaping @Sendable () async -> Void
+    ) async {
+        startupTask.cancel()
+        audioTask.cancel()
+        updateTask.cancel()
+        await cancelManager()
+        continuation.yield(.failed(L10n.string(
+            "mobile.voice.transcription.startupTimedOut",
+            defaultValue: "Voice transcription is still loading. Try again in a moment."
+        )))
+        continuation.finish()
     }
 
     fileprivate static func finishAfterStartup(
@@ -322,15 +408,13 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
             sleepForDeadline: sleepForStartupDeadline
         )
         guard case .completed(let started) = startupResult else {
-            startupTask.cancel()
-            audioTask.cancel()
-            updateTask.cancel()
-            await cancelManager()
-            continuation.yield(.failed(L10n.string(
-                "mobile.voice.transcription.startupTimedOut",
-                defaultValue: "Voice transcription is still loading. Try again in a moment."
-            )))
-            continuation.finish()
+            await cancelAfterStartupTimeout(
+                continuation: continuation,
+                updateTask: updateTask,
+                audioTask: audioTask,
+                startupTask: startupTask,
+                cancelManager: cancelManager
+            )
             return
         }
         await audioTask.value
@@ -393,6 +477,20 @@ struct ParakeetStreamingUpdate: Sendable {
 private enum StartupWaitResult: Sendable {
     case completed(Bool)
     case timedOut
+}
+
+// Synchronous compare-and-set for finish/cancel/watchdog/startup races; using
+// an actor here would force nonisolated protocol methods through extra tasks.
+final class ParakeetSessionSettlement: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: false)
+
+    func claim() -> Bool {
+        lock.withLock { didSettle in
+            guard !didSettle else { return false }
+            didSettle = true
+            return true
+        }
+    }
 }
 
 // AVAudioPCMBuffer is handed off from AVAudioEngine's tap thread and consumed
