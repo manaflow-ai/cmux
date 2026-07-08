@@ -1272,6 +1272,38 @@ export function destroyVm(input: {
   });
 }
 
+export function destroyAccountOwnedVm(input: {
+  readonly userId: string;
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* repo.findAccountOwnedVm(input);
+    if (!vm || !vm.providerVmId) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    yield* providers.destroy(vm.provider, vm.providerVmId).pipe(
+      Effect.catchAll((err) => {
+        if (isProviderNotFoundError(err.cause)) return Effect.void;
+        return Effect.fail(err);
+      }),
+    );
+    yield* repo.markDestroyed(vm.id);
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.destroyed",
+      provider: vm.provider,
+      imageId: vm.imageId,
+    }).pipe(Effect.catchAll(() => Effect.void));
+  });
+}
+
 export function revokeExpiredIdentityLeases(input: {
   readonly now?: Date;
   readonly limit?: number;

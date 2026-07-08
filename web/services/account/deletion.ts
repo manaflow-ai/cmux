@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, inArray, isNotNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
   billingEmailClaims,
@@ -27,10 +27,11 @@ import {
   PRO_PLAN_ID,
 } from "../billing/pro";
 import { isStripeBillingConfigured, stripe } from "../billing/stripe";
-import { destroyVm, runVmWorkflow } from "../vms/workflows";
+import { destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
 import { deleteObject } from "../vault/storage";
 
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
+const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
 
 type StackJson =
   | null
@@ -68,29 +69,9 @@ export async function markStackUserDeletionInProgress(
 }
 
 export async function deleteCmuxAccountData(input: AccountDeletionInput): Promise<void> {
-  const db = cloudDb();
   const anonymizedUserId = deletedAccountId(input.userId);
-  const activeVms = await db
-    .select({
-      providerVmId: cloudVms.providerVmId,
-      billingTeamId: cloudVms.billingTeamId,
-    })
-    .from(cloudVms)
-    .where(and(
-      eq(cloudVms.userId, input.userId),
-      ne(cloudVms.status, "destroyed"),
-      isNotNull(cloudVms.providerVmId),
-    ));
-
-  for (const vm of activeVms) {
-    if (!vm.providerVmId) continue;
-    await runVmWorkflow(destroyVm({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      teamIds: input.teamIds,
-      providerVmId: vm.providerVmId,
-    }));
-  }
+  await claimProviderlessAccountVms(input.userId);
+  await destroyProviderBackedAccountVms(input.userId);
 
   const objectKeys = await accountVaultObjectKeys(input.userId);
   for (const key of objectKeys) {
@@ -101,6 +82,7 @@ export async function deleteCmuxAccountData(input: AccountDeletionInput): Promis
 
   const anonymizedEmail = `${anonymizedUserId}@deleted.cmux.invalid`;
   const now = new Date();
+  const db = cloudDb();
 
   await db.transaction(async (tx) => {
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, input.userId));
@@ -160,6 +142,53 @@ export async function deleteCmuxAccountData(input: AccountDeletionInput): Promis
       .set({ claimedByUserId: null })
       .where(eq(billingEmailClaims.claimedByUserId, input.userId));
   });
+}
+
+async function claimProviderlessAccountVms(userId: string): Promise<void> {
+  const db = cloudDb();
+  await db
+    .update(cloudVms)
+    .set({
+      status: "destroyed",
+      destroyedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(cloudVms.userId, userId),
+      ne(cloudVms.status, "destroyed"),
+      isNull(cloudVms.providerVmId),
+    ));
+}
+
+async function destroyProviderBackedAccountVms(userId: string): Promise<void> {
+  for (let pass = 0; pass < MAX_ACCOUNT_VM_CLEANUP_PASSES; pass += 1) {
+    const activeVms = await providerBackedAccountVms(userId);
+    if (activeVms.length === 0) return;
+    for (const vm of activeVms) {
+      if (!vm.providerVmId) continue;
+      await runVmWorkflow(destroyAccountOwnedVm({
+        userId,
+        providerVmId: vm.providerVmId,
+      }));
+    }
+  }
+
+  const remaining = await providerBackedAccountVms(userId);
+  if (remaining.length > 0) {
+    throw new Error("Cloud VM account deletion cleanup did not settle");
+  }
+}
+
+async function providerBackedAccountVms(userId: string): Promise<readonly { readonly providerVmId: string | null }[]> {
+  const db = cloudDb();
+  return await db
+    .select({ providerVmId: cloudVms.providerVmId })
+    .from(cloudVms)
+    .where(and(
+      eq(cloudVms.userId, userId),
+      ne(cloudVms.status, "destroyed"),
+      isNotNull(cloudVms.providerVmId),
+    ));
 }
 
 async function accountVaultObjectKeys(userId: string): Promise<readonly string[]> {

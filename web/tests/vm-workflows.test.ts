@@ -33,6 +33,7 @@ import {
 } from "../services/vms/errors";
 import {
   createVm,
+  destroyAccountOwnedVm,
   destroyVm,
   execVm,
   listUserVms,
@@ -434,6 +435,46 @@ describe("VM Effect workflows", () => {
 
     expect(revokeCalls).toBe(0);
     expect(destroyCalls).toBe(0);
+  });
+
+  test("destroyAccountOwnedVm destroys user-owned historical team VM", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000133",
+      userId: "user-workflow-account-delete",
+      billingTeamId: "team-workflow-left",
+      providerVmId: "provider-vm-account-delete",
+      status: "running",
+    });
+    const destroyedIds: string[] = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, destroyedIds, usageEvents });
+    const destroyedProviderIds: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: (_provider, providerVmId) =>
+        Effect.sync(() => {
+          destroyedProviderIds.push(providerVmId);
+        }),
+    };
+
+    await Effect.runPromise(
+      destroyAccountOwnedVm({
+        userId: "user-workflow-account-delete",
+        providerVmId: "provider-vm-account-delete",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(destroyedProviderIds).toEqual(["provider-vm-account-delete"]);
+    expect(destroyedIds).toEqual([vm.id]);
+    expect(usageEvents).toContainEqual({
+      userId: "user-workflow-account-delete",
+      billingTeamId: "team-workflow-left",
+      billingPlanId: "free",
+      vmId: vm.id,
+      eventType: "vm.destroyed",
+      provider: "freestyle",
+      imageId: "snapshot-test",
+    });
   });
 
   test("revokeExpiredIdentityLeases uses a small default cron batch", async () => {
@@ -1442,6 +1483,7 @@ describe("VM Effect workflows", () => {
       markCreateFailed: () => Effect.void,
       hasOwnedSnapshot: () => Effect.succeed(false),
       findUserVm: () => Effect.succeed(null),
+      findAccountOwnedVm: () => Effect.succeed(null),
       markDestroyed: () => Effect.void,
       recordLease: () => Effect.void,
       listVmSessions: () => Effect.succeed([]),
@@ -4249,6 +4291,7 @@ function testWorkflowRepo(input: {
   readonly vm: CloudVmRow;
   readonly usageEvents?: RecordedUsageEvent[];
   readonly leases?: RecordedLease[];
+  readonly destroyedIds?: string[];
   readonly activeIdentityLeases?: CloudVmLeaseRow[];
   readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
   readonly revokedLeaseIds?: string[];
@@ -4290,8 +4333,17 @@ function testWorkflowRepo(input: {
         ? input.vm
         : null,
       ),
+    findAccountOwnedVm: ({ userId, providerVmId }) =>
+      Effect.succeed(
+        input.vm.userId === userId && input.vm.providerVmId === providerVmId
+        ? input.vm
+        : null,
+      ),
     hasOwnedSnapshot: () => Effect.succeed(false),
-    markDestroyed: () => Effect.void,
+    markDestroyed: (id) =>
+      Effect.sync(() => {
+        input.destroyedIds?.push(id);
+      }),
     recordLease: (lease) =>
       Effect.sync(() => {
         input.leases?.push(lease);

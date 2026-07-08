@@ -157,6 +157,10 @@ export type VmRepositoryShape = {
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
+  readonly findAccountOwnedVm: (input: {
+    readonly userId: string;
+    readonly providerVmId: string;
+  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly markDestroyed: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly recordLease: (input: {
     readonly vmId: string;
@@ -858,7 +862,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             failureMessage: null,
             updatedAt: now,
           })
-          .where(eq(cloudVms.id, input.vmId))
+          .where(and(
+            eq(cloudVms.id, input.vmId),
+            eq(cloudVms.status, "provisioning"),
+          ))
           .returning();
         if (!vm) throw new Error(`vm row missing during base finalization: ${input.vmId}`);
 
@@ -1108,7 +1115,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           failureMessage: null,
           updatedAt: new Date(),
         })
-        .where(eq(cloudVms.id, input.id))
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.status, "provisioning"),
+        ))
         .returning();
       if (!vm) throw new Error(`vm row missing during create finalization: ${input.id}`);
       return vm;
@@ -1155,6 +1165,23 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .where(
           and(
             accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            ne(cloudVms.status, "destroyed"),
+          ),
+        )
+        .limit(1);
+      return vm ?? null;
+    }),
+
+  findAccountOwnedVm: (input) =>
+    dbEffect("findAccountOwnedVm", async () => {
+      const db = cloudDb();
+      const [vm] = await db
+        .select()
+        .from(cloudVms)
+        .where(
+          and(
+            eq(cloudVms.userId, input.userId),
             eq(cloudVms.providerVmId, input.providerVmId),
             ne(cloudVms.status, "destroyed"),
           ),
