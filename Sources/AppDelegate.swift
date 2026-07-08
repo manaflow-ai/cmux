@@ -801,7 +801,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var mobileHostSettingsObserver: NSObjectProtocol?
-    private var preventSleepSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -2067,7 +2066,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
-        installPreventSleepSettingsObserver()
         PreventSleepManager.shared.start()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
@@ -7211,7 +7209,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 source: "bootstrapInitialMainWindow.\(debugSource)"
             )
             MobileHostService.shared.start()
-            PreventSleepManager.shared.syncNow()
         }
         guard !didBootstrapInitialMainWindow else { return windowId }
 
@@ -9212,19 +9209,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func syncMobileHostService() {
         MobileHostService.shared.syncToSettings()
-    }
-
-    private func installPreventSleepSettingsObserver() {
-        guard preventSleepSettingsObserver == nil else { return }
-        preventSleepSettingsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                PreventSleepManager.shared.syncToSettings()
-            }
-        }
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {

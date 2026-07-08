@@ -14,6 +14,7 @@ final class PreventSleepManager {
         reason: "cmux keep-awake: agents running or mobile client connected"
     )
     private var isStarted = false
+    private var defaultsObserver: NSObjectProtocol?
     private var mobileObserver: NSObjectProtocol?
     private var mainWindowContextsObserver: NSObjectProtocol?
     private var agentObservationTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
@@ -26,6 +27,7 @@ final class PreventSleepManager {
     func start() {
         guard !isStarted else { return }
         isStarted = true
+        installDefaultsObserver()
         installMobileObserver()
         installMainWindowContextsObserver()
         syncNow()
@@ -37,6 +39,10 @@ final class PreventSleepManager {
             return
         }
         isStarted = false
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+            self.defaultsObserver = nil
+        }
         if let mobileObserver {
             NotificationCenter.default.removeObserver(mobileObserver)
             self.mobileObserver = nil
@@ -45,25 +51,72 @@ final class PreventSleepManager {
             NotificationCenter.default.removeObserver(mainWindowContextsObserver)
             self.mainWindowContextsObserver = nil
         }
-        for task in agentObservationTasks.values {
-            task.cancel()
-        }
-        agentObservationTasks.removeAll()
-        for cancellable in tabManagerCancellables.values {
-            cancellable.cancel()
-        }
-        tabManagerCancellables.removeAll()
+        cancelAgentObservation()
         assertion.release()
     }
 
-    func syncToSettings() {
-        syncNow()
+    func syncNow() {
+        sync(tabsOverride: nil)
     }
 
-    func syncNow(additionalWorkspaces: [Workspace] = []) {
-        refreshTabManagerObservers()
-        attachAgentObservers(additionalWorkspaces: additionalWorkspaces)
-        reconcileAssertion()
+    private func sync(tabsOverride: (tabManager: TabManager, tabs: [Workspace])?) {
+        let power = SettingCatalog().power
+        let agentsSettingEnabled = settingValue(power.preventSleepWhileAgentsRunning)
+        let mobileSettingEnabled = settingValue(power.preventSleepWhileMobileConnected)
+
+        // Agent observation (per-workspace change streams, tab list
+        // subscriptions, and the census scan) stays fully off unless the
+        // default-off agents setting is on, so non-opted-in users pay no
+        // per-agent-event or per-defaults-change fanout.
+        var runningAgentCount = 0
+        if agentsSettingEnabled {
+            let workspaces = openWorkspaces(tabsOverride: tabsOverride)
+            refreshTabManagerObservers()
+            attachAgentObservers(to: workspaces)
+            runningAgentCount = SleepyAgentCensus.runningAgentCount(in: workspaces)
+        } else {
+            cancelAgentObservation()
+        }
+
+        let desired = preventSleepDesired(
+            agentsSettingEnabled: agentsSettingEnabled,
+            mobileSettingEnabled: mobileSettingEnabled,
+            runningAgentCount: runningAgentCount,
+            mobileConnectionCount: MobileHostService.shared.statusSnapshot().activeConnectionCount
+        )
+        if desired {
+            assertion.acquire()
+        } else {
+            assertion.release()
+        }
+    }
+
+    /// `tabsPublisher` emits during willSet — before `tabManager.tabs` storage
+    /// commits — so reconciliation must take the emitting manager's NEW list
+    /// from the override and never re-read its not-yet-updated `tabs`.
+    /// Otherwise closing the last agent workspace would reconcile against the
+    /// old list and leave the sleep assertion held.
+    private func openWorkspaces(tabsOverride: (tabManager: TabManager, tabs: [Workspace])?) -> [Workspace] {
+        guard let app = AppDelegate.shared else { return tabsOverride?.tabs ?? [] }
+        return app.mainWindowContexts.values.flatMap { context -> [Workspace] in
+            if let tabsOverride, context.tabManager === tabsOverride.tabManager {
+                return tabsOverride.tabs
+            }
+            return context.tabManager.tabs
+        }
+    }
+
+    private func installDefaultsObserver() {
+        guard defaultsObserver == nil else { return }
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.syncNow()
+            }
+        }
     }
 
     private func installMobileObserver() {
@@ -107,15 +160,15 @@ final class PreventSleepManager {
             guard tabManagerCancellables[id] == nil else { continue }
             tabManagerCancellables[id] = tabManager.tabsPublisher
                 .dropFirst()
-                .sink { [weak self] tabs in
-                    self?.syncNow(additionalWorkspaces: tabs)
+                .sink { [weak self, weak tabManager] tabs in
+                    guard let tabManager else { return }
+                    self?.sync(tabsOverride: (tabManager, tabs))
                 }
         }
     }
 
-    private func attachAgentObservers(additionalWorkspaces: [Workspace]) {
-        guard let app = AppDelegate.shared else { return }
-        let models = (app.openWorkspacesForPetCensus() + additionalWorkspaces).map(\.sidebarAgentRuntimeObservation)
+    private func attachAgentObservers(to workspaces: [Workspace]) {
+        let models = workspaces.map(\.sidebarAgentRuntimeObservation)
         let currentIDs = Set(models.map(ObjectIdentifier.init))
 
         for id in agentObservationTasks.keys where !currentIDs.contains(id) {
@@ -136,18 +189,15 @@ final class PreventSleepManager {
         }
     }
 
-    private func reconcileAssertion() {
-        let desired = preventSleepDesired(
-            agentsSettingEnabled: settingValue(SettingCatalog().power.preventSleepWhileAgentsRunning),
-            mobileSettingEnabled: settingValue(SettingCatalog().power.preventSleepWhileMobileConnected),
-            runningAgentCount: SleepyAgentCensus.runningAgentCount(),
-            mobileConnectionCount: MobileHostService.shared.statusSnapshot().activeConnectionCount
-        )
-        if desired {
-            assertion.acquire()
-        } else {
-            assertion.release()
+    private func cancelAgentObservation() {
+        for task in agentObservationTasks.values {
+            task.cancel()
         }
+        agentObservationTasks.removeAll()
+        for cancellable in tabManagerCancellables.values {
+            cancellable.cancel()
+        }
+        tabManagerCancellables.removeAll()
     }
 
     private func settingValue(_ key: DefaultsKey<Bool>) -> Bool {
