@@ -108,8 +108,8 @@
 932	Sources/Cloud/VMClient.swift
 929	Sources/Panels/TerminalPanel.swift
 918	Sources/Panels/BrowserPopupWindowController.swift
+912	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 905	Sources/CmuxSSHURLRequest.swift
-901	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
 882	Sources/DockSplitStore.swift
