@@ -199,4 +199,85 @@ struct CMUXCLIVMOnboardDeriveTests {
         #expect(VMOnboardDeriver.normalizedCloneURL("git@github.com:owner/repo.git") == "https://github.com/owner/repo")
         #expect(VMOnboardDeriver.normalizedCloneURL("https://github.com/owner/repo") == "https://github.com/owner/repo")
     }
+
+    @Test
+    func canonicalRepoKeyMatchesTransportsButNotBasenames() {
+        // Same repo across transports, credentials, case, .git, trailing slash.
+        #expect(
+            VMOnboardDeriver.canonicalRepoKey("git@github.com:Owner/Repo.git")
+                == VMOnboardDeriver.canonicalRepoKey("https://github.com/owner/repo/")
+        )
+        #expect(
+            VMOnboardDeriver.canonicalRepoKey("https://user@github.com/owner/repo.git")
+                == VMOnboardDeriver.canonicalRepoKey("https://github.com/owner/repo")
+        )
+        // Same basename, different owner: NOT the same repo.
+        #expect(
+            VMOnboardDeriver.canonicalRepoKey("https://github.com/other/ghostty")
+                != VMOnboardDeriver.canonicalRepoKey("https://github.com/ghostty-org/ghostty")
+        )
+    }
+
+    @Test
+    func shellSafetyRejectsMetacharactersInURLAndName() {
+        #expect(VMOnboardDeriver.isShellSafeCloneURL("https://github.com/owner/repo.git"))
+        #expect(VMOnboardDeriver.isShellSafeCloneURL("git@github.com:owner/repo.git"))
+        #expect(!VMOnboardDeriver.isShellSafeCloneURL("https://github.com/o/r;rm -rf ~"))
+        #expect(!VMOnboardDeriver.isShellSafeCloneURL("https://github.com/o/$(id)"))
+        #expect(!VMOnboardDeriver.isShellSafeCloneURL("https://github.com/o/`id`"))
+        #expect(!VMOnboardDeriver.isShellSafeCloneURL("-oProxyCommand=evil"))
+        #expect(VMOnboardDeriver.isShellSafeRepoName("my-repo_2.0"))
+        #expect(!VMOnboardDeriver.isShellSafeRepoName("repo name"))
+        #expect(!VMOnboardDeriver.isShellSafeRepoName("-repo"))
+        #expect(!VMOnboardDeriver.isShellSafeRepoName(".."))
+        #expect(!VMOnboardDeriver.isShellSafeRepoName("a&&b"))
+    }
+
+    @Test
+    func workflowDerivationKeepsMatrixJobsAndActionsPaths() throws {
+        let workflow = """
+        jobs:
+          build:
+            runs-on: ${{ matrix.os }}
+            steps:
+              - name: prepare
+                run: cp -r custom-actions/ dist/
+              - name: build
+                run: make build
+        """
+        let result = try #require(VMOnboardDeriver.deriveFromWorkflow(workflow, repoName: "app"))
+        #expect(result.jobName == "build")
+        // A run line that merely mentions an `actions/` path is a real command.
+        #expect(result.steps.map(\.run).contains("cd app\ncp -r custom-actions/ dist/"))
+        #expect(result.steps.map(\.run).contains("cd app\nmake build"))
+    }
+
+    @Test
+    func devcontainerFallsBackToRootFileWhenNestedYieldsNothing() throws {
+        let root = try makeRepo(files: [
+            ".devcontainer/devcontainer.json": "{ \"image\": \"ubuntu\" }",
+            ".devcontainer.json": "{ \"postCreateCommand\": \"npm install\" }",
+        ])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let derivation = try #require(VMOnboardDeriver.derive(
+            repoRoot: root,
+            cloneURL: "https://github.com/o/app",
+            repoName: "app"
+        ))
+        #expect(derivation.sources.map(\.path) == [".devcontainer.json"])
+        #expect(derivation.steps.contains { $0.run == "cd app\nnpm install" })
+    }
+
+    @Test
+    func hiddenMiseTomlIsLabeledWithItsActualPath() throws {
+        let root = try makeRepo(files: [".mise.toml": "[tools]\nnode = \"22\"\n"])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let derivation = try #require(VMOnboardDeriver.derive(
+            repoRoot: root,
+            cloneURL: "https://github.com/o/app",
+            repoName: "app"
+        ))
+        #expect(derivation.sources.map(\.path) == [".mise.toml"])
+        #expect(derivation.steps.contains { $0.run == "mise use -g node@22" })
+    }
 }

@@ -16,6 +16,9 @@ extension CMUXCLI {
         windowId: String?,
         idFormat: CLIIDFormat
     ) throws {
+        if jsonOutput {
+            throw CLIError(message: "vm onboard is an interactive flow with no JSON output; run it without --json. For machine-readable builds use: cmux vm env build --json")
+        }
         let assumeYes = hasFlag(commandArgs, name: "--yes") || hasFlag(commandArgs, name: "-y")
         let specOnly = hasFlag(commandArgs, name: "--spec-only")
         let positional = commandArgs.filter { !$0.hasPrefix("-") }
@@ -145,20 +148,25 @@ extension CMUXCLI {
 
     private func vmOnboardResolveRepo(urlArg: String?, ui: VMOnboardUI) throws -> VMOnboardRepo {
         if let urlArg {
-            let name = VMOnboardDeriver.repoName(fromURL: urlArg)
-            // Standing inside a checkout of the same repo? Scan it directly.
+            // Normalize scp-style ssh remotes to https up front so the spec's
+            // clone step never needs an SSH identity inside the VM.
+            let cloneURL = VMOnboardDeriver.normalizedCloneURL(urlArg)
+            let name = VMOnboardDeriver.repoName(fromURL: cloneURL)
+            try Self.vmOnboardValidateRepoIdentity(cloneURL: cloneURL, name: name)
+            // Standing inside a checkout of the same repo (same host + owner +
+            // repo, not just the same basename)? Scan it directly.
             if let localRoot = Self.vmOnboardGitToplevel(),
                let remote = Self.vmOnboardGitRemoteURL(),
-               VMOnboardDeriver.repoName(fromURL: remote) == name {
+               VMOnboardDeriver.canonicalRepoKey(remote) == VMOnboardDeriver.canonicalRepoKey(cloneURL) {
                 return VMOnboardRepo(
-                    name: name, cloneURL: urlArg, displayName: urlArg,
+                    name: name, cloneURL: cloneURL, displayName: cloneURL,
                     scanRoot: localRoot, inferred: false, temporaryClone: false
                 )
             }
-            ui.step("fetching \(urlArg) for scanning (shallow)...")
-            let scanRoot = try Self.vmOnboardShallowClone(url: urlArg, name: name)
+            ui.step("fetching \(cloneURL) for scanning (shallow)...")
+            let scanRoot = try Self.vmOnboardShallowClone(url: cloneURL, name: name)
             return VMOnboardRepo(
-                name: name, cloneURL: urlArg, displayName: urlArg,
+                name: name, cloneURL: cloneURL, displayName: cloneURL,
                 scanRoot: scanRoot, inferred: false, temporaryClone: true
             )
         }
@@ -170,14 +178,29 @@ extension CMUXCLI {
                   cmux vm onboard https://github.com/OWNER/REPO
                 """)
         }
+        let cloneURL = VMOnboardDeriver.normalizedCloneURL(remote)
+        let name = VMOnboardDeriver.repoName(fromURL: remote)
+        try Self.vmOnboardValidateRepoIdentity(cloneURL: cloneURL, name: name)
         return VMOnboardRepo(
-            name: VMOnboardDeriver.repoName(fromURL: remote),
-            cloneURL: VMOnboardDeriver.normalizedCloneURL(remote),
-            displayName: VMOnboardDeriver.normalizedCloneURL(remote),
+            name: name,
+            cloneURL: cloneURL,
+            displayName: cloneURL,
             scanRoot: root,
             inferred: true,
             temporaryClone: false
         )
+    }
+
+    /// The clone URL and repo name are interpolated into generated spec `run:`
+    /// lines that execute in the VM, so reject anything shell could reinterpret
+    /// before it reaches the spec.
+    private static func vmOnboardValidateRepoIdentity(cloneURL: String, name: String) throws {
+        guard VMOnboardDeriver.isShellSafeCloneURL(cloneURL) else {
+            throw CLIError(message: "Repo URL contains characters that are not valid in a git URL: \(cloneURL)")
+        }
+        guard VMOnboardDeriver.isShellSafeRepoName(name) else {
+            throw CLIError(message: "Could not derive a safe checkout directory name from: \(cloneURL)")
+        }
     }
 
     private static func vmOnboardGitToplevel() -> String? {
@@ -224,7 +247,10 @@ extension CMUXCLI {
         let editor = ProcessInfo.processInfo.environment["EDITOR"] ?? "vi"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(editor) \(path)"]
+        // git's GIT_EDITOR pattern: $EDITOR stays shell-expandable (supports
+        // "code -w"), while the path is passed as a positional argument so a
+        // path with spaces or metacharacters can never become shell code.
+        process.arguments = ["-c", "\(editor) \"$@\"", "sh", path]
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
