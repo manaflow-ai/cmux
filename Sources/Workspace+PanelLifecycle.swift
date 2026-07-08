@@ -61,7 +61,7 @@ extension Workspace {
         )
     }
 
-    private func agentStatusKey(forAgentPIDKey key: String) -> String {
+    func agentStatusKey(forAgentPIDKey key: String) -> String {
         if statusEntries[key] != nil {
             return key
         }
@@ -125,6 +125,7 @@ extension Workspace {
 
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        let previousPanelId = agentPIDPanelIdsByKey[key]
         var didClearOtherStructuredAgentRuntime = false
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
@@ -138,6 +139,12 @@ extension Workspace {
         }
         if refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if let previousPanelId, previousPanelId != panelId {
+            syncTerminalTabAgentIconAsset(forPanelId: previousPanelId)
+        }
+        if let panelId {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
         }
         return didClearOtherStructuredAgentRuntime
     }
@@ -184,6 +191,7 @@ extension Workspace {
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
+        syncTerminalTabAgentIconAssetsForAllTerminalPanels()
         if hadAgentPIDs, refreshPorts {
             refreshTrackedAgentPorts()
         }
@@ -341,6 +349,9 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
+        if let panelId = ownedPanelId ?? panelId {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
+        }
         return didChange
     }
 
@@ -382,6 +393,7 @@ extension Workspace {
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
+        syncTerminalTabAgentIconAsset(forPanelId: runtimeState.panelId)
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
         }
@@ -466,6 +478,7 @@ extension Workspace {
         discardAgentRuntimeState(closedAgentRuntimeState)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)

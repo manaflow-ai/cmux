@@ -226,6 +226,7 @@ extension DockSplitStore {
             title: detached.title,
             icon: detached.icon,
             iconImageData: detached.iconImageData,
+            iconAsset: terminalTabAgentIconAsset(forPanelId: detached.panelId),
             kind: kind,
             isDirty: panel.isDirty,
             isLoading: detached.isLoading,
