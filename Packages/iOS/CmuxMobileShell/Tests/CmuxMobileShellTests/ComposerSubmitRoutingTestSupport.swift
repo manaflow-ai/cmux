@@ -43,12 +43,19 @@ actor RoutingHostRouter {
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private var workspaceCreateGroupIDs: [String?] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
     private var firstPasteImageHeld = false
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var workspaceCreateCount = 0
+    private var rejectWorkspaceCreate = false
+    private var holdFirstWorkspaceCreate = false
+    private var firstWorkspaceCreateHeld = false
+    private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
+    private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -87,6 +94,28 @@ actor RoutingHostRouter {
         continuation?.resume()
     }
 
+    func setRejectWorkspaceCreate(_ reject: Bool) {
+        rejectWorkspaceCreate = reject
+    }
+
+    func setHoldFirstWorkspaceCreate(_ hold: Bool) {
+        holdFirstWorkspaceCreate = hold
+    }
+
+    func awaitFirstWorkspaceCreateReached() async {
+        if firstWorkspaceCreateHeld { return }
+        await withCheckedContinuation { firstWorkspaceCreateReachedWaiters.append($0) }
+    }
+
+    func releaseFirstWorkspaceCreate() {
+        let continuation = firstWorkspaceCreateContinuation
+        firstWorkspaceCreateContinuation = nil
+        continuation?.resume()
+    }
+
+    func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
+    func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
+
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
@@ -101,6 +130,7 @@ actor RoutingHostRouter {
         var text: String?
         var notificationIDs: [String]?
         var clientID: String?
+        var groupID: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -137,13 +167,55 @@ actor RoutingHostRouter {
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
-                "capabilities": ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"],
+                "capabilities": [
+                    "events.v1",
+                    "terminal.render_grid.v1",
+                    "terminal.replay.v1",
+                    "workspace.group_actions.v1",
+                ],
             ])
         case "mobile.events.subscribe":
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": "test-stream",
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": false,
+            ])
+        case "workspace.create":
+            workspaceCreateCount += 1
+            workspaceCreateGroupIDs.append(info.groupID)
+            if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
+                firstWorkspaceCreateHeld = true
+                let reachedWaiters = firstWorkspaceCreateReachedWaiters
+                firstWorkspaceCreateReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { firstWorkspaceCreateContinuation = $0 }
+            }
+            if rejectWorkspaceCreate {
+                return try? Self.errorFrame(id: id, message: "workspace.create rejected")
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "workspaces": [
+                    [
+                        "id": Self.workspaceID,
+                        "title": "Routing Workspace",
+                        "terminals": [],
+                    ],
+                    [
+                        "id": "workspace-created",
+                        "title": "Created Workspace",
+                        "is_selected": true,
+                        "terminals": [
+                            [
+                                "id": "terminal-created",
+                                "title": "Created",
+                                "is_focused": true,
+                                "is_ready": true,
+                            ],
+                        ],
+                    ],
+                ],
+                "created_workspace_id": "workspace-created",
+                "created_terminal_id": "terminal-created",
             ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
@@ -245,7 +317,8 @@ private actor RoutingTransport: CmxByteTransport {
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
-                clientID: params?["client_id"] as? String
+                clientID: params?["client_id"] as? String,
+                groupID: params?["group_id"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
@@ -290,7 +363,8 @@ func makeRoutingConnectedStore(
     router: RoutingHostRouter,
     pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
         defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
-    )
+    ),
+    macScopedWorkspaceMutations: Bool = false
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -320,12 +394,13 @@ func makeRoutingConnectedStore(
         endpoint: .hostPort(host: "127.0.0.1", port: 56585)
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: RoutingHostRouter.workspaceID,
-        terminalID: RoutingHostRouter.terminalA,
+        workspaceID: macScopedWorkspaceMutations ? "" : RoutingHostRouter.workspaceID,
+        terminalID: macScopedWorkspaceMutations ? nil : RoutingHostRouter.terminalA,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
-        expiresAt: Date().addingTimeInterval(3600)
+        expiresAt: Date().addingTimeInterval(3600),
+        authToken: macScopedWorkspaceMutations ? "ticket-secret" : nil
     )
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,

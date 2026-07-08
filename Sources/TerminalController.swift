@@ -242,6 +242,7 @@ class TerminalController {
     }
 
     private nonisolated static let focusIntentV1Commands: Set<String> = [
+        "__internal_flags",
         "focus_window",
         "select_workspace",
         "focus_surface",
@@ -260,6 +261,7 @@ class TerminalController {
         "workspace.previous",
         "workspace.last",
         "workspace.group.focus",
+        "workspace.cloud_vm_open",
         "surface.focus",
         "pane.focus",
         "pane.last",
@@ -821,7 +823,6 @@ class TerminalController {
         self.authCoordinator = coordinator
         self.browserSignInFlow = browserSignIn
     }
-
 
     func start(
         tabManager: TabManager,
@@ -1399,6 +1400,8 @@ class TerminalController {
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("remotes."):
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("aiAccounts."):
+            return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -1475,30 +1478,18 @@ class TerminalController {
             // Use pre-captured peer PID if available (captured in accept loop before
             // the peer can disconnect), falling back to live lookup.
             let pid = peerPid ?? transport.peerProcessID(of: socket)
-            if let pid {
-                guard isDescendant(pid) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Access denied — only processes started inside cmux can connect",
-                        to: socket
-                    )
-                    return
-                }
-            }
-            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
-            // could read it — common with ncat --send-only). We still verify the
-            // peer runs as the same user via LOCAL_PEERCRED. This is the same
-            // security boundary as the socket file permissions (0600), so it does
-            // not widen the attack surface. We also require that the peer actually
-            // sent data (checked in the read loop below) — a connect-only probe
-            // with no data is harmless.
-            if pid == nil {
-                guard transport.peerHasSameUID(socket) else {
-                    _ = writeSocketResponse(
-                        "ERROR: Unable to verify client process",
-                        to: socket
-                    )
-                    return
-                }
+            guard SocketClientAuthorization().isCmuxOnlyClientAllowed(
+                peerProcessID: pid,
+                peerHasSameUID: false,
+                isDescendant: { isDescendant($0) }
+            ) else {
+                _ = writeSocketResponse(
+                    pid == nil
+                        ? "ERROR: Unable to verify client process"
+                        : "ERROR: Access denied — only processes started inside cmux can connect",
+                    to: socket
+                )
+                return
             }
         }
 
@@ -1923,6 +1914,11 @@ class TerminalController {
         case "auth":
             return "OK: Authentication not required"
 
+        case "__internal_flags":
+            // UI-opening support command: presentation must run on the main actor.
+            InternalFlagsPresenter.present()
+            return "OK"
+
         case "list_windows":
             return listWindows()
 
@@ -2017,7 +2013,6 @@ class TerminalController {
             // caller keeps the legacy reply (the shared nonisolated body's
             // hop collapses inline on main).
             return readScreenText(args)
-
 
 #if DEBUG
         case "send_workspace":
@@ -2214,6 +2209,10 @@ class TerminalController {
         // foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
         // terminal_session_end) handled by ControlCommandCoordinator. The worker-lane
         // workspace.remote.pty_* methods stay on the app-side worker path.
+        case "workspace.cloud_vm_open":
+            return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
+        case "workspace.cloud_vm_terminal_ready":
+            return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
 
@@ -2223,7 +2222,6 @@ class TerminalController {
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
         case "sidebar.custom.open":
             return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
-
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
         // reorder handled by ControlCommandCoordinator (surface.move forwards to the
@@ -2319,7 +2317,6 @@ class TerminalController {
         // invalid_dispatch ("must run on the socket worker") from the policy
         // guard in processParsedV2Command — not method_not_found.
 
-
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,
         // textbox fixtures, command palette, browser probes, sidebar/terminal
         // focus, file drop, layout/portal/flash/panel-snapshot counters, window
@@ -2368,6 +2365,9 @@ class TerminalController {
             "vm.exec",
             "vm.attach_info",
             "vm.ssh_info",
+            "aiAccounts.list",
+            "aiAccounts.upload",
+            "aiAccounts.remove",
             "window.list",
             "window.current",
             "window.focus",
@@ -2377,6 +2377,8 @@ class TerminalController {
             "window.display",
             "workspace.list",
             "workspace.create",
+            "workspace.cloud_vm_open",
+            "workspace.cloud_vm_terminal_ready",
             "workspace.env",
             "workspace.select",
             "workspace.current",
@@ -3694,10 +3696,8 @@ class TerminalController {
     // MARK: - V2 Workspace Methods
 
     @MainActor
-
     private func v2ExtensionSidebarRootPath(for workspace: Workspace) -> String? {
-        let trimmed = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        workspace.presentedCurrentDirectory?.nilIfEmpty
     }
 
     /// `workspace.set_auto_title`: applies an AI-generated title to a workspace
@@ -3799,26 +3799,6 @@ class TerminalController {
             "enabled": true
         ])
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,
@@ -4450,11 +4430,6 @@ class TerminalController {
         }
     }
 
-
-
-
-
-
     @MainActor
 
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
@@ -4684,21 +4659,7 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
-
-
-
-
-
-
-
-
-
-
-
     @MainActor
-
-
-
 
     private func v2AgentSessionOptions(params: [String: Any]) -> (
         providerID: AgentSessionProviderID,
@@ -4756,10 +4717,6 @@ class TerminalController {
 
         return (providerID, rendererKind, nil)
     }
-
-
-
-
 
     // `internal` (not `private`): the Pane domain's app conformance forwards
     // `pane.join` to this body. The Surface domain extraction will relocate it.
@@ -4911,8 +4868,6 @@ class TerminalController {
 
         return result
     }
-
-
 
     func v2DebugTerminals(params _: [String: Any]) -> V2CallResult {
         var payload: [String: Any]?
@@ -5067,13 +5022,14 @@ class TerminalController {
                 let panelId = mapped?.terminalPanel.id ?? terminalSurface.id
                 let portalState = hostedView.portalBindingGuardState()
                 let portalHostLease = terminalSurface.debugPortalHostLease()
-                let gitBranchState = workspace?.panelGitBranches[panelId]
+                let gitBranchState = workspace?.reportedPanelGitBranch(panelId: panelId)
                 let listeningPorts = (workspace?.surfaceListeningPorts[panelId] ?? []).sorted()
                 let title = workspace?.panelTitle(panelId: panelId)
                 let paneId = mapped?.paneId
                 let treeVisible = mapped?.bonsplitTabId != nil && paneId != nil
                 let ttyName = workspace?.surfaceTTYNames[panelId]
-                let currentDirectory = nonEmpty(workspace?.panelDirectories[panelId] ?? mapped?.terminalPanel.directory)
+                let currentDirectory = workspace.map { $0.effectivePanelDirectory(panelId: panelId, localFallback: nonEmpty(mapped?.terminalPanel.directory)) } ?? nonEmpty(mapped?.terminalPanel.directory)
+                let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
 
@@ -5142,7 +5098,7 @@ class TerminalController {
                     "portal_host_area": v2OrNull(portalHostLease.area.map(Double.init)),
                     "tty": v2OrNull(ttyName),
                     "current_directory": v2OrNull(currentDirectory),
-                    "requested_working_directory": v2OrNull(nonEmpty(terminalSurface.requestedWorkingDirectory)),
+                    "requested_working_directory": v2OrNull(requestedWorkingDirectory),
                     "initial_command": v2OrNull(nonEmpty(terminalSurface.debugInitialCommand())),
                     "tmux_start_command": v2OrNull(nonEmpty(terminalSurface.debugTmuxStartCommand())),
                     "git_branch": v2OrNull(nonEmpty(gitBranchState?.branch)),
@@ -5174,10 +5130,6 @@ class TerminalController {
         }
         return .ok(payload)
     }
-
-
-
-
 
     struct TerminalTextRawSnapshot {
         var viewport: String?
@@ -5632,7 +5584,6 @@ class TerminalController {
             lineLimit: lineLimit
         )
     }
-
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
         guard let email = params["email"] as? String else {
@@ -8222,7 +8173,6 @@ class TerminalController {
             """
         }
     }
-
 
     private nonisolated func v2BrowserNavSimple(params: [String: Any], action: String) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -13948,7 +13898,7 @@ class TerminalController {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
-        guard let tab = resolveSidebarMutationTab(target),
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key), let tab = resolveSidebarMutationTab(target),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
@@ -13960,9 +13910,9 @@ class TerminalController {
 
     private func agentLifecycleRegistryWorkingDirectory(tab: Tab, panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { tab.panelDirectories[$0] },
-            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
-            tab.currentDirectory,
+            panelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.focusedPanelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.usesRemoteDirectoryProvenance ? tab.presentedCurrentDirectory : tab.currentDirectory,
         ]
         return candidates.compactMap(normalizedOptionValue).first
     }
@@ -14082,6 +14032,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.move":
+            result = v2MobileWorkspaceMove(params: request.params)
+        case "workspace.group.action":
+            result = v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
@@ -14224,7 +14178,6 @@ class TerminalController {
         }
         return v2WorkspaceAction(params: params)
     }
-
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
         switch result {
         case let .ok(payload):
@@ -14235,7 +14188,6 @@ class TerminalController {
             return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
         }
     }
-
     func v2MobileHostStatus(
         params: [String: Any],
         includePrivateMetadata: Bool = true
@@ -14393,7 +14345,7 @@ class TerminalController {
         }
     }
 
-    private func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
+    func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
         guard v2HasNonNullParam(params, "workspace_id"),
               v2UUID(params, "workspace_id") == nil else {
             return nil
