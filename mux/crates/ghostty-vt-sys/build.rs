@@ -20,6 +20,10 @@ fn main() {
             e
         )
     });
+    // On Windows, canonicalize() returns \\?\-prefixed extended-length paths.
+    // clang cannot resolve angle-bracket includes against -I dirs carrying
+    // that prefix, so bindgen fails on `#include <ghostty/vt/types.h>`.
+    let ghostty_dir = strip_windows_extended_length_prefix(ghostty_dir);
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
@@ -92,4 +96,15 @@ fn zig_target_for_rust_target(target: &str) -> Option<&'static str> {
         "aarch64-pc-windows-msvc" => Some("aarch64-windows-msvc"),
         _ => None,
     }
+}
+
+fn strip_windows_extended_length_prefix(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    path
 }
