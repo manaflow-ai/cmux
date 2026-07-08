@@ -1,26 +1,5 @@
 import Foundation
 
-/// The workspace-create parameters derived from a task template and prompt.
-public struct MobileTaskComposition: Equatable, Sendable {
-    /// Shell-interpreted command for the initial terminal, or `nil` for a plain shell.
-    public var initialCommand: String?
-    /// Environment variables for the initial terminal.
-    public var initialEnv: [String: String]
-    /// Suggested workspace title derived from the prompt.
-    public var title: String?
-
-    /// Creates a task composition.
-    /// - Parameters:
-    ///   - initialCommand: Shell-interpreted command for the initial terminal.
-    ///   - initialEnv: Environment variables for the initial terminal.
-    ///   - title: Suggested workspace title.
-    public init(initialCommand: String?, initialEnv: [String: String], title: String?) {
-        self.initialCommand = initialCommand
-        self.initialEnv = initialEnv
-        self.title = title
-    }
-}
-
 /// Composes shell-safe task startup parameters from templates and user prompts.
 public struct MobileTaskCommandComposer: Sendable {
     /// Creates a command composer.
@@ -41,7 +20,7 @@ public struct MobileTaskCommandComposer: Sendable {
     public func compose(template: MobileTaskTemplate, prompt rawPrompt: String) -> MobileTaskComposition {
         let prompt = rawPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let command = template.command
-        let title = Self.title(from: prompt)
+        let title = Self.taskTitle(from: prompt)
 
         guard !command.isEmpty else {
             return MobileTaskComposition(initialCommand: nil, initialEnv: [:], title: title)
@@ -60,7 +39,10 @@ public struct MobileTaskCommandComposer: Sendable {
         return MobileTaskComposition(initialCommand: initialCommand, initialEnv: env, title: title)
     }
 
-    private static func title(from prompt: String) -> String? {
+    /// The suggested workspace title for a task prompt: its first line, capped
+    /// at 60 characters. Static (not file-scope): the package conventions lint
+    /// forbids free functions in iOS package sources.
+    private static func taskTitle(from prompt: String) -> String? {
         guard let firstLine = prompt.split(separator: "\n", omittingEmptySubsequences: false).first,
               !firstLine.isEmpty else {
             return nil

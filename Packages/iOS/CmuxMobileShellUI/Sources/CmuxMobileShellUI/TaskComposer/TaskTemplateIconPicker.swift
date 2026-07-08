@@ -60,19 +60,4 @@ struct TaskTemplateIconPicker: View {
         .accessibilityLabel(value)
     }
 }
-
-struct TaskTemplateIcon: View {
-    let value: String
-
-    var body: some View {
-        switch MacAvatarIcon.resolve(custom: value, defaultSymbol: "terminal") {
-        case .symbol(let name):
-            Image(systemName: name)
-                .accessibilityHidden(true)
-        case .emoji(let emoji):
-            Text(emoji)
-                .accessibilityHidden(true)
-        }
-    }
-}
 #endif

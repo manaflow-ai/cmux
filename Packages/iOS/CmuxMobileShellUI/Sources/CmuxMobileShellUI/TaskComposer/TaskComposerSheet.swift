@@ -303,6 +303,10 @@ struct TaskComposerSheet: View {
         }
     }
 
+    /// The directory the composer pre-fills: the template default, then the
+    /// last successful directory for the selected Mac, then home. Static: it
+    /// runs in `init` before `self` exists, and the package conventions lint
+    /// forbids free functions in iOS package sources.
     private static func suggestedDirectory(
         template: MobileTaskTemplate?,
         macDeviceID: String,
