@@ -9,6 +9,15 @@ let currentUser = testflightUser();
 let user: typeof currentUser | null = currentUser;
 
 const getUser = mock(async () => user);
+const cloudDb = mock(() => ({
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => [],
+      }),
+    }),
+  }),
+}));
 const ascFetch = mock(async (path: unknown) => {
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
@@ -39,6 +48,10 @@ mock.module("../services/asc/client", () => ({
   isAscConfigured: () => ascConfigured,
 }));
 
+mock.module("../db/client", () => ({
+  cloudDb,
+}));
+
 mock.module("../services/errors", () => ({
   captureAscError,
   captureBillingError: mock(() => undefined),
@@ -53,6 +66,7 @@ describe("TestFlight route", () => {
     currentUser = testflightUser();
     user = currentUser;
     getUser.mockClear();
+    cloudDb.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
     mockImplementation(ascFetch, async (path: unknown) => {

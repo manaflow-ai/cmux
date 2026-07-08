@@ -10,6 +10,15 @@ let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
 
 const getUser = mock(async () => currentUser);
+const cloudDb = mock(() => ({
+  select: () => ({
+    from: () => ({
+      where: () => ({
+        limit: async () => [],
+      }),
+    }),
+  }),
+}));
 const ascFetch = mock(async (path: unknown) => {
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
@@ -70,6 +79,10 @@ mock.module("../services/asc/client", () => ({
   isAscConfigured: () => ascConfigured,
 }));
 
+mock.module("../db/client", () => ({
+  cloudDb,
+}));
+
 mock.module("../services/errors", () => ({
   captureAscError,
   captureBillingError: mock(() => undefined),
@@ -84,6 +97,7 @@ describe("dashboard TestFlight page", () => {
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
+    cloudDb.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
   });
