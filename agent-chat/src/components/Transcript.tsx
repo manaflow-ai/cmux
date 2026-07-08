@@ -615,6 +615,8 @@ function ActivityBlock({
   switch (block.kind) {
     case "tool":
       return <ToolBlock b={block} defaultOpen />;
+    case "assistant":
+      return <div className="turn-activity-assistant selectable"><ChatMarkdown text={block.text} streaming={block.open} /></div>;
     case "thinking":
       return <div className="turn-thinking-detail">{block.text}</div>;
     case "status":
@@ -664,6 +666,13 @@ function TurnActivity({
             {() => (
               <div className="turn-activity-list" style={activityFlatStackStyle}>
                 {group.activity.map((block, i) => {
+                  if (block.kind === "assistant") {
+                    return (
+                      <div className="turn-activity-item" key={`${group.id}:${i}`}>
+                        <ActivityBlock block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+                      </div>
+                    );
+                  }
                   const key = `${group.id}:${i}`;
                   const open = Boolean(expandedItems[key]);
                   const canExpand = activityBlockHasDetail(block);

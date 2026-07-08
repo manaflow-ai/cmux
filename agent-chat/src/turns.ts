@@ -12,6 +12,12 @@ export interface TurnGroup {
 export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
   const groups: TurnGroup[] = [];
   let current: TurnGroup | null = null;
+  const flushAssistantToActivity = () => {
+    if (current?.assistant) {
+      current.activity.push(current.assistant);
+      current.assistant = undefined;
+    }
+  };
   const push = () => {
     if (current && (current.user || current.activity.length || current.assistant || current.footer)) groups.push(current);
   };
@@ -22,15 +28,23 @@ export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
       continue;
     }
     if (!current) current = { id: `turn-${groups.length}-prelude`, activity: [], done: false };
-    if (block.kind === "assistant") current.assistant = block;
-    else if (block.kind === "footer") current.footer = block;
-    else current.activity.push(block);
+    if (block.kind === "assistant") {
+      flushAssistantToActivity();
+      current.assistant = block;
+    } else if (block.kind === "footer") {
+      current.footer = block;
+    } else {
+      flushAssistantToActivity();
+      current.activity.push(block);
+    }
   }
   push();
   return groups.map((group, index) => ({
     ...group,
     id: `${index}:${group.id}`,
-    done: Boolean(group.footer || (status !== "running" && !group.assistant?.open && !group.activity.some((b) => b.kind === "tool" && b.status === "running"))),
+    done: Boolean(group.footer || (status !== "running" && !group.assistant?.open && !group.activity.some((b) =>
+      (b.kind === "tool" && b.status === "running") || (b.kind === "assistant" && b.open)
+    ))),
   }));
 }
 
@@ -57,6 +71,7 @@ export function summarizeTurnActivity(blocks: Block[]): string {
   let listed = false;
   let other = 0;
   for (const block of blocks) {
+    if (block.kind === "assistant") continue;
     if (block.kind === "files") {
       edited += block.files.length;
       continue;
@@ -95,6 +110,7 @@ export function activityRowLabel(block: Block): string {
   }
   if (block.kind === "files") return `Edited ${plural(block.files.length, "file")}`;
   if (block.kind === "thinking") return "Reasoned";
+  if (block.kind === "assistant") return "Assistant";
   if (block.kind === "status") return block.text;
   if (block.kind === "error") return "Error";
   return "Activity";

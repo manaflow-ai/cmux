@@ -33,6 +33,25 @@ const groups = groupTurns([
 if (groups.length !== 1 || !groups[0].done || groups[0].activity.length !== activity.length) {
   throw new Error("turn grouping failed");
 }
+if (groups[0].assistant?.text !== "done") {
+  throw new Error("single-segment turn lost its primary assistant");
+}
+
+const multiSegment = groupTurns([
+  { kind: "user", text: "inspect" },
+  { kind: "assistant", text: "I'll inspect the files first.", open: false },
+  { kind: "tool", toolId: "read", name: "cat", detail: "src/turns.ts", status: "ok" },
+  { kind: "assistant", text: "I found the issue and fixed it.", open: false },
+  { kind: "footer", text: "2s" },
+], "idle");
+if (multiSegment.length !== 1) throw new Error("multi-segment turn split unexpectedly");
+if (multiSegment[0].assistant?.text !== "I found the issue and fixed it.") {
+  throw new Error(`primary assistant should be the final segment: ${multiSegment[0].assistant?.text}`);
+}
+const ordered = multiSegment[0].activity.map((block) => block.kind === "assistant" ? block.text : block.kind === "tool" ? block.detail : block.kind).join("|");
+if (ordered !== "I'll inspect the files first.|src/turns.ts") {
+  throw new Error(`intermediate assistant/tool order was not preserved: ${ordered}`);
+}
 
 const heights = new Map<number, number>([[0, 100], [1, 100], [2, 100], [3, 100]]);
 const range = virtualRange(10, heights, 250, 300, 100, 1);

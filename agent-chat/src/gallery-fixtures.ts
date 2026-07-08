@@ -140,6 +140,7 @@ export const activityScenarios: { id: string; label: string; status: string; blo
 
 export const turnSummaryBlocks: Block[] = [
   { kind: "user", text: "Please inspect the repository picker and make the smallest fix." },
+  { kind: "assistant", text: "I'll inspect the picker flow first, then make the smallest targeted edit.", open: false },
   { kind: "tool", toolId: "read-agents", name: "cat", detail: "AGENTS.md", status: "ok", out: "Read repository instructions and scoped rules." },
   { kind: "tool", toolId: "search-picker", name: "rg", detail: "RepositoryPicker", status: "ok", out: "Sources/RepositoryPicker.tsx\nSources/WorkspaceView.swift" },
   { kind: "tool", toolId: "list-files", name: "ls", detail: "Sources", status: "ok", out: "RepositoryPicker.tsx\nWorkspaceView.swift\n" },
