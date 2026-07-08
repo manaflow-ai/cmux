@@ -133,6 +133,75 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
         )
     }
 
+    func testDispositionDefaultsToPageUploadRegardlessOfWebViewAvailability() {
+        XCTAssertEqual(
+            BrowserPaneFileDropRouting.disposition(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                modifierFlags: [],
+                isDockHosted: false,
+                defaultBehavior: .text
+            ),
+            .forwardToPage
+        )
+    }
+
+    func testDispositionShiftInvertsToPreview() {
+        XCTAssertEqual(
+            BrowserPaneFileDropRouting.disposition(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                modifierFlags: [.shift],
+                isDockHosted: false,
+                defaultBehavior: .text
+            ),
+            .previewInWorkspace
+        )
+        XCTAssertEqual(
+            BrowserPaneFileDropRouting.disposition(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                modifierFlags: [.shift],
+                isDockHosted: false,
+                defaultBehavior: .preview
+            ),
+            .forwardToPage
+        )
+    }
+
+    func testDispositionDockAlwaysForwardsToPage() {
+        XCTAssertEqual(
+            BrowserPaneFileDropRouting.disposition(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                modifierFlags: [],
+                isDockHosted: true,
+                defaultBehavior: .preview
+            ),
+            .forwardToPage
+        )
+        XCTAssertEqual(
+            BrowserPaneFileDropRouting.disposition(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                modifierFlags: [.shift],
+                isDockHosted: true,
+                defaultBehavior: .text
+            ),
+            .forwardToPage
+        )
+    }
+
+    func testDispositionRequiresFileURLPayload() {
+        XCTAssertNil(BrowserPaneFileDropRouting.disposition(
+            pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType],
+            modifierFlags: [],
+            isDockHosted: false,
+            defaultBehavior: .text
+        ))
+        XCTAssertNil(BrowserPaneFileDropRouting.disposition(
+            pasteboardTypes: nil,
+            modifierFlags: [],
+            isDockHosted: false,
+            defaultBehavior: .text
+        ))
+    }
+
     private func withFileDropDefault(_ behavior: FileDropDefaultBehavior, run: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
