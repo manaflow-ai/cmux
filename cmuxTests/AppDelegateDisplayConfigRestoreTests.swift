@@ -1,5 +1,6 @@
 import AppKit
 import CmuxWindowing
+import struct CmuxWorkspaces.SessionRectSnapshot
 import Testing
 
 #if canImport(cmux_DEV)
@@ -7,6 +8,7 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
 /// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
 @Suite(.serialized)
 @MainActor

@@ -90,7 +90,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             indexLoader: {
                 SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
-                    fileManager: fm,
+                    fileManager: .default,
                     registry: registry,
                     processSnapshotProvider: { processSnapshot },
                     capturedAtProvider: { 42 },
@@ -188,7 +188,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             indexLoader: {
                 SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
-                    fileManager: fm,
+                    fileManager: .default,
                     registry: registry,
                     processSnapshotProvider: { processSnapshot },
                     capturedAtProvider: { 51 },
@@ -277,7 +277,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             indexLoader: {
                 SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
-                    fileManager: fm,
+                    fileManager: .default,
                     registry: registry,
                     processSnapshotProvider: { processSnapshot },
                     capturedAtProvider: { 61 },

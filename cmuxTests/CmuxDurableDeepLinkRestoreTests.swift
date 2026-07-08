@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import Foundation
+import CmuxRemoteWorkspace
 import Testing
 
 #if canImport(cmux_DEV)

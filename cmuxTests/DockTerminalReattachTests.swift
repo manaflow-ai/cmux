@@ -13,7 +13,7 @@ import Testing
 #endif
 
 @MainActor
-private final class DockTransferTestPanel: Panel {
+private final class DockTransferTestPanel: @preconcurrency Panel {
     let objectWillChange = ObservableObjectPublisher()
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()

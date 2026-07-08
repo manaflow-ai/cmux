@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Darwin
+import Foundation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -8,9 +9,24 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class RipgrepSignalRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var signals: [(pid_t, Int32)] = []
+
+    func append(_ signal: (pid_t, Int32)) {
+        lock.withLock {
+            signals.append(signal)
+        }
+    }
+
+    var snapshot: [(pid_t, Int32)] {
+        lock.withLock { signals }
+    }
+}
+
 final class RovoDevSessionIndexTests: XCTestCase {
     func testRipgrepCancellationDoesNotSignalBeforeProcessStarts() {
-        var sentSignals: [(pid_t, Int32)] = []
+        let sentSignals = RipgrepSignalRecorder()
         let cancellation = RipgrepProcessCancellation { processIdentifier, signal in
             sentSignals.append((processIdentifier, signal))
             return 0
@@ -18,11 +34,11 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
         cancellation.cancel()
 
-        XCTAssertTrue(sentSignals.isEmpty)
+        XCTAssertTrue(sentSignals.snapshot.isEmpty)
     }
 
     func testRipgrepCancellationSignalsActiveProcess() {
-        var sentSignals: [(pid_t, Int32)] = []
+        let sentSignals = RipgrepSignalRecorder()
         let cancellation = RipgrepProcessCancellation { processIdentifier, signal in
             sentSignals.append((processIdentifier, signal))
             return 0
@@ -34,13 +50,14 @@ final class RovoDevSessionIndexTests: XCTestCase {
         cancellation.markFinished(processIdentifier: 12345)
         cancellation.cancel()
 
-        XCTAssertEqual(sentSignals.count, 1)
-        XCTAssertEqual(sentSignals.first?.0, 12345)
-        XCTAssertEqual(sentSignals.first?.1, SIGTERM)
+        let signals = sentSignals.snapshot
+        XCTAssertEqual(signals.count, 1)
+        XCTAssertEqual(signals.first?.0, 12345)
+        XCTAssertEqual(signals.first?.1, SIGTERM)
     }
 
     func testRipgrepCancellationDoesNotResurrectFinishedProcess() {
-        var sentSignals: [(pid_t, Int32)] = []
+        let sentSignals = RipgrepSignalRecorder()
         let cancellation = RipgrepProcessCancellation { processIdentifier, signal in
             sentSignals.append((processIdentifier, signal))
             return 0
@@ -50,7 +67,7 @@ final class RovoDevSessionIndexTests: XCTestCase {
         cancellation.markStarted(processIdentifier: 12345)
         cancellation.cancel()
 
-        XCTAssertTrue(sentSignals.isEmpty)
+        XCTAssertTrue(sentSignals.snapshot.isEmpty)
     }
 
     func testRipgrepMatchingPathsCancellationDoesNotReportFailure() async throws {

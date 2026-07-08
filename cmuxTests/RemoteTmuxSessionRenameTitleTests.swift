@@ -8,6 +8,21 @@ import Testing
 @testable import cmux
 #endif
 
+private final class WorkspaceTitleNotificationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var notifications: [Notification] = []
+
+    func append(_ notification: Notification) {
+        lock.withLock {
+            notifications.append(notification)
+        }
+    }
+
+    var snapshot: [Notification] {
+        lock.withLock { notifications }
+    }
+}
+
 /// Regression tests for syncing a remote tmux `rename-session` back onto the
 /// mirror's cmux workspace title (the reverse of the cmux→tmux rename push).
 /// A remote `tmux rename-session` arrives as `%session-renamed`; the mirror must
@@ -83,7 +98,7 @@ struct RemoteTmuxSessionRenameTitleTests {
 
     @Test func remoteRenamePostsWorkspaceTitleDidChange() {
         let (mirror, workspace, manager) = makeMirror(sessionName: "old", title: "old")
-        var notifications: [Notification] = []
+        let notifications = WorkspaceTitleNotificationRecorder()
         let observer = NotificationCenter.default.addObserver(
             forName: .workspaceTitleDidChange,
             object: manager,
@@ -95,9 +110,10 @@ struct RemoteTmuxSessionRenameTitleTests {
 
         mirror.applySessionNameToWorkspaceTitle("dev")
 
-        #expect(notifications.count == 1)
-        #expect(notifications.first?.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id)
-        #expect(notifications.first?.userInfo?[GhosttyNotificationKey.surfaceId] == nil)
+        let postedNotifications = notifications.snapshot
+        #expect(postedNotifications.count == 1)
+        #expect(postedNotifications.first?.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id)
+        #expect(postedNotifications.first?.userInfo?[GhosttyNotificationKey.surfaceId] == nil)
     }
 
     @Test func remoteRenameUsesCurrentManagerAfterWorkspaceMove() throws {

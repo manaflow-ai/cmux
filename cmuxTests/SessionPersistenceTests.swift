@@ -9,9 +9,17 @@ import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias AppSessionDisplaySnapshot = cmux_DEV.SessionDisplaySnapshot
 #elseif canImport(cmux)
 @testable import cmux
+private typealias AppSessionDisplaySnapshot = cmux.SessionDisplaySnapshot
 #endif
+
+private extension AppSessionDisplaySnapshot {
+    init(displayID: UInt32? = nil, frame: SessionRectSnapshot? = nil, visibleFrame: SessionRectSnapshot? = nil) {
+        self.init(displayID: displayID, stableID: nil, frame: frame, visibleFrame: visibleFrame)
+    }
+}
 
 final class SessionPersistenceTests: XCTestCase {
     // Pure persist/autosave decision policy, lifted to CmuxWorkspaces.
@@ -19,7 +27,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
-        let display: SessionDisplaySnapshot?
+        let display: AppSessionDisplaySnapshot?
     }
 
     /// Builds the session snapshot repository under test. The legacy
@@ -991,7 +999,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 1_000, y: 0, width: 1_000, height: 800),
             visibleFrame: SessionRectSnapshot(x: 1_000, y: 0, width: 1_000, height: 800)
@@ -1051,7 +1059,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedStartupPrimaryWindowFrameFallsBackToPersistedGeometryWhenPrimaryMissing() {
         let fallbackFrame = SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640)
-        let fallbackDisplay = SessionDisplaySnapshot(
+        let fallbackDisplay = AppSessionDisplaySnapshot(
             displayID: 1,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1081,7 +1089,7 @@ final class SessionPersistenceTests: XCTestCase {
     func testResolvedStartupPrimaryWindowFramePrefersPrimarySnapshotOverFallback() {
         let primarySnapshot = SessionWindowSnapshot(
             frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
-            display: SessionDisplaySnapshot(
+            display: AppSessionDisplaySnapshot(
                 displayID: 1,
                 frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
                 visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1090,7 +1098,7 @@ final class SessionPersistenceTests: XCTestCase {
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
         )
         let fallbackFrame = SessionRectSnapshot(x: 40, y: 30, width: 700, height: 500)
-        let fallbackDisplay = SessionDisplaySnapshot(
+        let fallbackDisplay = AppSessionDisplaySnapshot(
             displayID: 1,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1122,7 +1130,7 @@ final class SessionPersistenceTests: XCTestCase {
             AppDelegate.PersistedWindowGeometry(
                 version: AppDelegate.persistedWindowGeometrySchemaVersion,
                 frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
-                display: SessionDisplaySnapshot(
+                display: AppSessionDisplaySnapshot(
                     displayID: 1,
                     frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
                     visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1143,7 +1151,7 @@ final class SessionPersistenceTests: XCTestCase {
         let data = try JSONEncoder().encode(
             LegacyPersistedWindowGeometry(
                 frame: SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640),
-                display: SessionDisplaySnapshot(
+                display: AppSessionDisplaySnapshot(
                     displayID: 1,
                     frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
                     visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
@@ -1192,7 +1200,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFramePreservesExactGeometryWhenDisplayIsUnchanged() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
@@ -1220,7 +1228,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFramePreservesExactGeometryWhenDisplayChangesButWindowRemainsAccessible() {
         let savedFrame = SessionRectSnapshot(x: 1_100, y: -20, width: 1_280, height: 1_000)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
@@ -1248,7 +1256,7 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
         let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
-        let savedDisplay = SessionDisplaySnapshot(
+        let savedDisplay = AppSessionDisplaySnapshot(
             displayID: 2,
             frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
             visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
@@ -1854,7 +1862,7 @@ final class SessionPersistenceTests: XCTestCase {
 
         let window = SessionWindowSnapshot(
             frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
-            display: SessionDisplaySnapshot(
+            display: AppSessionDisplaySnapshot(
                 displayID: 42,
                 frame: SessionRectSnapshot(x: 0, y: 0, width: 1920, height: 1200),
                 visibleFrame: SessionRectSnapshot(x: 0, y: 25, width: 1920, height: 1175)

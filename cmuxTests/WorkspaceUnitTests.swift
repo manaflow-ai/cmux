@@ -2900,7 +2900,7 @@ final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
-    private final class DetachedWorkspaceTestPanel: Panel {
+    private final class DetachedWorkspaceTestPanel: @preconcurrency Panel {
         let objectWillChange = ObservableObjectPublisher()
         let id: UUID
         let stableSurfaceIdentity = PanelStableSurfaceIdentity()

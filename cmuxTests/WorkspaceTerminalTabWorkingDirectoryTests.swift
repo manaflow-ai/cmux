@@ -263,7 +263,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
-    @Test("control sidebar state hides inherited local cwd for remote ssh workspaces", .serialized)
+    @Test("control sidebar state hides inherited local cwd for remote ssh workspaces")
     func controlSidebarStateHidesInheritedLocalDirectoryForRemoteSSHWorkspace() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let localDirectory = "/Users/alice/development"
