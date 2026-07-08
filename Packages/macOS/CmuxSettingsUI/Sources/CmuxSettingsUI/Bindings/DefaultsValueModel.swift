@@ -189,6 +189,31 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         return source
     }
 
+    /// Removes the stored override, then runs `afterCommit` after storage accepts it.
+    ///
+    /// Use this for settings whose reset needs host-side live-update work that
+    /// must observe the committed default value.
+    ///
+    /// - Parameter afterCommit: Main-actor work to run after ``UserDefaultsSettingsStore``
+    ///   has completed the reset.
+    @discardableResult
+    public func reset(
+        afterCommit: @escaping @MainActor @Sendable () -> Void
+    ) -> UserDefaultsSettingsMutationSource {
+        let defaultValue = key.defaultValue
+        let source = recordPendingStoreEcho(defaultValue)
+        updateCurrent(defaultValue)
+        Task { @MainActor [self, store, key, source, afterCommit] in
+            guard await store.reset(key, source: source) != nil else {
+                let committedValue = await store.value(for: key)
+                reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
+                return
+            }
+            afterCommit()
+        }
+        return source
+    }
+
     private func acceptObservedValue(_ event: UserDefaultsSettingsValueEvent<Value>) {
         let isInitialStoreEvent = !hasObservedInitialStoreEvent
         hasObservedInitialStoreEvent = true

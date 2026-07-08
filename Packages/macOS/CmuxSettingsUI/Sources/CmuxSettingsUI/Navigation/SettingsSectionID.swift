@@ -98,7 +98,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"
         case .keyboardShortcuts: return "keybindings commands chords"
-        case .workspaceColors: return "palette tabs indicator"
+        case .workspaceColors: return "palette tabs indicator pane border divider"
         case .settingsJSON: return "config file preferences editor schema jsonc reload"
         case .reset: return "defaults reset"
         }

@@ -12,10 +12,13 @@ public struct WorkspaceColorsSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
+    private let hostActions: SettingsHostActions
 
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var paneBorderHex: DefaultsValueModel<String>
+    @State private var activePaneBorderHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
@@ -47,14 +50,18 @@ public struct WorkspaceColorsSection: View {
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
-        errorLog: SettingsErrorLog
+        errorLog: SettingsErrorLog,
+        hostActions: SettingsHostActions
     ) {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.errorLog = errorLog
+        self.hostActions = hostActions
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _paneBorderHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.paneBorderColorHex))
+        _activePaneBorderHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.paneChrome.activePaneBorderColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -77,6 +84,8 @@ public struct WorkspaceColorsSection: View {
             indicator,
             selectionHex,
             badgeHex,
+            paneBorderHex,
+            activePaneBorderHex,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -114,6 +123,24 @@ public struct WorkspaceColorsSection: View {
                 json: "workspaceColors.notificationBadgeColor",
                 resetLabel: String(localized: "settings.workspaceColors.notificationBadgeColor.reset", defaultValue: "Reset"),
                 model: badgeHex
+            )
+            SettingsCardDivider()
+            paneChromeColorRow(
+                title: String(localized: "settings.workspaceColors.paneBorderColor", defaultValue: "Pane Divider"),
+                subtitle: String(localized: "settings.workspaceColors.paneBorderColor.subtitle", defaultValue: "Color of the divider between split workspace panes."),
+                json: "paneBorderColor",
+                resetLabel: String(localized: "settings.workspaceColors.color.reset", defaultValue: "Reset"),
+                model: paneBorderHex,
+                fallback: paneDividerFallbackColor()
+            )
+            SettingsCardDivider()
+            paneChromeColorRow(
+                title: String(localized: "settings.workspaceColors.activePaneBorderColor", defaultValue: "Focused Pane Border"),
+                subtitle: String(localized: "settings.workspaceColors.activePaneBorderColor.subtitle", defaultValue: "Color drawn around the focused pane in split workspaces. Default keeps the focused border off."),
+                json: "activePaneBorderColor",
+                resetLabel: String(localized: "settings.workspaceColors.color.reset", defaultValue: "Reset"),
+                model: activePaneBorderHex,
+                fallback: focusedPaneBorderFallbackColor()
             )
             SettingsCardDivider()
 
@@ -167,10 +194,52 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: Self.cmuxAccentColor(),
+                    fallback: cmuxAccentColor(),
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)
+                }
+                Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .trailing)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func paneChromeColorRow(
+        title: String,
+        subtitle: String,
+        json: String,
+        resetLabel: String,
+        model: DefaultsValueModel<String>,
+        fallback: Color
+    ) -> some View {
+        let isCustom = !model.current.isEmpty
+        SettingsCardRow(
+            configurationReview: .json(json),
+            title,
+            subtitle: subtitle
+        ) {
+            HStack(spacing: 8) {
+                if isCustom {
+                    Button(resetLabel) {
+                        model.reset(afterCommit: {
+                            hostActions.paneChromeSettingsDidChange()
+                        })
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                HexColorPicker(
+                    storedHex: model.current,
+                    fallback: fallback,
+                    reconcileRevision: model.revision
+                ) { hex in
+                    model.set(hex, afterCommit: {
+                        hostActions.paneChromeSettingsDidChange()
+                    })
                 }
                 Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
                     .cmuxFont(size: 12, weight: .medium, design: .monospaced)
@@ -281,7 +350,7 @@ public struct WorkspaceColorsSection: View {
     /// Mirrors the legacy `cmuxAccentColor()` helper (see
     /// `Sources/Sidebar/SidebarAppearanceSupport.swift`) so the rendered
     /// swatch matches the rest of the app instead of the system accent.
-    private static func cmuxAccentColor() -> Color {
+    private func cmuxAccentColor() -> Color {
         let nsColor = NSColor(name: nil) { appearance in
             let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
             if bestMatch == .darkAqua {
@@ -290,5 +359,13 @@ public struct WorkspaceColorsSection: View {
             return NSColor(srgbRed: 0, green: 136.0 / 255.0, blue: 1.0, alpha: 1.0)
         }
         return Color(nsColor: nsColor)
+    }
+
+    private func paneDividerFallbackColor() -> Color {
+        Color(nsColor: .separatorColor)
+    }
+
+    private func focusedPaneBorderFallbackColor() -> Color {
+        cmuxAccentColor()
     }
 }

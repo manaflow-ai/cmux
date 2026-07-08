@@ -89,6 +89,10 @@ final class HostSettingsActions: SettingsHostActions {
         PaneChromeSettings.notifyDidChange()
     }
 
+    func paneChromeSettingsDidChange() {
+        PaneChromeSettings.notifyDidChange()
+    }
+
     func openConfigInExternalEditor() {
         // Honor the user's configured editor (`preferredEditorCommand`),
         // falling back to the OS default. Opening the config file directly
