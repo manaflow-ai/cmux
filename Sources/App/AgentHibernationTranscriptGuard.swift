@@ -191,29 +191,38 @@ enum AgentHibernationTranscriptGuard {
         fileManager: FileManager = .default
     ) -> Bool {
         guard transcriptHasConversationTurns(atPath: snapshot.snapshotPath, fileManager: fileManager),
-              !transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager),
-              let snapshotData = fileManager.contents(atPath: snapshot.snapshotPath) else {
+              !transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager) else {
             return false
         }
 
-        var restoreData = snapshotData
-        if let stubData = fileManager.contents(atPath: snapshot.transcriptPath),
-           !stubData.isEmpty {
-            appendSingleNewlineIfNeeded(to: &restoreData)
-            var trailing = stubData
-            removeLeadingNewlines(from: &trailing)
-            restoreData.append(trailing)
-        }
-
+        let transcriptURL = URL(fileURLWithPath: snapshot.transcriptPath)
+        let directoryURL = transcriptURL.deletingLastPathComponent()
+        let tempURL = directoryURL.appendingPathComponent(
+            ".\(transcriptURL.lastPathComponent).restore-\(UUID().uuidString).tmp",
+            isDirectory: false
+        )
         do {
-            let transcriptURL = URL(fileURLWithPath: snapshot.transcriptPath)
             try fileManager.createDirectory(
-                at: transcriptURL.deletingLastPathComponent(),
+                at: directoryURL,
                 withIntermediateDirectories: true
             )
-            try restoreData.write(to: transcriptURL, options: .atomic)
+            try? fileManager.removeItem(at: tempURL)
+            // Restore streams via APFS clone plus chunked append so large
+            // transcripts never need to fit in memory.
+            try fileManager.copyItem(atPath: snapshot.snapshotPath, toPath: tempURL.path)
+            try appendLiveStubIfPresent(
+                from: transcriptURL,
+                toRestoreFile: tempURL,
+                fileManager: fileManager
+            )
+            if fileManager.fileExists(atPath: transcriptURL.path) {
+                _ = try fileManager.replaceItemAt(transcriptURL, withItemAt: tempURL)
+            } else {
+                try fileManager.moveItem(at: tempURL, to: transcriptURL)
+            }
             return true
         } catch {
+            try? fileManager.removeItem(at: tempURL)
             return false
         }
     }
@@ -355,17 +364,60 @@ enum AgentHibernationTranscriptGuard {
         return type == "user" || type == "assistant"
     }
 
-    private static func appendSingleNewlineIfNeeded(to data: inout Data) {
-        while data.last == 10 || data.last == 13 {
-            data.removeLast()
+    private static func appendLiveStubIfPresent(
+        from stubURL: URL,
+        toRestoreFile restoreURL: URL,
+        fileManager: FileManager
+    ) throws {
+        guard isRegularFile(atPath: stubURL.path, fileManager: fileManager) else { return }
+
+        let output = try FileHandle(forUpdating: restoreURL)
+        defer { try? output.close() }
+        let endOffset = try output.seekToEnd()
+        let trimmedOffset = try offsetByTrimmingTrailingNewlines(handle: output, endOffset: endOffset)
+        try output.truncate(atOffset: trimmedOffset)
+        try output.seekToEnd()
+        try output.write(contentsOf: Data([10]))
+
+        let input = try FileHandle(forReadingFrom: stubURL)
+        defer { try? input.close() }
+        var skippingLeadingNewlines = true
+        while let chunk = try input.read(upToCount: 64 * 1024),
+              !chunk.isEmpty {
+            var bytes = chunk[chunk.startIndex..<chunk.endIndex]
+            if skippingLeadingNewlines {
+                guard let firstContentIndex = bytes.firstIndex(where: { $0 != 10 && $0 != 13 }) else {
+                    continue
+                }
+                bytes = chunk[firstContentIndex..<chunk.endIndex]
+                skippingLeadingNewlines = false
+            }
+            try output.write(contentsOf: bytes)
         }
-        data.append(10)
     }
 
-    private static func removeLeadingNewlines(from data: inout Data) {
-        while data.first == 10 || data.first == 13 {
-            data.removeFirst()
+    private static func offsetByTrimmingTrailingNewlines(handle: FileHandle, endOffset: UInt64) throws -> UInt64 {
+        var remainingEnd = endOffset
+        while remainingEnd > 0 {
+            let readSize = min(UInt64(64 * 1024), remainingEnd)
+            let startOffset = remainingEnd - readSize
+            try handle.seek(toOffset: startOffset)
+            guard let data = try handle.read(upToCount: Int(readSize)),
+                  !data.isEmpty else {
+                return remainingEnd
+            }
+            var index = data.endIndex
+            while index > data.startIndex {
+                let previous = data.index(before: index)
+                let byte = data[previous]
+                if byte != 10 && byte != 13 {
+                    return startOffset + UInt64(data.distance(from: data.startIndex, to: index))
+                }
+                index = previous
+            }
+            remainingEnd = startOffset
         }
+        return 0
     }
 
     private static func normalized(_ value: String?) -> String? {

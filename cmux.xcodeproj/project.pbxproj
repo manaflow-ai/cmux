@@ -45,6 +45,7 @@
 		F65760020000000000000001 /* AgentHibernationTestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760020000000000000002 /* AgentHibernationTestHelpers.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
 		F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */; };
+		F65760080000000000000001 /* AgentHibernationTranscriptGuardScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760080000000000000002 /* AgentHibernationTranscriptGuardScanTests.swift */; };
 		F65760040000000000000001 /* AgentHibernationTranscriptGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */; };
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
@@ -1596,6 +1597,7 @@
 		F65760020000000000000002 /* AgentHibernationTestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTestHelpers.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
 		F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationTranscriptGuard.swift; sourceTree = "<group>"; };
+		F65760080000000000000002 /* AgentHibernationTranscriptGuardScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTranscriptGuardScanTests.swift; sourceTree = "<group>"; };
 		F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTranscriptGuardTests.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
 		A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGateTests.swift; sourceTree = "<group>"; };
@@ -4240,6 +4242,7 @@
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
 				F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */,
 				F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */,
+				F65760080000000000000002 /* AgentHibernationTranscriptGuardScanTests.swift */,
 				D72260010000000000000002 /* AgentHibernationPortalVisibilityTests.swift */,
 				F65760020000000000000002 /* AgentHibernationTestHelpers.swift */,
 				D36A00020000000000000002 /* AgentHibernationTests.swift */,
@@ -6051,6 +6054,7 @@
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				F65760020000000000000001 /* AgentHibernationTestHelpers.swift in Sources */,
 				D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */,
+				F65760080000000000000001 /* AgentHibernationTranscriptGuardScanTests.swift in Sources */,
 				F65760040000000000000001 /* AgentHibernationTranscriptGuardTests.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
