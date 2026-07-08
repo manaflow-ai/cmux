@@ -1228,19 +1228,17 @@ export function revokeExpiredIdentityLeases(input: {
     for (const lease of leases) {
       const identityHandle = lease.providerIdentityHandle;
       if (!identityHandle) continue;
+      const retryAfter = new Date(now.getTime() + EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS);
+      yield* (repo.markLeaseRevocationRetry?.({
+        id: lease.id,
+        retryAfter,
+        error: "revoke pending",
+      }) ?? Effect.void).pipe(Effect.catchAll(() => Effect.void));
       const revoked = yield* providers.revokeSSHIdentity(lease.provider, identityHandle).pipe(
         Effect.as(true),
         Effect.catchAll((err) => {
           if (isProviderNotFoundError(err.cause)) return Effect.succeed(true);
-          const retryAfter = new Date(now.getTime() + EXPIRED_IDENTITY_REVOKE_RETRY_BACKOFF_MS);
-          return (repo.markLeaseRevocationRetry?.({
-            id: lease.id,
-            retryAfter,
-            error: errorMessage(err.cause),
-          }) ?? Effect.void).pipe(
-            Effect.catchAll(() => Effect.void),
-            Effect.as(false),
-          );
+          return Effect.succeed(false);
         }),
       );
       if (revoked) revokedIds.push(lease.id);
@@ -1345,13 +1343,10 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
-    // grants an identity), which would hand out an endpoint while Postgres
-    // still says paused. Preflight-resume first — and before revoking the
-    // user's existing identities, so a preflight failure never strands them
-    // with old credentials revoked and no replacement minted.
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    // Fail cleanup before resuming a paused VM. If cleanup is unavailable, the
+    // caller gets an error without leaving a paused VM durably running.
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -1414,13 +1409,10 @@ export function openSshEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    // Endpoint minting can succeed against a paused VM (Freestyle openSSH only
-    // grants an identity), which would hand out an endpoint while Postgres
-    // still says paused. Preflight-resume first — and before revoking the
-    // user's existing identities, so a preflight failure never strands them
-    // with old credentials revoked and no replacement minted.
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
+    // Fail cleanup before resuming a paused VM. If cleanup is unavailable, the
+    // caller gets an error without leaving a paused VM durably running.
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,

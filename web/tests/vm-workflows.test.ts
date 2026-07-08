@@ -16,6 +16,7 @@ import {
   VmRepository,
   VmRepositoryLive,
   type CloudVmIdentityLeaseRow,
+  type CloudVmLeaseRow,
   type CloudVmSessionRow,
   type CloudVmRow,
   type VmRepositoryShape,
@@ -405,15 +406,20 @@ describe("VM Effect workflows", () => {
       provider: "freestyle",
     };
     const revokedLeaseIds: string[] = [];
+    const leaseRevocationRetries: LeaseRevocationRetry[] = [];
     const repo = testWorkflowRepo({
       vm,
       expiredIdentityLeases: () => Effect.succeed([lease]),
       revokedLeaseIds,
+      leaseRevocationRetries,
     });
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
-      revokeSSHIdentity: () =>
-        Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed")),
+      revokeSSHIdentity: () => {
+        expect(leaseRevocationRetries).toHaveLength(1);
+        expect(leaseRevocationRetries[0]).toMatchObject({ id: lease.id, error: "revoke pending" });
+        return Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed"));
+      },
     };
 
     const revoked = await Effect.runPromise(
@@ -424,6 +430,7 @@ describe("VM Effect workflows", () => {
 
     expect(revoked).toBe(0);
     expect(revokedLeaseIds).toEqual([]);
+    expect(leaseRevocationRetries).toHaveLength(1);
   });
 
   dbTest("backs off failed expired identity cleanup so later leases progress", async () => {
@@ -960,6 +967,72 @@ describe("VM Effect workflows", () => {
       vmId: vm.id,
       metadata: { credentialKind: "password" },
     });
+  });
+
+  test("openSshEndpoint fails cleanup before resuming a paused VM", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000128",
+      userId: "user-workflow-ssh-cleanup-before-resume",
+      providerVmId: "provider-vm-ssh-cleanup-before-resume",
+      status: "paused",
+    });
+    const activeLease: CloudVmLeaseRow = {
+      id: "lease-active-cleanup-before-resume",
+      vmId: vm.id,
+      userId: vm.userId,
+      kind: "ssh",
+      tokenHash: "active-cleanup-before-resume",
+      providerIdentityHandle: "identity-cleanup-before-resume",
+      sessionId: null,
+      transport: "ssh",
+      metadata: {},
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: new Date(),
+    };
+    const repo = testWorkflowRepo({ vm, activeIdentityLeases: [activeLease] });
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    let openCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => {
+        statusCalls += 1;
+        return Effect.succeed("paused");
+      },
+      resume: () => {
+        resumeCalls += 1;
+        return Effect.succeed(testVmHandle({ providerVmId: vm.providerVmId! }));
+      },
+      revokeSSHIdentity: () =>
+        Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed")),
+      openSSH: () => {
+        openCalls += 1;
+        return Effect.succeed({
+          transport: "ssh" as const,
+          host: "vm-ssh.freestyle.sh",
+          port: 22,
+          username: "provider-vm-ssh-cleanup-before-resume+cmux",
+          publicKeyFingerprint: null,
+          credential: { kind: "password" as const, value: "secret" },
+          identityHandle: "new-identity",
+        });
+      },
+    };
+
+    await expect(
+      Effect.runPromise(
+        openSshEndpoint({
+          userId: vm.userId,
+          providerVmId: vm.providerVmId!,
+        }).pipe(Effect.provide(workflowLayer(repo, provider))),
+      ),
+    ).rejects.toThrow();
+
+    expect(statusCalls).toBe(0);
+    expect(resumeCalls).toBe(0);
+    expect(openCalls).toBe(0);
   });
 
   test("openAttachEndpoint recovers when the VM suspends between preflight and minting", async () => {
@@ -3904,6 +3977,7 @@ function testWorkflowRepo(input: {
   readonly vm: CloudVmRow;
   readonly usageEvents?: RecordedUsageEvent[];
   readonly leases?: RecordedLease[];
+  readonly activeIdentityLeases?: CloudVmLeaseRow[];
   readonly expiredIdentityLeases?: VmRepositoryShape["expiredIdentityLeases"];
   readonly revokedLeaseIds?: string[];
   readonly leaseRevocationRetries?: LeaseRevocationRetry[];
@@ -3981,7 +4055,7 @@ function testWorkflowRepo(input: {
           closedAt: null,
         } satisfies CloudVmSessionRow;
       }),
-    activeIdentityLeases: () => Effect.succeed([]),
+    activeIdentityLeases: () => Effect.succeed(input.activeIdentityLeases ?? []),
     markLeasesRevoked: (leaseIds) =>
       Effect.sync(() => {
         input.revokedLeaseIds?.push(...leaseIds);
