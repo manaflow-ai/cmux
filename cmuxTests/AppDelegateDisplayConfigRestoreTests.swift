@@ -7,7 +7,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
 @Suite(.serialized)
 @MainActor
@@ -37,7 +36,6 @@ struct AppDelegateDisplayConfigRestoreTests {
     private var builtIn: AppDelegate.SessionDisplayGeometry {
         geometry("uuid:BUILTIN", builtInFrame, builtInVisible, displayID: 1)
     }
-
     private var external: AppDelegate.SessionDisplayGeometry {
         geometry("uuid:EXTERNAL", externalFrame, externalVisible, displayID: 2)
     }
@@ -363,7 +361,7 @@ struct AppDelegateDisplayConfigRestoreTests {
             appDelegate.isScreenChangeCaptureSuppressed = false
             appDelegate.screenChangeCaptureSuppressionSignature = nil
             appDelegate.screenChangeReconcileRetryBudget = 0
-            appDelegate.isDisplayReconfigurationActive = false
+            appDelegate.activeDisplayReconfigurationCounts.removeAll()
         }
 
         appDelegate.reconcileMainWindowFramesAfterScreenChange()
@@ -384,9 +382,11 @@ struct AppDelegateDisplayConfigRestoreTests {
 
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
         appDelegate.screenChangeCaptureSuppressionSignature = "uuid:A"
-        appDelegate.isDisplayReconfigurationActive = true
+        appDelegate.handleDisplayReconfiguration(displayID: 1, isBeginning: true)
+        appDelegate.handleDisplayReconfiguration(displayID: 2, isBeginning: true)
+        appDelegate.handleDisplayReconfiguration(displayID: 1, isBeginning: false)
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
-        appDelegate.isDisplayReconfigurationActive = false
+        appDelegate.handleDisplayReconfiguration(displayID: 2, isBeginning: false)
         #expect(appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
         #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:B"))
     }
