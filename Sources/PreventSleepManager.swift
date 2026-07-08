@@ -138,7 +138,11 @@ final class PreventSleepManager {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.syncNow()
+                // Mobile connection/route events cannot change workspace
+                // topology or agent observation, so reconcile leanly instead
+                // of widening every mobile status change into an app-wide
+                // observer rebuild.
+                self?.reconcileAssertion()
             }
         }
     }

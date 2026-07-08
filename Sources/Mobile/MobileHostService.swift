@@ -1038,6 +1038,14 @@ final class MobileHostService {
                     return await MobileHostService.shared.authorizationError(for: request)
                 },
                 onAuthorizedRequest: { request in
+                    // Auth-exempt verbs (mobile.host.status) reach this hook
+                    // too, because authorizeRequest returns nil for them.
+                    // Recording their client_id would let an unauthenticated
+                    // peer count as an authenticated connection and hold the
+                    // keep-awake assertion.
+                    guard Self.requiresAuthorization(method: request.method) else {
+                        return
+                    }
                     guard let clientID = Self.clientID(from: request.params) else {
                         return
                     }
@@ -1158,6 +1166,12 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             onAuthorizedRequest: { request in
+                // Same guard as the network listener above: authorizationError
+                // exempts mobile.host.status internally, so this hook also
+                // fires for unauthenticated status requests.
+                guard Self.requiresAuthorization(method: request.method) else {
+                    return
+                }
                 if let clientID = Self.clientID(from: request.params) {
                     await MobileHostService.shared.recordClientID(clientID, for: id)
                 }
