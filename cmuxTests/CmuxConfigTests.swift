@@ -1897,6 +1897,42 @@ struct CmuxConfigDecodingTests {
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["repo-status"], globalConfigURL.path)
     }
 
+    @Test func testCustomButtonReusingMoreIdDoesNotDuplicateMoreButton() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // A configured non-More button may legally take the default More
+        // button's id; normalization must not append a second `cmux.more`
+        // (duplicate ids trap Dictionary(uniqueKeysWithValues:) when the
+        // workspace applies the buttons).
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                { "id": "cmux.more", "command": "echo ok" }
+              ]
+            }
+          }
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let moreIdButtons = store.surfaceTabBarButtons.filter { $0.id == "cmux.more" }
+        XCTAssertEqual(moreIdButtons.count, 1)
+        XCTAssertEqual(moreIdButtons.first?.terminalCommand, "echo ok")
+    }
+
     @Test func testDecodeEmptySurfaceTabBarButtons() throws {
         let json = """
         {

@@ -3666,7 +3666,21 @@ final class FilePreviewPanelTextSavingTests {
 
     @Test func testWordWrapWidthAccountsForLineNumberGutter() throws {
         _ = NSApplication.shared
-        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        // The ruler only claims tile space once the scroll view lives in a
+        // window, so host it like the real editor.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
+        scrollView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(scrollView)
         let textView = SavingTextView.makeFilePreviewTextView()
         scrollView.documentView = textView
 
@@ -3679,11 +3693,12 @@ final class FilePreviewPanelTextSavingTests {
             drawsBackground: true
         )
         scrollView.tile()
+        window.contentView?.layoutSubtreeIfNeeded()
 
         // The gutter must actually consume horizontal space for this test to
         // mean anything.
         let clipWidth = scrollView.contentView.frame.width
-        XCTAssertLessThan(clipWidth, 400)
+        XCTAssertLessThan(clipWidth, scrollView.frame.width)
 
         textView.applyFilePreviewWordWrap(true, scrollView: scrollView)
 
