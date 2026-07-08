@@ -1,0 +1,4 @@
+# Feature flag keys that have shipped (or been abandoned) and were removed
+# from code. Keys listed here must NEVER be reused for new functionality —
+# reusing a stale key is how Knight Capital lost $440M in 45 minutes.
+# scripts/lint-feature-flags.py fails CI if any of these reappear.

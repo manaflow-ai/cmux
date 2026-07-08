@@ -4,6 +4,7 @@ import Foundation
 enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Hashable {
     case newWorkspace = "cmux.newWorkspace"
     case cloudVM = "cmux.cloudvm"
+    case mobileConnect = "cmux.mobileconnect"
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
     case newNote = "cmux.newNote"
@@ -30,6 +31,9 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
              "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
              "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
             self = .cloudVM
+        case "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
+             "cmux.connectPhone", "connectPhone":
+            self = .mobileConnect
         case "cmux.newTerminal", "newTerminal":
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
@@ -82,6 +86,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "plus.square"
         case .cloudVM:
             return "cloud"
+        case .mobileConnect:
+            return "iphone"
         case .newTerminal:
             return "terminal"
         case .newBrowser:
@@ -129,6 +135,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return String(localized: "surfaceTabBar.menu.newWorkspace", defaultValue: "Workspace")
         case .cloudVM:
             return String(localized: "surfaceTabBar.menu.cloudVM", defaultValue: "Cloud VM")
+        case .mobileConnect:
+            return String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
         case .newTerminal:
             return String(localized: "surfaceTabBar.menu.newTerminal", defaultValue: "Terminal")
         case .newBrowser:
@@ -176,7 +184,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         // flag hides the right-sidebar Notes tab, while attached-note creation
         // (tab-bar button, More menu, ⌘⌃N) ships for everyone. Covered by
         // testDefaultSurfaceTabBarMoreMenuIncludesNotesWhenSidebarBetaDisabled.
-        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .newNote,
+        case .newWorkspace, .cloudVM, .mobileConnect, .newTerminal, .newBrowser, .newNote,
              .splitRight, .splitDown, .more, .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
              .filesPane, .findPane, .vaultPane, .diffViewer,
              .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:
@@ -186,7 +194,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .cloudVM, .newNote, .more, .rightSidebarFiles, .rightSidebarFind,
+        case .newWorkspace, .cloudVM, .mobileConnect, .newNote, .more, .rightSidebarFiles, .rightSidebarFind,
              .rightSidebarVault, .rightSidebarFeed, .rightSidebarDock, .filesPane,
              .findPane, .vaultPane, .diffViewer, .revealCurrentDirectoryInFinder,
              .customizeSurfaceTabBar:

@@ -154,6 +154,8 @@ extension KeyboardShortcutSettings.Action {
              .canvasAlignTop, .canvasAlignBottom, .canvasEqualizeWidths,
              .canvasEqualizeHeights, .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .canvasLayout
+        case .saveLayoutTemplate:
+            return .application
         default:
             return .application
         }

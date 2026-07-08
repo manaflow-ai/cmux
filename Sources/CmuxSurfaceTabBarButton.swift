@@ -26,6 +26,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
         case type
         case commandName
         case name
+        case workspace
+        case restart
         case menu
         case items
         case confirm
@@ -37,6 +39,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
     static let more = actionReference(CmuxSurfaceTabBarBuiltInAction.more.configID)
+    static let mobileConnect = actionReference(CmuxSurfaceTabBarBuiltInAction.mobileConnect.configID)
 
     static let defaultMoreMenu: [CmuxSurfaceTabBarMenuItem] = [
         .actionReference(CmuxSurfaceTabBarBuiltInAction.diffViewer.configID),
@@ -105,6 +108,19 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
         action.workspaceCommandName
     }
 
+    /// Synthetic named command for inline `type: "workspace"` buttons/actions so
+    /// execution and trust fingerprinting share one definition. Carries the
+    /// button's `confirm` so explicit confirmation requests survive the wrap.
+    var inlineWorkspaceSyntheticCommand: CmuxCommandDefinition? {
+        guard let inline = action.inlineWorkspace else { return nil }
+        return CmuxCommandDefinition(
+            name: title ?? tooltip ?? inline.definition.name ?? id,
+            restart: inline.restart,
+            workspace: inline.definition,
+            confirm: confirm
+        )
+    }
+
     func bonsplitActionButton(
         configSourcePath: String?,
         globalConfigPath: String,
@@ -117,7 +133,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
             switch action {
             case .builtIn(let builtIn):
                 return builtIn.bonsplitAction ?? .custom(id)
-            case .command, .agent, .workspaceCommand, .actionReference:
+            case .command, .agent, .workspaceCommand, .workspace, .actionReference:
                 return .custom(id)
             }
         }()
@@ -228,6 +244,18 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
                     )
                 }
                 action = .workspaceCommand(rawCommandName)
+            case "workspace":
+                guard container.contains(.workspace) else {
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: decoder.codingPath,
+                            debugDescription: "workspace surface tab bar buttons require a 'workspace' object"
+                        )
+                    )
+                }
+                let definition = try container.decode(CmuxWorkspaceDefinition.self, forKey: .workspace)
+                let restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
+                action = .workspace(definition, restart: restart)
             default:
                 throw DecodingError.dataCorruptedError(
                     forKey: .type,
@@ -361,6 +389,10 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
         case .workspaceCommand(let commandName):
             try container.encode("workspaceCommand", forKey: .type)
             try container.encode(commandName, forKey: .commandName)
+        case .workspace(let definition, let restart):
+            try container.encode("workspace", forKey: .type)
+            try container.encode(definition, forKey: .workspace)
+            try container.encodeIfPresent(restart, forKey: .restart)
         case .actionReference(let identifier):
             try container.encode(identifier, forKey: .action)
         }

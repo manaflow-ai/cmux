@@ -1304,3 +1304,25 @@ func TestCLIWorkspaceGroupRemoveStillRequiresExplicitWorkspaceWithEnv(t *testing
 		t.Fatalf("remove without --workspace should return 2 even with env set, got %d", code)
 	}
 }
+
+func TestCLINotifyUsesCallerEnvForCloudBridge(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+
+	code := runCLI([]string{"--socket", sockPath, "--json", "notify", "--title", "Done", "--body", "Build finished"})
+	if code != 0 {
+		t.Fatalf("notify should return 0, got %d", code)
+	}
+
+	params := expectGroupRequest(t, requests, "notification.create_for_caller")
+	if params["preferred_workspace_id"] != "env-ws" || params["preferred_surface_id"] != "env-sf" {
+		t.Fatalf("expected caller env target, got %v", params)
+	}
+	if _, exists := params["workspace_id"]; exists {
+		t.Fatalf("workspace_id should be rewritten to preferred_workspace_id, got %v", params)
+	}
+	if _, exists := params["surface_id"]; exists {
+		t.Fatalf("surface_id should be rewritten to preferred_surface_id, got %v", params)
+	}
+}
