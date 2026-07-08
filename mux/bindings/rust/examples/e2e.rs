@@ -1,12 +1,12 @@
-use cmux_mux_client::{ClientConfig, Event, MuxClient, MuxError, Result, Tree};
+use cmux_client::{ClientConfig, CmuxClient, CmuxError, Event, Result, Tree};
 use std::env;
 use std::thread;
 use std::time::{Duration, Instant};
 
 fn main() -> Result<()> {
     let socket = env::var("CMUX_MUX_SOCKET")
-        .map_err(|_| MuxError::Connection("CMUX_MUX_SOCKET is required".to_string()))?;
-    let mut client = MuxClient::connect(ClientConfig::from_socket_path(socket))?;
+        .map_err(|_| CmuxError::Connection("CMUX_MUX_SOCKET is required".to_string()))?;
+    let mut client = CmuxClient::connect(ClientConfig::from_socket_path(socket))?;
     let marker = format!("CMUX_RUST_E2E_{}_{}", std::process::id(), now_ms());
     let later = format!("{marker}_ATTACH");
 
@@ -29,7 +29,7 @@ fn main() -> Result<()> {
     assert_eq!((resized.0, resized.1), (100, 31));
     client.resize_surface(created.surface, 100, 31)?;
     match next_resized(&mut events, created.surface, Duration::from_millis(500)) {
-        Err(MuxError::Timeout(_)) => {}
+        Err(CmuxError::Timeout(_)) => {}
         Ok(_) => panic!("same-size resize emitted surface-resized"),
         Err(err) => return Err(err),
     }
@@ -44,14 +44,14 @@ fn main() -> Result<()> {
     let after_close = client.list_workspaces()?;
     assert!(find_workspace_for_surface(&after_close, created.surface).is_none());
     match client.read_screen(created.surface) {
-        Err(MuxError::Command { message, .. }) if !message.is_empty() => {}
+        Err(CmuxError::Command { message, .. }) if !message.is_empty() => {}
         Ok(_) => panic!("read-screen on closed surface unexpectedly succeeded"),
         Err(err) => panic!("closed surface error was not command error: {err}"),
     }
     Ok(())
 }
 
-fn wait_for_marker(client: &mut MuxClient, surface: u64, marker: &str) -> Result<()> {
+fn wait_for_marker(client: &mut CmuxClient, surface: u64, marker: &str) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut last = String::new();
     while Instant::now() < deadline {
@@ -65,14 +65,14 @@ fn wait_for_marker(client: &mut MuxClient, surface: u64, marker: &str) -> Result
 }
 
 fn next_resized(
-    events: &mut cmux_mux_client::MuxStream,
+    events: &mut cmux_client::CmuxStream,
     surface: u64,
     timeout: Duration,
 ) -> Result<(u16, u16)> {
     let deadline = Instant::now() + timeout;
     loop {
         if Instant::now() >= deadline {
-            return Err(MuxError::Timeout("surface-resized not observed".to_string()));
+            return Err(CmuxError::Timeout("surface-resized not observed".to_string()));
         }
         match events.recv_timeout(time_left(deadline))? {
             Event::SurfaceResized(event) if event.surface == surface => {
@@ -83,11 +83,11 @@ fn next_resized(
     }
 }
 
-fn next_attach_output(events: &mut cmux_mux_client::MuxStream, timeout: Duration) -> Result<()> {
+fn next_attach_output(events: &mut cmux_client::CmuxStream, timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
         if Instant::now() >= deadline {
-            return Err(MuxError::Timeout("attach output not observed".to_string()));
+            return Err(CmuxError::Timeout("attach output not observed".to_string()));
         }
         match events.recv_timeout(time_left(deadline))? {
             Event::Output(_) | Event::Resized(_) => return Ok(()),

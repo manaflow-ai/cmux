@@ -141,6 +141,89 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("records an email claim instead of attaching an email owned by a different Stack user", async () => {
+    const update = mock(async () => undefined);
+    const listUsers = mock(async () => [
+      { id: "other_user", primaryEmail: "BUYER@example.com" },
+    ]);
+    const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user, listUsers } as never,
+    });
+
+    expect(listUsers).toHaveBeenCalledWith({
+      query: "buyer@example.com",
+      limit: 20,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+    expect(update).not.toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+    });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === billingEmailClaims &&
+          insert.values.email === "buyer@example.com" &&
+          insert.values.stripeCustomerId === "cus_123" &&
+          insert.values.stackUserId === "user_123" &&
+          insert.values.plan === "pro",
+      ),
+    ).toBe(true);
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeSubscriptions &&
+          insert.values.stackUserId === "user_123" &&
+          insert.values.plan === "pro",
+      ),
+    ).toBe(true);
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+  });
+
+  test("attaches Stripe email when the ownership lookup finds no exact owner", async () => {
+    const update = mock(async () => undefined);
+    const listUsers = mock(async () => [
+      { id: "fuzzy_user", primaryEmail: "not-buyer@example.com" },
+    ]);
+    const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user, listUsers } as never,
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+    });
+    expect(inserts.some((insert) => insert.table === billingEmailClaims)).toBe(false);
+  });
+
+  test("does not record an email claim when the email is owned by the purchaser", async () => {
+    const update = mock(async () => undefined);
+    const listUsers = mock(async () => [
+      { id: "user_123", primaryEmail: "buyer@example.com" },
+    ]);
+    const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user, listUsers } as never,
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+    });
+    expect(inserts.some((insert) => insert.table === billingEmailClaims)).toBe(false);
+  });
+
   test("records an email claim when Stack reports the email is already used", async () => {
     const update = mock(async (options: unknown) => {
       if ("primaryEmail" in (options as Record<string, unknown>)) {
@@ -167,23 +250,61 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
-  test("does not duplicate an existing email claim on retry", async () => {
+  test("falls back to update/catch when the ownership lookup throws", async () => {
     const update = mock(async (options: unknown) => {
-      if ("primaryEmail" in (options as Record<string, unknown>)) throw new Error("email already used");
+      if ("primaryEmail" in (options as Record<string, unknown>)) {
+        throw new Error("CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE");
+      }
     });
+    const listUsers = mock(async () => {
+      throw new Error("Stack lookup failed");
+    });
+    const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user, listUsers } as never,
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+    });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === billingEmailClaims &&
+          insert.values.email === "buyer@example.com" &&
+          insert.values.stackUserId === "user_123",
+      ),
+    ).toBe(true);
+    expect(update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+  });
+
+  test("does not duplicate an existing email claim on retry", async () => {
+    const update = mock(async () => undefined);
+    const listUsers = mock(async () => [
+      { id: "other_user", primaryEmail: "buyer@example.com" },
+    ]);
     const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
     selectResults = [[], [], [], [{ id: "claim_1" }]];
 
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
-      stackApp: { getUser: async () => user } as never,
+      stackApp: { getUser: async () => user, listUsers } as never,
     });
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
-      stackApp: { getUser: async () => user } as never,
+      stackApp: { getUser: async () => user, listUsers } as never,
     });
 
     expect(inserts.filter((insert) => insert.table === billingEmailClaims)).toHaveLength(1);
+    expect(update).not.toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+    });
   });
 
   test("updates the Stripe customer id when the same Stack user repurchases", async () => {
