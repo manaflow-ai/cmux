@@ -2,14 +2,46 @@ internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import Foundation
 
+/// Optional parameters for a mobile `workspace.create` request.
+public struct MobileWorkspaceCreateSpec: Equatable, Sendable {
+    /// Workspace title.
+    public var title: String?
+    /// Initial working directory.
+    public var workingDirectory: String?
+    /// Initial terminal command.
+    public var initialCommand: String?
+    /// Initial terminal environment.
+    public var initialEnv: [String: String]?
+
+    /// Creates optional workspace-create parameters.
+    /// - Parameters:
+    ///   - title: Workspace title.
+    ///   - workingDirectory: Initial working directory.
+    ///   - initialCommand: Initial terminal command.
+    ///   - initialEnv: Initial terminal environment.
+    public init(
+        title: String? = nil,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        initialEnv: [String: String]? = nil
+    ) {
+        self.title = title
+        self.workingDirectory = workingDirectory
+        self.initialCommand = initialCommand
+        self.initialEnv = initialEnv
+    }
+}
+
 extension MobileShellComposite {
     /// Create a workspace and surface success/failure to the caller.
     /// - Parameter groupID: Optional destination group for the new workspace.
+    /// - Parameter spec: Optional workspace-create parameters for task creation.
     /// - Returns: `success` when the connected Mac created the workspace,
     ///   otherwise the failure the UI should surface.
     @discardableResult
     public func createWorkspaceRequest(
-        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
+        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        spec: MobileWorkspaceCreateSpec? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard remoteClient != nil else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
@@ -18,7 +50,7 @@ extension MobileShellComposite {
             return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
         }
         if let createWorkspaceTask {
-            guard createWorkspaceTaskGroupID == groupID else {
+            guard spec == nil, createWorkspaceTaskSpec == nil, createWorkspaceTaskGroupID == groupID else {
                 return .failure(.busy(hostDisplayName: connectedHostName))
             }
             return await createWorkspaceTask.value
@@ -30,17 +62,20 @@ extension MobileShellComposite {
             guard let self else { return .success(()) }
             return await self.createRemoteWorkspace(
                 inGroup: groupID,
-                appliesOperationalError: false
+                appliesOperationalError: false,
+                spec: spec
             )
         }
         createWorkspaceTask = task
         createWorkspaceTaskGroupID = groupID
+        createWorkspaceTaskSpec = spec
         return await task.value
     }
 
     func createRemoteWorkspace(
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil,
-        appliesOperationalError: Bool = true
+        appliesOperationalError: Bool = true,
+        spec: MobileWorkspaceCreateSpec? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard let client = remoteClient else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
@@ -53,6 +88,20 @@ extension MobileShellComposite {
             var params: [String: Any] = [:]
             if let groupID {
                 params["group_id"] = groupID.rawValue
+            }
+            if let title = spec?.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+                params["title"] = title
+            }
+            if let workingDirectory = spec?.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                params["working_directory"] = workingDirectory
+            }
+            if let initialCommand = spec?.initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !initialCommand.isEmpty {
+                params["initial_command"] = initialCommand
+            }
+            if let initialEnv = spec?.initialEnv, !initialEnv.isEmpty {
+                params["initial_env"] = initialEnv
             }
             let resultData = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(method: "workspace.create", params: params)

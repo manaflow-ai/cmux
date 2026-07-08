@@ -26,6 +26,7 @@ struct WorkspaceShellView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
     @State var workspaceActionToast: WorkspaceActionToastContent?
+    @State private var isTaskComposerPresented = false
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
@@ -100,6 +101,11 @@ struct WorkspaceShellView: View {
         .onAppear {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
+        #if os(iOS)
+        .sheet(isPresented: $isTaskComposerPresented) {
+            TaskComposerSheet(store: store)
+        }
+        #endif
         .accessibilityIdentifier("MobileWorkspaceShell")
     }
 
@@ -147,6 +153,11 @@ struct WorkspaceShellView: View {
                 initialConnectionTimedOut: initialConnectionTimedOut,
                 retryInitialConnection: retryInitialConnection
             )
+            #if os(iOS)
+            .overlay(alignment: .bottomTrailing) {
+                taskComposerButtonOverlay
+            }
+            #endif
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -250,6 +261,11 @@ struct WorkspaceShellView: View {
                 initialConnectionTimedOut: initialConnectionTimedOut,
                 retryInitialConnection: retryInitialConnection
             )
+            #if os(iOS)
+            .overlay(alignment: .bottomTrailing) {
+                taskComposerButtonOverlay
+            }
+            #endif
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
@@ -263,6 +279,16 @@ struct WorkspaceShellView: View {
             hasPresentedSplitDetail = true
         }
     }
+
+    #if os(iOS)
+    private var taskComposerButtonOverlay: some View {
+        TaskComposerButton {
+            isTaskComposerPresented = true
+        }
+        .padding(.trailing, 20)
+        .padding(.bottom, 20)
+    }
+    #endif
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
     /// stack this pushes the workspace; on the split layout the store's

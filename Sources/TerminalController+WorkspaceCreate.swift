@@ -2,6 +2,15 @@ import CmuxSettings
 import Foundation
 
 extension TerminalController {
+    nonisolated static func v2ExpandedWorkingDirectory(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        guard trimmed.hasPrefix("~") else { return trimmed }
+        return (trimmed as NSString).expandingTildeInPath
+    }
+
     // Shared workspace-create implementation: the workspace.create command moved
     // to ControlCommandCoordinator, but v2MobileWorkspaceCreate still drives
     // this body for the mobile data-plane create path.
@@ -13,8 +22,7 @@ extension TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
+        let workingDirectory = Self.v2ExpandedWorkingDirectory(v2RawString(params, "working_directory"))
 
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
@@ -38,7 +46,7 @@ extension TerminalController {
             guard let str = raw as? String else {
                 return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
             }
-            cwd = str
+            cwd = Self.v2ExpandedWorkingDirectory(str)
         } else {
             cwd = nil
         }

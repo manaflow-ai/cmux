@@ -288,7 +288,8 @@ public struct CMUXMobileRootScene: View {
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore()
         )
         #else
         return CMUXMobileShellStore(
@@ -304,7 +305,8 @@ public struct CMUXMobileRootScene: View {
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore()
         )
         #endif
     }

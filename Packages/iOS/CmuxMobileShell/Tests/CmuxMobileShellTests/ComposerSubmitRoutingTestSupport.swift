@@ -40,10 +40,17 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
+    struct WorkspaceCreateRecord: Sendable, Equatable {
+        var groupID: String?
+        var title: String?
+        var workingDirectory: String?
+        var initialCommand: String?
+        var initialEnv: [String: String]?
+    }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
-    private var workspaceCreateGroupIDs: [String?] = []
+    private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
@@ -114,7 +121,8 @@ actor RoutingHostRouter {
     }
 
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
-    func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
+    func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreates.map(\.groupID) }
+    func recordedWorkspaceCreates() -> [WorkspaceCreateRecord] { workspaceCreates }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
@@ -131,6 +139,10 @@ actor RoutingHostRouter {
         var notificationIDs: [String]?
         var clientID: String?
         var groupID: String?
+        var title: String?
+        var workingDirectory: String?
+        var initialCommand: String?
+        var initialEnv: [String: String]?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -182,7 +194,13 @@ actor RoutingHostRouter {
             ])
         case "workspace.create":
             workspaceCreateCount += 1
-            workspaceCreateGroupIDs.append(info.groupID)
+            workspaceCreates.append(WorkspaceCreateRecord(
+                groupID: info.groupID,
+                title: info.title,
+                workingDirectory: info.workingDirectory,
+                initialCommand: info.initialCommand,
+                initialEnv: info.initialEnv
+            ))
             if workspaceCreateCount == 1 && holdFirstWorkspaceCreate {
                 firstWorkspaceCreateHeld = true
                 let reachedWaiters = firstWorkspaceCreateReachedWaiters
@@ -198,16 +216,20 @@ actor RoutingHostRouter {
                     [
                         "id": Self.workspaceID,
                         "title": "Routing Workspace",
+                        "current_directory": "/tmp/route",
+                        "is_selected": false,
                         "terminals": [],
                     ],
                     [
                         "id": "workspace-created",
                         "title": "Created Workspace",
+                        "current_directory": "/tmp/created",
                         "is_selected": true,
                         "terminals": [
                             [
                                 "id": "terminal-created",
                                 "title": "Created",
+                                "current_directory": "/tmp/created",
                                 "is_focused": true,
                                 "is_ready": true,
                             ],
@@ -318,7 +340,11 @@ private actor RoutingTransport: CmxByteTransport {
                 text: params?["text"] as? String,
                 notificationIDs: params?["notification_ids"] as? [String],
                 clientID: params?["client_id"] as? String,
-                groupID: params?["group_id"] as? String
+                groupID: params?["group_id"] as? String,
+                title: params?["title"] as? String,
+                workingDirectory: params?["working_directory"] as? String,
+                initialCommand: params?["initial_command"] as? String,
+                initialEnv: params?["initial_env"] as? [String: String]
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
