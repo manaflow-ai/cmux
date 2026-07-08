@@ -3869,6 +3869,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             surface.reconcileAttachedWindowIfNeeded(for: self)
         }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
+        // Seed the window-occlusion axis so a surface attached to a view already
+        // sitting in an occluded window does not keep rendering off-screen.
+        if let window {
+            surface.setWindowOcclusionVisible(window.occlusionState.contains(.visible))
+        }
         if !isAlreadyAttached {
             updateSurfaceSize()
         }
