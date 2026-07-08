@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -61,6 +62,7 @@ struct WorkspaceListView: View {
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
+    let telemetryConsentStore: MobileTelemetryConsentStore
 
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
@@ -339,7 +341,8 @@ struct WorkspaceListView: View {
                 connectedHostName: host,
                 rescanQR: rescanQR,
                 signOut: signOut,
-                store: store
+                store: store,
+                telemetryConsentStore: telemetryConsentStore
             )
         }
         // Present the device tree at the workspace-list level (a single sheet,

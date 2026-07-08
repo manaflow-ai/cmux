@@ -858,6 +858,7 @@ import Testing
         switchMac: (@MainActor (String) async -> Bool)? = nil,
         cancelMacSwitch: (@MainActor (Bool) async -> Void)? = nil
     ) -> WorkspaceListView {
+        let defaults = UserDefaults(suiteName: "WorkspaceMacSelectionTests.telemetry.\(UUID().uuidString)")!
         WorkspaceListView(
             workspaces: workspaces,
             selectedWorkspaceID: nil,
@@ -870,7 +871,8 @@ import Testing
             macSelection: macSelection ?? binding(initialValue: .all),
             switchMac: switchMac,
             cancelMacSwitch: cancelMacSwitch,
-            store: store
+            store: store,
+            telemetryConsentStore: MobileTelemetryConsentStore(defaults: defaults)
         )
     }
 

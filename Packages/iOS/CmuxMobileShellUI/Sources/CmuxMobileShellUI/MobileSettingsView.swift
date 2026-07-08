@@ -21,6 +21,7 @@ struct MobileSettingsView: View {
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
+    let telemetryConsentStore: MobileTelemetryConsentStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -29,7 +30,7 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
-    @State private var productAnalyticsEnabled = MobileTelemetryConsentStore(defaults: .standard).isEnabled
+    @State private var productAnalyticsEnabled: Bool
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
@@ -37,6 +38,21 @@ struct MobileSettingsView: View {
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
     #endif
+
+    init(
+        connectedHostName: String,
+        rescanQR: (() -> Void)?,
+        signOut: (() -> Void)?,
+        store: CMUXMobileShellStore?,
+        telemetryConsentStore: MobileTelemetryConsentStore
+    ) {
+        self.connectedHostName = connectedHostName
+        self.rescanQR = rescanQR
+        self.signOut = signOut
+        self.store = store
+        self.telemetryConsentStore = telemetryConsentStore
+        _productAnalyticsEnabled = State(initialValue: telemetryConsentStore.isEnabled)
+    }
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
@@ -312,7 +328,7 @@ struct MobileSettingsView: View {
             }
             .onAppear {
                 notificationsEnabled = pushCoordinator.isEnabled
-                productAnalyticsEnabled = MobileTelemetryConsentStore(defaults: .standard).isEnabled
+                productAnalyticsEnabled = telemetryConsentStore.isEnabled
             }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
@@ -377,7 +393,7 @@ struct MobileSettingsView: View {
             get: { productAnalyticsEnabled },
             set: { newValue in
                 productAnalyticsEnabled = newValue
-                MobileTelemetryConsentStore(defaults: .standard).setEnabled(newValue)
+                telemetryConsentStore.setEnabled(newValue)
                 analytics.setTelemetryConsentEnabled(newValue)
             }
         )

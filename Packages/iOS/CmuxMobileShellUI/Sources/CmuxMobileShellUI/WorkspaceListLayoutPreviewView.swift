@@ -1,7 +1,9 @@
 #if canImport(UIKit) && DEBUG
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
@@ -13,6 +15,9 @@ import SwiftUI
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+    private let telemetryConsentStore = MobileTelemetryConsentStore(
+        defaults: UserDefaults(suiteName: "WorkspaceListLayoutPreviewView.telemetry")!
+    )
 
     public init() {}
 
@@ -70,7 +75,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
                     selectWorkspace: { selectedWorkspaceID = $0 },
                     createWorkspace: {},
-                    macSelection: $macSelection
+                    macSelection: $macSelection,
+                    telemetryConsentStore: telemetryConsentStore
                 )
             }
         }

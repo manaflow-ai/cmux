@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileSupport
@@ -27,6 +28,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
+    let telemetryConsentStore: MobileTelemetryConsentStore
 
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
@@ -113,7 +115,8 @@ struct DisconnectedWorkspaceShellView: View {
                 connectedHostName: "",
                 rescanQR: nil,
                 signOut: signOut,
-                store: store
+                store: store,
+                telemetryConsentStore: telemetryConsentStore
             )
         }
         .alert(
