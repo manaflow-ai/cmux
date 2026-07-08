@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   notFoundVm,
+  resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
@@ -32,10 +33,13 @@ export async function POST(
     "/api/vm/[id]/ssh-endpoint failed",
     async ({ user, span }) => {
       const { id } = await params;
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       try {
         const endpoint = await runVmWorkflow(openSshEndpoint({
           userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
           teamIds: user.teamIds,
           providerVmId: id,
         }));

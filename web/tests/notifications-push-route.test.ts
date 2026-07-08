@@ -1,8 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  checkRateLimit,
-  installVercelFirewallMock,
-} from "./vercel-firewall-mock";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -13,6 +9,13 @@ const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[ke
   (typeof envKeys)[number],
   string | undefined
 >;
+// Capture real implementations BY VALUE: bun's mock.module can mutate an
+// already-loaded namespace in place, so calling through a captured namespace
+// object at delegation time can recurse into the mock itself.
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.VERCEL = "1";
@@ -24,9 +27,11 @@ const getUser = mock(async () => ({
   primaryEmail: null,
   selectedTeam: null,
 }));
+const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
 const cloudDb = mock(() => {
   throw new Error("cloudDb should not be reached after a push rate-limit block");
 });
+let useStubDb = false;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -34,16 +39,27 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
-installVercelFirewallMock();
+mock.module("@vercel/firewall", () => ({
+  checkRateLimit,
+}));
 
 mock.module("../db/client", () => ({
-  cloudDb,
-  closeCloudDbForTests: async () => {},
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: (() =>
+    useStubDb
+      ? (cloudDb() as unknown as ReturnType<typeof realCloudDb>)
+      : realCloudDb()) as typeof realCloudDb,
 }));
 
 const pushRoute = await import("../app/api/notifications/push/route");
 
+beforeAll(() => {
+  useStubDb = true;
+});
+
 afterAll(() => {
+  useStubDb = false;
   for (const key of envKeys) {
     const value = originalEnv[key];
     if (typeof value === "undefined") {
