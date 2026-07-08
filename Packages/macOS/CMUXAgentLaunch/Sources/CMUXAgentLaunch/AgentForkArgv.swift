@@ -81,7 +81,7 @@ public struct AgentForkArgv: Sendable, Equatable {
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-replay", args: parts.tail) else {
                 return nil
             }
-            let replayExecutable = AgentLaunchSanitizer.codexReplayExecutable(
+            let replayExecutable = codexReplayExecutable(
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail
             )
