@@ -210,6 +210,9 @@ extension CMUXCLI {
         // Session token bound to `origin`, threaded into the branchPicker
         // refs/regenerate URLs so the HTTP picker endpoints can authorize.
         var token: String?
+        var explicitBranchBaseRef: String?
+        var sessionPersisted: Bool = false
+        var branchBaseCache = DiffViewerBranchBaseResolutionCache()
     }
 
     private struct DiffViewerDeferredSourcePage {
@@ -225,6 +228,7 @@ extension CMUXCLI {
         // pages and non-current bases); rebuilt into the branchPicker payload at
         // write time so deferred completions reuse the same picker.
         var branchPickerBase: DiffBranchBase? = nil
+        var resolveBranchBaseOnComplete: Bool = false
         var allowsSourceFallback: Bool = false
         var sourceFallbacks: [DiffSource: DiffViewerDeferredSourceFallback] = [:]
     }
@@ -236,6 +240,17 @@ extension CMUXCLI {
         var sourceOptions: [DiffViewerSourceOption]
         var repoOptions: [DiffViewerSourceOption]
         var baseOptions: [DiffViewerSourceOption]
+        var branchPickerBase: DiffBranchBase? = nil
+        var resolveBranchBaseOnComplete: Bool = false
+    }
+
+    private struct DiffViewerResolvedBranchBase {
+        var ref: String
+        var pickerBase: DiffBranchBase
+    }
+
+    private final class DiffViewerBranchBaseResolutionCache {
+        var basesByRepo: [String: DiffViewerResolvedBranchBase] = [:]
     }
 
     private struct DiffViewerDeferredCompletion {
@@ -4213,27 +4228,39 @@ extension CMUXCLI {
             smartBranchBaseByRepo[repoRoot] = resolved
             return resolved
         }
-        func sourceContext(for source: DiffSource, repoRoot: String) throws -> DiffSourceContext {
+        func sourceContext(
+            for source: DiffSource,
+            repoRoot: String,
+            resolveBranchBase: Bool
+        ) throws -> DiffSourceContext {
             var sourceContext = context
             sourceContext.repoRoot = repoRoot
             if source == .branch {
-                // Prefer the smart-resolved base so the rendered diff agrees with
-                // the picker's currentRef; fall back to the legacy resolver only if
-                // the smart resolver yields nothing.
-                if let smart = smartBranchBase(in: repoRoot) {
-                    sourceContext.branchBaseRef = smart.ref
+                if resolveBranchBase {
+                    // Prefer the smart-resolved base so the rendered diff agrees with
+                    // the picker's currentRef; fall back to the legacy resolver only if
+                    // the smart resolver yields nothing.
+                    if let smart = smartBranchBase(in: repoRoot) {
+                        sourceContext.branchBaseRef = smart.ref
+                    } else {
+                        sourceContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(
+                            sourceContext.branchBaseRef,
+                            in: repoRoot
+                        )
+                    }
                 } else {
-                    sourceContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(
-                        sourceContext.branchBaseRef,
-                        in: repoRoot
-                    )
+                    sourceContext.branchBaseRef = nil
                 }
             } else {
                 sourceContext.branchBaseRef = nil
             }
             return sourceContext
         }
-        var selectedContext = try sourceContext(for: selectedSource, repoRoot: repoRoot)
+        var selectedContext = try sourceContext(
+            for: selectedSource,
+            repoRoot: repoRoot,
+            resolveBranchBase: selectedSource == .branch
+        )
         var selectedInput: DiffInput?
         // When non-nil, the selected source has no changes: render the friendly,
         // non-error empty diff state (with the source switcher) instead of failing.
@@ -4250,7 +4277,11 @@ extension CMUXCLI {
                 } else {
                     var fallback: (source: DiffSource, context: DiffSourceContext, input: DiffInput)?
                     for candidate in DiffSource.allCases where candidate != selectedSource {
-                        guard let candidateContext = try? sourceContext(for: candidate, repoRoot: repoRoot),
+                        guard let candidateContext = try? sourceContext(
+                            for: candidate,
+                            repoRoot: repoRoot,
+                            resolveBranchBase: candidate == .branch
+                        ),
                               let candidateInput = try? nonEmptyGitDiffInput(source: candidate, context: candidateContext) else {
                             continue
                         }
@@ -4378,8 +4409,12 @@ extension CMUXCLI {
             // the rendered diff) so the picker's `currentRef` is byte-identical to
             // the base the diff was computed against, never a separately-resolved
             // ref. Falls back to a fresh smart resolve only if the cache missed.
-            selectedBranchBase = smartBranchBase(in: repoRoot)
-                ?? (try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot))
+            if selectedSource == .branch {
+                selectedBranchBase = smartBranchBase(in: repoRoot)
+                    ?? (try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot))
+            } else {
+                selectedBranchBase = nil
+            }
             // Invert repoFileURLsBySource ([DiffSource: [repoRoot: URL]]) into
             // [repoRoot: [DiffSource.slug: basename]] so the regenerate endpoint
             // can rebuild the source/repo switchers from the already-written
@@ -4448,11 +4483,16 @@ extension CMUXCLI {
             )
             let sourceFallbacks = Dictionary(uniqueKeysWithValues: DiffSource.allCases.compactMap { source -> (DiffSource, DiffViewerDeferredSourceFallback)? in
                 guard source != selectedSource,
-                      let fallbackContext = try? sourceContext(for: source, repoRoot: repoRoot),
+                      let fallbackContext = try? sourceContext(
+                        for: source,
+                        repoRoot: repoRoot,
+                        resolveBranchBase: false
+                      ),
                       let fallbackFileURL = fileURLs[source],
                       let fallbackViewerURL = urls[source] else {
                     return nil
                 }
+                let resolvesBranchBaseOnComplete = source == .branch
                 return (
                     source,
                     DiffViewerDeferredSourceFallback(
@@ -4461,7 +4501,9 @@ extension CMUXCLI {
                         context: fallbackContext,
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
-                        baseOptions: source == .branch ? baseOptions : []
+                        baseOptions: source == .branch ? baseOptions : [],
+                        branchPickerBase: resolvesBranchBaseOnComplete ? nil : selectedBranchBase,
+                        resolveBranchBaseOnComplete: resolvesBranchBaseOnComplete
                     )
                 )
             })
@@ -4476,6 +4518,7 @@ extension CMUXCLI {
                     repoOptions: selectedRepoOptions,
                     baseOptions: selectedSource == .branch ? baseOptions : [],
                     branchPickerBase: selectedSource == .branch ? selectedBranchBase : nil,
+                    resolveBranchBaseOnComplete: false,
                     allowsSourceFallback: true,
                     sourceFallbacks: sourceFallbacks
                 )
@@ -4484,11 +4527,11 @@ extension CMUXCLI {
         for source in DiffSource.allCases where source != selectedSource {
             if let url = fileURLs[source] {
                 var pageContext = selectedContext
+                let resolvesBranchBaseOnComplete = source == .branch
                 if source == .branch {
-                    // Use the smart-resolved base so this deferred Branch page
-                    // renders its diff against the SAME ref its picker advertises
-                    // (selectedBranchBase), not the legacy origin/HEAD fallback.
-                    pageContext.branchBaseRef = selectedBranchBase?.ref ?? branchBaseForOptions
+                    pageContext.branchBaseRef = resolvesBranchBaseOnComplete
+                        ? nil
+                        : (selectedBranchBase?.ref ?? branchBaseForOptions)
                 } else {
                     pageContext.branchBaseRef = nil
                 }
@@ -4510,10 +4553,10 @@ extension CMUXCLI {
                     appearance: appearance,
                     sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
                     repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
-                    baseOptions: source == .branch ? baseOptions : [],
+                    baseOptions: source == .branch && !resolvesBranchBaseOnComplete ? baseOptions : [],
                     repoRoot: repoRoot,
-                    branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil,
-                    branchPicker: source == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
+                    branchBaseRef: source == .branch && !resolvesBranchBaseOnComplete ? pageContext.branchBaseRef : nil,
+                    branchPicker: source == .branch && !resolvesBranchBaseOnComplete ? branchPicker(forBase: selectedBranchBase) : nil,
                     runtime: target.runtime
                 )
                 deferredPages.append(
@@ -4526,7 +4569,8 @@ extension CMUXCLI {
                         sourceOptions: diffViewerSourceOptions(selected: source, urls: urls),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: repoRoot),
                         baseOptions: source == .branch ? baseOptions : [],
-                        branchPickerBase: source == .branch ? selectedBranchBase : nil
+                        branchPickerBase: source == .branch && !resolvesBranchBaseOnComplete ? selectedBranchBase : nil,
+                        resolveBranchBaseOnComplete: resolvesBranchBaseOnComplete
                     )
                 )
             }
@@ -4541,33 +4585,9 @@ extension CMUXCLI {
                 } else {
                     viewerURL = try mapper.viewerURL(for: url)
                 }
-                // Compute THIS repo's own smart base so a repo-switched Branch page
-                // renders against (and surfaces a picker for) the cmuxBase/PR/
-                // upstream smart base, mirroring the selected repo page. Without
-                // this, the page fell back to the legacy origin/HEAD resolver and
-                // `deferredDiffViewerBranchPicker` returned nil (no picker). The
-                // base is resolved in `option.repoRoot`, and `smartBranchBase`
-                // caches per repoRoot so each repo's `gh` lookup runs at most once.
-                let repoSmartBase: DiffBranchBase? = source == .branch ? smartBranchBase(in: option.repoRoot) : nil
-                let repoBranchBaseRef: String?
-                if source == .branch {
-                    repoBranchBaseRef = repoSmartBase?.ref
-                        ?? (try? resolvedGitBranchDiffBaseRef(explicitBranchBaseRef, in: option.repoRoot))
-                } else {
-                    repoBranchBaseRef = selectedContext.branchBaseRef
-                }
-                // Advertise the picker only when the session was persisted (the
-                // refs/regenerate endpoints read it) AND a base resolved, matching
-                // the selected/base-candidate pages. The session allow-lists every
-                // repo candidate, so its endpoints authorize this repo too.
-                let repoPickerBase: DiffBranchBase?
-                if source == .branch, sessionPersisted, let resolvedRef = repoBranchBaseRef {
-                    repoPickerBase = repoSmartBase?.ref == resolvedRef
-                        ? repoSmartBase
-                        : DiffBranchBase(ref: resolvedRef, reason: DiffBranchBaseReason.manual, confidence: "high")
-                } else {
-                    repoPickerBase = nil
-                }
+                let resolvesBranchBaseOnComplete = source == .branch
+                let repoBranchBaseRef: String? = resolvesBranchBaseOnComplete ? nil : selectedContext.branchBaseRef
+                let repoPickerBase: DiffBranchBase? = nil
                 let pageContext = DiffSourceContext(
                     workspaceId: selectedContext.workspaceId,
                     surfaceId: selectedContext.surfaceId,
@@ -4589,8 +4609,8 @@ extension CMUXCLI {
                     repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),
                     baseOptions: [],
                     repoRoot: option.repoRoot,
-                    branchBaseRef: source == .branch ? repoBranchBaseRef : nil,
-                    branchPicker: source == .branch ? branchPicker(forBase: repoPickerBase, repoRoot: option.repoRoot) : nil,
+                    branchBaseRef: source == .branch && !resolvesBranchBaseOnComplete ? repoBranchBaseRef : nil,
+                    branchPicker: source == .branch && !resolvesBranchBaseOnComplete ? branchPicker(forBase: repoPickerBase, repoRoot: option.repoRoot) : nil,
                     runtime: target.runtime
                 )
                 deferredPages.append(
@@ -4603,7 +4623,8 @@ extension CMUXCLI {
                         sourceOptions: sourceOptionsForRepo(selected: source, selectedRepoRoot: option.repoRoot),
                         repoOptions: repoOptionsForSource(source, selectedRepoRoot: option.repoRoot),
                         baseOptions: [],
-                        branchPickerBase: repoPickerBase
+                        branchPickerBase: repoPickerBase,
+                        resolveBranchBaseOnComplete: resolvesBranchBaseOnComplete
                     )
                 )
             }
@@ -4748,7 +4769,9 @@ extension CMUXCLI {
                 runtime: target.runtime,
                 origin: mapper.origin,
                 groupID: groupID,
-                token: mapper.token
+                token: mapper.token,
+                explicitBranchBaseRef: explicitBranchBaseRef,
+                sessionPersisted: sessionPersisted
             )
         )
     }
@@ -4827,7 +4850,8 @@ extension CMUXCLI {
         page: DiffViewerDeferredSourcePage,
         sourceSet: DiffViewerDeferredSourceSet
     ) -> [String: Any]? {
-        guard page.source == .branch,
+        guard sourceSet.sessionPersisted,
+              page.source == .branch,
               let base = page.branchPickerBase,
               let origin = sourceSet.origin,
               let groupID = sourceSet.groupID,
@@ -4842,6 +4866,54 @@ extension CMUXCLI {
             origin: origin,
             token: token
         )
+    }
+
+    private func resolvedDeferredDiffViewerBranchBase(
+        repoRoot: String,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws -> DiffViewerResolvedBranchBase {
+        if let cached = sourceSet.branchBaseCache.basesByRepo[repoRoot] {
+            return cached
+        }
+        let resolved: DiffViewerResolvedBranchBase
+        if let smart = try? resolvedDiffBranchBase(sourceSet.explicitBranchBaseRef, in: repoRoot) {
+            resolved = DiffViewerResolvedBranchBase(ref: smart.ref, pickerBase: smart)
+        } else {
+            let ref = try resolvedGitBranchDiffBaseRef(sourceSet.explicitBranchBaseRef, in: repoRoot)
+            let hasExplicitBase = sourceSet.explicitBranchBaseRef?.isEmpty == false
+            resolved = DiffViewerResolvedBranchBase(
+                ref: ref,
+                pickerBase: DiffBranchBase(
+                    ref: ref,
+                    reason: hasExplicitBase ? DiffBranchBaseReason.manual : DiffBranchBaseReason.default,
+                    confidence: hasExplicitBase ? "high" : "low"
+                )
+            )
+        }
+        sourceSet.branchBaseCache.basesByRepo[repoRoot] = resolved
+        return resolved
+    }
+
+    private func preparedDeferredDiffViewerSourcePage(
+        _ page: DiffViewerDeferredSourcePage,
+        sourceSet: DiffViewerDeferredSourceSet
+    ) throws -> DiffViewerDeferredSourcePage {
+        guard page.source == .branch else { return page }
+        var prepared = page
+        let repoRoot = try gitRepoRootForDiff(prepared.context)
+        prepared.context.repoRoot = repoRoot
+        if prepared.resolveBranchBaseOnComplete {
+            let resolved = try resolvedDeferredDiffViewerBranchBase(repoRoot: repoRoot, sourceSet: sourceSet)
+            prepared.context.branchBaseRef = resolved.ref
+            prepared.branchPickerBase = resolved.pickerBase
+            prepared.resolveBranchBaseOnComplete = false
+        } else {
+            prepared.context.branchBaseRef = try resolvedGitBranchDiffBaseRef(
+                prepared.context.branchBaseRef,
+                in: repoRoot
+            )
+        }
+        return prepared
     }
 
     private func writeDeferredDiffViewerError(
@@ -4874,45 +4946,48 @@ extension CMUXCLI {
         _ page: DiffViewerDeferredSourcePage,
         sourceSet: DiffViewerDeferredSourceSet
     ) throws -> DiffViewerDeferredCompletion {
+        let preparedPage = try preparedDeferredDiffViewerSourcePage(page, sourceSet: sourceSet)
         do {
             return try writeDeferredDiffViewerSource(
-                page: page,
-                source: page.source,
-                context: page.context,
-                sourceOptions: page.sourceOptions,
-                repoOptions: page.repoOptions,
-                baseOptions: page.baseOptions,
+                page: preparedPage,
+                source: preparedPage.source,
+                context: preparedPage.context,
+                sourceOptions: preparedPage.sourceOptions,
+                repoOptions: preparedPage.repoOptions,
+                baseOptions: preparedPage.baseOptions,
                 sourceSet: sourceSet
             )
-        } catch let error as EmptyDiffSourceError where page.allowsSourceFallback {
-            for source in DiffSource.allCases where source != page.source {
-                guard let fallback = page.sourceFallbacks[source] else { continue }
+        } catch let error as EmptyDiffSourceError where preparedPage.allowsSourceFallback {
+            for source in DiffSource.allCases where source != preparedPage.source {
+                guard let fallback = preparedPage.sourceFallbacks[source] else { continue }
                 do {
-                    let fallbackPage = DiffViewerDeferredSourcePage(
+                    let fallbackPage = try preparedDeferredDiffViewerSourcePage(DiffViewerDeferredSourcePage(
                         source: source,
                         url: fallback.url,
                         viewerURL: fallback.viewerURL,
-                        titleOverride: page.titleOverride,
-                        context: fallback.context,
-                        sourceOptions: fallback.sourceOptions,
-                        repoOptions: fallback.repoOptions,
-                        baseOptions: fallback.baseOptions
-                    )
-                    var completion = try writeDeferredDiffViewerSource(
-                        page: fallbackPage,
-                        source: source,
+                        titleOverride: preparedPage.titleOverride,
                         context: fallback.context,
                         sourceOptions: fallback.sourceOptions,
                         repoOptions: fallback.repoOptions,
                         baseOptions: fallback.baseOptions,
+                        branchPickerBase: fallback.branchPickerBase,
+                        resolveBranchBaseOnComplete: fallback.resolveBranchBaseOnComplete
+                    ), sourceSet: sourceSet)
+                    var completion = try writeDeferredDiffViewerSource(
+                        page: fallbackPage,
+                        source: fallbackPage.source,
+                        context: fallbackPage.context,
+                        sourceOptions: fallbackPage.sourceOptions,
+                        repoOptions: fallbackPage.repoOptions,
+                        baseOptions: fallbackPage.baseOptions,
                         sourceSet: sourceSet
                     )
                     // The originally selected source is empty; leave its own page as
                     // a friendly empty state so switching back to it never shows a
                     // raw error. This is a secondary page (the fallback page is the
                     // returned result), so a write failure here is best-effort.
-                    try? writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
-                    completion.completedPageURLs.insert(page.url)
+                    try? writeDiffViewerEmptyStatePage(message: error.message, page: preparedPage, sourceSet: sourceSet)
+                    completion.completedPageURLs.insert(preparedPage.url)
                     return completion
                 } catch is EmptyDiffSourceError {
                     continue
@@ -4923,13 +4998,13 @@ extension CMUXCLI {
             // No source has changes: render the selected source's friendly empty
             // state. A write failure must propagate so the deferred pipeline does
             // not report success while a stale loading page remains.
-            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
-            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
+            try writeDiffViewerEmptyStatePage(message: error.message, page: preparedPage, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: preparedPage)
         } catch let error as EmptyDiffSourceError {
             // Sources that never fall back (last turn) still render their own
             // friendly empty state rather than surfacing a developer-facing error.
-            try writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
-            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: page)
+            try writeDiffViewerEmptyStatePage(message: error.message, page: preparedPage, sourceSet: sourceSet)
+            return deferredDiffViewerEmptyStateCompletion(message: error.message, page: preparedPage)
         }
     }
 
@@ -4999,7 +5074,6 @@ extension CMUXCLI {
         if source == .branch {
             let repoRoot = try gitRepoRootForDiff(pageContext)
             pageContext.repoRoot = repoRoot
-            pageContext.branchBaseRef = try resolvedGitBranchDiffBaseRef(pageContext.branchBaseRef, in: repoRoot)
         }
         let input = try nonEmptyGitDiffInput(source: source, context: pageContext)
         try writeDiffViewerHTML(
