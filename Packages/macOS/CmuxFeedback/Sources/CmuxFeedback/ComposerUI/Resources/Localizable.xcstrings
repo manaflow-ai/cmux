@@ -17,16 +17,22 @@
             "value": "添付"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첨부"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Прикріпити"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "첨부"
+            "value": "附加"
           }
         }
       }
@@ -46,16 +52,22 @@
             "value": "画像を添付"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 첨부"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Прикріпити зображення"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미지 첨부"
+            "value": "附加图片"
           }
         }
       }
@@ -75,16 +87,22 @@
             "value": "画像を添付"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 첨부"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Прикріпити зображення"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미지 첨부"
+            "value": "附加图片"
           }
         }
       }
@@ -104,16 +122,22 @@
             "value": "画像は最大10枚まで添付できます。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 10장의 이미지."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "До 10 зображень."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 10장의 이미지."
+            "value": "最多 10 张图片。"
           }
         }
       }
@@ -133,16 +157,22 @@
             "value": "キャンセル"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Скасувати"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "취소"
+            "value": "取消"
           }
         }
       }
@@ -162,16 +192,22 @@
             "value": "フィードバックを送信できませんでした。接続を確認して、もう一度お試しください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백을 보내지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося надіслати відгук. Перевірте підключення та спробуйте ще раз."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백을 보내지 못했습니다. 연결을 확인하고 다시 시도하세요."
+            "value": "无法发送反馈。请检查网络连接后重试。"
           }
         }
       }
@@ -191,16 +227,22 @@
             "value": "完了"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Готово"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "완료"
+            "value": "完成"
           }
         }
       }
@@ -220,16 +262,22 @@
             "value": "メールアドレス"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일 주소"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Ваш email"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "이메일 주소"
+            "value": "你的邮箱"
           }
         }
       }
@@ -249,13 +297,19 @@
             "value": "you@example.com"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "you@example.com"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "you@example.com"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "you@example.com"
@@ -278,16 +332,22 @@
             "value": "送信する前にメッセージを入力してください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내기 전에 메시지를 입력하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Введіть повідомлення перед надсиланням."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "보내기 전에 메시지를 입력하세요."
+            "value": "发送前请输入消息。"
           }
         }
       }
@@ -307,16 +367,22 @@
             "value": "現在フィードバックを送信できません。代わりに founders@manaflow.com までメールしてください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 피드백을 사용할 수 없습니다. 대신 founders@manaflow.com으로 이메일을 보내주세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Відгуки зараз недоступні. Напишіть на founders@manaflow.com."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 피드백을 사용할 수 없습니다. 대신 founders@manaflow.com으로 이메일을 보내주세요."
+            "value": "反馈功能当前不可用。请改为发送邮件至 founders@manaflow.com。"
           }
         }
       }
@@ -336,16 +402,22 @@
             "value": "フィードバックを送信できませんでした。もう一度お試しください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백을 보내지 못했습니다. 다시 시도하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося надіслати відгук. Спробуйте ще раз."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백을 보내지 못했습니다. 다시 시도하세요."
+            "value": "无法发送反馈。请重试。"
           }
         }
       }
@@ -365,16 +437,22 @@
             "value": "有効なメールアドレスを入力してください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "올바른 이메일 주소를 입력하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Введіть дійсну електронну адресу."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "올바른 이메일 주소를 입력하세요."
+            "value": "请输入有效的电子邮件地址。"
           }
         }
       }
@@ -394,16 +472,22 @@
             "value": "選択したファイルのうち1つを添付できませんでした。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 파일 중 하나를 첨부할 수 없습니다."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Один з вибраних файлів не вдалося прикріпити."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "선택한 파일 중 하나를 첨부할 수 없습니다."
+            "value": "其中一个所选文件无法附加。"
           }
         }
       }
@@ -423,16 +507,22 @@
             "value": "メッセージ"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Повідомлення"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "메시지"
+            "value": "消息"
           }
         }
       }
@@ -452,16 +542,22 @@
             "value": "フィードバック、機能要望、不具合をお知らせください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백, 기능 요청 또는 문제를 공유하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Поділіться відгуком, пропозиціями або повідомте про проблему."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백, 기능 요청 또는 문제를 공유하세요."
+            "value": "分享反馈、功能请求或问题。"
           }
         }
       }
@@ -481,16 +577,22 @@
             "value": "メッセージが長すぎます。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지가 너무 깁니다."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Ваше повідомлення занадто довге."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "메시지가 너무 깁니다."
+            "value": "你的消息过长。"
           }
         }
       }
@@ -510,16 +612,22 @@
             "value": "founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Ви також можете написати нам на founders@manaflow.com."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
+            "value": "你也可以通过 founders@manaflow.com 联系我们。"
           }
         }
       }
@@ -539,16 +647,22 @@
             "value": "フィードバックの送信回数が多すぎます。しばらくしてからもう一度お試しください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백 시도가 너무 많습니다. 나중에 다시 시도하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Занадто багато спроб надсилання відгуку. Спробуйте пізніше."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백 시도가 너무 많습니다. 나중에 다시 시도하세요."
+            "value": "反馈尝试次数过多。请稍后再试。"
           }
         }
       }
@@ -568,16 +682,22 @@
             "value": "削除"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Видалити"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "제거"
+            "value": "移除"
           }
         }
       }
@@ -597,16 +717,22 @@
             "value": "送信"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내기"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Надіслати"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "보내기"
+            "value": "发送"
           }
         }
       }
@@ -626,16 +752,22 @@
             "value": "founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Ви також можете написати нам на founders@manaflow.com."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "founders@manaflow.com으로도 연락하실 수 있습니다."
+            "value": "你也可以通过 founders@manaflow.com 联系我们。"
           }
         }
       }
@@ -655,16 +787,22 @@
             "value": "フィードバックありがとうございます。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백을 보내주셔서 감사합니다."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Дякуємо за відгук."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백을 보내주셔서 감사합니다."
+            "value": "感谢你的反馈。"
           }
         }
       }
@@ -684,16 +822,22 @@
             "value": "フィードバックを送信"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백 보내기"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Надіслати відгук"
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드백 보내기"
+            "value": "发送反馈"
           }
         }
       }
@@ -713,16 +857,22 @@
             "value": "画像は最大10枚まで添付できます。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 10장의 이미지를 첨부할 수 있습니다."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Можна прикріпити до 10 зображень."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 10장의 이미지를 첨부할 수 있습니다."
+            "value": "最多可附加 10 张图片。"
           }
         }
       }
@@ -742,16 +892,22 @@
             "value": "これらの画像はまとめて送信するには大きすぎます。いくつか削除してもう一度お試しください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지가 너무 커서 함께 보낼 수 없습니다. 몇 개를 제거하고 다시 시도하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Ці зображення занадто великі для надсилання разом. Видаліть кілька та спробуйте ще раз."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미지가 너무 커서 함께 보낼 수 없습니다. 몇 개를 제거하고 다시 시도하세요."
+            "value": "这些图片太大，无法一起发送。请删除几张后重试。"
           }
         }
       }
@@ -771,16 +927,22 @@
             "value": "メッセージと添付ファイルを確認して、もう一度お試しください。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지와 첨부 파일을 확인한 후 다시 시도하세요."
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
             "value": "Перевірте повідомлення та вкладення, потім спробуйте ще раз."
           }
         },
-        "ko": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "메시지와 첨부 파일을 확인한 후 다시 시도하세요."
+            "value": "请检查你的消息和附件后重试。"
           }
         }
       }
