@@ -12,6 +12,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
+    /// The attach ticket this client uses to authorize RPC requests.
+    public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
@@ -315,6 +317,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
+        case "workspace.move", "workspace.group.action":
+            // These mutations are Mac-scoped. Always preserve the attach-ticket
+            // context when one exists so the host can reject workspace-scoped
+            // tickets instead of receiving a Stack-only request.
+            return false
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.input", "terminal.input",
