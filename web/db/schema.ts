@@ -425,6 +425,7 @@ export const vaultUploadGrants = pgTable(
     userId: text("user_id").notNull(),
     objectKey: text("object_key").notNull(),
     compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    reservationToken: uuid("reservation_token").defaultRandom().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },

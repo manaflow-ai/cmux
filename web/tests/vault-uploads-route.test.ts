@@ -129,9 +129,26 @@ describe("Vault uploads route", () => {
     });
 
     beforeNextPresignFailure = async () => {
+      const [staleReservation] = await db
+        .select({
+          createdAt: vaultUploadGrants.createdAt,
+          expiresAt: vaultUploadGrants.expiresAt,
+        })
+        .from(vaultUploadGrants)
+        .where(eq(vaultUploadGrants.objectKey, objectKey))
+        .limit(1);
+      expect(staleReservation).toBeDefined();
+
       const response = await POST(uploadRequest({ compressedSizeBytes: 789 }));
       expect(response.status).toBe(200);
       expect((await response.json()).items[0].status).toBe("upload");
+      await db
+        .update(vaultUploadGrants)
+        .set({
+          createdAt: staleReservation!.createdAt,
+          expiresAt: staleReservation!.expiresAt,
+        })
+        .where(eq(vaultUploadGrants.objectKey, objectKey));
     };
     const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray, lt } from "drizzle-orm";
 import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../db/client";
@@ -27,6 +28,7 @@ const GRANT_GC_BATCH = 10;
 type ExistingUploadGrant = {
   readonly id: string;
   readonly compressedSizeBytes: number;
+  readonly reservationToken: string;
   readonly createdAt: Date;
   readonly expiresAt: Date;
 };
@@ -48,8 +50,7 @@ type ReservedUploadResult =
   | (VaultUploadItemBase & {
     readonly status: "upload";
     readonly grantId: string;
-    readonly grantCreatedAt: Date;
-    readonly grantExpiresAt: Date;
+    readonly grantReservationToken: string;
     readonly previousGrant: ExistingUploadGrant | null;
     readonly objectKey: string;
     readonly compressedSizeBytes: number;
@@ -180,18 +181,21 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .select({
           id: vaultUploadGrants.id,
           compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
+          reservationToken: vaultUploadGrants.reservationToken,
           createdAt: vaultUploadGrants.createdAt,
           expiresAt: vaultUploadGrants.expiresAt,
         })
         .from(vaultUploadGrants)
         .where(eq(vaultUploadGrants.objectKey, objectKey))
         .limit(1);
+      const grantReservationToken = randomUUID();
       const [grant] = await lockedDb
         .insert(vaultUploadGrants)
         .values({
           userId,
           objectKey,
           compressedSizeBytes: item.compressedSizeBytes,
+          reservationToken: grantReservationToken,
           createdAt: now,
           expiresAt: grantExpiresAt,
         })
@@ -199,6 +203,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
           target: vaultUploadGrants.objectKey,
           set: {
             compressedSizeBytes: item.compressedSizeBytes,
+            reservationToken: grantReservationToken,
             createdAt: now,
             expiresAt: grantExpiresAt,
           },
@@ -213,8 +218,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         relPath: item.relPath,
         status: "upload",
         grantId: grant.id,
-        grantCreatedAt: now,
-        grantExpiresAt,
+        grantReservationToken,
         previousGrant: previousGrant && !objectKeysCreatedInRequest.has(objectKey)
           ? previousGrant
           : null,
@@ -274,14 +278,14 @@ async function presignReservedUploads(
         .update(vaultUploadGrants)
         .set({
           compressedSizeBytes: item.previousGrant.compressedSizeBytes,
+          reservationToken: item.previousGrant.reservationToken,
           createdAt: item.previousGrant.createdAt,
           expiresAt: item.previousGrant.expiresAt,
         })
         .where(and(
           eq(vaultUploadGrants.id, item.previousGrant.id),
           eq(vaultUploadGrants.objectKey, item.objectKey),
-          eq(vaultUploadGrants.createdAt, item.grantCreatedAt),
-          eq(vaultUploadGrants.expiresAt, item.grantExpiresAt),
+          eq(vaultUploadGrants.reservationToken, item.grantReservationToken),
         ))
         .catch(() => undefined);
       continue;
@@ -291,8 +295,7 @@ async function presignReservedUploads(
       .where(and(
         eq(vaultUploadGrants.id, item.grantId),
         eq(vaultUploadGrants.objectKey, item.objectKey),
-        eq(vaultUploadGrants.createdAt, item.grantCreatedAt),
-        eq(vaultUploadGrants.expiresAt, item.grantExpiresAt),
+        eq(vaultUploadGrants.reservationToken, item.grantReservationToken),
       ))
       .catch(() => undefined);
   }
@@ -331,7 +334,7 @@ async function gcExpiredGrants(db: ReturnType<typeof cloudDb>, now: Date): Promi
     if (!committedKeys.has(grant.objectKey)) {
       try {
         await deleteObject(grant.objectKey);
-      } catch (error) {
+      } catch {
         continue;
       }
     }
