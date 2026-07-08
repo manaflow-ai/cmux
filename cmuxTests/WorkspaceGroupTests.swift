@@ -57,6 +57,29 @@ struct WorkspaceGroupTests {
         #expect(manager.selectedTabId == group.anchorWorkspaceId)
     }
 
+    @Test func draggingWorkspaceIntoEmptyGroupAddsFirstMember() throws {
+        let manager = makeTabManager()
+        let originalIds = manager.tabs.map(\.id)
+        let draggedId = originalIds[1]
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: ""))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: draggedId,
+            toIndex: 1,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            draggedId,
+        ])
+    }
+
     @Test func createGroupKeepsFirstChildPosition() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

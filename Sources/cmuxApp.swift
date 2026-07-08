@@ -376,20 +376,14 @@ struct cmuxApp: App {
     }
 
     var body: some Scene {
+        let _ = configureSettingsWindowPresenter()
+
         WindowGroup {
             MainWindowBootstrapView()
                 .settingsRuntime(settingsRuntime)
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
-                    SettingsWindowPresenter.configure(
-                        openWindow: {
-                            openWindow(id: SettingsWindowPresenter.windowID)
-                        },
-                        parentWindowProvider: {
-                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
-                        }
-                    )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
@@ -884,6 +878,18 @@ struct cmuxApp: App {
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
+    }
+
+    @MainActor
+    private func configureSettingsWindowPresenter() {
+        SettingsWindowPresenter.configure(
+            openWindow: {
+                openWindow(id: SettingsWindowPresenter.windowID)
+            },
+            parentWindowProvider: {
+                AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
+            }
+        )
     }
 
     @CommandsBuilder

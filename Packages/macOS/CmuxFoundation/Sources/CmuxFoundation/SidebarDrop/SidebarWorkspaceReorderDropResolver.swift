@@ -46,7 +46,8 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             context: context,
             draggedWorkspace: draggedWorkspace,
             groupsById: groupsById,
-            groupByAnchorId: groupByAnchorId
+            groupByAnchorId: groupByAnchorId,
+            workspaces: request.workspaces
         ) {
             return groupScopedPlan(
                 request: request,
@@ -128,12 +129,14 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         context: SidebarWorkspaceReorderHitContext,
         draggedWorkspace: SidebarWorkspaceReorderWorkspaceSnapshot,
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
-        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot]
     ) -> UUID? {
         guard !groupByAnchorId.keys.contains(draggedWorkspace.id) else { return nil }
         guard let candidate = groupScopeCandidate(
             context: context,
-            groupsById: groupsById
+            groupsById: groupsById,
+            workspaces: workspaces
         ) else {
             return nil
         }
@@ -157,11 +160,15 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
 
     private func groupScopeCandidate(
         context: SidebarWorkspaceReorderHitContext,
-        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot]
     ) -> (groupId: UUID, isAmbiguous: Bool)? {
         if let target = context.target {
             if let groupId = target.groupId,
                groupsById[groupId] != nil {
+                if target.isGroupHeader, isAnchorOnlyGroup(groupId: groupId, workspaces: workspaces) {
+                    return (groupId, false)
+                }
                 switch context.edge {
                 case .top:
                     guard !target.isGroupHeader else { return nil }
@@ -187,6 +194,17 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
         return (previousGroupId, true)
+    }
+
+    private func isAnchorOnlyGroup(
+        groupId: UUID,
+        workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot]
+    ) -> Bool {
+        workspaces.reduce(into: 0) { count, workspace in
+            if workspace.groupId == groupId {
+                count += 1
+            }
+        } == 1
     }
 
     private func groupScopedPlan(
