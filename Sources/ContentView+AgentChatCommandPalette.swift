@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCommandPalette
+import CmuxWorkspaces
 
 extension ContentView {
     func registerAgentChatCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {

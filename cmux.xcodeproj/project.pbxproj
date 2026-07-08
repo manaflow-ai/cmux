@@ -1560,7 +1560,6 @@
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		E3B7A40000000000000005E0 /* Workspace+AgentForkHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */; };
 		E3B7A40000000000000005D0 /* Workspace+AgentHibernationHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */; };
-		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
 		E3CD00000000000000000001 /* Workspace+BrowserOpenWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		E7123026D3F05BF0917E3290 /* Workspace+ClosedBrowserPanelReopenWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BDF3CF5C10F309A24A4B35D /* Workspace+ClosedBrowserPanelReopenWorkspaceHandle.swift */; };
@@ -3220,7 +3219,6 @@
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentForkHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005D1 /* Workspace+AgentHibernationHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentHibernationHosting.swift"; sourceTree = "<group>"; };
-		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
 		E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+BrowserOpenWorkspaceHandle.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		1BDF3CF5C10F309A24A4B35D /* Workspace+ClosedBrowserPanelReopenWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedBrowserPanelReopenWorkspaceHandle.swift"; sourceTree = "<group>"; };
@@ -4663,7 +4661,6 @@
 				A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */,
 				A6AC72070000000000000002 /* SpinnerSpec.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
-				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
 				F0F0CF0C0000000000000002 /* VaultAgentProcessScanner+ForkParentFallback.swift */,
 			);
 			path = Sources;
@@ -6600,7 +6597,6 @@
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				E3B7A40000000000000005E0 /* Workspace+AgentForkHosting.swift in Sources */,
 				E3B7A40000000000000005D0 /* Workspace+AgentHibernationHosting.swift in Sources */,
-				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
 				E3CD00000000000000000001 /* Workspace+BrowserOpenWorkspaceHandle.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				E7123026D3F05BF0917E3290 /* Workspace+ClosedBrowserPanelReopenWorkspaceHandle.swift in Sources */,

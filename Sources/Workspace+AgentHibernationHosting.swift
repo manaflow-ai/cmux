@@ -46,6 +46,13 @@ extension Workspace: AgentHibernationHosting {
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
     }
 
+    func hasRunningAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
+        if let panelId {
+            return agentLifecycleStatesByPanelId[panelId]?[key] == .running
+        }
+        return agentLifecycleStatesByPanelId.values.contains { $0[key] == .running }
+    }
+
     // MARK: - Snapshot fingerprint
 
     func agentHibernationSnapshotFingerprint(_ snapshot: SessionRestorableAgentSnapshot) -> Int {

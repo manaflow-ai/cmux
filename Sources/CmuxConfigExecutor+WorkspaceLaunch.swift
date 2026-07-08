@@ -172,4 +172,54 @@ extension CmuxConfigExecutor {
         }
         return true
     }
+
+    @discardableResult
+    static func executeBrowserWorkspaceCommand(
+        name: String,
+        url: String,
+        tabManager: TabManager,
+        baseCwd: String
+    ) -> Bool {
+        let workspaceDefinition = CmuxWorkspaces.CmuxWorkspaceDefinition(
+            name: name,
+            layout: .pane(CmuxWorkspaces.CmuxPaneDefinition(surfaces: [
+                CmuxWorkspaces.CmuxSurfaceDefinition(
+                    type: .browser,
+                    name: name,
+                    url: url,
+                    focus: true
+                ),
+            ]))
+        )
+        let command = CmuxCommandDefinition(
+            name: name,
+            workspace: workspaceDefinition
+        )
+        return executeWorkspaceCommand(
+            command: command,
+            workspace: workspaceDefinition,
+            tabManager: tabManager,
+            baseCwd: baseCwd
+        )
+    }
+
+    static func agentChatStartCommandTrustDescriptor(
+        command: String,
+        sourcePath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: "\(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID).startCommand",
+            kind: "agentChatStartCommand",
+            command: command,
+            target: "agentChatServer",
+            workspaceCommand: nil,
+            configPath: canonicalAgentChatPath(sourcePath),
+            projectRoot: canonicalAgentChatPath(CmuxButtonIcon.projectRoot(forConfigPath: sourcePath)),
+            iconFingerprint: nil
+        )
+    }
+
+    private static func canonicalAgentChatPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
 }

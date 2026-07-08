@@ -1,3 +1,4 @@
+import CmuxBrowserUI
 import SwiftUI
 
 struct BrowserPortalOmnibarSuggestionsOverlay: View {

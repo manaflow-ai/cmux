@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 
 extension Workspace {
     func performSurfaceTabBarNewAgentChatAction(presentingWindow: NSWindow?) {

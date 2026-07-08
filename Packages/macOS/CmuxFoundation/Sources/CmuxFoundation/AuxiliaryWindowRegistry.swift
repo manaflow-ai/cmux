@@ -53,6 +53,7 @@ public struct AuxiliaryWindowRegistry: Sendable, Equatable {
         "cmux.proBadgeDebug",
         "cmux.recentlyClosedHistory",
         "cmux.splitButtonLayoutDebug",
+        "cmux.spinnerGallery",
         "cmux.tabBarBackdropLab",
         "cmux.taskManager",
         "cmux.aboutTitlebarDebug",

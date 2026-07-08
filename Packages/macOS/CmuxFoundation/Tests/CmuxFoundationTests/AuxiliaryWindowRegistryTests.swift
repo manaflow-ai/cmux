@@ -11,6 +11,7 @@ struct AuxiliaryWindowRegistryTests {
         // The pairing window must stay registered: the Cmd+W regression is that
         // closing "Pair iPhone" otherwise closes a terminal tab behind it.
         #expect(AuxiliaryWindowRegistry.default.shouldOwnCloseShortcut("cmux.mobilePairingWindow"))
+        #expect(AuxiliaryWindowRegistry.default.shouldOwnCloseShortcut("cmux.spinnerGallery"))
     }
 
     @Test
