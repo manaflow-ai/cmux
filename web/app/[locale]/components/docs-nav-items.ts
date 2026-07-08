@@ -1,4 +1,8 @@
 import type { Locale } from "../../../i18n/routing";
+import {
+  featureWorkflowContentLocales,
+  remoteTmuxDocsLocales,
+} from "../../../i18n/locale-availability";
 
 export type NavLink = {
   titleKey: string;
@@ -8,7 +12,7 @@ export type NavLink = {
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
 
-export const remoteTmuxDocsLocales = ["en", "ja"] as const satisfies readonly Locale[];
+export const baseDocsLocales = ["en"] as const satisfies readonly Locale[];
 
 export function isSection(entry: NavEntry): entry is NavSection {
   return "sectionKey" in entry;
@@ -41,10 +45,13 @@ export function navItemsForLocale(locale: string): NavEntry[] {
 export const navItems: NavEntry[] = [
   { titleKey: "gettingStarted", href: "/docs/getting-started" },
   { titleKey: "concepts", href: "/docs/concepts" },
+  { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
   { titleKey: "workspaceGroups", href: "/docs/workspace-groups" },
   { titleKey: "configuration", href: "/docs/configuration" },
   { titleKey: "textBox", href: "/docs/textbox" },
   { titleKey: "sessionRestore", href: "/docs/session-restore" },
+  { titleKey: "vault", href: "/docs/vault", locales: featureWorkflowContentLocales },
+  { titleKey: "taskManager", href: "/docs/task-manager", locales: featureWorkflowContentLocales },
   { titleKey: "customCommands", href: "/docs/custom-commands" },
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },

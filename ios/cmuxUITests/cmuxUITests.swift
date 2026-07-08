@@ -524,6 +524,32 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
+        let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
+
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        assertTerminalMenuItemExists("terminal-build", in: app)
+        let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
+        XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
+
+        let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
+        let deadline = Date().addingTimeInterval(3.0)
+        while Date() < deadline {
+            XCTAssertTrue(
+                refreshedTarget.exists && refreshedTarget.isHittable,
+                "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        tapMenuItem(refreshedTarget, in: app)
+        let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
+        XCTAssertTrue(
+            selectedValue.contains("Terminal 24"),
+            "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
+        )
+    }
+
+    @MainActor
     func testTerminalDropdownSwitchesToAlternateScreenSnapshot() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -979,9 +1005,14 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertEqual(
             keyboardUp.presentationFrameMaxY,
-            keyboardUp.composerPresentationMinY,
+            keyboardUp.effectiveFrameMaxY,
             accuracy: 4,
-            "Video evidence setup must have the visible transcript bottom flush to the visible composer top with the keyboard up. \(keyboardUp)"
+            "Video evidence setup must clip the visible transcript bottom to the keyboard top with the keyboard up. \(keyboardUp)"
+        )
+        XCTAssertGreaterThan(
+            keyboardUp.presentationFrameMaxY,
+            keyboardUp.composerPresentationMinY + 24,
+            "Video evidence setup must have visible transcript content underneath the composer chrome with the keyboard up. \(keyboardUp)"
         )
         XCTAssertEqual(
             keyboardUp.visibleBottomY,
@@ -1429,7 +1460,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testAgentChatExpansionControlsPreserveTranscriptScrollPosition() throws {
+    func testAgentChatDetailControlsPreserveTranscriptScrollPosition() throws {
         let app = launchAgentChatInlinePreviewApp()
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
@@ -1437,12 +1468,12 @@ final class cmuxUITests: XCTestCase {
             $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
         }
 
-        try assertExpansionTogglePreservesTranscriptPosition(
+        try assertDetailControlPreservesTranscriptPosition(
             buttonID: "ChatToolUseToggle-msg-fixture-4",
             table: table,
             app: app
         )
-        try assertExpansionTogglePreservesTranscriptPosition(
+        try assertDetailControlPreservesTranscriptPosition(
             buttonID: "ChatTerminalToggle-msg-fixture-6",
             table: table,
             app: app
@@ -1460,11 +1491,18 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(table.waitForExistence(timeout: 8))
         let composerBar = app.otherElements["ChatComposerBar"]
         XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+        let composerField = chatComposerField(in: app)
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+        dismissChatKeyboard(in: app, table: table)
 
         let metrics = try waitForTranscriptMetrics(table, timeout: 8) {
             $0.frameHeight > 240
                 && $0.contentHeight > $0.boundsHeight * 1.6
                 && $0.composerOverlayBottomInset > 40
+                && self.isKeyboardDownClipSettled($0)
+                && !$0.scrollTracking
+                && !$0.scrollDragging
+                && !$0.scrollDecelerating
         }
         let windowFrame = app.windows.firstMatch.frame
         XCTAssertGreaterThanOrEqual(
@@ -1493,6 +1531,69 @@ final class cmuxUITests: XCTestCase {
             metrics.composerOverlayBottomInset,
             accuracy: 4,
             "The adjusted transcript inset must equal the physical composer clearance. A larger value double-counts the device bottom safe area. metrics=\(metrics) composer=\(composerBar.frame)"
+        )
+
+        let richMetrics = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
+        let animationSamples = focusTextInputAndSampleTranscriptAnimation(
+            composerField,
+            table: table,
+            composerBar: composerBar,
+            in: app,
+            frameCapturePrefix: "bottom-edge-rich-keyboard"
+        )
+        assertChatKeyboardAnimationStayedAttached(
+            animationSamples,
+            scrollPosition: "bottom edge rich transcript"
+        )
+        let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
+            $0.keyboardOverlap > 120
+                && $0.bottomEdgeEffectSoft
+                && $0.bottomEdgeElementContainerRegistered
+                && $0.topContentScrollViewRegistered
+                && self.isKeyboardUpClipSettled($0)
+        }
+        guard let keyboardSnapshot = softwareKeyboardSnapshotAfterFocus(
+            in: app,
+            overlap: afterKeyboard.keyboardOverlap
+        ) else {
+            return
+        }
+        let keyboardFrame = keyboardSnapshot.frame
+        let underlapCellFrame = try waitForTranscriptCellUnderlappingBottomChrome(
+            table: table,
+            composerBar: composerBar,
+            keyboardFrame: keyboardFrame
+        )
+        let keyboardUpAttachment = XCTAttachment(
+            string: "rich=\(richMetrics)\nafter=\(afterKeyboard)\nkeyboard=\(keyboardSnapshot)\nunderlapCellFrame=\(underlapCellFrame)\nsamples=\(animationSamples)"
+        )
+        keyboardUpAttachment.name = "bottom-edge-rich-keyboard-up-metrics"
+        keyboardUpAttachment.lifetime = .keepAlways
+        add(keyboardUpAttachment)
+        let screenshotAttachment = XCTAttachment(screenshot: app.screenshot())
+        screenshotAttachment.name = "bottom-edge-rich-keyboard-up-screenshot"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+        XCTAssertLessThanOrEqual(
+            afterKeyboard.presentationFrameMaxY,
+            keyboardFrame.minY + 2,
+            "Keyboard-up bottom scroll-edge verification must not let transcript rows render under the keyboard key plane. after=\(afterKeyboard) keyboard=\(keyboardFrame) underlapCell=\(underlapCellFrame)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            afterKeyboard.presentationFrameMaxY,
+            keyboardFrame.minY - 16,
+            "Keyboard-up bottom scroll-edge verification must keep transcript clipping visually adjacent to the keyboard so live rows continue underneath the shortcut/composer chrome instead of ending at a hard composer-top edge. after=\(afterKeyboard) keyboard=\(keyboardFrame) underlapCell=\(underlapCellFrame)"
+        )
+        XCTAssertGreaterThan(
+            afterKeyboard.presentationFrameMaxY,
+            afterKeyboard.composerPresentationMinY + 24,
+            "Keyboard-up transcript clipping must extend below the composer top. Clipping flush to the composer recreates the hard horizontal edge above bottom chrome. after=\(afterKeyboard) keyboard=\(keyboardFrame) underlapCell=\(underlapCellFrame)"
+        )
+        XCTAssertEqual(
+            afterKeyboard.adjustedBottomInset,
+            afterKeyboard.composerOverlayBottomInset + afterKeyboard.keyboardOverlap,
+            accuracy: 6,
+            "Keyboard-up transcript inset must equal composer overlay plus real keyboard overlap. after=\(afterKeyboard)"
         )
     }
 
@@ -1557,6 +1658,7 @@ final class cmuxUITests: XCTestCase {
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.keyboardOverlap > 120
                 && $0.presentationFrameMaxY < beforeKeyboard.presentationFrameMaxY - 120
+                && self.isKeyboardUpClipSettled($0)
         }
         let metricsAttachment = XCTAttachment(
             string: "scrollPosition=\(scrollPosition)\nbefore=\(beforeKeyboard)\nafter=\(afterKeyboard)"
@@ -1632,8 +1734,15 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertLessThanOrEqual(
             afterKeyboard.presentationFrameMaxY,
-            keyboardFrame.minY - 44,
-            "Transcript table effective visible bottom should sit above the composer and keyboard from \(scrollPosition), not behind the keyboard. after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            keyboardFrame.minY + 8,
+            "Transcript clipping should stop at the keyboard top from \(scrollPosition), not at the composer top or below the keyboard. after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            afterKeyboard.presentationFrameMaxY,
+            keyboardFrame.minY - 8,
+            "Transcript clipping should reach the keyboard-adjacent region from \(scrollPosition) so bottom chrome overlays live transcript content. after=\(afterKeyboard) keyboard=\(keyboardFrame)",
             file: file,
             line: line
         )
@@ -1644,11 +1753,10 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             afterKeyboard.presentationFrameMaxY,
-            afterKeyboard.composerPresentationMinY,
-            accuracy: 4,
-            "Transcript table effective visible bottom must stay flush with the visible composer host top from \(scrollPosition), with no blank band between the table content and input host. after=\(afterKeyboard) composer=\(composerBarFrame) keyboard=\(keyboardFrame)",
+            afterKeyboard.composerPresentationMinY + 24,
+            "Transcript table effective visible bottom must extend underneath the visible composer host from \(scrollPosition). Stopping flush at the composer top leaves the hard horizontal cut line. after=\(afterKeyboard) composer=\(composerBarFrame) keyboard=\(keyboardFrame)",
             file: file,
             line: line
         )
@@ -1699,21 +1807,38 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> CGRect {
-        let keyboard = app.keyboards.firstMatch
-        if keyboard.waitForExistence(timeout: 1) {
-            return keyboard.frame
-        }
-        let windowFrame = app.windows.firstMatch.frame
-        guard overlap > 0, !windowFrame.isNull, !windowFrame.isEmpty else {
-            XCTFail("Expected a keyboard element or positive keyboard overlap. overlap=\(overlap) window=\(windowFrame)", file: file, line: line)
+        guard let snapshot = softwareKeyboardSnapshotAfterFocus(
+            in: app,
+            overlap: overlap,
+            file: file,
+            line: line
+        ) else {
             return .zero
         }
-        return CGRect(
-            x: windowFrame.minX,
-            y: windowFrame.maxY - overlap,
-            width: windowFrame.width,
-            height: overlap
-        )
+        return snapshot.frame
+    }
+
+    @MainActor
+    private func softwareKeyboardSnapshotAfterFocus(
+        in app: XCUIApplication,
+        overlap: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> SoftwareKeyboardSnapshot? {
+        guard overlap > 120 else {
+            XCTFail("Expected positive keyboard overlap before accepting keyboard-up evidence. overlap=\(overlap)", file: file, line: line)
+            return nil
+        }
+        guard let snapshot = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 2,
+            file: file,
+            line: line
+        ) else {
+            return nil
+        }
+        return snapshot
     }
 
     /// Tapping a text field opens the system keyboard; the floating Pair
@@ -1834,6 +1959,17 @@ final class cmuxUITests: XCTestCase {
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchWorkspaceDetailRefreshingTerminalMenuPreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -2580,7 +2716,10 @@ final class cmuxUITests: XCTestCase {
         }
 
         var effectiveFrameMaxY: CGFloat {
-            composerPresentationMinY
+            if keyboardOverlap > 0.5 {
+                return frameMaxY - keyboardOverlap
+            }
+            return frameMaxY
         }
 
         init?(_ rawValue: String) {
@@ -2655,6 +2794,17 @@ final class cmuxUITests: XCTestCase {
     private struct TimedKeyboardAction {
         let delay: TimeInterval
         let action: @MainActor () -> Void
+    }
+
+    private struct SoftwareKeyboardSnapshot: CustomStringConvertible {
+        let frame: CGRect
+        let overlap: CGFloat
+        let keyCount: Int
+        let sampleLabels: [String]
+
+        var description: String {
+            "frame=\(frame), overlap=\(overlap), keyCount=\(keyCount), sampleLabels=\(sampleLabels)"
+        }
     }
 
     @MainActor
@@ -3001,7 +3151,8 @@ final class cmuxUITests: XCTestCase {
 
     private func isKeyboardUpClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
         metrics.keyboardOverlap > 120
-            && abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY) < 4
+            && metrics.presentationFrameMaxY < metrics.frameMaxY - 80
+            && metrics.presentationFrameMaxY > metrics.composerPresentationMinY + 24
     }
 
     private func isKeyboardDownClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
@@ -3067,6 +3218,153 @@ final class cmuxUITests: XCTestCase {
         return frame
     }
 
+    @MainActor
+    private func scrollToRichAgentChatFixtureRegion(
+        table: XCUIElement,
+        app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ChatTranscriptMetrics {
+        let imageAttachment = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "ci-failure.png"))
+            .firstMatch
+        let cardElements = [
+            app.buttons["ChatQuestionOption0"],
+            app.buttons["ChatPermissionApprove"],
+            app.buttons["ChatToolUseToggle-msg-fixture-4"],
+            app.buttons["ChatTerminalToggle-msg-fixture-6"],
+        ]
+        let deadline = Date().addingTimeInterval(10)
+        var lastMetrics: ChatTranscriptMetrics?
+
+        while Date() < deadline {
+            if let metrics = transcriptMetrics(from: table) {
+                lastMetrics = metrics
+            }
+            if imageAttachment.exists,
+               cardElements.contains(where: { $0.exists }),
+               let metrics = lastMetrics,
+               metrics.contentHeight > metrics.boundsHeight * 1.6 {
+                let attachment = XCTAttachment(screenshot: app.screenshot())
+                attachment.name = "rich-agent-chat-fixture-region"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                return metrics
+            }
+            table.swipeDown(velocity: .slow)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+
+        let message = "Timed out scrolling to rich agent-chat fixture content. imageExists=\(imageAttachment.exists), cardExists=\(cardElements.contains(where: { $0.exists })), lastMetrics=\(String(describing: lastMetrics))"
+        XCTFail(message, file: file, line: line)
+        throw TranscriptMetricsWaitError(description: message)
+    }
+
+    @MainActor
+    private func waitForTranscriptCellUnderlappingBottomChrome(
+        table: XCUIElement,
+        composerBar: XCUIElement,
+        keyboardFrame: CGRect,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> CGRect {
+        let deadline = Date().addingTimeInterval(14)
+        var lastCellFrames: [CGRect] = []
+        while Date() < deadline {
+            guard let composerFrame = usableFrameNow(of: composerBar) else {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+                continue
+            }
+            let underlapRegion = composerFrame.intersection(CGRect(
+                x: composerFrame.minX,
+                y: composerFrame.minY,
+                width: composerFrame.width,
+                height: max(0, keyboardFrame.minY - composerFrame.minY)
+            ))
+            let cells = table.cells.allElementsBoundByIndex
+            lastCellFrames = cells.suffix(10).compactMap { cell in
+                usableFrameNow(of: cell)
+            }
+            if let frame = lastCellFrames.first(where: { cellFrame in
+                let overlap = cellFrame.intersection(underlapRegion)
+                return !overlap.isNull
+                    && !overlap.isEmpty
+                    && overlap.height >= 12
+                    && overlap.width >= min(80, underlapRegion.width * 0.25)
+            }) {
+                return frame
+            }
+            table.swipeDown(velocity: .slow)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+        }
+
+        let message = "Expected a real transcript cell to underlap the keyboard-up shortcut/composer chrome. keyboard=\(keyboardFrame), composer=\(String(describing: usableFrameNow(of: composerBar))), lastCellFrames=\(lastCellFrames)"
+        XCTFail(message, file: file, line: line)
+        throw TranscriptMetricsWaitError(description: message)
+    }
+
+    @MainActor
+    private func waitForSoftwareKeyboardKeyPlane(
+        in app: XCUIApplication,
+        minimumOverlap: CGFloat,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> SoftwareKeyboardSnapshot? {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastSnapshot: SoftwareKeyboardSnapshot?
+        while Date() < deadline {
+            if let snapshot = softwareKeyboardSnapshot(in: app) {
+                lastSnapshot = snapshot
+                if snapshot.overlap >= minimumOverlap,
+                   snapshot.frame.height > 120,
+                   snapshot.keyCount >= 10 {
+                    return snapshot
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTFail(
+            "Expected a visible software keyboard key plane. minimumOverlap=\(minimumOverlap), lastSnapshot=\(String(describing: lastSnapshot)), keyboard=\(app.keyboards.firstMatch.debugDescription)",
+            file: file,
+            line: line
+        )
+        return nil
+    }
+
+    @MainActor
+    private func softwareKeyboardSnapshot(in app: XCUIApplication) -> SoftwareKeyboardSnapshot? {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists,
+              let keyboardFrame = usableFrameNow(of: keyboard) else {
+            return nil
+        }
+        let windowFrame = app.windows.firstMatch.frame
+        guard !windowFrame.isNull,
+              !windowFrame.isEmpty,
+              !windowFrame.origin.x.isNaN,
+              !windowFrame.origin.y.isNaN,
+              !windowFrame.width.isNaN,
+              !windowFrame.height.isNaN else {
+            return nil
+        }
+        let visibleKeys = keyboard.keys.allElementsBoundByIndex.filter { key in
+            guard key.exists,
+                  let keyFrame = usableFrameNow(of: key) else {
+                return false
+            }
+            return keyFrame.intersects(keyboardFrame)
+        }
+        let sampleLabels = visibleKeys.prefix(8).map(\.label).filter { !$0.isEmpty }
+        return SoftwareKeyboardSnapshot(
+            frame: keyboardFrame,
+            overlap: max(0, windowFrame.maxY - keyboardFrame.minY),
+            keyCount: visibleKeys.count,
+            sampleLabels: sampleLabels
+        )
+    }
+
     private enum TranscriptScrollDirection {
         case up
         case down
@@ -3117,7 +3415,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertExpansionTogglePreservesTranscriptPosition(
+    private func assertDetailControlPreservesTranscriptPosition(
         buttonID: String,
         table: XCUIElement,
         app: XCUIApplication,
@@ -3130,7 +3428,7 @@ final class cmuxUITests: XCTestCase {
             table.swipeDown(velocity: .fast)
             RunLoop.current.run(until: Date().addingTimeInterval(0.12))
         }
-        XCTAssertTrue(button.isHittable, "Expected expansion control \(buttonID) to become hittable", file: file, line: line)
+        XCTAssertTrue(button.isHittable, "Expected detail control \(buttonID) to become hittable", file: file, line: line)
 
         let before = try waitForTranscriptMetrics(
             table,
@@ -3140,10 +3438,15 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         button.tap()
-        let predicate = NSPredicate(format: "value == %@", "Expanded")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: button)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 4)
-        XCTAssertEqual(result, .completed, "Expected \(buttonID) to expand", file: file, line: line)
+        let sheet = app.descendants(matching: .any)["ChatBlockDetailSheet"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 4), "Expected \(buttonID) to open the detail sheet", file: file, line: line)
+        let copyAllButton = app.buttons["ChatBlockDetailCopyAllButton"]
+        XCTAssertTrue(copyAllButton.waitForExistence(timeout: 4), "Expected detail sheet Copy All button", file: file, line: line)
+        XCTAssertTrue(copyAllButton.isEnabled, "Expected detail sheet Copy All button to be enabled", file: file, line: line)
+        XCTAssertEqual(copyAllButton.label, "Copy All", "Copy All must stay a text-only toolbar button", file: file, line: line)
+        copyAllButton.tap()
+        XCTAssertEqual(copyAllButton.label, "Copy All", "Copy All must not change into a copied checkmark state", file: file, line: line)
+        XCTAssertFalse(app.buttons["Copied"].exists, "Copy All must not be replaced by a Copied checkmark button", file: file, line: line)
         let after = try waitForTranscriptMetrics(
             table,
             timeout: 4,
@@ -3165,6 +3468,10 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        let doneButton = app.buttons["ChatBlockDetailDoneButton"]
+        XCTAssertTrue(doneButton.waitForExistence(timeout: 4), "Expected detail sheet Done button", file: file, line: line)
+        doneButton.tap()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 2), "Expected detail sheet to dismiss", file: file, line: line)
     }
 
     @MainActor

@@ -16,7 +16,7 @@ extension TerminalSurface {
             return needsConfirmCloseOverrideForTesting
         }
 #endif
-        guard let surface = surface else { return false }
+        guard let surface, hasCloseConfirmationProcessRisk(surface) else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
