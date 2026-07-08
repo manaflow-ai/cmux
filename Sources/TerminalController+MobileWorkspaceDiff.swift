@@ -39,6 +39,14 @@ extension TerminalController {
         }
     }
 
+    /// Isolation invariant: this is a MAIN-ACTOR-isolated method (the
+    /// enclosing `TerminalController` is `@MainActor` and nothing here is
+    /// `nonisolated`), so every workspace/tab-manager read below runs on the
+    /// main actor. The socket-worker lane reaches it only through
+    /// `await v2MobileWorkspaceDiffStatus/File`, whose actor hop covers the
+    /// whole snapshot; the internal `v2MainSync` hops in
+    /// `v2ResolveTabManager` collapse inline on the main thread. Only the
+    /// Sendable `directory` string crosses into the detached git work.
     private func mobileWorkspaceDiffSnapshot(params: [String: Any]) -> MobileWorkspaceDiffSnapshotResult {
         let requestedWorkspaceID = v2UUID(params, "workspace_id")
         if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {

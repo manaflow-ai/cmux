@@ -199,6 +199,28 @@ import Testing
         #expect(result.files.isEmpty)
     }
 
+    @Test func ambientGitRepositorySelectionEnvironmentIsScrubbed() throws {
+        let repoA = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repoA) }
+        let repoB = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repoB) }
+        try Data("x\n".utf8).write(to: repoA.appendingPathComponent("only-in-a.txt"))
+
+        // Poisoned ambient environment pointing every git invocation at repoB.
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_DIR"] = repoB.appendingPathComponent(".git").path
+        environment["GIT_WORK_TREE"] = repoB.path
+        let service = GitDiffService(environment: environment)
+
+        let root = try #require(service.repositoryRoot(for: repoA.path))
+        #expect(
+            URL(fileURLWithPath: root).resolvingSymlinksInPath().path
+                == repoA.resolvingSymlinksInPath().path
+        )
+        let changed = service.changedFiles(repoRoot: repoA.path)
+        #expect(changed.files.map(\.path) == ["only-in-a.txt"])
+    }
+
     @Test func stalledGitProcessIsTerminatedAtTheDeadline() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

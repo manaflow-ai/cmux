@@ -288,8 +288,28 @@ public struct GitDiffService: Sendable {
         return nil
     }
 
+    /// Ambient git repository-selection variables that would make a
+    /// subprocess ignore `currentDirectoryURL` and resolve/diff a DIFFERENT
+    /// repository than the selected workspace (e.g. cmux launched from a
+    /// shell or hook with `GIT_DIR` exported). The mobile UI trusts these
+    /// responses as the workspace's diff, so the service scrubs them.
+    private static let scrubbedGitEnvironmentKeys: Set<String> = [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_NAMESPACE",
+        "GIT_PREFIX",
+        "GIT_CEILING_DIRECTORIES",
+    ]
+
     private func nonLockingGitEnvironment() -> [String: String] {
         var environment = environment
+        for key in Self.scrubbedGitEnvironmentKeys {
+            environment.removeValue(forKey: key)
+        }
         environment[Self.nonLockingGitEnvironmentKey] = Self.nonLockingGitEnvironmentValue
         return environment
     }
