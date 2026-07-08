@@ -45,6 +45,88 @@ extension BrowserPanel {
         return navigation === tracked
     }
 
+    /// Restore touch for a possibly-discarded pane: detects stalled restore
+    /// attempts, honors an explicit user Stop, restores through the discard
+    /// manager, and falls back to blank-shell healing.
+    @discardableResult
+    func restoreDiscardedWebViewIfNeeded(
+        reason: String,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
+        allowBlankShellHeal: Bool = true,
+        forceRestartPendingRestore: Bool = false
+    ) -> Bool {
+        if Self.isRestoreStalled(
+            isRestoreNavigationPending: hiddenWebViewDiscardManager.isRestoreNavigationPending,
+            isWebViewLoading: webView.isLoading,
+            isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive,
+            hasPendingRemoteNavigation: hasPendingRemoteNavigation,
+            hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement
+        ) {
+            hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: "\(reason).stalled")
+            refreshWebViewLifecycleState()
+        }
+
+        if forceRestartPendingRestore {
+            userStoppedLoadSinceWebViewReplacement = false
+        }
+        // Stop is sticky for discarded restores too: routine visibility touches
+        // must not restart a stopped load; explicit reload is the override.
+        guard !userStoppedLoadSinceWebViewReplacement else { return false }
+
+        let restoreURL = restoredHistoryCurrentURL ?? currentURL
+        guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
+            return reactivateDiscardedPaneWithoutRestorableURL(reason: reason)
+        }
+
+        if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, force: forceRestartPendingRestore, performRestore: {
+            shouldRenderWebView = true
+            navigateWithoutInsecureHTTPPrompt(
+                to: restoreURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true,
+                cachePolicy: cachePolicy
+            )
+        }) {
+            return true
+        }
+
+        guard allowBlankShellHeal else { return false }
+        return healBlankRestoredWebViewIfNeeded(reason: reason, cachePolicy: cachePolicy)
+    }
+
+    /// Re-navigates a rendered-but-empty web view (for example after a failed
+    /// discard restore whose state was already consumed) back to its intent URL.
+    @discardableResult
+    private func healBlankRestoredWebViewIfNeeded(
+        reason _: String,
+        cachePolicy: URLRequest.CachePolicy
+    ) -> Bool {
+        let intentURL = restoredHistoryCurrentURL ?? currentURL
+        let isNavigationBlockedPendingConsent = intentURL.map { browserShouldBlockInsecureHTTPURL($0) } ?? false
+        guard Self.shouldHealBlankShell(
+            shouldRenderWebView: shouldRenderWebView,
+            isClosing: isClosingWebViewLifecycle,
+            hasPendingRemoteNavigation: hasPendingRemoteNavigation,
+            isWebViewLoading: webView.isLoading,
+            isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive,
+            hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement,
+            isNavigationBlockedPendingConsent: isNavigationBlockedPendingConsent,
+            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
+            userStoppedLoad: userStoppedLoadSinceWebViewReplacement,
+            intentURL: intentURL
+        ) else {
+            return false
+        }
+        guard let intentURL else { return false }
+        navigateWithoutInsecureHTTPPrompt(
+            to: intentURL,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: true,
+            cachePolicy: cachePolicy
+        )
+        return true
+    }
+
     /// Restore fallback for a discarded pane with no restorable document (nil
     /// or about:blank restore URL): navigating would wait on a commit that
     /// ``shouldTreatCommitAsDiscardedRestoreCommit(from:)`` ignores, leaving the

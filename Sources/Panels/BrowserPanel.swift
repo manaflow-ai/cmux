@@ -2786,7 +2786,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
-    @Published private(set) var shouldRenderWebView: Bool = false {
+    @Published var shouldRenderWebView: Bool = false {
         didSet {
             if oldValue != shouldRenderWebView {
                 refreshWebViewLifecycleState()
@@ -2819,7 +2819,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pendingInteractiveBrowserPrompts: [PendingInteractiveBrowserPrompt] = []
     private var isPresentingPendingInteractiveBrowserPrompt = false
     private var isWebViewVisibleInUI: Bool = false
-    private var isClosingWebViewLifecycle: Bool = false
+    var isClosingWebViewLifecycle: Bool = false
 
     /// True while a canvas pane hosts this browser's webview inline (in the
     /// pane's own hierarchy). Portal-side reconcilers must not rebind or
@@ -2887,10 +2887,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var usesRestoredSessionHistory: Bool {
         restoredSessionHistory.usesRestoredSessionHistory
     }
-    private var restoredHistoryCurrentURL: URL? {
+    var restoredHistoryCurrentURL: URL? {
         restoredSessionHistory.current
     }
-    private var isMainFrameProvisionalNavigationActive: Bool = false
+    var isMainFrameProvisionalNavigationActive: Bool = false
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -3350,75 +3350,7 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now)
     }
 
-    @discardableResult
-    func restoreDiscardedWebViewIfNeeded(
-        reason: String,
-        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
-        allowBlankShellHeal: Bool = true,
-        forceRestartPendingRestore: Bool = false
-    ) -> Bool {
-        if Self.isRestoreStalled(
-            isRestoreNavigationPending: hiddenWebViewDiscardManager.isRestoreNavigationPending,
-            isWebViewLoading: webView.isLoading,
-            isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive,
-            hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
-            hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement
-        ) {
-            hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: "\(reason).stalled")
-            refreshWebViewLifecycleState()
-        }
-
-        let restoreURL = restoredHistoryCurrentURL ?? currentURL
-        guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
-            return reactivateDiscardedPaneWithoutRestorableURL(reason: reason)
-        }
-
-        if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, force: forceRestartPendingRestore, performRestore: {
-            shouldRenderWebView = true
-            navigateWithoutInsecureHTTPPrompt(
-                to: restoreURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true,
-                cachePolicy: cachePolicy
-            )
-        }) {
-            return true
-        }
-
-        guard allowBlankShellHeal else { return false }
-        return healBlankRestoredWebViewIfNeeded(reason: reason, cachePolicy: cachePolicy)
-    }
-
-    @discardableResult
-    private func healBlankRestoredWebViewIfNeeded(
-        reason _: String,
-        cachePolicy: URLRequest.CachePolicy
-    ) -> Bool {
-        let intentURL = restoredHistoryCurrentURL ?? currentURL
-        let isNavigationBlockedPendingConsent = intentURL.map { browserShouldBlockInsecureHTTPURL($0) } ?? false
-        guard Self.shouldHealBlankShell(
-            shouldRenderWebView: shouldRenderWebView,
-            isClosing: isClosingWebViewLifecycle,
-            hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
-            isWebViewLoading: webView.isLoading,
-            isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive,
-            hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement,
-            isNavigationBlockedPendingConsent: isNavigationBlockedPendingConsent,
-            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
-            userStoppedLoad: userStoppedLoadSinceWebViewReplacement,
-            intentURL: intentURL
-        ) else {
-            return false
-        }
-        guard let intentURL else { return false }
-        navigateWithoutInsecureHTTPPrompt(
-            to: intentURL,
-            recordTypedNavigation: false,
-            preserveRestoredSessionHistory: true,
-            cachePolicy: cachePolicy
-        )
-        return true
-    }
+    var hasPendingRemoteNavigation: Bool { pendingRemoteNavigation != nil }
 
     @discardableResult
     func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
@@ -5723,7 +5655,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
     }
 
-    private func navigateWithoutInsecureHTTPPrompt(
+    func navigateWithoutInsecureHTTPPrompt(
         to url: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
