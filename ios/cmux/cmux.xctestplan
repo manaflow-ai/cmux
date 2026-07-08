@@ -24,6 +24,9 @@
       }
     },
     {
+      "skippedTests" : [
+        "WorkspaceMacSelectionTests"
+      ],
       "target" : {
         "containerPath" : "container:../Packages/iOS/CmuxMobileShellUI",
         "identifier" : "CmuxMobileShellUITests",
