@@ -725,6 +725,7 @@ export function forkVm(input: {
 
     const snapshot = yield* snapshotVm({
       userId: input.userId,
+      teamIds: input.teamIds,
       billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,

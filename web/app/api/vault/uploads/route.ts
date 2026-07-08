@@ -222,10 +222,6 @@ async function presignReservedUploads(
         putUrl: await presignPut(item.objectKey, item.compressedSizeBytes),
       });
     } catch {
-      await db
-        .delete(vaultUploadGrants)
-        .where(eq(vaultUploadGrants.objectKey, item.objectKey))
-        .catch(() => undefined);
       results.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,
