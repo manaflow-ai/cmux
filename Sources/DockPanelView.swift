@@ -246,25 +246,25 @@ private struct DockTrustControlSummaryRow: View {
                 .truncationMode(.middle)
             VStack(alignment: .leading, spacing: 1) {
                 ForEach(rows.indices, id: \.self) { index in
-                    Text(rows[index].text)
+                    Text(rows[index])
                         .font(.system(size: 10, weight: .regular, design: .monospaced))
                         .foregroundStyle(.secondary)
-                        .lineLimit(rows[index].lineLimit)
-                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
         .padding(.horizontal, 6)
     }
 
-    private var detailRows: [(text: String, lineLimit: Int)] {
+    private var detailRows: [String] {
         switch summary.detail {
         case .command(let command):
-            return [(command, 2)]
+            return [command]
         case .loginShell:
-            return [(String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell"), 1)]
+            return [String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell")]
         case .browser(let url, let profileDisplayName, let profileIsDefault, let profileID):
             let profileName = profileIsDefault
                 ? String(localized: "dock.trust.control.defaultBrowserProfile", defaultValue: "Default browser profile")
@@ -274,13 +274,13 @@ private struct DockTrustControlSummaryRow: View {
                 profileName
             )
             guard !profileIsDefault, !profileID.isEmpty else {
-                return [(url, 1), (profileLine, 1)]
+                return [url, profileLine]
             }
             let profileIDLine = String(
                 format: String(localized: "dock.trust.control.browserProfileID", defaultValue: "Profile ID: %@"),
                 profileID
             )
-            return [(url, 1), (profileLine, 1), (profileIDLine, 1)]
+            return [url, profileLine, profileIDLine]
         }
     }
 }
