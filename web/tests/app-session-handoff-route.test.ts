@@ -141,9 +141,11 @@ describe("app session handoff", () => {
       }));
       expect(response.status).toBe(302);
       // The only security-critical property: the redirect never leaves the
-      // app origin (a same-origin literal path like /%2f%2fevil.com is fine).
+      // app origin. Some of these (e.g. "/%2f%2fevil.com") are literal
+      // same-origin paths that the handler legitimately accepts, so we assert
+      // the origin invariant per vector rather than that auth was skipped
+      // (whether getUser runs depends on platform URL parsing of "%2f").
       expect(new URL(response.headers.get("location")!).origin).toBe("https://cmux.test");
     }
-    expect(getUser).not.toHaveBeenCalled();
   });
 });
