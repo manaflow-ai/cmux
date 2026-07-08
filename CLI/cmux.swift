@@ -4140,7 +4140,7 @@ struct CMUXCLI {
                 print("attach:   cmux vm ssh \(vmId)")
                 print("inspect:  cmux vm tools \(vmId)")
 
-            case "env": try runVMEnvCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
+            case "onboard", "env": try runVMEnvFamilyCommand(subcommand: sub, commandArgs: rest, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
             case "promote-template":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux vm promote-template <id>")
@@ -4156,7 +4156,7 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|env|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|onboard|env|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
 
                     Common commands:
                       cmux vm ls
