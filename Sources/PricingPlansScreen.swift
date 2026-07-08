@@ -89,7 +89,7 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    private static func presentBrowserSplit(url: URL, transparentBackground: Bool) {
+    static func presentBrowserSplit(url: URL, transparentBackground: Bool) {
         // First fallback: use the previous browser split behavior.
         if let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
            let sourcePanelId = workspace.focusedPanelId,
@@ -113,44 +113,9 @@ enum ProUpgradePresenter {
         NSWorkspace.shared.open(url)
     }
 
-    /// Opens the in-app "Welcome to cmux Pro" checklist as a chromeless web page in the
-    /// same dedicated workspace surface used for pricing, matching upgrade/pricing.
-    @MainActor
-    static func presentProWelcomeWeb() {
-        let url = decoratedAppWebURL(AuthEnvironment.appProWelcomeURL)
-        guard BrowserAvailabilitySettings.isEnabled() else {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
-        if AppDelegate.shared?.performProUpgradeWorkspaceAction(
-            title: title, url: url, debugSource: "proWelcomeChecklist") != nil {
-            return
-        }
-        presentBrowserSplit(url: url, transparentBackground: true)
-    }
-
     @MainActor
     private static func appPricingURLForCurrentAppearance() -> URL {
         decoratedAppWebURL(AuthEnvironment.appPricingURL)
-    }
-
-    @MainActor
-    private static func decoratedAppWebURL(_ base: URL) -> URL {
-        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
-        var queryItems = components?.queryItems ?? []
-        queryItems.removeAll { $0.name == "appearance" }
-        queryItems.removeAll { $0.name == "background" }
-        queryItems.removeAll { $0.name == "cmux_app" }
-        queryItems.removeAll { $0.name == "cmux_scheme" }
-        let backgroundColor = GhosttyBackgroundTheme.currentColor()
-        let appearance = cmuxReadableColorScheme(for: backgroundColor) == .dark ? "dark" : "light"
-        queryItems.append(URLQueryItem(name: "appearance", value: appearance))
-        queryItems.append(URLQueryItem(name: "background", value: backgroundColor.hexString()))
-        queryItems.append(URLQueryItem(name: "cmux_app", value: "1"))
-        queryItems.append(URLQueryItem(name: "cmux_scheme", value: AuthEnvironment.callbackScheme))
-        components?.queryItems = queryItems
-        return components?.url ?? base
     }
 }
 

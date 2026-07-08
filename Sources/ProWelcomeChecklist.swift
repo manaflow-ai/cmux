@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 
 /// Presents the one-time "Welcome to cmux Pro" checklist after a user becomes
 /// Pro. The checklist is a chromeless in-app web page (`/app-pro-welcome`)
@@ -52,5 +53,44 @@ enum ProWelcomeChecklistPresenter {
             return
         }
         present()
+    }
+}
+
+extension ProUpgradePresenter {
+    /// Opens the in-app "Welcome to cmux Pro" checklist as a chromeless web page in the
+    /// same dedicated workspace surface used for pricing, matching upgrade/pricing.
+    @MainActor
+    static func presentProWelcomeWeb() {
+        let url = decoratedAppWebURL(AuthEnvironment.appProWelcomeURL)
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        let title = String(localized: "proWelcome.workspace.title", defaultValue: "Welcome to cmux Pro")
+        if AppDelegate.shared?.performProUpgradeWorkspaceAction(
+            title: title, url: url, debugSource: "proWelcomeChecklist") != nil {
+            return
+        }
+        presentBrowserSplit(url: url, transparentBackground: true)
+    }
+
+    /// Builds an app web URL (pricing or Pro welcome) decorated with the current
+    /// appearance, background color, and cmux app/scheme query parameters.
+    @MainActor
+    static func decoratedAppWebURL(_ base: URL) -> URL {
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        var queryItems = components?.queryItems ?? []
+        queryItems.removeAll { $0.name == "appearance" }
+        queryItems.removeAll { $0.name == "background" }
+        queryItems.removeAll { $0.name == "cmux_app" }
+        queryItems.removeAll { $0.name == "cmux_scheme" }
+        let backgroundColor = GhosttyBackgroundTheme.currentColor()
+        let appearance = cmuxReadableColorScheme(for: backgroundColor) == .dark ? "dark" : "light"
+        queryItems.append(URLQueryItem(name: "appearance", value: appearance))
+        queryItems.append(URLQueryItem(name: "background", value: backgroundColor.hexString()))
+        queryItems.append(URLQueryItem(name: "cmux_app", value: "1"))
+        queryItems.append(URLQueryItem(name: "cmux_scheme", value: AuthEnvironment.callbackScheme))
+        components?.queryItems = queryItems
+        return components?.url ?? base
     }
 }
