@@ -481,4 +481,30 @@ struct PerAgentSidebarStatusRowTests {
         #expect(row.value == "Reviewing PR")
         #expect(row.lifecycle == .needsInput)
     }
+
+    @Test
+    func testPanelScopedStatusValueChangeDirtiesAutosaveFingerprint() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.recordPanelStatusEntry(
+            makeEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 100)),
+            panelId: panelId
+        )
+        let runningFingerprint = manager.sessionAutosaveFingerprint()
+
+        // Value-only change: the entry count is unchanged, so a count-based
+        // fingerprint never goes dirty and the autosave keeps persisting the
+        // stale row text until an unrelated change happens to land.
+        workspace.recordPanelStatusEntry(
+            makeEntry(key: "claude_code", value: "Waiting for input", timestamp: Date(timeIntervalSince1970: 200)),
+            panelId: panelId
+        )
+        #expect(manager.sessionAutosaveFingerprint() != runningFingerprint)
+
+        let beforeLifecycleChange = manager.sessionAutosaveFingerprint()
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .needsInput)
+        #expect(manager.sessionAutosaveFingerprint() != beforeLifecycleChange)
+    }
 }
