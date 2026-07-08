@@ -8,27 +8,65 @@ import XCTest
 #endif
 
 final class HostedInspectorDockControlScriptTests: XCTestCase {
-    func testDetachedInspectorScriptRepairsBottomAndWindowButtons() {
-        let source = HostedInspectorDockControlScript(
-            allowSideDock: true,
-            detachedFromHostWindow: true
-        ).source
+    func testDetachedInspectorShowsDockTargetsAndHidesUndockButtons() throws {
+        let context = try makeDockControlContext(dockConfiguration: "detached")
+        context.evaluateScript(
+            HostedInspectorDockControlScript(
+                allowSideDock: true,
+                detachedFromHostWindow: true
+            ).source
+        )
 
-        XCTAssertTrue(source.contains("const detachedFromHostWindow = true;"))
-        XCTAssertTrue(source.contains("WI.__cmuxDetachedFromHostWindow = detachedFromHostWindow;"))
-        XCTAssertTrue(source.contains("WI._dockBottomTabBarButton"))
-        XCTAssertTrue(source.contains("WI._dockBottomNavigationItem"))
-        XCTAssertTrue(source.contains("WI._dockBottomButton"))
-        XCTAssertTrue(source.contains("WI._detachTabBarButton"))
-        XCTAssertTrue(source.contains("WI._detachNavigationItem"))
-        XCTAssertTrue(source.contains("WI._undockTabBarButton"))
-        XCTAssertTrue(source.contains("WI._undockButton"))
-        XCTAssertTrue(source.contains("const hideDockTargets = detached;"))
-        XCTAssertTrue(source.contains("hideDockTargets || disallowSideDock || dockedLeft"))
-        XCTAssertTrue(source.contains("hideDockTargets || disallowSideDock || dockedRight"))
-        XCTAssertTrue(source.contains("hideDockTargets || dockedBottom"))
-        XCTAssertFalse(source.contains("stopImmediatePropagation"))
-        XCTAssertFalse(source.contains("cmuxDevToolsDock"))
+        XCTAssertEqual(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool(), false)
+        XCTAssertEqual(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool(), false)
+        XCTAssertEqual(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool(), false)
+        XCTAssertEqual(context.evaluateScript("WI._detachTabBarButton.hidden").toBool(), true)
+        XCTAssertEqual(context.evaluateScript("WI._undockButton.hidden").toBool(), true)
+    }
+
+    func testAttachedInspectorShowsUndockAndNonCurrentDockTargets() throws {
+        let context = try makeDockControlContext(dockConfiguration: "bottom")
+        context.evaluateScript(
+            HostedInspectorDockControlScript(
+                allowSideDock: true,
+                detachedFromHostWindow: false
+            ).source
+        )
+
+        XCTAssertEqual(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool(), false)
+        XCTAssertEqual(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool(), false)
+        XCTAssertEqual(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool(), true)
+        XCTAssertEqual(context.evaluateScript("WI._detachTabBarButton.hidden").toBool(), false)
+        XCTAssertEqual(context.evaluateScript("WI._undockButton.hidden").toBool(), false)
+    }
+
+    func testSideDockDisallowedHidesSideTargetsAndRoutesToBottom() throws {
+        let context = try makeDockControlContext(dockConfiguration: "detached")
+        context.evaluateScript(
+            """
+            var bottomCount = 0;
+            var leftCount = 0;
+            var rightCount = 0;
+            WI._dockBottom = function(event) { bottomCount += 1; return "bottom"; };
+            WI._dockLeft = function(event) { leftCount += 1; return "left"; };
+            WI._dockRight = function(event) { rightCount += 1; return "right"; };
+            """
+        )
+
+        context.evaluateScript(
+            HostedInspectorDockControlScript(
+                allowSideDock: false,
+                detachedFromHostWindow: true
+            ).source
+        )
+
+        XCTAssertEqual(context.evaluateScript("WI._dockLeftTabBarButton.hidden").toBool(), true)
+        XCTAssertEqual(context.evaluateScript("WI._dockRightTabBarButton.hidden").toBool(), true)
+        XCTAssertEqual(context.evaluateScript("WI._dockBottomTabBarButton.hidden").toBool(), false)
+        XCTAssertEqual(context.evaluateScript("WI._dockLeft({}); bottomCount").toInt32(), 1)
+        XCTAssertEqual(context.evaluateScript("WI._dockRight({}); bottomCount").toInt32(), 2)
+        XCTAssertEqual(context.evaluateScript("leftCount").toInt32(), 0)
+        XCTAssertEqual(context.evaluateScript("rightCount").toInt32(), 0)
     }
 
     func testReexecutingScriptDoesNotWrapMissingDockMethod() throws {
@@ -85,5 +123,35 @@ final class HostedInspectorDockControlScriptTests: XCTestCase {
         XCTAssertEqual(context.evaluateScript("typeof WI.__cmuxOriginalDockLeft").toString(), "undefined")
         XCTAssertEqual(context.evaluateScript("WI._dockRight({}); rightCount").toInt32(), 1)
         XCTAssertEqual(context.evaluateScript("updateCount").toInt32(), 2)
+    }
+
+    private func makeDockControlContext(dockConfiguration: String) throws -> JSContext {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(
+            """
+            var updateCount = 0;
+            var WI = {
+                DockConfiguration: {
+                    Left: "left",
+                    Right: "right",
+                    Bottom: "bottom",
+                    Detached: "detached",
+                    Undocked: "undocked"
+                },
+                dockConfiguration: "\(dockConfiguration)",
+                _dockBottomTabBarButton: { element: { style: {} } },
+                _dockBottomNavigationItem: { element: { style: {} } },
+                _dockBottomButton: { element: { style: {} } },
+                _dockLeftTabBarButton: { element: { style: {} } },
+                _dockRightTabBarButton: { element: { style: {} } },
+                _detachTabBarButton: { element: { style: {} } },
+                _detachNavigationItem: { element: { style: {} } },
+                _undockTabBarButton: { element: { style: {} } },
+                _undockButton: { element: { style: {} } },
+                _updateDockNavigationItems: function() { updateCount += 1; }
+            };
+            """
+        )
+        return context
     }
 }

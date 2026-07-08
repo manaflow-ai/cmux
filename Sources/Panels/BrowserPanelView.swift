@@ -588,8 +588,7 @@ struct BrowserPanelView: View {
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
         hasVisibleOmnibarSuggestions &&
-            panel.shouldRenderWebView &&
-            !panel.shouldUseLocalInlineDeveloperToolsHosting()
+            panel.shouldRenderWebView
     }
 
     private var shouldRenderOmnibarSuggestionsInSwiftUI: Bool {
@@ -964,13 +963,6 @@ struct BrowserPanelView: View {
             reason: effectiveVisibility ? "view.visible" : "view.hidden"
         )
         if visibleInUI {
-            panel.cancelPendingDeveloperToolsVisibilityLossCheck()
-            return
-        }
-        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
-            // Workspace switches keep the attached inspector alive off-screen.
-            // Treating that hide as a manual X-close can clear the restore intent
-            // before the original local-inline host becomes visible again.
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
         }
@@ -1803,10 +1795,7 @@ struct BrowserPanelView: View {
         // Canvas-hosted panes force inline hosting: window-portal positioning
         // visibly trails the pane during canvas pans (out-of-process WebKit
         // compositing), and portal content cannot scale with magnification.
-        let useLocalInlineDeveloperToolsHosting =
-            (panel.shouldUseLocalInlineDeveloperToolsHosting() &&
-             isCurrentPaneOwner) ||
-            canvasInlineBrowserHosting
+        let useLocalInlineDeveloperToolsHosting = canvasInlineBrowserHosting
 
         return Group {
             if panel.shouldRenderWebView {
@@ -7532,22 +7521,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
-        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
-            host.clearStaleHostedInspectorOwnershipState()
-            host.releaseHostedWebViewConstraints()
-            let hostId = ObjectIdentifier(host)
-            if panel.releasePortalHostIfOwned(
-                hostId: hostId,
-                reason: "windowPortalSuppressedForLocalInlineHosting"
-            ) {
-                BrowserWindowPortalRegistry.discard(
-                    webView: webView,
-                    source: "viewStateChanged.windowPortalSuppressedForLocalInlineHosting",
-                    preserveCurrentSuperview: true
-                )
-            }
-            return false
-        }
         host.prepareForWindowPortalHosting()
         host.setLocalInlineSlotHidden(true)
         host.releaseHostedWebViewConstraints()

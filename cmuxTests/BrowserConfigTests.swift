@@ -2957,6 +2957,15 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private final class WKInspectorProbeWebView: WKWebView {
+        private(set) var evaluatedJavaScript: [String] = []
+
+        @MainActor override func evaluateJavaScript(
+            _ javaScriptString: String,
+            completionHandler: (@MainActor @Sendable (Any?, (any Error)?) -> Void)? = nil
+        ) {
+            evaluatedJavaScript.append(javaScriptString)
+            completionHandler?(nil, nil)
+        }
     }
 
     private final class WKTransferWrapperView: NSView {
@@ -3338,6 +3347,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
 
         inspectorWindow.close()
+        frontendWebView.removeFromSuperview()
+        frontendWebView.frame = attachedInspectorView.bounds
+        attachedInspectorView.addSubview(frontendWebView)
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3359,6 +3371,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertTrue(
+            frontendWebView.evaluatedJavaScript.joined(separator: "\n").contains("const detachedFromHostWindow = false;"),
+            "Adopting a WebKit-initiated redock must re-run dock-control normalization in attached mode"
+        )
     }
 
     func testDetachedInspectorCloseButtonActionClosesWindowWithoutReenteringInspectorClose() {
@@ -4315,31 +4331,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.isDeveloperToolsVisible())
     }
 
-    func testTransientHideAttachmentPreserveStaysDisabledForDetachedDeveloperTools() {
-        let (panel, _) = makePanelWithInspector()
-        defer { closeBrowserPanel(panel) }
-
-        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
-        XCTAssertTrue(panel.showDeveloperTools())
-        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
-        XCTAssertTrue(panel.hideDeveloperTools())
-        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
-    }
-
-    func testDeveloperToolsIntentDoesNotEnableLocalInlineHosting() {
-        let (panel, _) = makePanelWithInspector()
-        defer { closeBrowserPanel(panel) }
-
-        XCTAssertFalse(panel.shouldUseLocalInlineDeveloperToolsHosting())
-        XCTAssertTrue(panel.showDeveloperTools())
-        XCTAssertFalse(
-            panel.shouldUseLocalInlineDeveloperToolsHosting(),
-            "Detached DevTools must not activate cmux's private WebKit hosted-inspector resize path"
-        )
-        XCTAssertTrue(panel.hideDeveloperTools())
-        XCTAssertFalse(panel.shouldUseLocalInlineDeveloperToolsHosting())
-    }
-
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedIndependentOfDeveloperToolsIntent() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
@@ -4388,7 +4379,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let paneId = PaneID(id: UUID())
-        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -4522,42 +4512,57 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
-    func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
+    func testPortalRepairsBottomDockedInspectorLayoutWithDirectInspectorChild() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
-        XCTAssertTrue(panel.showDeveloperTools())
-
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
-        panel.webView.frame = NSRect(x: 0, y: 0, width: 120, height: host.bounds.height)
-        host.addSubview(panel.webView)
-
-        let inspectorContainer = NSView(
-            frame: NSRect(x: 120, y: 0, width: host.bounds.width - 120, height: host.bounds.height)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
-        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
-        inspectorView.autoresizingMask = [.width, .height]
-        inspectorContainer.addSubview(inspectorView)
-        host.addSubview(inspectorContainer)
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
 
-        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
-    }
+        let anchor = NSView(frame: contentView.bounds)
+        anchor.autoresizingMask = [.width, .height]
+        contentView.addSubview(anchor)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
 
-    func testTransientHideAttachmentPreserveStaysDisabledForBottomDockedInspectorLayout() {
-        let (panel, _) = makePanelWithInspector()
-        defer { closeBrowserPanel(panel) }
-        XCTAssertTrue(panel.showDeveloperTools())
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        guard let slot = panel.webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected portal slot")
+            return
+        }
 
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
-        panel.webView.frame = NSRect(x: 0, y: 80, width: host.bounds.width, height: host.bounds.height - 80)
-        host.addSubview(panel.webView)
+        let inspectorHeight: CGFloat = 168
+        let pageHeight = slot.bounds.height - inspectorHeight
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: slot.bounds.width, height: inspectorHeight)
+        )
+        inspectorView.autoresizingMask = [.width]
+        slot.addSubview(inspectorView, positioned: .below, relativeTo: panel.webView)
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: slot.bounds.maxY,
+            width: slot.bounds.width,
+            height: pageHeight
+        )
 
-        let inspectorContainer = NSView(frame: NSRect(x: 0, y: 0, width: host.bounds.width, height: 80))
-        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
-        inspectorView.autoresizingMask = [.width, .height]
-        inspectorContainer.addSubview(inspectorView)
-        host.addSubview(inspectorContainer)
+        BrowserWindowPortalRegistry.refresh(webView: panel.webView, reason: "test.bottomDockDirectInspector")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertTrue(inspectorView.superview === slot)
+        XCTAssertEqual(panel.webView.frame.minX, 0, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.minY, inspectorHeight, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.width, slot.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.height, pageHeight, accuracy: 0.5)
     }
 
     func testOffWindowReplacementLocalHostDoesNotStealVisibleDevToolsWebView() {

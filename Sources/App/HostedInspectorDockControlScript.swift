@@ -52,14 +52,13 @@ struct HostedInspectorDockControlScript {
                 const detached = WI.__cmuxDetachedFromHostWindow ||
                     dockMatches(dockConfiguration.Detached, "detached") ||
                     dockMatches(dockConfiguration.Undocked, "undocked");
-                const hideDockTargets = detached;
-                updateButton(WI._dockLeftTabBarButton, hideDockTargets || disallowSideDock || dockedLeft);
-                updateButton(WI._dockRightTabBarButton, hideDockTargets || disallowSideDock || dockedRight);
+                updateButton(WI._dockLeftTabBarButton, disallowSideDock || (!detached && dockedLeft));
+                updateButton(WI._dockRightTabBarButton, disallowSideDock || (!detached && dockedRight));
                 updateButtons([
                     WI._dockBottomTabBarButton,
                     WI._dockBottomNavigationItem,
                     WI._dockBottomButton,
-                ], hideDockTargets || dockedBottom);
+                ], !detached && dockedBottom);
                 updateButtons([
                     WI._detachTabBarButton,
                     WI._detachNavigationItem,
