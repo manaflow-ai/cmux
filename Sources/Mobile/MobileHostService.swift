@@ -1398,6 +1398,8 @@ final class MobileHostService {
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value
             )
+        case "workspace.action", "workspace.close":
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.group.action":
             return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "workspace.group.collapse", "workspace.group.expand":
