@@ -1,7 +1,11 @@
 import CmuxSidebar
 import XCTest
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
 @testable import cmux
+#endif
 
 /// Per-pane agent status rows (sidebar): several agents in one workspace must
 /// each keep their own row instead of collapsing into one last-write-wins
