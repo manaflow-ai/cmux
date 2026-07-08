@@ -2096,8 +2096,11 @@ final class CmuxConfigStore: ObservableObject {
         _ button: CmuxSurfaceTabBarButton,
         actions: [String: CmuxResolvedConfigAction]
     ) throws -> ResolvedSurfaceTabBarButtonEntry {
+        let resolvedMenu = try button.resolvedMenu(actions: actions, codingPath: [])
         guard case .actionReference(let identifier) = button.action else {
-            return ResolvedSurfaceTabBarButtonEntry(button: button, terminalCommandSourcePath: nil)
+            var resolvedButton = button
+            resolvedButton.menu = resolvedMenu
+            return ResolvedSurfaceTabBarButtonEntry(button: resolvedButton, terminalCommandSourcePath: nil)
         }
 
         let resolvedIdentifier = canonicalActionID(identifier)
@@ -2108,6 +2111,7 @@ final class CmuxConfigStore: ObservableObject {
                 icon: button.icon ?? entry.icon,
                 tooltip: button.tooltip ?? entry.tooltip ?? entry.title,
                 action: entry.action,
+                menu: resolvedMenu,
                 confirm: button.confirm ?? entry.confirm,
                 terminalCommandTarget: button.terminalCommandTarget ?? entry.terminalCommandTarget,
                 actionSourcePath: entry.actionSourcePath,
@@ -2127,6 +2131,7 @@ final class CmuxConfigStore: ObservableObject {
                     icon: button.icon,
                     tooltip: button.tooltip,
                     action: .builtIn(builtIn),
+                    menu: resolvedMenu,
                     confirm: button.confirm,
                     terminalCommandTarget: button.terminalCommandTarget
                 ),

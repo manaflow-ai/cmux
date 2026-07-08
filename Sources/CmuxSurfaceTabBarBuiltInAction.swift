@@ -102,7 +102,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .splitDown:
             return "square.split.1x2"
         case .more:
-            return "ellipsis.circle"
+            return "ellipsis.vertical"
         case .rightSidebarFiles:
             return "folder.fill"
         case .rightSidebarNotes:

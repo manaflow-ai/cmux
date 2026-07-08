@@ -347,7 +347,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
         )
     }
 
-    private func resolvedMenu(
+    func resolvedMenu(
         actions: [String: CmuxResolvedConfigAction],
         codingPath: [CodingKey]
     ) throws -> [CmuxSurfaceTabBarMenuItem]? {
