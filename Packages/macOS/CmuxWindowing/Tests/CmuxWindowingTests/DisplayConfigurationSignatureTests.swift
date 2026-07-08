@@ -1,9 +1,10 @@
 import CoreGraphics
-import XCTest
+import Testing
 
 @testable import CmuxWindowing
 
-final class DisplayConfigurationSignatureTests: XCTestCase {
+@Suite
+struct DisplayConfigurationSignatureTests {
     private func display(
         _ stableID: String?,
         frame: CGRect,
@@ -22,18 +23,20 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
 
     // MARK: order independence
 
-    func testSignatureIsOrderIndependent() {
+    @Test
+    func signatureIsOrderIndependent() {
         let a = display("uuid:A", frame: builtIn)
         let b = display("uuid:B", frame: externalAbove)
         let s1 = [a, b].displayConfigurationSignature()
         let s2 = [b, a].displayConfigurationSignature()
-        XCTAssertNotNil(s1)
-        XCTAssertEqual(s1, s2)
+        #expect(s1 != nil)
+        #expect(s1 == s2)
     }
 
     // MARK: visibleFrame excluded, frame included
 
-    func testVisibleFrameChangeDoesNotChangeSignature() {
+    @Test
+    func visibleFrameChangeDoesNotChangeSignature() {
         // Same physical display, Dock shown vs hidden → different visibleFrame,
         // identical frame. Signature must be stable.
         let dockHidden = display("uuid:A", frame: builtIn, visibleFrame: builtIn)
@@ -42,85 +45,83 @@ final class DisplayConfigurationSignatureTests: XCTestCase {
             frame: builtIn,
             visibleFrame: CGRect(x: 0, y: 70, width: 1_512, height: 912)
         )
-        XCTAssertEqual(
-            [dockHidden].displayConfigurationSignature(),
-            [dockShown].displayConfigurationSignature()
-        )
+        #expect([dockHidden].displayConfigurationSignature() == [dockShown].displayConfigurationSignature())
     }
 
-    func testResolutionChangeChangesSignature() {
+    @Test
+    func resolutionChangeChangesSignature() {
         let hiRes = display("uuid:A", frame: CGRect(x: 0, y: 0, width: 3_840, height: 2_160))
         let loRes = display("uuid:A", frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080))
-        XCTAssertNotEqual(
-            [hiRes].displayConfigurationSignature(),
-            [loRes].displayConfigurationSignature()
-        )
+        #expect([hiRes].displayConfigurationSignature() != [loRes].displayConfigurationSignature())
     }
 
     // MARK: identical-panel disambiguation by position
 
-    func testIdenticalPanelsAreDisambiguatedByPosition() {
+    @Test
+    func identicalPanelsAreDisambiguatedByPosition() throws {
         // Two identical-EDID monitors share a UUID; only arrangement origin
         // distinguishes them. The two-monitor signature must differ from a
         // single monitor, and left/right layout must be encoded.
         let left = display("uuid:SAME", frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080))
         let right = display("uuid:SAME", frame: CGRect(x: 1_920, y: 0, width: 1_920, height: 1_080))
         let sig = [left, right].displayConfigurationSignature()
-        XCTAssertNotNil(sig)
+        let signature = try #require(sig)
         // Distinct from a single monitor of that model.
-        XCTAssertNotEqual(sig, [left].displayConfigurationSignature())
+        #expect(signature != [left].displayConfigurationSignature())
         // Both positions are represented.
-        XCTAssertTrue(sig!.contains("0,0"))
-        XCTAssertTrue(sig!.contains("1920,0"))
+        #expect(signature.contains("0,0"))
+        #expect(signature.contains("1920,0"))
     }
 
     // MARK: mirror distinctness
 
-    func testMirrorSignatureNeverCollidesWithLaptopOnly() {
+    @Test
+    func mirrorSignatureNeverCollidesWithLaptopOnly() {
         let laptop = display("uuid:A", frame: builtIn)
         let plain = [laptop].displayConfigurationSignature(isMirrored: false)
         let mirrored = [laptop].displayConfigurationSignature(isMirrored: true)
-        XCTAssertNotNil(plain)
-        XCTAssertNotNil(mirrored)
-        XCTAssertNotEqual(plain, mirrored)
+        #expect(plain != nil)
+        #expect(mirrored != nil)
+        #expect(plain != mirrored)
     }
 
     // MARK: refuse to key when no stable identity
 
-    func testNoStableIdentityYieldsNilSignature() {
+    @Test
+    func noStableIdentityYieldsNilSignature() {
         let unkeyed = display(nil, frame: builtIn)
-        XCTAssertNil([unkeyed].displayConfigurationSignature())
-        XCTAssertNil([].displayConfigurationSignature())
+        #expect([unkeyed].displayConfigurationSignature() == nil)
+        #expect([].displayConfigurationSignature() == nil)
     }
 
-    func testPartialStableIdentityYieldsNilSignature() {
+    @Test
+    func partialStableIdentityYieldsNilSignature() {
         let keyed = display("uuid:A", frame: builtIn)
         let unkeyed = display(nil, frame: externalAbove)
-        XCTAssertNil([keyed, unkeyed].displayConfigurationSignature())
-        XCTAssertNotNil([keyed].displayConfigurationSignature())
+        #expect([keyed, unkeyed].displayConfigurationSignature() == nil)
+        #expect([keyed].displayConfigurationSignature() != nil)
     }
 
     // MARK: degenerate frames excluded
 
-    func testDegenerateFrameIsExcluded() {
+    @Test
+    func degenerateFrameIsExcluded() {
         let ramping = display("uuid:RAMP", frame: CGRect(x: 0, y: 0, width: 0, height: 0))
-        XCTAssertNil([ramping].displayConfigurationSignature())
+        #expect([ramping].displayConfigurationSignature() == nil)
 
         let nonFinite = display(
             "uuid:NAN",
             frame: CGRect(x: CGFloat.nan, y: 0, width: 1_920, height: 1_080)
         )
-        XCTAssertNil([nonFinite].displayConfigurationSignature())
+        #expect([nonFinite].displayConfigurationSignature() == nil)
     }
 
     // MARK: sub-pixel jitter stability
 
-    func testSubPixelJitterDoesNotChangeSignature() {
+    @Test
+    func subPixelJitterDoesNotChangeSignature() {
         let a = display("uuid:A", frame: CGRect(x: 0, y: 0, width: 1_512.0, height: 982.0))
         let b = display("uuid:A", frame: CGRect(x: 0.3, y: -0.2, width: 1_511.6, height: 982.4))
-        XCTAssertEqual(
-            [a].displayConfigurationSignature(),
-            [b].displayConfigurationSignature()
-        )
+        #expect([a].displayConfigurationSignature() == [b].displayConfigurationSignature())
     }
 }

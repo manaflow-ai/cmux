@@ -18,6 +18,7 @@ import SwiftUI
 import Bonsplit
 import CMUXAgentLaunch
 import CoreServices
+import CoreGraphics
 import UserNotifications
 import Sentry
 import WebKit
@@ -1107,13 +1108,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
-    var mainWindowFrameReconcileTask: Task<Void, Never>?
+    static let screenChangeReconcileNotification = Notification.Name("com.cmuxterm.app.screenChangeReconcile")
+    static let displayReconfigurationNotification = Notification.Name("com.cmuxterm.app.displayReconfiguration")
+    static let screenChangeReconcileRetryLimit = 3
     /// Per-window LRU ring mirrored from the session snapshot.
-    var windowConfigFrames: [UUID: [SessionConfigFrameEntry]] = [:]
+    var windowConfigFrames: [UUID: SessionConfigFrameRing] = [:]
     /// Display signature last applied by a restore/reconcile pass.
     var lastAppliedConfigurationSignature: String?
-    /// True while display-change notifications are settling before reconcile.
-    var isSettlingScreenChange = false
+    /// True after a reconcile pass observed displays without a stable signature.
+    var didObserveUnknownDisplayConfiguration = false
+    /// Remaining idle retries after an empty or unstable screen list.
+    var screenChangeReconcileRetryBudget = 0
+    /// True while screen-change frames are blocked from per-config capture.
+    var isScreenChangeCaptureSuppressed = false
+    /// Latest valid signature observed while screen-change capture is blocked.
+    var screenChangeCaptureSuppressionSignature: String?
+    var isDisplayReconfigurationActive = false
+    var didRegisterDisplayReconfigurationCallback = false
     private var didDisableSuddenTermination = false
     /// Owns the per-window command-palette state.
     let commandPaletteWindowStore = CommandPaletteWindowStore()
@@ -2029,6 +2040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
+        unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
     }
@@ -3344,7 +3356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "session.restore.start windows=\(startupSnapshot?.windows.count ?? 0) " +
-                    "primaryFrame={\(debugSessionRectDescription(primaryWindowSnapshot.frame))} " +
+                    "primaryFrame={\(sessionRectLogDescription(primaryWindowSnapshot.frame))} " +
                     "primaryDisplay={\(debugSessionDisplayDescription(primaryWindowSnapshot.display))}"
             )
 #endif
@@ -3377,7 +3389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for (index, windowSnapshot) in additionalWindows.enumerated() {
             cmuxDebugLog(
                 "session.restore.enqueueAdditional idx=\(index + 1) " +
-                    "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
+                    "frame={\(sessionRectLogDescription(windowSnapshot.frame))} " +
                     "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
             )
         }
@@ -3399,12 +3411,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
-        if isSettlingScreenChange {
+        if isScreenChangeCaptureSuppressed {
             // A display change arrived mid-restore and its reconcile pass was
-            // skipped (or is still pending). Re-run it now that restore is done
+            // skipped. Queue it now that restore is done
             // so remembered frames for the new configuration are applied and
             // `lastAppliedConfigurationSignature` catches up.
-            scheduleMainWindowFrameReconcile()
+            scheduleScreenChangeReconcileWhenIdle()
         }
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
@@ -3477,7 +3489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxDebugLog(
             "session.restore.apply window=\(context.windowId.uuidString.prefix(8)) " +
                 "liveWin=\(window?.windowNumber ?? -1) " +
-                "snapshotFrame={\(debugSessionRectDescription(snapshot.frame))} " +
+                "snapshotFrame={\(sessionRectLogDescription(snapshot.frame))} " +
                 "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
         )
 #endif
@@ -3485,7 +3497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Seed the in-memory per-config ring from the restored snapshot so the
         // window can return to remembered frames on later configuration switches.
         if let configFrames = snapshot.configFrames {
-            windowConfigFrames[context.windowId] = SessionConfigFramePolicy.sanitized(configFrames)
+            windowConfigFrames[context.windowId] = SessionConfigFrameRing(entries: configFrames)
         }
         if let originalWindowId = snapshot.windowId,
            originalWindowId != context.windowId {
@@ -3503,7 +3515,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "session.restore.frameApplied window=\(context.windowId.uuidString.prefix(8)) " +
-                    "applied={\(debugNSRectDescription(window.frame))}"
+                    "applied={\(nsRectLogDescription(window.frame))}"
             )
 #endif
         }
@@ -3663,7 +3675,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let stableID = snapshot.stableID, !stableID.isEmpty {
             let matches = displays.filter { $0.stableID == stableID }
             if matches.count == 1 { return matches[0] }
-            return displayMatchingSnapshotGeometry(for: snapshot, in: matches)
+            if let geometryMatch = displayMatchingSnapshotGeometry(for: snapshot, in: matches) {
+                return geometryMatch
+            }
+            let unidentifiedDisplays = displays.filter { ($0.stableID ?? "").isEmpty }
+            return displayMatchingSnapshotGeometry(for: snapshot, in: unidentifiedDisplays)
         }
         if let displayID = snapshot.displayID,
            let exact = displays.first(where: { $0.displayID == displayID }) {
@@ -3835,12 +3851,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
 
-        // Re-clamp main windows whose titlebar was stranded off-screen by a
-        // display reconfiguration (monitor connect/disconnect, resolution change,
-        // lid open/close). Non-movable windows are skipped by AppKit's automatic
-        // constraining, so `CmuxMainWindow.constrainFrameRect` never fires on this
-        // path — this observer is the reactive replacement. See
-        // `reconciledFrameAfterScreenChange`.
+        registerDisplayReconfigurationCallbackIfNeeded()
+        let displayReconfigurationObserver = NotificationCenter.default.addObserver(
+            forName: Self.displayReconfigurationNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            self.handleDisplayReconfiguration(
+                isBeginning: note.userInfo?["isBeginning"] as? Bool ?? false
+            )
+        }
+        lifecycleSnapshotObservers.append(displayReconfigurationObserver)
+
+        // Re-clamp main windows skipped by AppKit's automatic constraining.
+        let screenReconcileObserver = NotificationCenter.default.addObserver(
+            forName: Self.screenChangeReconcileNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.reconcileMainWindowFramesAfterScreenChange()
+        }
+        lifecycleSnapshotObservers.append(screenReconcileObserver)
+
         let screenParamsObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -3853,17 +3887,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
             )
 #endif
-            // NOTE: no capture here. `didChangeScreenParameters` fires AFTER
-            // `NSScreen.screens` already reflects the new configuration, so a
-            // capture at this point would store the outgoing window frame
-            // under the INCOMING signature — corrupting the slot we are about
-            // to restore from (the exact #2135 failure). The per-config ring
-            // is instead populated only while a configuration is stable (the
-            // session-autosave tick and window close), which are correctly
-            // keyed. Arm settling so those stable-time captures are suppressed
-            // until this reconfiguration settles.
-            self.beginSettlingScreenChange()
-            self.scheduleMainWindowFrameReconcile()
+            // No capture here: AppKit already reflects the new configuration,
+            // so this would write the outgoing frame under the incoming slot.
+            self.beginScreenChangeCaptureSuppression()
+            if !self.isDisplayReconfigurationActive {
+                self.scheduleScreenChangeReconcileWhenIdle()
+            }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
     }
@@ -4510,7 +4539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                 width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
             ),
-            configFrames: windowConfigFrames[context.windowId]
+            configFrames: windowConfigFrames[context.windowId]?.entries
         )
     }
 
@@ -4528,20 +4557,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let selectedWorkspace = windowSnapshot.tabManager.selectedWorkspaceIndex.map(String.init) ?? "nil"
             cmuxDebugLog(
                 "session.save.window idx=\(index) " +
-                    "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
+                    "frame={\(sessionRectLogDescription(windowSnapshot.frame))} " +
                     "display={\(debugSessionDisplayDescription(windowSnapshot.display))} " +
                     "workspaces=\(workspaceCount) selected=\(selectedWorkspace)"
             )
         }
     }
 
-    func debugSessionRectDescription(_ rect: SessionRectSnapshot?) -> String {
+    func sessionRectLogDescription(_ rect: SessionRectSnapshot?) -> String {
         guard let rect else { return "nil" }
         return "x=\(debugSessionNumber(rect.x)) y=\(debugSessionNumber(rect.y)) " +
             "w=\(debugSessionNumber(rect.width)) h=\(debugSessionNumber(rect.height))"
     }
 
-    func debugNSRectDescription(_ rect: NSRect?) -> String {
+    func nsRectLogDescription(_ rect: NSRect?) -> String {
         guard let rect else { return "nil" }
         return "x=\(debugSessionNumber(Double(rect.origin.x))) " +
             "y=\(debugSessionNumber(Double(rect.origin.y))) " +
@@ -4553,8 +4582,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let display else { return "nil" }
         let displayIdText = display.displayID.map(String.init) ?? "nil"
         return "id=\(displayIdText) " +
-            "frame={\(debugSessionRectDescription(display.frame))} " +
-            "visible={\(debugSessionRectDescription(display.visibleFrame))}"
+            "frame={\(sessionRectLogDescription(display.frame))} " +
+            "visible={\(sessionRectLogDescription(display.visibleFrame))}"
     }
 
     private func debugSessionNumber(_ value: Double) -> String {
@@ -8378,7 +8407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
             )
             if let configFrames = sessionWindowSnapshot.configFrames {
-                windowConfigFrames[windowId] = SessionConfigFramePolicy.sanitized(configFrames)
+                windowConfigFrames[windowId] = SessionConfigFrameRing(entries: configFrames)
             }
             if let originalWindowId = sessionWindowSnapshot.windowId,
                originalWindowId != windowId {
@@ -8622,7 +8651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "mainWindow.initialFrameApplied source=\(restoredFrame == nil ? "persistedGeometry" : "sessionSnapshot") window=\(windowId.uuidString.prefix(8)) " +
-                    "applied={\(debugNSRectDescription(window.frame))}"
+                    "applied={\(nsRectLogDescription(window.frame))}"
             )
 #endif
         }

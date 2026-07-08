@@ -1,6 +1,6 @@
 import AppKit
 import CmuxWindowing
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,13 +8,10 @@ import XCTest
 @testable import cmux
 #endif
 
-/// Round-trip coverage for per-monitor window-geometry memory (issue #2135):
-/// place a window on an external monitor, disconnect (window is remembered under
-/// the built-in-only signature's *counterpart* — i.e. the disconnect must NOT
-/// mutate the external slot), reconnect, and the remembered external frame is
-/// restored. Everything here exercises the pure signature + resolvedWindowFrame
-/// path, so it runs with no live displays.
-final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
+/// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
+@Suite(.serialized)
+@MainActor
+struct AppDelegateDisplayConfigRestoreTests {
     // MARK: fixtures
 
     private let builtInFrame = CGRect(x: 0, y: 0, width: 1_512, height: 982)
@@ -61,7 +58,10 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
         )
     }
 
-    @MainActor
+    private func testAppDelegate() -> AppDelegate {
+        AppDelegate.shared ?? AppDelegate()
+    }
+
     private func closeCreatedWindow(_ appDelegate: AppDelegate, windowId: UUID) {
         guard let window = appDelegate.mainWindow(for: windowId) else { return }
 #if DEBUG
@@ -76,17 +76,17 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
 
     // MARK: the headline round-trip
 
-    func testWindowFrameIsRestoredToExternalMonitorAfterReconnect() throws {
+    @Test
+    func windowFrameIsRestoredToExternalMonitorAfterReconnect() throws {
         // 1. Docked: built-in + external. User's window lives on the external.
-        let dockedSignature = try XCTUnwrap(
+        let dockedSignature = try #require(
             [builtIn, external].displayConfigurationSignature()
         )
         let externalWindowFrame = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
 
         // Remember that frame under the docked signature.
-        var ring = SessionConfigFramePolicy.merged(
-            [],
-            upserting: SessionConfigFrameEntry(
+        var ring = SessionConfigFrameRing().upserting(
+            SessionConfigFrameEntry(
                 signature: dockedSignature,
                 frame: SessionRectSnapshot(externalWindowFrame),
                 display: SessionDisplaySnapshot(
@@ -102,14 +102,13 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
         // 2. Disconnect: only the built-in remains. A capture at this point is
         //    keyed to the LAPTOP-ONLY signature, which differs from the docked
         //    one — so it must NOT overwrite the external slot (anti-#2135).
-        let laptopSignature = try XCTUnwrap(
+        let laptopSignature = try #require(
             [builtIn].displayConfigurationSignature()
         )
-        XCTAssertNotEqual(dockedSignature, laptopSignature)
+        #expect(dockedSignature != laptopSignature)
         // Simulate the built-in capture landing in its own slot.
-        ring = SessionConfigFramePolicy.merged(
-            ring,
-            upserting: SessionConfigFrameEntry(
+        ring = ring.upserting(
+            SessionConfigFrameEntry(
                 signature: laptopSignature,
                 frame: SessionRectSnapshot(CGRect(x: 256, y: 122, width: 1_000, height: 700)),
                 display: SessionDisplaySnapshot(
@@ -124,10 +123,8 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
 
         // The external slot is intact and unchanged (the disconnect did not
         // corrupt it — this is the exact #2135 failure being guarded).
-        let externalEntry = try XCTUnwrap(
-            SessionConfigFramePolicy.entry(for: dockedSignature, in: ring)
-        )
-        XCTAssertEqual(externalEntry.frame.cgRect, externalWindowFrame)
+        let externalEntry = try #require(ring.entry(for: dockedSignature))
+        #expect(externalEntry.frame.cgRect == externalWindowFrame)
 
         // 3. Reconnect: signature returns to docked. Restore resolves the
         //    remembered external frame back onto the external monitor.
@@ -137,12 +134,13 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             availableDisplays: [builtIn, external],
             fallbackDisplay: builtIn
         )
-        let resolved = try XCTUnwrap(restored)
-        XCTAssertEqual(resolved, externalWindowFrame, "remembered external frame should round-trip exactly")
-        XCTAssertTrue(externalVisible.intersects(resolved), "restored frame lands on the external monitor")
+        let resolved = try #require(restored)
+        #expect(resolved == externalWindowFrame, "remembered external frame should round-trip exactly")
+        #expect(externalVisible.intersects(resolved), "restored frame lands on the external monitor")
     }
 
-    func testStableDisplayIdentityWinsWhenDisplayIDIsReassigned() throws {
+    @Test
+    func stableDisplayIdentityWinsWhenDisplayIDIsReassigned() throws {
         let savedFrame = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
         let savedDisplay = SessionDisplaySnapshot(
             displayID: 2,
@@ -163,7 +161,7 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             displayID: 9
         )
 
-        let restored = try XCTUnwrap(
+        let restored = try #require(
             AppDelegate.resolvedWindowFrame(
                 from: SessionRectSnapshot(savedFrame),
                 display: savedDisplay,
@@ -172,12 +170,42 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(restored, savedFrame)
-        XCTAssertTrue(externalVisible.intersects(restored))
-        XCTAssertFalse(builtInVisible.intersects(restored))
+        #expect(restored == savedFrame)
+        #expect(externalVisible.intersects(restored))
+        #expect(!builtInVisible.intersects(restored))
     }
 
-    func testDuplicateStableDisplayIdentityUsesSavedGeometryTieBreak() throws {
+    @Test
+    func savedGeometryFallbackIsUsedWhenLiveStableIdentityIsMissing() throws {
+        let savedFrame = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            stableID: "uuid:EXTERNAL",
+            frame: SessionRectSnapshot(externalFrame),
+            visibleFrame: SessionRectSnapshot(externalVisible)
+        )
+        let liveExternalWithoutStableID = AppDelegate.SessionDisplayGeometry(
+            displayID: 99,
+            stableID: nil,
+            frame: externalFrame,
+            visibleFrame: externalVisible
+        )
+
+        let restored = try #require(
+            AppDelegate.resolvedWindowFrame(
+                from: SessionRectSnapshot(savedFrame),
+                display: savedDisplay,
+                availableDisplays: [builtIn, liveExternalWithoutStableID],
+                fallbackDisplay: builtIn
+            )
+        )
+
+        #expect(restored == savedFrame)
+        #expect(!builtInVisible.intersects(restored))
+    }
+
+    @Test
+    func duplicateStableDisplayIdentityUsesSavedGeometryTieBreak() throws {
         let leftFrame = CGRect(x: -1_920, y: 0, width: 1_920, height: 1_080)
         let rightFrame = CGRect(x: 1_512, y: 0, width: 1_920, height: 1_080)
         let left = geometry("uuid:SAME", leftFrame, leftFrame, displayID: 7)
@@ -190,7 +218,7 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             visibleFrame: SessionRectSnapshot(rightFrame)
         )
 
-        let restored = try XCTUnwrap(
+        let restored = try #require(
             AppDelegate.resolvedWindowFrame(
                 from: SessionRectSnapshot(savedFrame),
                 display: savedDisplay,
@@ -199,13 +227,14 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(restored, savedFrame)
-        XCTAssertTrue(rightFrame.intersects(restored))
-        XCTAssertFalse(leftFrame.intersects(restored))
+        #expect(restored == savedFrame)
+        #expect(rightFrame.intersects(restored))
+        #expect(!leftFrame.intersects(restored))
     }
 
-    func testRestorePrefersCurrentConfigurationFrameEntry() throws {
-        let dockedSignature = try XCTUnwrap([builtIn, external].displayConfigurationSignature())
+    @Test
+    func restorePrefersCurrentConfigurationFrameEntry() throws {
+        let dockedSignature = try #require([builtIn, external].displayConfigurationSignature())
         let laptopFrame = CGRect(x: 256, y: 122, width: 900, height: 600)
         let externalFrameForDock = CGRect(x: -1_600, y: 200, width: 1_000, height: 700)
         let snapshot = emptyWindowSnapshot(
@@ -231,7 +260,7 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             ]
         )
 
-        let restored = try XCTUnwrap(
+        let restored = try #require(
             AppDelegate.resolvedWindowFrame(
                 from: snapshot,
                 currentSignature: dockedSignature,
@@ -239,7 +268,7 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
                 fallbackDisplay: builtIn
             )
         )
-        let startup = try XCTUnwrap(
+        let startup = try #require(
             AppDelegate.resolvedStartupPrimaryWindowFrame(
                 primarySnapshot: snapshot,
                 fallbackFrame: nil,
@@ -249,13 +278,13 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(restored, externalFrameForDock)
-        XCTAssertEqual(startup, externalFrameForDock)
+        #expect(restored == externalFrameForDock)
+        #expect(startup == externalFrameForDock)
     }
 
-    @MainActor
-    func testSnapshotBackedWindowCreationSeedsConfigFramesByAssignedWindowId() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
+    @Test
+    func snapshotBackedWindowCreationSeedsConfigFramesByAssignedWindowId() {
+        let appDelegate = testAppDelegate()
         let persistedWindowId = UUID()
         let assignedWindowId = UUID()
         let ring = [
@@ -282,14 +311,14 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             appDelegate.windowConfigFrames.removeValue(forKey: persistedWindowId)
         }
 
-        XCTAssertEqual(createdWindowId, assignedWindowId)
-        XCTAssertEqual(appDelegate.windowConfigFrames[createdWindowId], ring)
-        XCTAssertNil(appDelegate.windowConfigFrames[persistedWindowId])
+        #expect(createdWindowId == assignedWindowId)
+        #expect(appDelegate.windowConfigFrames[createdWindowId]?.entries == ring)
+        #expect(appDelegate.windowConfigFrames[persistedWindowId] == nil)
     }
 
-    @MainActor
-    func testSnapshotBackedWindowCreationSanitizesConfigFrameRing() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
+    @Test
+    func snapshotBackedWindowCreationSanitizesConfigFrameRing() {
+        let appDelegate = testAppDelegate()
         let assignedWindowId = UUID()
         let cap = SessionPersistencePolicy.maxConfigFramesPerWindow
         var ring: [SessionConfigFrameEntry] = (0..<(cap + 3)).map { index in
@@ -318,60 +347,80 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             appDelegate.windowConfigFrames.removeValue(forKey: createdWindowId)
         }
 
-        let stored = appDelegate.windowConfigFrames[createdWindowId] ?? []
-        XCTAssertEqual(stored.count, cap)
-        XCTAssertEqual(
-            SessionConfigFramePolicy.entry(for: "cfg\(cap + 2)", in: stored)?.frame.cgRect.minX,
-            999
-        )
-        XCTAssertNil(SessionConfigFramePolicy.entry(for: "cfg0", in: stored))
+        let stored = appDelegate.windowConfigFrames[createdWindowId] ?? SessionConfigFrameRing()
+        #expect(stored.entries.count == cap)
+        #expect(stored.entry(for: "cfg\(cap + 2)")?.frame.cgRect.minX == 999)
+        #expect(stored.entry(for: "cfg0") == nil)
     }
 
-    @MainActor
-    func testReconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
-        appDelegate.isSettlingScreenChange = true
+    @Test
+    func reconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
+        let appDelegate = testAppDelegate()
+        appDelegate.isScreenChangeCaptureSuppressed = true
         appDelegate.isApplyingSessionRestore = true
         defer {
             appDelegate.isApplyingSessionRestore = false
-            appDelegate.isSettlingScreenChange = false
+            appDelegate.isScreenChangeCaptureSuppressed = false
+            appDelegate.screenChangeCaptureSuppressionSignature = nil
+            appDelegate.screenChangeReconcileRetryBudget = 0
+            appDelegate.isDisplayReconfigurationActive = false
         }
 
         appDelegate.reconcileMainWindowFramesAfterScreenChange()
 
-        XCTAssertTrue(appDelegate.isSettlingScreenChange)
+        #expect(appDelegate.isScreenChangeCaptureSuppressed)
     }
 
-    @MainActor
-    func testSessionRestoreCompletionReschedulesArmedScreenChangeReconcile() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
+    @Test
+    func captureSuppressionOnlyReleasesAfterReconcileRecordsSignature() {
+        let appDelegate = testAppDelegate()
+        appDelegate.isScreenChangeCaptureSuppressed = true
+        appDelegate.screenChangeCaptureSuppressionSignature = nil
+        defer {
+            appDelegate.isScreenChangeCaptureSuppressed = false
+            appDelegate.screenChangeCaptureSuppressionSignature = nil
+            appDelegate.screenChangeReconcileRetryBudget = 0
+        }
+
+        #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
+        appDelegate.screenChangeCaptureSuppressionSignature = "uuid:A"
+        appDelegate.isDisplayReconfigurationActive = true
+        #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
+        appDelegate.isDisplayReconfigurationActive = false
+        #expect(appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:A"))
+        #expect(!appDelegate.shouldReleaseScreenChangeCaptureSuppression(for: "uuid:B"))
+    }
+
+    @Test
+    func sessionRestoreCompletionRunsArmedScreenChangeReconcile() throws {
+        let appDelegate = testAppDelegate()
+        try #require(!NSScreen.screens.isEmpty)
         let restoredWindowId = UUID()
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: 1_000,
             windows: [emptyWindowSnapshot(windowId: restoredWindowId)]
         )
-        appDelegate.mainWindowFrameReconcileTask?.cancel()
-        appDelegate.mainWindowFrameReconcileTask = nil
-        appDelegate.isSettlingScreenChange = true
+        appDelegate.isScreenChangeCaptureSuppressed = true
         defer {
-            appDelegate.mainWindowFrameReconcileTask?.cancel()
-            appDelegate.mainWindowFrameReconcileTask = nil
-            appDelegate.isSettlingScreenChange = false
+            appDelegate.isScreenChangeCaptureSuppressed = false
+            appDelegate.screenChangeCaptureSuppressionSignature = nil
+            appDelegate.screenChangeReconcileRetryBudget = 0
             appDelegate.isApplyingSessionRestore = false
             closeCreatedWindow(appDelegate, windowId: restoredWindowId)
         }
 
         let restored = appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false)
 
-        XCTAssertTrue(restored)
-        XCTAssertFalse(appDelegate.isApplyingSessionRestore)
-        XCTAssertNotNil(appDelegate.mainWindowFrameReconcileTask)
+        #expect(restored)
+        #expect(!appDelegate.isApplyingSessionRestore)
+        #expect(appDelegate.isScreenChangeCaptureSuppressed)
     }
 
     // MARK: LRU ring behavior
 
-    func testRingUpsertReplacesSameSignatureAndKeepsLatest() {
+    @Test
+    func ringUpsertReplacesSameSignatureAndKeepsLatest() {
         let sig = "uuid:A@0,0,1512x982"
         let first = SessionConfigFrameEntry(
             signature: sig,
@@ -385,22 +434,19 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             display: nil,
             lastUsedAt: 20
         )
-        let ring = SessionConfigFramePolicy.merged(
-            SessionConfigFramePolicy.merged([], upserting: first),
-            upserting: second
-        )
-        XCTAssertEqual(ring.count, 1)
-        XCTAssertEqual(ring.first?.frame.cgRect.origin.x, 50)
+        let ring = SessionConfigFrameRing().upserting(first).upserting(second)
+        #expect(ring.entries.count == 1)
+        #expect(ring.entries.first?.frame.cgRect.origin.x == 50)
     }
 
-    func testRingEvictsLeastRecentlyUsedAtCap() {
-        var ring: [SessionConfigFrameEntry] = []
+    @Test
+    func ringEvictsLeastRecentlyUsedAtCap() {
+        var ring = SessionConfigFrameRing()
         let cap = SessionPersistencePolicy.maxConfigFramesPerWindow
         // Insert cap+2 distinct signatures with increasing recency.
         for i in 0..<(cap + 2) {
-            ring = SessionConfigFramePolicy.merged(
-                ring,
-                upserting: SessionConfigFrameEntry(
+            ring = ring.upserting(
+                SessionConfigFrameEntry(
                     signature: "uuid:cfg\(i)",
                     frame: SessionRectSnapshot(CGRect(x: 0, y: 0, width: 800, height: 600)),
                     display: nil,
@@ -408,16 +454,17 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
                 )
             )
         }
-        XCTAssertEqual(ring.count, cap)
+        #expect(ring.entries.count == cap)
         // The two oldest (cfg0, cfg1) were evicted; the newest survives.
-        XCTAssertNil(SessionConfigFramePolicy.entry(for: "uuid:cfg0", in: ring))
-        XCTAssertNil(SessionConfigFramePolicy.entry(for: "uuid:cfg1", in: ring))
-        XCTAssertNotNil(SessionConfigFramePolicy.entry(for: "uuid:cfg\(cap + 1)", in: ring))
+        #expect(ring.entry(for: "uuid:cfg0") == nil)
+        #expect(ring.entry(for: "uuid:cfg1") == nil)
+        #expect(ring.entry(for: "uuid:cfg\(cap + 1)") != nil)
     }
 
     // MARK: remembered frame that no longer fits is re-clamped, not applied raw
 
-    func testRememberedFrameLargerThanNewDisplayIsClamped() throws {
+    @Test
+    func rememberedFrameLargerThanNewDisplayIsClamped() throws {
         // Remembered a big frame on a 4K external; reconnect to a smaller 1080p
         // display carrying the same stable id at the same origin.
         let bigFrame = CGRect(x: 100, y: 100, width: 3_200, height: 1_800)
@@ -427,7 +474,7 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             CGRect(x: 0, y: 0, width: 1_920, height: 1_055),
             displayID: 2
         )
-        let resolved = try XCTUnwrap(
+        let resolved = try #require(
             AppDelegate.resolvedWindowFrame(
                 from: SessionRectSnapshot(bigFrame),
                 // Remembered on a 4K panel — same stable id, now driving 1080p.
@@ -444,9 +491,9 @@ final class AppDelegateDisplayConfigRestoreTests: XCTestCase {
             )
         )
         // Clamped to fit inside the smaller display's visible frame.
-        XCTAssertLessThanOrEqual(resolved.maxX, smallDisplay.visibleFrame.maxX + 0.001)
-        XCTAssertLessThanOrEqual(resolved.maxY, smallDisplay.visibleFrame.maxY + 0.001)
-        XCTAssertGreaterThanOrEqual(resolved.minX, smallDisplay.visibleFrame.minX - 0.001)
-        XCTAssertGreaterThanOrEqual(resolved.minY, smallDisplay.visibleFrame.minY - 0.001)
+        #expect(resolved.maxX <= smallDisplay.visibleFrame.maxX + 0.001)
+        #expect(resolved.maxY <= smallDisplay.visibleFrame.maxY + 0.001)
+        #expect(resolved.minX >= smallDisplay.visibleFrame.minX - 0.001)
+        #expect(resolved.minY >= smallDisplay.visibleFrame.minY - 0.001)
     }
 }
