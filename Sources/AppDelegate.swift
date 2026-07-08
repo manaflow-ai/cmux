@@ -17230,6 +17230,22 @@ private extension NSWindow {
             }
             return false
         }
+        if event.cmuxIsUndoRedoCommandEquivalent {
+            if let firstResponderGhosttyView {
+                _ = firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event)
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo routed to terminal before AppKit menu")
+#endif
+                return true
+            }
+            if let firstResponderWebView {
+                _ = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo routed to browser before AppKit menu")
+#endif
+                return true
+            }
+        }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(

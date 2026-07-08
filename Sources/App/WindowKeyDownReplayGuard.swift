@@ -1,5 +1,16 @@
 import AppKit
 
+extension NSEvent {
+    var cmuxIsUndoRedoCommandEquivalent: Bool {
+        let normalizedFlags = modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return type == .keyDown
+            && (normalizedFlags == [.command] || normalizedFlags == [.command, .shift])
+            && KeyboardLayout.normalizedCharacters(for: self) == "z"
+    }
+}
+
 /// Identity of a key event currently being force-dispatched into a responder's
 /// `keyDown(with:)` by `NSWindow.cmux_performKeyEquivalent(with:)`.
 ///

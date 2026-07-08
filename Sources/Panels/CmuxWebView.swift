@@ -741,11 +741,10 @@ final class CmuxWebView: WKWebView {
             _ = super.performKeyEquivalent(with: event)
             return finish(true)
         }
-
-        if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
-            return finish(super.performKeyEquivalent(with: event))
+        let routeUndoRedoAwayFromAppKit = event.cmuxIsUndoRedoCommandEquivalent
+        if routeUndoRedoAwayFromAppKit || !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
+            return finish(super.performKeyEquivalent(with: event) || routeUndoRedoAwayFromAppKit)
         }
-
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
             return finish(true)
         }
