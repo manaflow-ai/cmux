@@ -4174,6 +4174,9 @@ struct CMUXCLI {
         case "ai-accounts":
             try runAIAccountsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "billing":
+            try runBillingCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "mobile":
             let sub = commandArgs.first?.lowercased()
             let rest = Array(commandArgs.dropFirst())
@@ -15120,6 +15123,8 @@ struct CMUXCLI {
             return Self.remotesUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
+        case "billing":
+            return Self.billingUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -35415,6 +35420,7 @@ export default CMUXSessionRestore;
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          billing <status|checkout|portal> [--json] [--url|--open]
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

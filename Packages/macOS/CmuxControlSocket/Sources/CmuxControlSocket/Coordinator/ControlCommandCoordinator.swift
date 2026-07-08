@@ -138,6 +138,12 @@ public final class ControlCommandCoordinator {
             return systemIdentify(request.params, context: context)
         case "system.tree":
             return systemTree(request.params, context: context)
+        case "billing.status":
+            return billingStatus(context: context)
+        case "billing.checkout":
+            return billingCheckout(request.params, context: context)
+        case "billing.portal":
+            return billingPortal(context: context)
         case "surface.send_text":
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
