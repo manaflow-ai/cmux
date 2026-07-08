@@ -26,7 +26,7 @@ extension MobileShellComposite {
     /// conversation from this.
     public func makeChatEventSource() -> MobileChatEventSource? {
         guard let client = chatRPCClient() else { return nil }
-        return MobileChatEventSource(client: client)
+        return MobileChatEventSource(client: client, supportsArtifacts: supportsChatArtifacts)
     }
 
     /// Lists chat-capable agent sessions on the connected Mac.

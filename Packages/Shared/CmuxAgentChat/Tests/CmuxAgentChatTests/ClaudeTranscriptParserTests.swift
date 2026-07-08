@@ -75,6 +75,48 @@ struct ClaudeTranscriptParserTests {
         #expect(result.updatedMessages.isEmpty)
     }
 
+    @Test("user clipboard image path maps to attachment before remaining prose")
+    func userClipboardAttachmentAndProse() {
+        let path = "/tmp/x/clipboard-2026-07-08-101112-89abcdef.png"
+        let result = parser.parse(
+            lines: [userLine(uuid: "u-img", content: "\(path) check this")],
+            startingSeq: 0
+        )
+        #expect(result.messages.count == 2)
+        guard case .attachment(let attachment) = result.messages[0].kind else {
+            Issue.record("expected attachment")
+            return
+        }
+        #expect(attachment.media == .image)
+        #expect(attachment.hostPath == path)
+        #expect(attachment.displayName == "clipboard-2026-07-08-101112-89abcdef.png")
+        #expect(result.messages[1].kind == .prose(ChatProse(text: "check this")))
+    }
+
+    @Test("two leading clipboard image paths emit attachments without empty prose")
+    func userClipboardAttachmentsOnly() {
+        let first = "/tmp/x/clipboard-2026-07-08-101112-89abcdef.png"
+        let second = "/tmp/x/clipboard-2026-07-08-101113-01234567.JPG"
+        let result = parser.parse(
+            lines: [userLine(uuid: "u-imgs", content: "\(first) \(second)")],
+            startingSeq: 0
+        )
+        #expect(result.messages.count == 2)
+        let attachments = result.messages.compactMap { message -> ChatAttachment? in
+            if case .attachment(let attachment) = message.kind { return attachment }
+            return nil
+        }
+        #expect(attachments.map(\.hostPath) == [first, second])
+    }
+
+    @Test("non-matching leading path stays prose")
+    func nonMatchingClipboardPathStaysProse() {
+        let text = "/tmp/x/screenshot-2026-07-08.png check this"
+        let result = parser.parse(lines: [userLine(uuid: "u-path", content: text)], startingSeq: 0)
+        #expect(result.messages.count == 1)
+        #expect(result.messages[0].kind == .prose(ChatProse(text: text)))
+    }
+
     @Test("meta, command-tag, system-reminder, and non-message lines are skipped")
     func noiseSkipped() {
         let lines = [
@@ -266,6 +308,23 @@ struct ClaudeTranscriptParserTests {
         #expect(tool.summary == "Read /repo/main.swift")
         #expect(tool.inputDetail?.contains("file_path") == true)
         #expect(tool.status == .running)
+        #expect(tool.referencedPaths == ["/repo/main.swift"])
+    }
+
+    @Test("ChatToolUse wire coding preserves optional referenced paths and decodes legacy payloads")
+    func toolReferencedPathsWireCoding() throws {
+        let coding = ChatWireCoding()
+        let tool = ChatToolUse(
+            toolName: "Read",
+            summary: "Read /repo/main.swift",
+            referencedPaths: ["/repo/main.swift"]
+        )
+        let decoded = try coding.decode(ChatToolUse.self, from: try coding.encode(tool))
+        #expect(decoded.referencedPaths == ["/repo/main.swift"])
+
+        let legacy = Data(#"{"tool_name":"Read","summary":"Read /repo/main.swift","status":"running"}"#.utf8)
+        let legacyDecoded = try coding.decode(ChatToolUse.self, from: legacy)
+        #expect(legacyDecoded.referencedPaths == nil)
     }
 
     @Test("AskUserQuestion maps to a question and its result fills the selected answer")

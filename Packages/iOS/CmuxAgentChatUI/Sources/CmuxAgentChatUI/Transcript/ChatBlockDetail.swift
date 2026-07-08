@@ -2,6 +2,7 @@ struct ChatBlockDetail: Identifiable, Equatable {
     let id: String
     let title: String
     let subtitle: String?
+    let artifactPaths: [String]
     let sections: [ChatBlockDetailSection]
 
     var copyText: String {

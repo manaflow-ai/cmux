@@ -30,6 +30,8 @@ public struct CodexTranscriptParser: Sendable {
 
     private let budget = TranscriptTextBudget()
     private let timestamps = TranscriptTimestampParser()
+    private let attachmentTokens = ChatAttachmentTokenExtractor()
+    private let referencedPaths = ChatToolReferencedPathExtractor()
 
     /// Creates a Codex transcript parser.
     public init() {}
@@ -160,6 +162,10 @@ public struct CodexTranscriptParser: Sendable {
             return text
         }
         guard !texts.isEmpty else { return }
+        if role == .user {
+            appendUserTexts(texts, seq: seq, timestamp: timestamp, into: &assembler)
+            return
+        }
         assembler.append(
             ChatMessage(
                 id: "line-\(seq)",
@@ -169,6 +175,44 @@ public struct CodexTranscriptParser: Sendable {
                 kind: .prose(ChatProse(text: budget.body(texts.joined(separator: "\n\n"))))
             )
         )
+    }
+
+    private func appendUserTexts(
+        _ texts: [String],
+        seq: Int,
+        timestamp: Date,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        var emitted = 0
+        for text in texts {
+            let extraction = attachmentTokens.extractLeadingAttachments(from: text)
+            for attachment in extraction.attachments {
+                assembler.append(
+                    ChatMessage(
+                        id: blockID(lineID: "line-\(seq)", emitted: emitted),
+                        seq: seq,
+                        role: .user,
+                        timestamp: timestamp,
+                        kind: .attachment(attachment)
+                    )
+                )
+                emitted += 1
+            }
+            let prose = extraction.remainingProse
+            guard !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            assembler.append(
+                ChatMessage(
+                    id: blockID(lineID: "line-\(seq)", emitted: emitted),
+                    seq: seq,
+                    role: .user,
+                    timestamp: timestamp,
+                    kind: .prose(ChatProse(text: budget.body(prose)))
+                )
+            )
+            emitted += 1
+        }
     }
 
     private func appendReasoning(
@@ -285,8 +329,10 @@ public struct CodexTranscriptParser: Sendable {
         let callID = payload["call_id"]?.string
         let input = payload["input"]?.string ?? ""
         var summary = name
+        var patchReferencedPaths: [String]?
         if name == "apply_patch", let path = firstPatchedFile(in: input) {
             summary = "\(name) \(budget.summaryArgument(path))"
+            patchReferencedPaths = [path]
         }
         assembler.append(
             ChatMessage(
@@ -298,7 +344,8 @@ public struct CodexTranscriptParser: Sendable {
                     ChatToolUse(
                         toolName: name,
                         summary: summary,
-                        inputDetail: input.isEmpty ? nil : budget.inputDetail(input)
+                        inputDetail: input.isEmpty ? nil : budget.inputDetail(input),
+                        referencedPaths: patchReferencedPaths
                     )
                 )
             ),
@@ -349,7 +396,12 @@ public struct CodexTranscriptParser: Sendable {
             raw.isEmpty || raw == "{}" ? nil : budget.inputDetail(raw)
         }
         return .toolUse(
-            ChatToolUse(toolName: toolName, summary: summary, inputDetail: detail)
+            ChatToolUse(
+                toolName: toolName,
+                summary: summary,
+                inputDetail: detail,
+                referencedPaths: referencedPaths.referencedPaths(in: arguments)
+            )
         )
     }
 
@@ -384,6 +436,10 @@ public struct CodexTranscriptParser: Sendable {
             )
         else { return nil }
         return String(match.1)
+    }
+
+    private func blockID(lineID: String, emitted: Int) -> String {
+        emitted == 0 ? lineID : "\(lineID)#\(emitted)"
     }
 
     // MARK: - Tool outputs

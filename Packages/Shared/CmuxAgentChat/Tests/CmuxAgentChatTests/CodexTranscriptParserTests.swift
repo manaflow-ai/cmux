@@ -92,6 +92,23 @@ struct CodexTranscriptParserTests {
         #expect(result.messages[1].kind == .prose(ChatProse(text: "On it.")))
     }
 
+    @Test("user clipboard image path maps to attachment before remaining prose")
+    func userClipboardAttachmentAndProse() {
+        let path = "/tmp/x/clipboard-2026-07-08-101112-89abcdef.webp"
+        let result = parser.parse(
+            lines: [messageLine(role: "user", texts: ["\(path) check this"])],
+            startingSeq: 0
+        )
+        #expect(result.messages.count == 2)
+        guard case .attachment(let attachment) = result.messages[0].kind else {
+            Issue.record("expected attachment")
+            return
+        }
+        #expect(attachment.hostPath == path)
+        #expect(attachment.displayName == "clipboard-2026-07-08-101112-89abcdef.webp")
+        #expect(result.messages[1].kind == .prose(ChatProse(text: "check this")))
+    }
+
     @Test("reasoning summaries concatenate into a thought; empty summaries are skipped")
     func reasoning() {
         let lines = [
@@ -217,6 +234,20 @@ struct CodexTranscriptParserTests {
         #expect(tool.inputDetail?.contains("plan") == true)
     }
 
+    @Test("non-shell function call extracts referenced paths")
+    func genericFunctionCallReferencedPaths() {
+        let call = functionCallLine(
+            name: "view_image",
+            arguments: #"{"path":"/repo/screenshot.png","detail":"high"}"#
+        )
+        let result = parser.parse(lines: [call], startingSeq: 0)
+        guard case .toolUse(let tool) = result.messages[0].kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.referencedPaths == ["/repo/screenshot.png"])
+    }
+
     @Test("custom_tool_call apply_patch maps to toolUse with the first patched file in the summary")
     func applyPatch() {
         let patch = "*** Begin Patch\n*** Update File: /repo/Sources/App.swift\n@@\n-old\n+new\n*** End Patch"
@@ -237,6 +268,7 @@ struct CodexTranscriptParserTests {
         }
         #expect(tool.toolName == "apply_patch")
         #expect(tool.summary == "apply_patch /repo/Sources/App.swift")
+        #expect(tool.referencedPaths == ["/repo/Sources/App.swift"])
         #expect(tool.status == .succeeded)
     }
 

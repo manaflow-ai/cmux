@@ -93,6 +93,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceMoveCapability = "workspace.move.v1"
     private static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1"
+    private static let chatArtifactCapability = "chat.artifact.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -320,6 +321,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
+    /// Whether the Mac supports chat artifact stat/fetch/thumbnail/list RPCs.
+    public var supportsChatArtifacts: Bool { supportedHostCapabilities.contains(Self.chatArtifactCapability) }
     /// Bumped whenever the applied terminal theme actually changes (a connect
     /// that reports a different theme than the one currently in
     /// ``TerminalThemeStore``). The mounted terminal representable observes this

@@ -25,6 +25,8 @@ public struct ClaudeTranscriptParser: Sendable {
     private let budget = TranscriptTextBudget()
     private let timestamps = TranscriptTimestampParser()
     private let diffs = TranscriptDiffBuilder()
+    private let attachmentTokens = ChatAttachmentTokenExtractor()
+    private let referencedPaths = ChatToolReferencedPathExtractor()
 
     /// Creates a Claude transcript parser.
     public init() {}
@@ -120,13 +122,28 @@ public struct ClaudeTranscriptParser: Sendable {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard !Self.userNoisePrefixes.contains(where: { trimmed.hasPrefix($0) }) else { return }
+        let extraction = attachmentTokens.extractLeadingAttachments(from: text)
+        for attachment in extraction.attachments {
+            assembler.append(
+                ChatMessage(
+                    id: blockID(lineID: lineID, emitted: emitted),
+                    seq: seq,
+                    role: .user,
+                    timestamp: timestamp,
+                    kind: .attachment(attachment)
+                )
+            )
+            emitted += 1
+        }
+        let prose = extraction.remainingProse
+        guard !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         assembler.append(
             ChatMessage(
                 id: blockID(lineID: lineID, emitted: emitted),
                 seq: seq,
                 role: .user,
                 timestamp: timestamp,
-                kind: .prose(ChatProse(text: budget.body(text)))
+                kind: .prose(ChatProse(text: budget.body(prose)))
             )
         )
         emitted += 1
@@ -266,7 +283,7 @@ public struct ClaudeTranscriptParser: Sendable {
         let callID = block["id"]?.string
         let input = block["input"]
         let kinds = toolUseKinds(toolName: toolName, input: input)
-        for (index, kind) in kinds.enumerated() {
+        for kind in kinds {
             let message = ChatMessage(
                 id: blockID(lineID: lineID, emitted: emitted),
                 seq: seq,
@@ -373,7 +390,12 @@ public struct ClaudeTranscriptParser: Sendable {
         }
         let detail = input.map { budget.inputDetail($0.compactJSONString()) }
         return .toolUse(
-            ChatToolUse(toolName: toolName, summary: summary, inputDetail: detail)
+            ChatToolUse(
+                toolName: toolName,
+                summary: summary,
+                inputDetail: detail,
+                referencedPaths: referencedPaths.referencedPaths(in: input)
+            )
         )
     }
 
