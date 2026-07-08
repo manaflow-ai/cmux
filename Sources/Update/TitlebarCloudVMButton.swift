@@ -3,21 +3,13 @@ import AppKit
 import CmuxSettings
 
 enum TitlebarNewWorkspaceCloudSplitButtonMetrics {
-    static func primaryWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        max(config.iconSize + 4, config.buttonSize - 3)
-    }
+    static func primaryWidth(config: TitlebarControlsStyleConfig) -> CGFloat { max(config.iconSize + 4, config.buttonSize - 3) }
 
-    static func dropdownWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        max(14, floor(config.buttonSize * 0.70))
-    }
+    static func dropdownWidth(config: TitlebarControlsStyleConfig) -> CGFloat { max(14, floor(config.buttonSize * 0.70)) }
 
-    static func dropdownIconSize(config: TitlebarControlsStyleConfig) -> CGFloat {
-        max(6, config.iconSize - 6)
-    }
+    static func dropdownIconSize(config: TitlebarControlsStyleConfig) -> CGFloat { max(6, config.iconSize - 6) }
 
-    static func totalWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        primaryWidth(config: config) + dropdownWidth(config: config)
-    }
+    static func totalWidth(config: TitlebarControlsStyleConfig) -> CGFloat { primaryWidth(config: config) + dropdownWidth(config: config) }
 }
 
 #if DEBUG

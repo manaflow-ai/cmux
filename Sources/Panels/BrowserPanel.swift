@@ -55,8 +55,7 @@ private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
         self.timestamp = event.timestamp
         self.windowNumber = event.windowNumber
         self.keyCode = event.keyCode
-        self.modifierFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
+        self.modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
             .rawValue
     }
@@ -2730,6 +2729,7 @@ final class BrowserPanel: Panel, ObservableObject {
     """
 
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
 
     /// The workspace ID this panel belongs to
