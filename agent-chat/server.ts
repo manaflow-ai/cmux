@@ -342,10 +342,23 @@ function sendPrompt(sess: Session, prompt: string) {
   const generation = Number(sess.internal.turnGeneration ?? 0) + 1;
   sess.internal.turnGeneration = generation;
   const baselines = turnBaselines(sess);
-  const baseline = captureDirtyBaseline(sess.cwd, TURN_BASELINE_TIMEOUT_MS).catch((err) => ({
+  // The per-call git timeout does not bound the stat/hash loop over up to
+  // FILES_LIMIT dirty paths, so race the WHOLE capture against one end-to-end
+  // deadline: the prompt is delayed at most ~TURN_BASELINE_TIMEOUT_MS and
+  // attribution degrades to the marked all-dirty fallback.
+  let baselineDeadline: ReturnType<typeof setTimeout> | undefined;
+  const baseline = Promise.race([
+    captureDirtyBaseline(sess.cwd, TURN_BASELINE_TIMEOUT_MS),
+    new Promise<DirtyBaseline>((res) => {
+      baselineDeadline = setTimeout(
+        () => res({ files: new Map<string, DirtyPathState>(), failed: "baseline capture timed out" }),
+        TURN_BASELINE_TIMEOUT_MS + 500,
+      );
+    }),
+  ]).catch((err) => ({
     files: new Map<string, DirtyPathState>(),
     failed: String(err instanceof Error ? err.message : err),
-  }));
+  })).finally(() => clearTimeout(baselineDeadline));
   baselines.set(generation, baseline);
   turnGenerationContext.run(generation, () => {
     sess.emit({ kind: "user", text: prompt });
