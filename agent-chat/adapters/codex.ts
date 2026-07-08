@@ -173,18 +173,23 @@ export const codexAdapter: Adapter = {
     target.internal.threadId = forkThreadId;
     srv.sessionsByThread.set(forkThreadId, target);
     const sourceState = codexState(source);
-    target.internal.codex = {
-      ...sourceState,
-      turnWaiters: [],
-      currentTurnId: undefined,
-      turnActive: false,
-      commands: sourceState.commands.slice(),
-    };
+    target.internal.codex = forkedCodexState(sourceState);
     target.internal.deltaItems = new Set<string>();
     target.emit({ kind: "meta", providerSessionId: forkThreadId });
     emitOptions(target);
   },
 };
+
+function forkedCodexState(sourceState: CodexState): CodexState {
+  return {
+    ...sourceState,
+    turnWaiters: [],
+    currentTurnId: undefined,
+    turnActive: false,
+    activeGeneration: undefined,
+    commands: sourceState.commands.slice(),
+  };
+}
 
 async function ensureServer(): Promise<AppServer> {
   if (shared && shared.proc.exitCode === null && !shared.proc.killed) return shared;
@@ -462,6 +467,19 @@ function defaultState(autoApprove: boolean): CodexState {
     activeGeneration: undefined,
     turnWaiters: [],
     commands: [],
+  };
+}
+
+export function codexForkStateForTest(sourceState: Partial<CodexState>): { turnActive: boolean; currentTurnId?: string; activeGeneration?: number } {
+  const forked = forkedCodexState({
+    ...defaultState(true),
+    ...sourceState,
+    commands: sourceState.commands ?? [],
+  });
+  return {
+    turnActive: forked.turnActive,
+    currentTurnId: forked.currentTurnId,
+    activeGeneration: forked.activeGeneration,
   };
 }
 

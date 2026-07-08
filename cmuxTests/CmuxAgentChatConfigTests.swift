@@ -170,6 +170,21 @@ import Testing
         #expect(!resolved.startCommandRequiresTrust)
     }
 
+    @Test func newAgentChatInFlightGateRejectsDuplicatesUntilCleared() {
+        let firstBegin = AgentChatActionInFlightGate.begin()
+        #expect(firstBegin)
+        guard firstBegin else { return }
+
+        #expect(!AgentChatActionInFlightGate.begin())
+        AgentChatActionInFlightGate.end()
+
+        let secondBegin = AgentChatActionInFlightGate.begin()
+        #expect(secondBegin)
+        if secondBegin {
+            AgentChatActionInFlightGate.end()
+        }
+    }
+
     @MainActor
     @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
         try withBrowserDisabled {

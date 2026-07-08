@@ -237,14 +237,17 @@ function finishTurn(sess: SessionCtx, stats?: string): number {
 
 function handleProcessClose(sess: SessionCtx, st: ClaudeState, pendingMessage: string, turnError = "claude process exited mid-turn") {
   const wasActive = st.activeTurns > 0;
-  const generation = st.activeGenerations.shift();
+  const generations = st.activeGenerations.splice(0);
+  while (generations.length < st.activeTurns) generations.push(undefined);
   st.activeTurns = 0;
   st.activeGenerations = [];
   st.proc = undefined;
   rejectPending(st, pendingMessage);
   if (wasActive) {
-    sess.emit({ kind: "error", message: turnError });
-    sess.emit({ kind: "done", generation } as any);
+    for (const generation of generations) {
+      sess.emit({ kind: "error", message: turnError });
+      sess.emit({ kind: "done", generation } as any);
+    }
   }
   sess.setStatus("idle");
 }

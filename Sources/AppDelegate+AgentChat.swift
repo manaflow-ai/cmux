@@ -1,5 +1,28 @@
 import AppKit
 import Foundation
+import os
+
+nonisolated struct AgentChatActionInFlightGate {
+    private struct State {
+        var isRunning = false
+    }
+
+    private nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
+
+    static func begin() -> Bool {
+        lock.withLock { state in
+            guard !state.isRunning else { return false }
+            state.isRunning = true
+            return true
+        }
+    }
+
+    static func end() {
+        lock.withLock { state in
+            state.isRunning = false
+        }
+    }
+}
 
 extension AppDelegate {
 
@@ -48,7 +71,12 @@ extension AppDelegate {
             NSSound.beep()
             return false
         }
+        guard AgentChatActionInFlightGate.begin() else {
+            NSSound.beep()
+            return false
+        }
         Task { @MainActor [weak self, weak tabManager] in
+            defer { AgentChatActionInFlightGate.end() }
             guard let self else { return }
             let isReachable = await self.ensureAgentChatServerAvailable(
                 agentChat,
@@ -169,10 +197,12 @@ extension AppDelegate {
         ) else {
             return false
         }
-        _ = Self.launchDetachedAgentChatStartCommand(
+        guard Self.launchDetachedAgentChatStartCommand(
             startCommand,
             currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat)
-        )
+        ) else {
+            return false
+        }
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(10))
         while !Task.isCancelled, clock.now < deadline {

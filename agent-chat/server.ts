@@ -1676,6 +1676,10 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
         return;
       }
+      if (ws.data.subscribed !== sess.id) {
+        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path });
+        return;
+      }
       let safePath: string;
       try {
         safePath = resolveFileDiffPath(sess.cwd, path);

@@ -68,6 +68,21 @@ function makeSession(activeTurn: boolean): { sess: SessionCtx; events: AgentEven
   if (sess.status !== "idle") throw new Error(`mid-turn exit should leave session idle, got ${sess.status}`);
 }
 
+{
+  const { sess, events } = makeSession(true);
+  const st = sess.internal.claude as any;
+  st.activeTurns = 3;
+  st.activeGenerations = [10, 11, 12];
+  claudeProcessCloseForTest(sess);
+  const done = events.filter((evt) => evt.kind === "done");
+  const errors = events.filter((evt) => evt.kind === "error");
+  const generations = done.map((evt) => (evt as any).generation).join("|");
+  if (done.length !== 3) throw new Error(`queued close should emit one done per generation, got ${JSON.stringify(events)}`);
+  if (errors.length !== 3) throw new Error(`queued close should emit one error per unfinished generation, got ${JSON.stringify(events)}`);
+  if (generations !== "10|11|12") throw new Error(`queued close should preserve generation order, got ${generations}`);
+  if (st.activeTurns || st.activeGenerations.length) throw new Error("queued close should clear all claude active turns");
+}
+
 console.log("claude active-turn assertions passed");
 
 export {};

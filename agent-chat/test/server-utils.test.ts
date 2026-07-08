@@ -164,10 +164,11 @@ let activeDoneGeneration: number | undefined;
 let editedResolve!: () => void;
 const edited = new Promise<void>((resolve) => { editedResolve = resolve; });
 const adapter = {
-  send: async (_sess: SessionCtx, prompt: string, generation?: number) => {
+  send: async (sess: SessionCtx, prompt: string, generation?: number) => {
     if (!active) {
       active = true;
       activeDoneGeneration = generation;
+      await ((sess.internal.turnBaselines as Map<number, Promise<unknown>> | undefined)?.get(generation ?? 0) ?? Promise.resolve());
       await writeFile(join(steerRoot, "tracked.txt"), `before\n${prompt}\n`);
       editedResolve();
     }
@@ -224,6 +225,7 @@ function waitForSequentialDone(): Promise<void> {
 const sequentialAdapter = {
   send: async (sess: SessionCtx, prompt: string, generation?: number) => {
     const file = prompt.includes("second") ? "second.txt" : "first.txt";
+    await ((sess.internal.turnBaselines as Map<number, Promise<unknown>> | undefined)?.get(generation ?? 0) ?? Promise.resolve());
     await writeFile(join(sequentialRoot, file), `before\n${prompt}\n`);
     sequentialDone.push(generation ?? 0);
     sess.emit({ kind: "done", generation } as any);
@@ -266,6 +268,70 @@ const sequentialFileBlocks = sequentialSession.events.filter((evt) => evt.kind =
 assert(sequentialDone.join("|") === "1|2", `adapter should receive explicit generations, got ${sequentialDone.join("|")}`);
 assert(sequentialFileBlocks[0]?.files.some((file) => file.path === "first.txt"), `first turn should attribute first.txt: ${JSON.stringify(sequentialSession.events)}`);
 assert(sequentialFileBlocks[1]?.files.some((file) => file.path === "second.txt"), `second turn should attribute second.txt: ${JSON.stringify(sequentialSession.events)}`);
+
+const queuedRoot = join(import.meta.dir, "..", "scratch", "queued-attribution-test");
+await rm(queuedRoot, { recursive: true, force: true });
+await mkdir(queuedRoot, { recursive: true });
+const queuedGenerations: number[] = [];
+let firstQueuedRelease!: () => void;
+let secondQueuedRelease!: () => void;
+const firstQueued = new Promise<void>((resolve) => { firstQueuedRelease = resolve; });
+const secondQueued = new Promise<void>((resolve) => { secondQueuedRelease = resolve; });
+let queuedInvokedResolve!: () => void;
+let queuedInvoked = new Promise<void>((resolve) => { queuedInvokedResolve = resolve; });
+let queuedDoneResolve!: () => void;
+function waitQueuedDone(): Promise<void> {
+  return new Promise((resolve) => { queuedDoneResolve = resolve; });
+}
+const queuedAdapter = {
+  send: async (sess: SessionCtx, prompt: string, generation?: number) => {
+    queuedGenerations.push(generation ?? 0);
+    queuedInvokedResolve();
+    if (queuedGenerations.length < 2) queuedInvoked = new Promise<void>((resolve) => { queuedInvokedResolve = resolve; });
+    await (prompt.includes("second") ? secondQueued : firstQueued);
+    sess.emit({ kind: "done", generation } as any);
+    queuedDoneResolve();
+  },
+  stop() {},
+  dispose() {},
+  setOption: async () => {},
+} as Adapter;
+const queuedSession = {
+  id: "queued-test",
+  provider: "test",
+  cwd: queuedRoot,
+  title: "queued test",
+  autoApprove: true,
+  startOptions: {},
+  status: "idle" as SessionStatus,
+  events: [] as AgentEvent[],
+  internal: {},
+  adapter: queuedAdapter,
+  sockets: new Set(),
+  createdAt: Date.now(),
+  emit(evt: AgentEvent) {
+    if (evt.kind === "done") emitDoneAfterFilesForTest(this as any, evt as any);
+    else emitSessionEventForTest(this as any, evt);
+  },
+  setStatus(status: SessionStatus) {
+    this.status = status;
+  },
+};
+const firstQueuedInvoked = queuedInvoked;
+sendPromptForTest(queuedSession as any, "first queued turn");
+await firstQueuedInvoked;
+const secondQueuedInvoked = queuedInvoked;
+sendPromptForTest(queuedSession as any, "second queued turn");
+await secondQueuedInvoked;
+assert(queuedGenerations.join("|") === "1|2", `queued independent provider turns should get distinct generations, got ${queuedGenerations.join("|")}`);
+const firstQueuedDone = waitQueuedDone();
+firstQueuedRelease();
+await firstQueuedDone;
+await ((queuedSession.internal as any).pendingDoneEmit as Promise<void>);
+const secondQueuedDone = waitQueuedDone();
+secondQueuedRelease();
+await secondQueuedDone;
+await ((queuedSession.internal as any).pendingDoneEmit as Promise<void>);
 
 const forkedSession = {
   cwd: "/tmp/agent-chat-fork-allowlist-test",
