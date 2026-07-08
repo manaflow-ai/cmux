@@ -405,6 +405,7 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     private func shouldRouteFileDropToHostedWebView(_ sender: any NSDraggingInfo, at location: NSPoint) -> Bool {
+        guard !DragOverlayRoutingPolicy.hasBonsplitTabTransfer(sender.draggingPasteboard.types) else { return false }
         guard DragOverlayRoutingPolicy.hasFileURL(sender.draggingPasteboard.types) else { return false }
         let canDropIntoHostedWebView = slotView?.hostedWebViewForFileDrop(at: location) != nil
         // A Dock-hosted browser pane has no workspace-tree file-preview

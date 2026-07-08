@@ -392,6 +392,60 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         XCTAssertEqual(webView.dragCalls, [])
     }
 
+    func testBrowserPaneTabTransferWithFileURLUsesPaneDropPathInsteadOfHostedWebView() throws {
+        let defaults = UserDefaults.standard
+        let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defaults.set(FileDropDefaultBehavior.text.rawValue, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+        defer {
+            if let savedDefaultBehavior {
+                defaults.set(savedDefaultBehavior, forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            } else {
+                defaults.removeObject(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let root = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 360, height: 240))
+        root.autoresizingMask = [.width, .height]
+        window.contentView = root
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
+        root.addSubview(slot)
+        let webView = DragSpyWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        slot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        ))
+        slot.layoutSubtreeIfNeeded()
+
+        let target = try XCTUnwrap(slot.paneDropTargetForDrop(at: NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)))
+        let pasteboard = try makeBonsplitPanePayloadPasteboard(
+            kind: "terminal",
+            includesFilePreviewTransferType: false
+        )
+        XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/not-an-upload.txt") as NSURL]))
+
+        let dropPoint = slot.convert(NSPoint(x: slot.bounds.midX, y: slot.bounds.midY), to: nil)
+        let dragInfo = MockDraggingInfo(window: window, location: dropPoint, pasteboard: pasteboard)
+
+        XCTAssertEqual(target.draggingEntered(dragInfo), .move)
+        XCTAssertTrue(target.prepareForDragOperation(dragInfo))
+        XCTAssertEqual(webView.dragCalls, [])
+    }
+
     func testFilePreviewDropDestinationUsesPaneCenterOrSplitZone() {
         let paneId = PaneID(id: UUID())
         let target = BrowserPaneDropContext(
