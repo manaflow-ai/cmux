@@ -100,13 +100,20 @@ public struct MobileBrowserView: UIViewRepresentable {
             // A surface can be re-attached to a fresh WKWebView when SwiftUI
             // remounts the representable (switching workspaces, hiding/showing
             // the browser). The surface state survives, but the web view does
-            // not, so restore the last committed URL on re-attach to honor the
-            // "current page is restored on return" promise. First mount already
-            // has a pending initial-URL load, so guard against a double-load.
+            // not, so restore the saved WebKit interaction state on re-attach
+            // to preserve the page and back/forward stack. If WebKit cannot
+            // restore that state, fall back to the last committed URL. First
+            // mount already has a pending initial-URL load, so guard against a
+            // double-load.
             let hadPendingLoad = state.loadRequest != nil
             applyPendingWork()
-            if !hadPendingLoad, webView.url == nil, let restore = state.currentURL {
-                webView.load(URLRequest(url: restore))
+            if !hadPendingLoad, webView.url == nil {
+                if restoreInteractionState(on: webView) {
+                    return
+                }
+                if let restore = state.currentURL {
+                    webView.load(URLRequest(url: restore))
+                }
             }
         }
 
@@ -126,8 +133,10 @@ public struct MobileBrowserView: UIViewRepresentable {
             switch command {
             case .goBack:
                 webView.goBack()
+                captureInteractionState(from: webView)
             case .goForward:
                 webView.goForward()
+                captureInteractionState(from: webView)
             case .reload:
                 webView.reload()
             case .stopLoading:
@@ -138,6 +147,9 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// Cancels all observations and releases the web view. Called on
         /// dismantle so the surface leaves no dangling KVO registrations.
         func detach() {
+            if let webView {
+                captureInteractionState(from: webView)
+            }
             observations.forEach { $0.invalidate() }
             observations.removeAll()
             webView?.navigationDelegate = nil
@@ -182,6 +194,16 @@ public struct MobileBrowserView: UIViewRepresentable {
             ]
         }
 
+        private func restoreInteractionState(on webView: WKWebView) -> Bool {
+            guard let savedInteractionState = state.savedInteractionState else { return false }
+            webView.interactionState = savedInteractionState
+            return webView.url != nil
+        }
+
+        private func captureInteractionState(from webView: WKWebView) {
+            state.saveInteractionState(webView.interactionState as? Data)
+        }
+
         // MARK: - WKNavigationDelegate
 
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -193,6 +215,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             if let title = webView.title, !title.isEmpty {
                 state.title = title
             }
+            captureInteractionState(from: webView)
         }
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
@@ -216,6 +239,16 @@ public struct MobileBrowserView: UIViewRepresentable {
                 return
             }
             state.navigationDidFail(message: error.localizedDescription)
+        }
+
+        public func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            preferences: WKWebpagePreferences,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
+        ) {
+            preferences.preferredContentMode = state.prefersDesktopSite ? .desktop : .recommended
+            decisionHandler(.allow, preferences)
         }
 
         // MARK: - WKUIDelegate

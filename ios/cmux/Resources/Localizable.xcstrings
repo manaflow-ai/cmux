@@ -783,6 +783,23 @@
         }
       }
     },
+    "mobile.browser.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他"
+          }
+        }
+      }
+    },
     "mobile.browser.new": {
       "extractionState": "manual",
       "localizations": {
@@ -800,6 +817,23 @@
         }
       }
     },
+    "mobile.browser.openInSafari": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Safari"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safariで開く"
+          }
+        }
+      }
+    },
     "mobile.browser.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -813,6 +847,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "再読み込み"
+          }
+        }
+      }
+    },
+    "mobile.browser.requestDesktopSite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request Desktop Site"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ用サイトを表示"
+          }
+        }
+      }
+    },
+    "mobile.browser.requestMobileSite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request Mobile Site"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル用サイトを表示"
+          }
+        }
+      }
+    },
+    "mobile.browser.security.insecure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not secure"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全ではありません"
+          }
+        }
+      }
+    },
+    "mobile.browser.security.secure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secure connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全な接続"
+          }
+        }
+      }
+    },
+    "mobile.browser.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有"
           }
         }
       }

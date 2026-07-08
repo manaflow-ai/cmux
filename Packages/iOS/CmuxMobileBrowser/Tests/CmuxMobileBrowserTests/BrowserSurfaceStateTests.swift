@@ -30,6 +30,8 @@ import Testing
         #expect(state.canGoBack == false)
         #expect(state.canGoForward == false)
         #expect(state.isAddressEditing == false)
+        #expect(state.savedInteractionState == nil)
+        #expect(state.prefersDesktopSite == false)
     }
 
     @Test func consumeHelpersAreIdempotentWhenEmpty() {
@@ -50,7 +52,32 @@ import Testing
         state.load(url)
         #expect(state.addressText == "https://cmux.dev")
         #expect(state.lastErrorMessage == nil)
+        #expect(state.savedInteractionState == nil)
         #expect(state.consumeLoadRequest() == url)
+    }
+
+    @Test func saveInteractionStateKeepsLatestNonNilData() {
+        let state = makeState()
+        let first = Data([1, 2, 3])
+        let second = Data([4, 5, 6])
+
+        state.saveInteractionState(first)
+        #expect(state.savedInteractionState == first)
+
+        state.saveInteractionState(nil)
+        #expect(state.savedInteractionState == first)
+
+        state.saveInteractionState(second)
+        #expect(state.savedInteractionState == second)
+    }
+
+    @Test func loadClearsSavedInteractionState() {
+        let state = makeState()
+        state.saveInteractionState(Data([1, 2, 3]))
+
+        state.load(URL(string: "https://cmux.dev")!)
+
+        #expect(state.savedInteractionState == nil)
     }
 
     @Test func submitAddressResolvesAndRequestsLoad() {
@@ -103,5 +130,40 @@ import Testing
         state.request(.goBack)
         state.request(.goForward)
         #expect(state.consumeCommand() == .goForward)
+    }
+
+    @Test func desktopSitePreferenceDefaultsToMobileRecommendedMode() {
+        let state = makeState()
+        #expect(state.prefersDesktopSite == false)
+    }
+
+    @Test func desktopSiteToggleReloadsCurrentPage() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.prefersDesktopSite)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func desktopSiteToggleBeforeFirstLoadDoesNotDoubleLoad() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.prefersDesktopSite)
+        #expect(state.consumeCommand() == nil)
+        #expect(state.consumeLoadRequest()?.absoluteString == "https://example.com")
+    }
+
+    @Test func settingSameDesktopPreferenceIsNoOp() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.setPrefersDesktopSite(false)
+
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == nil)
     }
 }
