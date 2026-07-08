@@ -24001,17 +24001,11 @@ struct CMUXCLI {
         let windowRaw = winArg ?? windowId
         let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
         let winId = try normalizeWindowHandle(windowRaw, client: client)
-        guard let wsId = try normalizeWorkspaceHandle(
+        let wsId = try resolveWorkspaceId(
             workspaceArg,
             client: client,
-            windowHandle: winId,
-            allowCurrent: true
-        ) else {
-            throw CLIError(message: String(
-                localized: "cli.error.workspaceLoadingNoWorkspace",
-                defaultValue: "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>."
-            ))
-        }
+            windowHandle: winId
+        )
 
         let response = try sendV1Command(
             "workspace_loading \(key) \(turnOn ? "on" : "off") --tab=\(wsId)",

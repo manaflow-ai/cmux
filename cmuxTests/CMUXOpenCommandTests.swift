@@ -143,6 +143,72 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open", "workspace.create"])
     }
 
+    func testWorkspaceLoadingResolvesWorkspaceRefBeforeV1Command() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("loading-ref")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let payload = Self.v2Payload(from: line),
+               let id = payload["id"] as? String,
+               let method = payload["method"] as? String {
+                switch method {
+                case "window.list":
+                    return Self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "windows": [
+                                ["id": windowId, "ref": "window:1"] as [String: Any],
+                            ],
+                        ]
+                    )
+                case "workspace.list":
+                    let params = payload["params"] as? [String: Any] ?? [:]
+                    XCTAssertEqual(params["window_id"] as? String, windowId)
+                    return Self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspaces": [
+                                [
+                                    "id": workspaceId,
+                                    "ref": "workspace:1",
+                                    "index": 1,
+                                ] as [String: Any],
+                            ],
+                        ]
+                    )
+                default:
+                    return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+                }
+            }
+
+            XCTAssertEqual(line, "workspace_loading manual on --tab=\(workspaceId)")
+            return "before=OFF;after=ON"
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["workspace", "loading", "on", "--workspace", "workspace:1"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "before=OFF;after=ON\n")
+        XCTAssertEqual(state.commands.last, "workspace_loading manual on --tab=\(workspaceId)")
+    }
+
     func testMarkdownOpenCommandUsesMarkdownOpenEndpoint() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("markdown-open")
