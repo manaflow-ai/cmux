@@ -68,6 +68,19 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
     if target.contains("windows") {
+        // Zig emits ghostty-vt-static.lib for every Windows target, but rustc
+        // on *-windows-gnu only searches for libghostty-vt-static.a. The .lib
+        // is a plain ar archive, so an aliased copy satisfies the GNU linker.
+        if target.contains("gnu") {
+            let lib_dir = prefix.join("lib");
+            let zig_name = lib_dir.join("ghostty-vt-static.lib");
+            let gnu_name = lib_dir.join("libghostty-vt-static.a");
+            if zig_name.exists() {
+                std::fs::copy(&zig_name, &gnu_name).unwrap_or_else(|e| {
+                    panic!("failed to alias {} to {}: {e}", zig_name.display(), gnu_name.display())
+                });
+            }
+        }
         println!("cargo:rustc-link-lib=static=ghostty-vt-static");
     } else {
         println!("cargo:rustc-link-lib=static=ghostty-vt");
