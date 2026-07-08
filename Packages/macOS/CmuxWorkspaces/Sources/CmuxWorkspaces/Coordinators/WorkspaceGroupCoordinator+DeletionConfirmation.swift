@@ -46,7 +46,15 @@ extension WorkspaceGroupCoordinator {
         }
 
         let confirmedWorkspaceIds = Set(confirmation.memberWorkspaceIds)
-        let members = model.tabs.filter { confirmedWorkspaceIds.contains($0.id) }
+        let confirmedOrder = Dictionary(
+            uniqueKeysWithValues: confirmation.memberWorkspaceIds.enumerated().map { ($1, $0) }
+        )
+        var members = model.tabs.filter { confirmedWorkspaceIds.contains($0.id) }
+        members.sort { lhs, rhs in
+            if lhs.id == confirmation.anchorWorkspaceId { return false }
+            if rhs.id == confirmation.anchorWorkspaceId { return true }
+            return confirmedOrder[lhs.id, default: Int.max] < confirmedOrder[rhs.id, default: Int.max]
+        }
         let affectedWorkspaceIds = confirmation.memberWorkspaceIds.isEmpty
             ? model.tabs.contains(where: { $0.id == confirmation.anchorWorkspaceId }) ? [confirmation.anchorWorkspaceId] : []
             : confirmation.memberWorkspaceIds
@@ -54,8 +62,16 @@ extension WorkspaceGroupCoordinator {
         var closed = 0
         for tab in members {
             if model.tabs.count <= 1 {
-                model.assignGroup(workspaceId: tab.id, groupId: nil)
-                continue
+                _ = host.createWorkspaceForGroup(
+                    title: nil,
+                    workingDirectory: nil,
+                    initialSurface: .terminal,
+                    initialBrowserURL: nil,
+                    initialBrowserOmnibarVisible: false,
+                    initialBrowserTransparentBackground: false,
+                    inheritWorkingDirectory: true,
+                    select: true
+                )
             }
             let countBefore = model.tabs.count
             host.closeWorkspaceForGroupDeletion(tab, recordHistory: recordHistory)
