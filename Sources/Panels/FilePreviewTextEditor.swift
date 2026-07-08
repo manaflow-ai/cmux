@@ -22,6 +22,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let drawsBackground: Bool
     let wordWrap: Bool
     let showsLineNumbers: Bool
+    let highlightsCurrentLine: Bool
     let onPointerDown: (() -> Void)?
 
     init(
@@ -32,6 +33,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         drawsBackground: Bool,
         wordWrap: Bool,
         showsLineNumbers: Bool = false,
+        highlightsCurrentLine: Bool = false,
         onPointerDown: (() -> Void)? = nil
     ) {
         self.panel = panel
@@ -41,6 +43,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         self.drawsBackground = drawsBackground
         self.wordWrap = wordWrap
         self.showsLineNumbers = showsLineNumbers
+        self.highlightsCurrentLine = highlightsCurrentLine
         self.onPointerDown = onPointerDown
     }
 
@@ -62,6 +65,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.onPointerDown = onPointerDown
         textView.delegate = context.coordinator
         textView.drawsBackground = drawsBackground
+        textView.highlightsCurrentLine = highlightsCurrentLine
         textView.string = panel.textContent
         panel.attachTextView(textView)
 
@@ -89,6 +93,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.onPointerDown = onPointerDown
+        textView.highlightsCurrentLine = highlightsCurrentLine
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         Self.applyLineNumberRuler(on: scrollView, textView: textView, editor: self)
@@ -121,6 +126,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             textView.backgroundColor = resolvedBackgroundColor
             textView.textColor = foregroundColor
             textView.insertionPointColor = foregroundColor
+            if let savingTextView = textView as? SavingTextView {
+                savingTextView.currentLineHighlightColor = foregroundColor.withAlphaComponent(0.055)
+            }
         }
         Self.updateLineNumberRulerTheme(
             on: scrollView,
@@ -142,8 +150,24 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
-            textView.invalidateFilePreviewLineNumberRuler()
+            // Line numbers stay correct without a full invalidation here: the
+            // ruler tracks edits incrementally as the text-storage delegate.
+            // Fall back to a full rescan only if that tracking isn't live.
+            if let ruler = textView.enclosingScrollView?.verticalRulerView as? FilePreviewLineNumberRulerView,
+               !ruler.isTrackingTextStorage(textView.textStorage) {
+                ruler.invalidateLineNumbers()
+            }
             panel.updateTextContent(textView.string)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? SavingTextView else { return }
+            if textView.highlightsCurrentLine {
+                textView.needsDisplay = true
+            }
+            if let ruler = textView.enclosingScrollView?.verticalRulerView as? FilePreviewLineNumberRulerView {
+                ruler.needsDisplay = true
+            }
         }
     }
 }
@@ -224,7 +248,12 @@ extension NSTextView {
             // avoid collapsing to a zero-width container during `makeNSView`,
             // before the clip view has a size; `updateNSView` re-runs once laid
             // out and reflows.
-            let visibleWidth = scrollView.contentSize.width
+            //
+            // Measure the clip view itself, not `scrollView.contentSize`: the
+            // latter ignores an installed ruler, so with the line-number
+            // gutter visible it over-reports by the gutter width and lines
+            // wrap past the right edge (manaflow-ai/cmux#4331 note editor).
+            let visibleWidth = scrollView.contentView.frame.width
             if visibleWidth > 0 {
                 textContainer.size = NSSize(width: visibleWidth, height: .greatestFiniteMagnitude)
                 setFrameSize(NSSize(width: visibleWidth, height: frame.height))
@@ -261,6 +290,26 @@ final class SavingTextView: NSTextView {
 
     weak var panel: (any FilePreviewTextEditingPanel)?
     var onPointerDown: (() -> Void)?
+
+    /// Zed-style subtle background behind the line that holds the insertion
+    /// point. Off by default; the markdown/note editor opts in. Not enabled
+    /// for File Preview, whose documents can be large enough that whole-view
+    /// redraws per caret move would be wasteful.
+    var highlightsCurrentLine = false {
+        didSet {
+            guard oldValue != highlightsCurrentLine else { return }
+            needsDisplay = true
+        }
+    }
+
+    var currentLineHighlightColor: NSColor = NSColor.labelColor.withAlphaComponent(0.055) {
+        didSet {
+            if highlightsCurrentLine {
+                needsDisplay = true
+            }
+        }
+    }
+
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
@@ -315,6 +364,51 @@ final class SavingTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard highlightsCurrentLine,
+              let lineRect = currentLineHighlightRect(),
+              lineRect.intersects(rect) else { return }
+        currentLineHighlightColor.setFill()
+        lineRect.intersection(rect).fill()
+    }
+
+    /// Full-width rect of the logical line containing the insertion point, or
+    /// nil while a range of text is selected (the selection highlight already
+    /// marks the location, matching Zed/Xcode behavior).
+    private func currentLineHighlightRect() -> NSRect? {
+        let selection = selectedRange()
+        guard selection.length == 0,
+              let layoutManager,
+              let textContainer else { return nil }
+        let text = string as NSString
+        let caret = min(selection.location, text.length)
+
+        var fragmentRect: NSRect
+        let caretOnTrailingEmptyLine = caret == text.length
+            && (text.length == 0 || text.character(at: text.length - 1) == 10)
+        if caretOnTrailingEmptyLine {
+            fragmentRect = layoutManager.extraLineFragmentRect
+            if fragmentRect.height <= 0 {
+                let lineHeight = layoutManager.defaultLineHeight(
+                    for: font ?? .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+                )
+                fragmentRect = NSRect(x: 0, y: 0, width: 0, height: lineHeight)
+            }
+        } else {
+            let paragraphRange = text.paragraphRange(for: NSRange(location: caret, length: 0))
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: paragraphRange, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else { return nil }
+            fragmentRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        }
+
+        var lineRect = fragmentRect
+        lineRect.origin.x = 0
+        lineRect.size.width = bounds.width
+        lineRect.origin.y += textContainerInset.height
+        return lineRect
     }
 
     override func magnify(with event: NSEvent) {

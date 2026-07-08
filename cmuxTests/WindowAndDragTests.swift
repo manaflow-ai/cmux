@@ -3664,6 +3664,90 @@ final class FilePreviewPanelTextSavingTests {
         XCTAssertNil(scrollView.verticalRulerView)
     }
 
+    @Test func testWordWrapWidthAccountsForLineNumberGutter() throws {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.configureLineNumberRuler(
+            on: scrollView,
+            textView: textView,
+            showsLineNumbers: true,
+            backgroundColor: .black,
+            foregroundColor: .white,
+            drawsBackground: true
+        )
+        scrollView.tile()
+
+        // The gutter must actually consume horizontal space for this test to
+        // mean anything.
+        let clipWidth = scrollView.contentView.frame.width
+        XCTAssertLessThan(clipWidth, 400)
+
+        textView.applyFilePreviewWordWrap(true, scrollView: scrollView)
+
+        // Soft wrap must break lines at the visible clip width, not at the
+        // ruler-inclusive scroll view width — otherwise text runs under the
+        // right edge whenever the line-number gutter is showing.
+        XCTAssertEqual(textView.frame.width, clipWidth)
+        let containerWidth = try XCTUnwrap(textView.textContainer?.size.width)
+        XCTAssertTrue(containerWidth <= clipWidth)
+    }
+
+    @Test func testLineNumberRulerTracksTextStorageEditsIncrementally() throws {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+
+        FilePreviewTextEditor<FilePreviewPanel>.configureLineNumberRuler(
+            on: scrollView,
+            textView: textView,
+            showsLineNumbers: true,
+            backgroundColor: .black,
+            foregroundColor: .white,
+            drawsBackground: true
+        )
+        let ruler = try XCTUnwrap(scrollView.verticalRulerView as? FilePreviewLineNumberRulerView)
+        let storage = try XCTUnwrap(textView.textStorage)
+        XCTAssertTrue(ruler.isTrackingTextStorage(storage))
+
+        func naiveLineStarts(_ text: String) -> [Int] {
+            var starts = [0]
+            var index = 0
+            for codeUnit in text.utf16 {
+                index += 1
+                if codeUnit == 10 { starts.append(index) }
+            }
+            return starts
+        }
+
+        textView.string = "alpha\nbeta\ngamma"
+        XCTAssertEqual(ruler.lineStartsForTesting(), [0, 6, 11])
+
+        // Every subsequent edit goes through the incremental text-storage
+        // path with no full invalidation in between; the cache must keep
+        // matching a naive whole-document rescan.
+        storage.replaceCharacters(in: NSRange(location: 5, length: 0), with: "X")
+        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+
+        storage.replaceCharacters(in: NSRange(location: 3, length: 0), with: "one\ntwo\n")
+        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+
+        storage.replaceCharacters(in: NSRange(location: 2, length: 9), with: "")
+        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+
+        storage.replaceCharacters(in: NSRange(location: 0, length: 4), with: "a\nb")
+        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+
+        storage.replaceCharacters(in: NSRange(location: storage.length, length: 0), with: "\ntail\n")
+        XCTAssertEqual(ruler.lineStartsForTesting(), naiveLineStarts(textView.string))
+
+        storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: "solo")
+        XCTAssertEqual(ruler.lineStartsForTesting(), [0])
+    }
+
     @Test func testPendingTextFocusAppliesWhenTextViewAttaches() throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)

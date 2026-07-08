@@ -104,6 +104,8 @@ struct MarkdownPanelView: View {
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
                     wordWrap: true,
+                    showsLineNumbers: true,
+                    highlightsCurrentLine: true,
                     onPointerDown: onRequestPanelFocus
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
