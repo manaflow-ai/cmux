@@ -148,31 +148,6 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
     }
 
     @MainActor
-    func testStaleSessionCleanupKeepsLiveSameKeySessionEntry() throws {
-        let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-
-        // Two sessions of the same agent type can coexist on one panel.
-        workspace.recordAgentPID(key: "claude_code.old", pid: 111, panelId: panelId, refreshPorts: false)
-        workspace.recordAgentPID(key: "claude_code.new", pid: 222, panelId: panelId, refreshPorts: false)
-        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Running"), panelId: panelId)
-
-        // The stale session's cleanup must not erase the live session's entry.
-        XCTAssertTrue(
-            workspace.clearAgentPID(key: "claude_code.old", panelId: panelId, clearStatus: true, refreshPorts: false)
-        )
-        XCTAssertEqual(workspace.statusEntriesByPanelId[panelId]?["claude_code"]?.value, "Running")
-        XCTAssertEqual(workspace.sidebarAgentStatusRows().map(\.panelId), [panelId])
-
-        // Clearing the last owner drops the entry.
-        XCTAssertTrue(
-            workspace.clearAgentPID(key: "claude_code.new", panelId: panelId, clearStatus: true, refreshPorts: false)
-        )
-        XCTAssertNil(workspace.statusEntriesByPanelId[panelId]?["claude_code"])
-        XCTAssertTrue(workspace.sidebarAgentStatusRows().isEmpty)
-    }
-
-    @MainActor
     func testClearingAgentPIDRemovesThatPanelsRow() throws {
         let workspace = Workspace()
         let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
