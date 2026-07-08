@@ -158,11 +158,31 @@ extension DockSplitStore {
         return nil
     }
 
-    nonisolated static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {
+    nonisolated static func trustDescriptor(
+        for resolution: DockConfigResolution,
+        resolvedControls: [ResolvedConfigControl]
+    ) -> CmuxActionTrustDescriptor {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = (try? encoder.encode(DockConfigFile(controls: resolution.controls))) ?? Data()
-        let commandFingerprint = String(data: data, encoding: .utf8) ?? ""
+        var commandFingerprint = String(data: data, encoding: .utf8) ?? ""
+        let browserProfileBindings = resolvedControls.compactMap { resolvedControl -> [String: Any]? in
+            guard case .browser = resolvedControl.definition.variant,
+                  let profile = resolvedControl.browserProfile else { return nil }
+            return [
+                "controlID": resolvedControl.definition.id,
+                "isDefault": profile.isDefault,
+                "profileID": profile.id.uuidString.lowercased(),
+            ]
+        }
+        if !browserProfileBindings.isEmpty,
+           let bindingData = try? JSONSerialization.data(
+               withJSONObject: browserProfileBindings,
+               options: [.sortedKeys]
+           ),
+           let bindingFingerprint = String(data: bindingData, encoding: .utf8) {
+            commandFingerprint += "\nresolvedBrowserProfiles=\(bindingFingerprint)"
+        }
         return CmuxActionTrustDescriptor(
             actionID: "cmux.dock",
             kind: "dockControls",

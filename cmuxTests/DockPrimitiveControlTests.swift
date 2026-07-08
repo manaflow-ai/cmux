@@ -182,6 +182,11 @@ struct DockPrimitiveControlTests {
         let ambiguousResolution = DockConfigResolution(
             controls: [
                 DockControlDefinition(
+                    id: "before",
+                    title: "Before",
+                    variant: .command("echo should-not-start")
+                ),
+                DockControlDefinition(
                     id: "ambiguous",
                     title: "Ambiguous",
                     variant: .browser(url: "https://docs.cmux.dev", profile: duplicateName)
@@ -201,6 +206,55 @@ struct DockPrimitiveControlTests {
 
         #expect(ambiguousStore.panels.isEmpty)
         #expect(ambiguousStore.errorMessage?.contains("matches multiple") == true)
+    }
+
+    @Test("Project trust fingerprints bind browser profile identity")
+    @MainActor
+    func projectTrustFingerprintBindsBrowserProfileIdentity() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("dock-\(UUID().uuidString).json", isDirectory: false)
+        let profileName = "Dock Trust \(UUID().uuidString)"
+
+        func trustFingerprint() throws -> String {
+            let resolution = DockConfigResolution(
+                controls: [
+                    DockControlDefinition(
+                        id: "docs",
+                        title: "Docs",
+                        variant: .browser(url: "https://docs.cmux.dev", profile: profileName)
+                    )
+                ],
+                sourceURL: configURL,
+                baseDirectory: root.path,
+                isProjectSource: true
+            )
+            let store = DockSplitStore(
+                workspaceId: UUID(),
+                baseDirectoryProvider: { root.path },
+                browserAvailabilityProvider: { true }
+            )
+            defer { store.closeAllPanels() }
+            let generation = store.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
+            store.applyConfigurationLoadResult(.resolved(resolution), generation: generation, replacingPanels: true)
+            return try #require(store.trustRequest).descriptor.fingerprint
+        }
+
+        let firstProfile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
+        let firstProfileID = firstProfile.id
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: firstProfileID) }
+        let firstFingerprint = try trustFingerprint()
+
+        _ = BrowserProfileStore.shared.deleteProfile(id: firstProfileID)
+        let secondProfile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
+        let secondProfileID = secondProfile.id
+        defer { _ = BrowserProfileStore.shared.deleteProfile(id: secondProfileID) }
+        let secondFingerprint = try trustFingerprint()
+
+        #expect(firstProfileID != secondProfileID)
+        #expect(firstFingerprint != secondFingerprint)
     }
 
     @Test("Project trust summaries distinguish command shell and browser controls")

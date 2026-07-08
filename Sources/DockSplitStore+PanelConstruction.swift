@@ -43,8 +43,8 @@ extension DockSplitStore {
     func makePanel(
         for def: DockControlDefinition,
         baseDirectory: String,
-        browserProfileIndex: DockBrowserProfileIndex
-    ) throws -> (any Panel)? {
+        resolvedBrowserProfile: DockBrowserProfileIndex.Resolution?
+    ) -> (any Panel)? {
         switch def.variant {
         case .command(let command):
             let workingDirectory = Self.resolvedWorkingDirectory(def.cwd, baseDirectory: baseDirectory)
@@ -66,9 +66,11 @@ extension DockSplitStore {
                 controlId: def.id,
                 controlTitle: def.title
             )
-        case .browser(let url, let profile):
+        case .browser(let url, _):
             guard isBrowserPanelAvailable() else { return nil }
-            let resolvedProfile = try browserProfileIndex.resolve(profile)
+            guard let resolvedProfile = resolvedBrowserProfile else {
+                return nil
+            }
             return makeBrowserPanel(
                 url: URL(string: url),
                 preferredProfileID: resolvedProfile.id

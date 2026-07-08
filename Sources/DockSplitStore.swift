@@ -10,6 +10,11 @@ import SwiftUI
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
+    typealias ResolvedConfigControl = (
+        definition: DockControlDefinition,
+        browserProfile: DockBrowserProfileIndex.Resolution?
+    )
+
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
@@ -654,7 +659,11 @@ final class DockSplitStore: BonsplitDelegate {
             resolvedBaseDirectory = resolution.baseDirectory
             do {
                 let profileIndex = browserProfileIndex()
-                if let request = try trustRequestIfNeeded(for: resolution, browserProfileIndex: profileIndex) {
+                let resolvedControls = try Self.resolvedControls(
+                    for: resolution.controls,
+                    browserProfileIndex: profileIndex
+                )
+                if let request = trustRequestIfNeeded(for: resolution, resolvedControls: resolvedControls) {
                     sourceLabel = String(localized: "dock.source.project", defaultValue: "Project Dock")
                     trustRequest = request
                     return
@@ -662,10 +671,9 @@ final class DockSplitStore: BonsplitDelegate {
                 sourceLabel = Self.sourceLabel(for: resolution)
                 let shouldSeed = configurationSeedSuppressionGeneration != generation && (replacingPanels || !hasAppliedConfigurationSeed)
                 if shouldSeed {
-                    try seed(
-                        definitions: resolution.controls,
+                    seed(
+                        resolvedControls: resolvedControls,
                         baseDirectory: resolution.baseDirectory,
-                        browserProfileIndex: profileIndex
                     )
                 }
                 if configurationSeedSuppressionGeneration == generation { configurationSeedSuppressionGeneration = nil }
@@ -687,6 +695,24 @@ final class DockSplitStore: BonsplitDelegate {
     /// entry omits `height`. Matches the legacy Dock's minimum terminal height.
     private static let defaultSeedHeight: Double = 200
 
+    private static func resolvedControls(
+        for definitions: [DockControlDefinition],
+        browserProfileIndex: DockBrowserProfileIndex
+    ) throws -> [ResolvedConfigControl] {
+        var resolvedControls: [ResolvedConfigControl] = []
+        resolvedControls.reserveCapacity(definitions.count)
+        for definition in definitions {
+            let resolvedProfile: DockBrowserProfileIndex.Resolution?
+            if case .browser(_, let profile) = definition.variant {
+                resolvedProfile = try browserProfileIndex.resolve(profile)
+            } else {
+                resolvedProfile = nil
+            }
+            resolvedControls.append((definition: definition, browserProfile: resolvedProfile))
+        }
+        return resolvedControls
+    }
+
     /// Seeds the Dock tree from config. The legacy config is a flat list, so it
     /// seeds a vertical stack (each entry split below the previous) to mirror the
     /// Dock's prior top-to-bottom layout; users can then re-tile in-app.
@@ -696,18 +722,18 @@ final class DockSplitStore: BonsplitDelegate {
     /// Bonsplit tree cannot pin absolute point heights, but the proportions are
     /// preserved and remain user-resizable).
     private func seed(
-        definitions: [DockControlDefinition],
-        baseDirectory: String,
-        browserProfileIndex: DockBrowserProfileIndex
-    ) throws {
+        resolvedControls: [ResolvedConfigControl],
+        baseDirectory: String
+    ) {
         // Build panels first so divider math runs over the entries actually
         // created (e.g. browser entries are skipped when the browser is disabled).
         var created: [(definition: DockControlDefinition, panel: any Panel)] = []
-        for definition in definitions {
-            guard let panel = try makePanel(
+        for resolvedControl in resolvedControls {
+            let definition = resolvedControl.definition
+            guard let panel = makePanel(
                 for: definition,
                 baseDirectory: baseDirectory,
-                browserProfileIndex: browserProfileIndex
+                resolvedBrowserProfile: resolvedControl.browserProfile
             ) else { continue }
             created.append((definition: definition, panel: panel))
         }
@@ -769,24 +795,22 @@ final class DockSplitStore: BonsplitDelegate {
 
     private func trustRequestIfNeeded(
         for resolution: DockConfigResolution,
-        browserProfileIndex: DockBrowserProfileIndex
-    ) throws -> DockTrustRequest? {
+        resolvedControls: [ResolvedConfigControl]
+    ) -> DockTrustRequest? {
         guard resolution.isProjectSource, let sourceURL = resolution.sourceURL else { return nil }
-        let descriptor = Self.trustDescriptor(for: resolution)
+        let descriptor = Self.trustDescriptor(for: resolution, resolvedControls: resolvedControls)
         guard !CmuxActionTrust.shared.isTrusted(descriptor) else { return nil }
         return DockTrustRequest(
             descriptor: descriptor,
             configPath: sourceURL.path,
-            controlSummaries: try resolution.controls.map {
-                try Self.trustControlSummary(for: $0, browserProfileIndex: browserProfileIndex)
+            controlSummaries: resolvedControls.map {
+                Self.trustControlSummary(for: $0)
             }
         )
     }
 
-    private static func trustControlSummary(
-        for control: DockControlDefinition,
-        browserProfileIndex: DockBrowserProfileIndex
-    ) throws -> DockTrustControlSummary {
+    private static func trustControlSummary(for resolvedControl: ResolvedConfigControl) -> DockTrustControlSummary {
+        let control = resolvedControl.definition
         let detail: DockTrustControlSummary.Detail
         switch control.variant {
         case .command(let command):
@@ -794,12 +818,15 @@ final class DockSplitStore: BonsplitDelegate {
         case .terminal:
             detail = .loginShell
         case .browser(let url, let profile):
-            let resolvedProfile = try browserProfileIndex.resolve(profile)
-            detail = .browser(
-                url: url,
-                profileDisplayName: resolvedProfile.displayName,
-                profileIsDefault: resolvedProfile.isDefault
-            )
+            if let resolvedProfile = resolvedControl.browserProfile {
+                detail = .browser(
+                    url: url,
+                    profileDisplayName: resolvedProfile.displayName,
+                    profileIsDefault: resolvedProfile.isDefault
+                )
+            } else {
+                detail = .browser(url: url, profileDisplayName: profile ?? "", profileIsDefault: false)
+            }
         }
         return DockTrustControlSummary(id: control.id, title: control.title, detail: detail)
     }
