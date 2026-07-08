@@ -37,66 +37,6 @@ struct VMOnboardDerivation {
 enum VMOnboardDeriver {
     typealias Source = VMOnboardDerivation.Source
 
-    // MARK: - Repo naming
-
-    static func repoName(fromURL url: String) -> String {
-        var last = url.split(separator: "/").last.map(String.init) ?? url
-        if let colon = last.lastIndex(of: ":") {
-            // scp-style git@host:repo(.git) with no slash after the colon
-            last = String(last[last.index(after: colon)...])
-        }
-        if last.hasSuffix(".git") { last = String(last.dropLast(4)) }
-        return last.isEmpty ? "repo" : last
-    }
-
-    /// Rewrite scp-style ssh remotes to https so the VM can clone public repos
-    /// without the user's SSH identity. Private-repo auth is out of scope for
-    /// the prototype; the clone step fails visibly and the spec is editable.
-    static func normalizedCloneURL(_ url: String) -> String {
-        guard url.hasPrefix("git@"), !url.contains("://"), let colon = url.firstIndex(of: ":") else { return url }
-        let host = String(url[url.index(url.startIndex, offsetBy: 4)..<colon])
-        var path = String(url[url.index(after: colon)...])
-        if path.hasSuffix(".git") { path = String(path.dropLast(4)) }
-        return "https://\(host)/\(path)"
-    }
-
-    /// Identity key for "is this local checkout the same repo as that URL":
-    /// normalize the transport, then strip scheme, credentials, `.git`, and
-    /// trailing slashes so `git@github.com:o/r.git` == `https://github.com/o/r/`.
-    /// Comparing whole keys (host + owner + repo) prevents scanning a local
-    /// checkout that merely shares the basename with the requested repo.
-    static func canonicalRepoKey(_ url: String) -> String {
-        var key = normalizedCloneURL(url).lowercased()
-        if let scheme = key.range(of: "://") { key = String(key[scheme.upperBound...]) }
-        if let at = key.firstIndex(of: "@"), !key[..<at].contains("/") {
-            key = String(key[key.index(after: at)...])
-        }
-        while key.hasSuffix("/") { key = String(key.dropLast()) }
-        if key.hasSuffix(".git") { key = String(key.dropLast(4)) }
-        return key
-    }
-
-    /// Clone URLs and repo names are interpolated into generated shell `run:`
-    /// lines (clone step, `cd` prefixes) and into the shallow-clone git
-    /// invocation, so restrict them to characters that cannot alter shell
-    /// parsing. Everything a real git URL needs is in this set.
-    static func isShellSafeCloneURL(_ url: String) -> Bool {
-        guard !url.isEmpty, !url.hasPrefix("-") else { return false }
-        return url.unicodeScalars.allSatisfy { shellSafeURLScalars.contains($0) }
-    }
-
-    static func isShellSafeRepoName(_ name: String) -> Bool {
-        guard !name.isEmpty, !name.hasPrefix("-"), name != ".", name != ".." else { return false }
-        return name.unicodeScalars.allSatisfy { shellSafeNameScalars.contains($0) }
-    }
-
-    private static let shellSafeURLScalars = CharacterSet(
-        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@:/._~%+-"
-    )
-    private static let shellSafeNameScalars = CharacterSet(
-        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
-    )
-
     // MARK: - Repo scan
 
     /// Derive an environment for the repo rooted at `repoRoot`, to be cloned in
@@ -175,14 +115,12 @@ enum VMOnboardDeriver {
             if let miseFile {
                 if let step = deriveFromMise(miseFile.text) {
                     sources.append(Source(path: miseFile.path, kind: .mise, summary: "declared toolchains"))
-                    // Toolchains must exist before any project step runs, so
-                    // this layer goes right after the clone.
-                    steps.insert(step, at: 1)
+                    steps.append(step)
                 }
             } else if let text = read(".tool-versions") {
                 if let step = deriveFromToolVersions(text) {
                     sources.append(Source(path: ".tool-versions", kind: .mise, summary: "declared toolchains"))
-                    steps.insert(step, at: 1)
+                    steps.append(step)
                 }
             }
         }
@@ -205,7 +143,26 @@ enum VMOnboardDeriver {
         if verify.isEmpty {
             verify.append("test -d \(repoName)")
         }
-        return VMOnboardDerivation(sources: sources, steps: steps, verify: verify, untranslated: untranslated)
+        // Layers execute in order, so toolchain installs must precede project
+        // commands regardless of which source contributed them (a devcontainer
+        // postCreateCommand must not run before the workflow's setup steps).
+        // Stable partition: clone first, then toolchains, then project steps.
+        let clone = steps[0]
+        let rest = steps.dropFirst()
+        let ordered = [clone]
+            + rest.filter { isToolchainInstallStep($0) }
+            + rest.filter { !isToolchainInstallStep($0) }
+        return VMOnboardDerivation(sources: sources, steps: ordered, verify: verify, untranslated: untranslated)
+    }
+
+    /// A step whose only effect is installing toolchains (every command line is
+    /// a `mise use -g`/`mise install`, ignoring `cd` prefixes).
+    private static func isToolchainInstallStep(_ step: VMEnvSpec.Step) -> Bool {
+        let commands = step.run.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("cd ") }
+        guard !commands.isEmpty else { return false }
+        return commands.allSatisfy { $0.hasPrefix("mise use -g") || $0.hasPrefix("mise install") }
     }
 
     private static func listDir(_ root: String, _ relative: String) -> [String]? {
@@ -379,9 +336,12 @@ enum VMOnboardDeriver {
         repoName: String
     ) -> (marker: String, summary: String, steps: [VMEnvSpec.Step], verify: [String])? {
         if exists("bun.lock") || exists("bun.lockb") {
+            // Verify mirrors the install command: re-running is a cheap no-op
+            // when the layer worked, and a stricter --frozen-lockfile check
+            // could fail even after a successful install (stale lockfile).
             return ("bun.lock", "bun project", [
                 VMEnvSpec.Step(name: "install dependencies", run: "cd \(repoName)\nbun install", timeoutMinutes: nil),
-            ], ["cd \(repoName) && bun install --frozen-lockfile"])
+            ], ["cd \(repoName) && bun install"])
         }
         if exists("package-lock.json") || exists("package.json") {
             return ("package.json", "node project", [

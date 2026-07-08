@@ -193,6 +193,12 @@ extension CMUXCLI {
     /// lines that execute in the VM, so reject anything shell could reinterpret
     /// before it reaches the spec.
     private static func vmOnboardValidateRepoIdentity(cloneURL: String, name: String) throws {
+        guard VMOnboardDeriver.isRemoteCloneURL(cloneURL) else {
+            throw CLIError(message: """
+                The VM clones over the network, so a local path or file:// origin won't work: \(cloneURL)
+                Pass the repo's hosted URL: cmux vm onboard https://github.com/OWNER/REPO
+                """)
+        }
         guard VMOnboardDeriver.isShellSafeCloneURL(cloneURL) else {
             throw CLIError(message: "Repo URL contains characters that are not valid in a git URL: \(cloneURL)")
         }

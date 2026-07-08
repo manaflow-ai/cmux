@@ -374,6 +374,8 @@
 		CE22E0010000000000000005 /* CMUXCLI+VMOnboardDerive.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE22E0010000000000000004 /* CMUXCLI+VMOnboardDerive.swift */; };
 		CE22E0010000000000000009 /* CMUXCLI+VMOnboardDeriveWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE22E0010000000000000008 /* CMUXCLI+VMOnboardDeriveWorkflow.swift */; };
 		CE22E001000000000000000A /* CMUXCLI+VMOnboardDeriveWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE22E0010000000000000008 /* CMUXCLI+VMOnboardDeriveWorkflow.swift */; };
+		CE22E001000000000000000C /* CMUXCLI+VMOnboardRepoIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE22E001000000000000000B /* CMUXCLI+VMOnboardRepoIdentity.swift */; };
+		CE22E001000000000000000D /* CMUXCLI+VMOnboardRepoIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE22E001000000000000000B /* CMUXCLI+VMOnboardRepoIdentity.swift */; };
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
 		A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */; };
 		C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */; };
@@ -1865,6 +1867,7 @@
 		CE22E0010000000000000002 /* CMUXCLI+VMOnboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMOnboard.swift"; sourceTree = "<group>"; };
 		CE22E0010000000000000004 /* CMUXCLI+VMOnboardDerive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMOnboardDerive.swift"; sourceTree = "<group>"; };
 		CE22E0010000000000000008 /* CMUXCLI+VMOnboardDeriveWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMOnboardDeriveWorkflow.swift"; sourceTree = "<group>"; };
+		CE22E001000000000000000B /* CMUXCLI+VMOnboardRepoIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMOnboardRepoIdentity.swift"; sourceTree = "<group>"; };
 		C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIErrorOutputRegressionTests.swift; sourceTree = "<group>"; };
 		8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
 		C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLISentryTelemetryRegressionTests.swift; sourceTree = "<group>"; };
@@ -4033,6 +4036,7 @@
 				CE22E0010000000000000002 /* CMUXCLI+VMOnboard.swift */,
 				CE22E0010000000000000004 /* CMUXCLI+VMOnboardDerive.swift */,
 				CE22E0010000000000000008 /* CMUXCLI+VMOnboardDeriveWorkflow.swift */,
+				CE22E001000000000000000B /* CMUXCLI+VMOnboardRepoIdentity.swift */,
 				CE11E0010000000000000004 /* CMUXCLI+VMEnvSpec.swift */,
 				CE11E0010000000000000009 /* CMUXCLI+VMEnvRunner.swift */,
 				CE11E001000000000000000B /* CMUXCLI+VMEnvOps.swift */,
@@ -5788,6 +5792,7 @@
 				CE22E0010000000000000001 /* CMUXCLI+VMOnboard.swift in Sources */,
 				CE22E0010000000000000003 /* CMUXCLI+VMOnboardDerive.swift in Sources */,
 				CE22E0010000000000000009 /* CMUXCLI+VMOnboardDeriveWorkflow.swift in Sources */,
+				CE22E001000000000000000C /* CMUXCLI+VMOnboardRepoIdentity.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
@@ -5956,6 +5961,7 @@
 					CE11E0010000000000000005 /* CMUXCLI+VMEnvSpec.swift in Sources */,
 					CE22E0010000000000000005 /* CMUXCLI+VMOnboardDerive.swift in Sources */,
 					CE22E001000000000000000A /* CMUXCLI+VMOnboardDeriveWorkflow.swift in Sources */,
+					CE22E001000000000000000D /* CMUXCLI+VMOnboardRepoIdentity.swift in Sources */,
 					C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */,
 					C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */,
 					C0DE64950000000000000009 /* CMUXCLISessionsListForkDiagnosticsTests.swift in Sources */,

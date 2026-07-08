@@ -332,6 +332,51 @@ struct CMUXCLIVMOnboardDeriveTests {
     }
 
     @Test
+    func toolchainLayersPrecedeProjectCommandsAcrossSources() throws {
+        // devcontainer contributes a project command (postCreateCommand) and the
+        // workflow contributes the toolchain; the toolchain layer must still run
+        // first, mirroring CI.
+        let devcontainer = "{ \"postCreateCommand\": \"npm install\" }"
+        let workflow = """
+        jobs:
+          build:
+            runs-on: self-hosted
+            steps:
+              - uses: actions/setup-node@v4
+                with:
+                  node-version: 22
+              - run: npm test
+        """
+        let root = try makeRepo(files: [
+            ".devcontainer/devcontainer.json": devcontainer,
+            ".github/workflows/ci.yml": workflow,
+        ])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let derivation = VMOnboardDeriver.derive(
+            repoRoot: root,
+            cloneURL: "https://github.com/o/app",
+            repoName: "app"
+        )
+        let runs = derivation.steps.map(\.run)
+        // self-hosted runs-on is kept as a candidate.
+        #expect(runs.contains("cd app\nnpm test"))
+        let node = try #require(runs.firstIndex(of: "mise use -g node@22"))
+        let postCreate = try #require(runs.firstIndex(of: "cd app\nnpm install"))
+        #expect(runs.first?.hasPrefix("test -d app") == true)
+        #expect(node < postCreate)
+    }
+
+    @Test
+    func remoteCloneURLRejectsLocalOrigins() {
+        #expect(VMOnboardDeriver.isRemoteCloneURL("https://github.com/o/r"))
+        #expect(VMOnboardDeriver.isRemoteCloneURL("git@github.com:o/r.git"))
+        #expect(VMOnboardDeriver.isRemoteCloneURL("ssh://git@github.com/o/r"))
+        #expect(!VMOnboardDeriver.isRemoteCloneURL("file:///Users/me/repo"))
+        #expect(!VMOnboardDeriver.isRemoteCloneURL("/Users/me/repo"))
+        #expect(!VMOnboardDeriver.isRemoteCloneURL("../repo"))
+    }
+
+    @Test
     func devcontainerFallsBackToRootFileWhenNestedYieldsNothing() throws {
         let root = try makeRepo(files: [
             ".devcontainer/devcontainer.json": "{ \"image\": \"ubuntu\" }",

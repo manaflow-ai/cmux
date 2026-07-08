@@ -127,10 +127,12 @@ extension VMOnboardDeriver {
                     index += 1
                 }
                 // Only Linux jobs translate to a Linux VM. Expression-valued
-                // runs-on (e.g. `${{ matrix.os }}`) cannot be resolved
-                // statically; keep the job and let scoring pick the best one.
+                // runs-on (`${{ matrix.os }}`) and bare `self-hosted` labels
+                // cannot be resolved statically (self-hosted is usually Linux);
+                // keep those jobs and let scoring pick the best one.
                 let runsOn = job.runsOn?.lowercased() ?? ""
-                if runsOn.isEmpty || runsOn.contains("ubuntu") || runsOn.contains("linux") || runsOn.contains("${{") {
+                if runsOn.isEmpty || runsOn.contains("ubuntu") || runsOn.contains("linux")
+                    || runsOn.contains("${{") || runsOn.contains("self-hosted") {
                     if job.defaultWorkingDirectory == nil {
                         job.defaultWorkingDirectory = workflowWorkingDirectory
                     }
