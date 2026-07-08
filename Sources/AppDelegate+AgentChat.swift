@@ -71,7 +71,7 @@ extension AppDelegate {
             NSSound.beep()
             return false
         }
-        AgentChatThemeSync.installObserversIfNeeded()
+        AgentChatThemeSync.start()
         guard AgentChatActionInFlightGate.begin() else {
             NSSound.beep()
             return false
@@ -84,9 +84,7 @@ extension AppDelegate {
                 globalConfigPath: globalConfigPath,
                 preferredWindow: preferredWindow
             )
-            if isReachable {
-                AgentChatThemeSync.syncNowIfRecentlyHealthy()
-            }
+            AgentChatThemeSync.syncNow(agentChat: agentChat)
             guard let tabManager else { return }
             guard let workspace = self.openAgentChatWorkspace(
                 tabManager: tabManager,
@@ -188,7 +186,6 @@ extension AppDelegate {
         preferredWindow: NSWindow?
     ) async -> Bool {
         if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
-            AgentChatThemeSync.markHealthy(agentChat: agentChat)
             return true
         }
         guard let startCommand = agentChat.startCommand else {
@@ -212,7 +209,6 @@ extension AppDelegate {
         let deadline = clock.now.advanced(by: .seconds(10))
         while !Task.isCancelled, clock.now < deadline {
             if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
-                AgentChatThemeSync.markHealthy(agentChat: agentChat)
                 return true
             }
             do {

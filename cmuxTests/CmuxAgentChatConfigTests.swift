@@ -226,6 +226,20 @@ import Testing
         #expect(AgentChatThemeSync.themeURL(for: url).absoluteString == "http://127.0.0.1:7739/chat/api/theme")
     }
 
+    @Test func agentChatThemePayloadEncodesNullNullableFields() throws {
+        var config = GhosttyConfig()
+        config.fontFamily = " "
+        config.fontSize = 0
+
+        let data = try JSONEncoder().encode(AgentChatThemePayload(config: config))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect(object["fontFamily"] is NSNull)
+        #expect(object["fontSize"] is NSNull)
+        #expect(object.keys.contains("selectionBackground"))
+        #expect(object.keys.contains("cursorColor"))
+    }
+
     @MainActor
     @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
         try withBrowserDisabled {

@@ -17,6 +17,20 @@ struct AgentChatThemePayload: Codable, Equatable {
     let isLight: Bool
     let source: String
 
+    enum CodingKeys: String, CodingKey {
+        case background
+        case foreground
+        case palette
+        case selectionBackground
+        case cursorColor
+        case fontFamily
+        case fontSize
+        case opacity
+        case blur
+        case isLight
+        case source
+    }
+
     init(config: GhosttyConfig) {
         let terminalTheme = TerminalTheme(ghosttyConfig: config)
         let webTheme = AgentSessionWebTheme.resolve(appearance: .fromConfig(config))
@@ -34,12 +48,25 @@ struct AgentChatThemePayload: Codable, Equatable {
         isLight = !webTheme.isDark
         source = "cmux"
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(background, forKey: .background)
+        try container.encode(foreground, forKey: .foreground)
+        try container.encode(palette, forKey: .palette)
+        try container.encode(selectionBackground, forKey: .selectionBackground)
+        try container.encode(cursorColor, forKey: .cursorColor)
+        try container.encode(fontFamily, forKey: .fontFamily)
+        try container.encode(fontSize, forKey: .fontSize)
+        try container.encode(opacity, forKey: .opacity)
+        try container.encode(blur, forKey: .blur)
+        try container.encode(isLight, forKey: .isLight)
+        try container.encode(source, forKey: .source)
+    }
 }
 
 private nonisolated struct AgentChatThemeSyncState {
     var observersInstalled = false
-    var lastHealthyURL: URL?
-    var lastHealthyAt: Date?
     var debouncedTask: Task<Void, Never>?
 }
 
@@ -48,10 +75,9 @@ private nonisolated let agentChatThemeSyncState = OSAllocatedUnfairLock(
 )
 
 enum AgentChatThemeSync {
-    private static let healthFreshnessInterval: TimeInterval = 60
     private static let requestTimeout: TimeInterval = 1.5
 
-    static func installObserversIfNeeded() {
+    static func start() {
         let shouldInstall = agentChatThemeSyncState.withLock { state in
             guard !state.observersInstalled else { return false }
             state.observersInstalled = true
@@ -75,35 +101,23 @@ enum AgentChatThemeSync {
         }
     }
 
-    static func markHealthy(agentChat: CmuxAgentChatConfiguration) {
-        agentChatThemeSyncState.withLock { state in
-            state.lastHealthyURL = themeURL(for: agentChat.url)
-            state.lastHealthyAt = Date()
-        }
-    }
-
-    static func syncNowIfRecentlyHealthy() {
-        guard let url = recentlyHealthyThemeURL() else { return }
+    static func syncNow(agentChat: CmuxAgentChatConfiguration) {
+        let url = themeURL(for: agentChat.url)
         Task { @MainActor in
             await postResolvedTheme(to: url)
         }
     }
 
     static func scheduleDebouncedSync() {
-        let url = recentlyHealthyThemeURL()
         agentChatThemeSyncState.withLock { state in
             state.debouncedTask?.cancel()
-            guard let url else {
-                state.debouncedTask = nil
-                return
-            }
             state.debouncedTask = Task { @MainActor in
                 do {
                     try await Task.sleep(for: .milliseconds(300))
                 } catch {
                     return
                 }
-                await postResolvedTheme(to: url)
+                await postResolvedTheme(to: currentThemeURL())
             }
         }
     }
@@ -129,15 +143,12 @@ enum AgentChatThemeSync {
         return components?.url ?? baseURL.appendingPathComponent("api/theme")
     }
 
-    private static func recentlyHealthyThemeURL(now: Date = Date()) -> URL? {
-        agentChatThemeSyncState.withLock { state in
-            guard let url = state.lastHealthyURL,
-                  let lastHealthyAt = state.lastHealthyAt,
-                  now.timeIntervalSince(lastHealthyAt) <= healthFreshnessInterval else {
-                return nil
-            }
-            return url
+    @MainActor
+    private static func currentThemeURL() -> URL {
+        if let store = AppDelegate.shared?.mainWindowContexts.values.compactMap(\.cmuxConfigStore).first {
+            return themeURL(for: store.agentChat.url)
         }
+        return themeURL(for: CmuxAgentChatConfiguration.default.url)
     }
 
     @MainActor
@@ -156,7 +167,11 @@ enum AgentChatThemeSync {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(payload)
-            _ = try await URLSession.shared.data(for: request)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200..<300).contains(httpResponse.statusCode) {
+                NSLog("[AgentChat] theme sync failed status=%d url=%@", httpResponse.statusCode, url.absoluteString)
+            }
         } catch {
             NSLog("[AgentChat] failed to sync theme: %@", String(describing: error))
         }
