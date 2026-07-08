@@ -12,6 +12,8 @@ import CmuxSidebarGit
 import CmuxSidebar
 import CmuxTerminal
 import CmuxSettings
+import struct CmuxWorkspaces.TmuxOverlayExperimentSettings
+import enum CmuxWorkspaces.TmuxOverlayExperimentTarget
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3319,7 +3321,6 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
         )
     }
 }
-
 
 @MainActor
 final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {

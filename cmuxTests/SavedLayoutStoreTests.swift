@@ -1,12 +1,17 @@
 import Foundation
 import Testing
-import struct CmuxWorkspaces.CmuxWorkspaceDefinition
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private typealias WorkspaceDefinition = CmuxWorkspaces.CmuxWorkspaceDefinition
+private typealias WorkspaceLayoutNode = CmuxWorkspaces.CmuxLayoutNode
+private typealias WorkspacePaneDefinition = CmuxWorkspaces.CmuxPaneDefinition
+private typealias WorkspaceSurfaceDefinition = CmuxWorkspaces.CmuxSurfaceDefinition
 
 @MainActor
 @Suite(.serialized)
@@ -140,12 +145,14 @@ struct SavedLayoutStoreTests {
         CmuxSavedLayout(
             name: name,
             description: description,
-            workspace: CmuxWorkspaceDefinition(
+            workspace: WorkspaceDefinition(
                 name: nil,
                 cwd: "/tmp",
                 color: nil,
                 env: nil,
-                layout: .pane(CmuxPaneDefinition(surfaces: [CmuxSurfaceDefinition(type: .terminal)]))
+                layout: WorkspaceLayoutNode.pane(
+                    WorkspacePaneDefinition(surfaces: [WorkspaceSurfaceDefinition(type: .terminal)])
+                )
             )
         )
     }
