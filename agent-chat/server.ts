@@ -22,6 +22,28 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 
+// The sidecar binds loopback only, but browsers can still reach loopback from
+// arbitrary web origins (CSRF against the WS control plane) and DNS rebinding
+// can defeat a bind-address check alone. Require a loopback Host header and,
+// for browser-originated requests, a same-origin Origin header. Requests
+// without an Origin header (CLI curl, Bun's WebSocket client) are trusted.
+const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+
+function hasTrustedHost(req: Request): boolean {
+  return ALLOWED_HOSTS.has(req.headers.get("host") ?? "");
+}
+
+function hasTrustedOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (origin === null) return true;
+  try {
+    const u = new URL(origin);
+    return u.protocol === "http:" && ALLOWED_HOSTS.has(u.host);
+  } catch {
+    return false;
+  }
+}
+
 // Under launchd the PATH is minimal; make sure the agent CLIs resolve.
 {
   const home = process.env.HOME ?? "";
@@ -35,6 +57,7 @@ const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
 const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
+const MAX_SESSION_EVENTS = 5_000;
 const GEMINI_MODELS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
@@ -160,6 +183,14 @@ function createSession(
     createdAt: Date.now(),
     emit(evt: AgentEvent) {
       sess.events.push(evt);
+      // Long agent streams accumulate thousands of retained events in this
+      // long-lived process; cap the replayable transcript per session.
+      if (sess.events.length > MAX_SESSION_EVENTS) {
+        sess.events.splice(0, sess.events.length - MAX_SESSION_EVENTS);
+        if (sess.events[0]?.kind !== "status" || !sess.events[0].text.startsWith("(transcript truncated")) {
+          sess.events.unshift({ kind: "status", text: "(transcript truncated: older events dropped)" });
+        }
+      }
       const payload = JSON.stringify({ kind: "event", sessionId: id, evt });
       for (const ws of sess.sockets) ws.send(payload);
     },
@@ -180,6 +211,9 @@ function sendPrompt(sess: Session, prompt: string) {
   sess.emit({ kind: "user", text: prompt });
   Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
     sess.emit({ kind: "error", message: String(err) });
+    // The UI treats "done" as the turn boundary; without it a failed send
+    // leaves an open streaming block with no footer.
+    sess.emit({ kind: "done" });
     sess.setStatus("idle");
   });
 }
@@ -516,10 +550,10 @@ function renderPage(url: URL): string {
 }
 
 // Bundle the React + Base UI frontend with Bun. Built once at startup and
-// cached; rebuilt on each request only when CMUX_AGENT_UI_CACHE != "1" (dev).
+// cached; set CMUX_AGENT_UI_DEV=1 to rebuild on every request while iterating.
 let bundleCache: string | null = null;
 async function buildBundle(): Promise<string> {
-  if (bundleCache && process.env.CMUX_AGENT_UI_CACHE === "1") return bundleCache;
+  if (bundleCache && process.env.CMUX_AGENT_UI_DEV !== "1") return bundleCache;
   const out = await Bun.build({
     entrypoints: [`${ROOT}/src/main.tsx`],
     target: "browser",
@@ -536,9 +570,12 @@ async function buildBundle(): Promise<string> {
 
 const server = Bun.serve<WsData>({
   port: PORT,
+  hostname: "127.0.0.1",
   async fetch(req, srv) {
     const url = new URL(req.url);
+    if (!hasTrustedHost(req)) return new Response("forbidden", { status: 403 });
     if (url.pathname === "/ws") {
+      if (!hasTrustedOrigin(req)) return new Response("forbidden", { status: 403 });
       return srv.upgrade(req, { data: { subscribed: null } })
         ? undefined
         : new Response("upgrade failed", { status: 400 });
@@ -566,6 +603,7 @@ const server = Bun.serve<WsData>({
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
     if (url.pathname === "/api/sessions" && req.method === "POST") {
+      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
       const body = await req.json().catch(() => ({}));
       const provider = String(body.provider ?? "claude");
       const prompt = String(body.prompt ?? "").trim();
