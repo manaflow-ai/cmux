@@ -141,148 +141,156 @@ extension AgentLaunchSanitizer {
         }
         return nil
     }
+}
 
-    static func codexForkCommandSessionIndex(_ args: [String], forkIndex: Int) -> Int? {
-        var index = forkIndex + 1
-        while index < args.count {
-            let argument = args[index]
-            if argument == "--" {
-                return nil
-            }
-            if !argument.hasPrefix("-") || argument == "-" {
-                return looksLikeCodexSessionIdentifier(argument) ? index : nil
-            }
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            if codexPolicy.variadicOptions.contains(argument) {
-                let end = min(args.count, index + width)
-                if index + 2 < end {
-                    for candidateIndex in (index + 2)..<end {
-                        if looksLikeCodexSessionIdentifier(args[candidateIndex]) {
-                            return candidateIndex
-                        }
+// MARK: - File-scope codex launch helpers
+//
+// Pure helpers used only by this file. They live at file scope rather than as
+// static members so the `AgentLaunchSanitizer` extension surface stays limited
+// to the API its cross-file consumers (launch preservation, capture, tests)
+// actually call.
+
+private func codexForkCommandSessionIndex(_ args: [String], forkIndex: Int) -> Int? {
+    let codexPolicy = AgentLaunchSanitizer.codexPolicy
+    var index = forkIndex + 1
+    while index < args.count {
+        let argument = args[index]
+        if argument == "--" {
+            return nil
+        }
+        if !argument.hasPrefix("-") || argument == "-" {
+            return looksLikeCodexSessionIdentifier(argument) ? index : nil
+        }
+        let width = AgentLaunchSanitizer.optionWidth(args, index: index, policy: codexPolicy)
+        if codexPolicy.variadicOptions.contains(argument) {
+            let end = min(args.count, index + width)
+            if index + 2 < end {
+                for candidateIndex in (index + 2)..<end {
+                    if looksLikeCodexSessionIdentifier(args[candidateIndex]) {
+                        return candidateIndex
                     }
                 }
             }
-            index += width
         }
-        return nil
+        index += width
     }
+    return nil
+}
 
-    static func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 20 else { return false }
-        if trimmed.hasPrefix("019") {
+private func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count >= 20 else { return false }
+    if trimmed.hasPrefix("019") {
+        return true
+    }
+    let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+    return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
+}
+
+private func containsCmuxInjectedCodexHookConfig(_ args: [String]) -> Bool {
+    var index = 0
+    while index < args.count {
+        let arg = args[index]
+        if isCmuxInjectedCodexHookConfigOption(arg) {
             return true
         }
-        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
-        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
-    }
-
-    private static func containsCmuxInjectedCodexHookConfig(_ args: [String]) -> Bool {
-        var index = 0
-        while index < args.count {
-            let arg = args[index]
-            if isCmuxInjectedCodexHookConfigOption(arg) {
-                return true
-            }
-            if (arg == "-c" || arg == "--config"),
-               index + 1 < args.count,
-               isCmuxInjectedCodexHookConfigValue(args[index + 1]) {
-                return true
-            }
-            index += 1
-        }
-        return false
-    }
-
-    private static func isCmuxInjectedCodexHookConfigOption(_ arg: String) -> Bool {
-        for prefix in ["-c=", "--config="] where arg.hasPrefix(prefix) {
-            return isCmuxInjectedCodexHookConfigValue(String(arg.dropFirst(prefix.count)))
-        }
-        return false
-    }
-
-    private static func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
-        value.hasPrefix("hooks.") && value.contains("cmux-codex-hook")
-    }
-
-    /// The agent whose cmux wrapper injected hook arguments into captured
-    /// argv, or nil when no cmux-injected marker is present. A non-nil name is
-    /// the deterministic signal that cmux's PATH shim wrapper for that agent
-    /// spawned this process from a bare agent name (vs the user launching a
-    /// script or explicit path directly).
-    static func cmuxWrapperInjectedAgentName(_ argv: [String]) -> String? {
-        if containsCmuxInjectedCodexHookConfig(argv) { return "codex" }
-        if containsCmuxInjectedClaudeHookSettings(argv) { return "claude" }
-        return nil
-    }
-
-    private static func containsCmuxInjectedClaudeHookSettings(_ argv: [String]) -> Bool {
-        var index = 0
-        while index < argv.count {
-            let arg = argv[index]
-            if arg == "--settings", index + 1 < argv.count {
-                if isCmuxInjectedClaudeHookSettingsValue(argv[index + 1]) { return true }
-                index += 2
-                continue
-            }
-            if arg.hasPrefix("--settings="),
-               isCmuxInjectedClaudeHookSettingsValue(String(arg.dropFirst("--settings=".count))) {
-                return true
-            }
-            index += 1
-        }
-        return false
-    }
-
-    /// Mirrors the claude wrapper's injected-settings markers used by
-    /// `AgentLaunchSanitizer`'s hook-settings replacement (`claude-hook`
-    /// script paths / `hooks claude` subcommands).
-    private static func isCmuxInjectedClaudeHookSettingsValue(_ value: String) -> Bool {
-        value.contains("claude-hook") || value.contains("hooks claude")
-    }
-
-    private static func javaScriptRuntimeScriptArgumentIndex(_ argv: [String]) -> Int? {
-        var index = 1
-        while index < argv.count {
-            let argument = argv[index]
-            if argument == "--" {
-                let nextIndex = index + 1
-                return nextIndex < argv.count ? nextIndex : nil
-            }
-            if argument.hasPrefix("-") {
-                if nodeOptionConsumesScript(argument) {
-                    return nil
-                }
-                index += 1 + nodeOptionValueCount(argument)
-                continue
-            }
-            return index
-        }
-        return nil
-    }
-
-    private static func nodeOptionConsumesScript(_ argument: String) -> Bool {
-        let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
-        switch option {
-        case "-e", "--eval", "-p", "--print", "-c", "--check":
+        if (arg == "-c" || arg == "--config"),
+           index + 1 < args.count,
+           isCmuxInjectedCodexHookConfigValue(args[index + 1]) {
             return true
-        default:
-            return false
         }
+        index += 1
     }
+    return false
+}
 
-    private static func nodeOptionValueCount(_ argument: String) -> Int {
-        if argument.contains("=") {
-            return 0
+private func isCmuxInjectedCodexHookConfigOption(_ arg: String) -> Bool {
+    for prefix in ["-c=", "--config="] where arg.hasPrefix(prefix) {
+        return isCmuxInjectedCodexHookConfigValue(String(arg.dropFirst(prefix.count)))
+    }
+    return false
+}
+
+private func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
+    value.hasPrefix("hooks.") && value.contains("cmux-codex-hook")
+}
+
+/// The agent whose cmux wrapper injected hook arguments into captured argv, or
+/// nil when no cmux-injected marker is present. A non-nil name is the
+/// deterministic signal that cmux's PATH shim wrapper for that agent spawned
+/// this process from a bare agent name (vs the user launching a script or
+/// explicit path directly).
+private func cmuxWrapperInjectedAgentName(_ argv: [String]) -> String? {
+    if containsCmuxInjectedCodexHookConfig(argv) { return "codex" }
+    if containsCmuxInjectedClaudeHookSettings(argv) { return "claude" }
+    return nil
+}
+
+private func containsCmuxInjectedClaudeHookSettings(_ argv: [String]) -> Bool {
+    var index = 0
+    while index < argv.count {
+        let arg = argv[index]
+        if arg == "--settings", index + 1 < argv.count {
+            if isCmuxInjectedClaudeHookSettingsValue(argv[index + 1]) { return true }
+            index += 2
+            continue
         }
-        switch argument {
-        case "-r", "--require", "--import", "--loader", "--experimental-loader",
-             "--conditions", "-C", "--title":
-            return 1
-        default:
-            return 0
+        if arg.hasPrefix("--settings="),
+           isCmuxInjectedClaudeHookSettingsValue(String(arg.dropFirst("--settings=".count))) {
+            return true
         }
+        index += 1
+    }
+    return false
+}
+
+/// Mirrors the claude wrapper's injected-settings markers used by
+/// `AgentLaunchSanitizer`'s hook-settings replacement (`claude-hook` script
+/// paths / `hooks claude` subcommands).
+private func isCmuxInjectedClaudeHookSettingsValue(_ value: String) -> Bool {
+    value.contains("claude-hook") || value.contains("hooks claude")
+}
+
+private func javaScriptRuntimeScriptArgumentIndex(_ argv: [String]) -> Int? {
+    var index = 1
+    while index < argv.count {
+        let argument = argv[index]
+        if argument == "--" {
+            let nextIndex = index + 1
+            return nextIndex < argv.count ? nextIndex : nil
+        }
+        if argument.hasPrefix("-") {
+            if nodeOptionConsumesScript(argument) {
+                return nil
+            }
+            index += 1 + nodeOptionValueCount(argument)
+            continue
+        }
+        return index
+    }
+    return nil
+}
+
+private func nodeOptionConsumesScript(_ argument: String) -> Bool {
+    let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
+    switch option {
+    case "-e", "--eval", "-p", "--print", "-c", "--check":
+        return true
+    default:
+        return false
+    }
+}
+
+private func nodeOptionValueCount(_ argument: String) -> Int {
+    if argument.contains("=") {
+        return 0
+    }
+    switch argument {
+    case "-r", "--require", "--import", "--loader", "--experimental-loader",
+         "--conditions", "-C", "--title":
+        return 1
+    default:
+        return 0
     }
 }
 
