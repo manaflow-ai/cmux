@@ -24,6 +24,13 @@ export const dynamic = "force-dynamic";
 const UPLOAD_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 const GRANT_GC_BATCH = 10;
 
+type ExistingUploadGrant = {
+  readonly id: string;
+  readonly compressedSizeBytes: number;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+};
+
 type VaultUploadItemBase = {
   readonly agent: string;
   readonly agentSessionId: string;
@@ -42,6 +49,7 @@ type ReservedUploadResult =
     readonly status: "upload";
     readonly grantId: string;
     readonly grantExpiresAt: Date;
+    readonly previousGrant: ExistingUploadGrant | null;
     readonly objectKey: string;
     readonly compressedSizeBytes: number;
   });
@@ -106,6 +114,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
       (await getVaultStoredCompressedBytes(lockedDb, userId)) +
       (await getVaultPendingGrantBytes(lockedDb, userId, now, batchObjectKeys));
     const lockedResults: ReservedUploadResult[] = [];
+    const objectKeysCreatedInRequest = new Set<string>();
     for (const item of batch.value) {
       // Per-item so one oversized transcript cannot block the rest of the batch.
       if (item.compressedSizeBytes > config.maxUploadBytes) {
@@ -166,6 +175,16 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
 
       const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
       const grantExpiresAt = new Date(now.getTime() + UPLOAD_GRANT_TTL_MS);
+      const [previousGrant] = await lockedDb
+        .select({
+          id: vaultUploadGrants.id,
+          compressedSizeBytes: vaultUploadGrants.compressedSizeBytes,
+          createdAt: vaultUploadGrants.createdAt,
+          expiresAt: vaultUploadGrants.expiresAt,
+        })
+        .from(vaultUploadGrants)
+        .where(eq(vaultUploadGrants.objectKey, objectKey))
+        .limit(1);
       const [grant] = await lockedDb
         .insert(vaultUploadGrants)
         .values({
@@ -185,6 +204,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         })
         .returning({ id: vaultUploadGrants.id });
       if (!grant) throw new Error("vault upload grant upsert returned no row");
+      if (!previousGrant) objectKeysCreatedInRequest.add(objectKey);
       projectedUserBytes += item.compressedSizeBytes;
       lockedResults.push({
         agent: item.agent,
@@ -193,6 +213,9 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         status: "upload",
         grantId: grant.id,
         grantExpiresAt,
+        previousGrant: previousGrant && !objectKeysCreatedInRequest.has(objectKey)
+          ? previousGrant
+          : null,
         objectKey,
         compressedSizeBytes: item.compressedSizeBytes,
       });
@@ -214,6 +237,8 @@ async function presignReservedUploads(
   items: readonly ReservedUploadResult[],
 ): Promise<VaultUploadResponseItem[]> {
   const results: VaultUploadResponseItem[] = [];
+  const successfulObjectKeys = new Set<string>();
+  const failedReservations = new Map<string, Extract<ReservedUploadResult, { status: "upload" }>>();
   for (const item of items) {
     if (item.status !== "upload") {
       results.push(item);
@@ -228,15 +253,9 @@ async function presignReservedUploads(
         objectKey: item.objectKey,
         putUrl: await presignPut(item.objectKey, item.compressedSizeBytes),
       });
+      successfulObjectKeys.add(item.objectKey);
     } catch {
-      await db
-        .delete(vaultUploadGrants)
-        .where(and(
-          eq(vaultUploadGrants.id, item.grantId),
-          eq(vaultUploadGrants.objectKey, item.objectKey),
-          eq(vaultUploadGrants.expiresAt, item.grantExpiresAt),
-        ))
-        .catch(() => undefined);
+      failedReservations.set(item.objectKey, item);
       results.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,
@@ -245,6 +264,32 @@ async function presignReservedUploads(
         error: "upload_presign_failed",
       });
     }
+  }
+  for (const item of failedReservations.values()) {
+    if (successfulObjectKeys.has(item.objectKey)) continue;
+    if (item.previousGrant) {
+      await db
+        .update(vaultUploadGrants)
+        .set({
+          compressedSizeBytes: item.previousGrant.compressedSizeBytes,
+          createdAt: item.previousGrant.createdAt,
+          expiresAt: item.previousGrant.expiresAt,
+        })
+        .where(and(
+          eq(vaultUploadGrants.id, item.previousGrant.id),
+          eq(vaultUploadGrants.objectKey, item.objectKey),
+        ))
+        .catch(() => undefined);
+      continue;
+    }
+    await db
+      .delete(vaultUploadGrants)
+      .where(and(
+        eq(vaultUploadGrants.id, item.grantId),
+        eq(vaultUploadGrants.objectKey, item.objectKey),
+        eq(vaultUploadGrants.expiresAt, item.grantExpiresAt),
+      ))
+      .catch(() => undefined);
   }
   return results;
 }
