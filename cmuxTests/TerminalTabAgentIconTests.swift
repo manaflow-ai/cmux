@@ -147,6 +147,19 @@ struct TerminalTabAgentIconTests {
         #expect(asset == "AgentIcons/Grok")
     }
 
+    @Test func dottedRegisteredAgentIdsAreNotTruncatedToAWrongBuiltInBrand() {
+        // "claude.wrapper" is a legal vault registration id. Without the
+        // known-status-key exact match it would truncate to "claude" and show
+        // the wrong brand mark.
+        let asset = TerminalTabAgentIconResolver().assetName(
+            agentPIDKeys: ["claude.wrapper"],
+            knownStatusKeys: ["claude.wrapper"],
+            restoredAgent: nil
+        )
+
+        #expect(asset == nil)
+    }
+
     @Test func liveRegisteredAgentResolvesThroughRegistrationLookup() {
         var lookedUpKeys: [String] = []
         let asset = TerminalTabAgentIconResolver().assetName(

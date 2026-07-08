@@ -47,15 +47,25 @@ nonisolated struct TerminalTabAgentIconResolver {
         return restoredAgent.registrationIconAssetName ?? builtInAssetName(statusKey: restoredAgent.kind)
     }
 
+    /// - Parameter knownStatusKeys: Status keys known to be exact agent ids
+    ///   (e.g. the keys of the runtime's status entries). Registered agent ids
+    ///   may legally contain dots, so a raw PID key is only truncated at its
+    ///   first dot when it is not itself a known status key — mirroring
+    ///   `Workspace.agentStatusKey(forAgentPIDKey:)`, which exact-matches
+    ///   against `statusEntries` before falling back to the prefix.
     func assetName(
         agentPIDKeys: Set<String>,
         processIdentities: [String: AgentPIDProcessIdentity] = [:],
+        knownStatusKeys: Set<String> = [],
         restoredAgent: RestoredAgent?,
         registrationIconAssetName: (String) -> String? = { _ in nil }
     ) -> String? {
         assetName(
             liveAgents: agentPIDKeys.map { key in
-                LiveAgent(statusKey: statusKey(forAgentPIDKey: key), processStart: processIdentities[key])
+                LiveAgent(
+                    statusKey: knownStatusKeys.contains(key) ? key : statusKey(forAgentPIDKey: key),
+                    processStart: processIdentities[key]
+                )
             },
             restoredAgent: restoredAgent,
             registrationIconAssetName: registrationIconAssetName
@@ -186,6 +196,7 @@ extension DockSplitStore {
         return TerminalTabAgentIconResolver().assetName(
             agentPIDKeys: transfer.agentRuntime?.agentPIDKeys ?? [],
             processIdentities: transfer.agentRuntime?.agentPIDProcessIdentities ?? [:],
+            knownStatusKeys: transfer.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
             restoredAgent: transfer.restorableAgent.map(
                 TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
             )
