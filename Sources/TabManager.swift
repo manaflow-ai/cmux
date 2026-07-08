@@ -223,7 +223,7 @@ class TabManager: ObservableObject {
     func toggleBroadcastInput(forTabId tabId: UUID? = nil) -> Bool? {
         guard let targetId = tabId ?? selectedTabId,
               let workspace = workspacesById[targetId] else { return nil }
-        workspace.broadcastInputEnabled.toggle()
+        workspace.setBroadcastInputEnabled(!workspace.broadcastInputEnabled)
         return workspace.broadcastInputEnabled
     }
 
@@ -233,7 +233,7 @@ class TabManager: ObservableObject {
     func setBroadcastInputEnabled(_ enabled: Bool, forTabId tabId: UUID? = nil) -> Bool? {
         guard let targetId = tabId ?? selectedTabId,
               let workspace = workspacesById[targetId] else { return nil }
-        workspace.broadcastInputEnabled = enabled
+        workspace.setBroadcastInputEnabled(enabled)
         return enabled
     }
 

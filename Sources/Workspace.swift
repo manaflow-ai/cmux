@@ -1960,10 +1960,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// When enabled, keystrokes typed in the focused pane are broadcast to every
     /// other visible pane in this workspace (tmux `synchronize-panes` / iTerm2
     /// "Broadcast Input"). Scoped per workspace and deliberately not persisted,
-    /// so a broadcast session never outlives the window. Mutate through the
-    /// shared `setBroadcastInputEnabled(_:)` / `toggleBroadcastInput()` path so
-    /// every entrypoint (shortcut, command palette, menu, CLI) stays in sync.
-    @Published var broadcastInputEnabled: Bool = false
+    /// so a broadcast session never outlives the window. Write-protected outside
+    /// `Workspace`: mutate only through ``setBroadcastInputEnabled(_:)`` (which
+    /// `TabManager`'s shared toggle/set path calls) so every entrypoint —
+    /// shortcut, command palette, menu, CLI — stays on one mutation path and
+    /// cannot drift out of sync.
+    @Published private(set) var broadcastInputEnabled: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
@@ -2172,6 +2174,13 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panel
+    }
+
+    /// The only writer for ``broadcastInputEnabled``. `TabManager`'s shared
+    /// `toggleBroadcastInput()` / `setBroadcastInputEnabled(_:)` route here so
+    /// the state has a single mutation path.
+    func setBroadcastInputEnabled(_ enabled: Bool) {
+        broadcastInputEnabled = enabled
     }
 
     /// One terminal panel per currently-visible pane: the selected surface in
