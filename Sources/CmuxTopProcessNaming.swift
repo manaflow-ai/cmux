@@ -12,6 +12,9 @@ nonisolated func cmuxTopCanonicalProcessName(name: String, path: String?) -> Str
 /// Lock-guarded per-PID memo for coding-agent classification. The mutable cache is
 /// private so no caller can touch it without going through the guarded accessor,
 /// which preserves the snapshot's `@unchecked Sendable` safety argument.
+/// A lock (not an actor) is deliberate: every consumer is a synchronous
+/// `nonisolated` payload builder on the snapshot, so actor isolation would force
+/// `await` through the synchronous socket payload pipeline.
 nonisolated final class CmuxTopCodingAgentDefinitionMemo: @unchecked Sendable {
     private let lock = NSLock()
     private var cache: [Int: CmuxTaskManagerCodingAgentDefinition?] = [:]
