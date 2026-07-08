@@ -2,6 +2,20 @@ import Foundation
 
 extension AppDelegate {
     @MainActor
+    func agentHibernationPanelIsProtected(workspace: Workspace, panelId: UUID) -> Bool {
+        for context in mainWindowContexts.values {
+            guard context.window?.isVisible == true,
+                  context.tabManager.selectedTabId == workspace.id else {
+                continue
+            }
+            if workspace.agentHibernationVisiblePanelIdsForCurrentLayout().contains(panelId) {
+                return true
+            }
+        }
+        return false
+    }
+
+    @MainActor
     func agentHibernationRecords(
         index: RestorableAgentSessionIndex,
         activityByPanel: [AgentHibernationPanelKey: TimeInterval],

@@ -328,11 +328,24 @@ final class AgentHibernationController {
                 AgentHibernationTranscriptGuard.snapshotBeforeTeardown(agent: agent)
             }.value
             // Re-validate: the pane must still be exactly as confirmed. Any activity,
-            // scrollback change, hibernation disable, hibernation, or surface loss
-            // during the hop aborts; the regular 30s tick will re-arm if still idle.
+            // scrollback change, visibility/protection change, hibernation disable,
+            // hibernation, or surface loss during the hop aborts; the regular 30s
+            // tick will re-arm if still idle.
+            // Live-process state is not re-scanned here: a full index reload costs
+            // 350ms-1.8s; new agents bump lifecycle/input hooks checked below.
             guard AgentHibernationTrackingGate.isEnabled(),
                   !record.terminalPanel.isAgentHibernated,
                   record.terminalPanel.surface.hasLiveSurface,
+                  AppDelegate.shared?.agentHibernationPanelIsProtected(
+                      workspace: record.workspace,
+                      panelId: record.key.panelId
+                  ) == false,
+                  record.workspace.agentHibernationLifecycleState(
+                      panelId: record.key.panelId,
+                      fallback: record.lifecycle
+                  ).allowsHibernation,
+                  (self.terminalInputByPanel[record.key] ?? 0) <=
+                      (self.lifecycleChangeByPanel[record.key] ?? 0),
                   let currentFingerprint = self.hibernationFingerprint(for: record),
                   currentFingerprint == confirmationFingerprint,
                   (self.activityByPanel[record.key] ?? 0) <= effectiveLastActivityAt else {
