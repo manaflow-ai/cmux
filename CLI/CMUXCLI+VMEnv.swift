@@ -237,14 +237,6 @@ extension CMUXCLI {
                 : "created VM \(vmId) (\(restoreMs)ms)")
         }
 
-        // Ship the runner + remaining step/verify scripts in one exec.
-        try vmEnvShipScripts(
-            vmId: vmId,
-            spec: spec,
-            stepIndices: Array(startIndex..<spec.steps.count),
-            client: client
-        )
-
         var failingStepIndex: Int?
         var failureKind: String?
         // The final step is snapshotted and registered only after verify
@@ -256,6 +248,15 @@ extension CMUXCLI {
         for index in startIndex..<spec.steps.count {
             let step = spec.steps[index]
             if !jsonOutput { print("step \(index) [\(step.name)] running...") }
+            // Stage exactly this step's script (plus the runner) so the layer
+            // snapshot taken after it never contains future step/verify text.
+            try vmEnvShipScripts(
+                vmId: vmId,
+                spec: spec,
+                stepIndices: [index],
+                includeVerify: false,
+                client: client
+            )
             let started = Date()
             let outcome = try vmEnvRunScript(
                 vmId: vmId,
@@ -325,7 +326,16 @@ extension CMUXCLI {
         // read-only checks, so their filesystem footprint in the final layer
         // is expected to be nil.
         var verifyReports: [[String: Any]] = []
-        if failingStepIndex == nil {
+        if failingStepIndex == nil, !spec.verify.isEmpty {
+            // Verify scripts are staged only now, after every step snapshot,
+            // so no intermediate layer contains verify text.
+            try vmEnvShipScripts(
+                vmId: vmId,
+                spec: spec,
+                stepIndices: [],
+                includeVerify: true,
+                client: client
+            )
             for (index, _) in spec.verify.enumerated() {
                 if !jsonOutput { print("verify \(index) running...") }
                 let started = Date()

@@ -44,7 +44,10 @@ extension CMUXCLI {
         let logTail: String?
     }
 
-    /// Writes the runner plus every needed step/verify script into the VM.
+    /// Writes the runner plus the requested step/verify scripts into the VM.
+    /// Callers stage each script just before it runs, so a layer snapshot
+    /// taken after step i contains only the scripts for steps 0...i (never
+    /// future step or verify text, which is outside that layer's cache key).
     /// Scripts are base64-encoded so arbitrary step text never needs shell
     /// quoting, sliced so no single write outgrows shell/provider command
     /// limits, and packed into as few execs as those limits allow.
@@ -52,14 +55,17 @@ extension CMUXCLI {
         vmId: String,
         spec: VMEnvSpec,
         stepIndices: [Int],
+        includeVerify: Bool,
         client: SocketClient
     ) throws {
         var files: [(name: String, content: String)] = [("runner.sh", Self.vmEnvRunnerScript)]
         for index in stepIndices {
             files.append(("step-\(index).sh", Self.vmEnvStepScript(run: spec.steps[index].run, env: spec.env)))
         }
-        for (index, run) in spec.verify.enumerated() {
-            files.append(("verify-\(index).sh", Self.vmEnvStepScript(run: run, env: spec.env)))
+        if includeVerify {
+            for (index, run) in spec.verify.enumerated() {
+                files.append(("verify-\(index).sh", Self.vmEnvStepScript(run: run, env: spec.env)))
+            }
         }
         // 45KB of source bytes -> ~60KB of base64 per write; well under the
         // conservative ~128KB command-length floor across providers. Every
