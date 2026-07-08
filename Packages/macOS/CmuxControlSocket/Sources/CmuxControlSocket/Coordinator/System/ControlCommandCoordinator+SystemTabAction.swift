@@ -11,6 +11,7 @@ extension ControlCommandCoordinator {
         "new_terminal_right", "new_browser_right",
         "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
         "pin", "unpin", "mark_read", "mark_unread", "toggle_full_width_tab",
+        "disconnect_remote",
     ]
 
     /// `surface.action` / `tab.action` — run one surface-tab mutation.

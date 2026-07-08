@@ -14,6 +14,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     public var identityFile: String?
     /// Durable `-o` SSH options captured from the live configuration.
     public var sshOptions: [String]
+    /// Remote scope when the snapshot needs to preserve non-workspace behavior.
+    public var scope: WorkspaceRemoteScope? = nil
     /// Whether remote PTY sessions outlive their local terminal surface.
     public var preserveAfterTerminalExit: Bool?
     /// Whether daemon bootstrap is skipped (pre-baked Cloud VM images).
@@ -32,6 +34,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         port: Int? = nil,
         identityFile: String? = nil,
         sshOptions: [String] = [],
+        scope: WorkspaceRemoteScope? = nil,
         preserveAfterTerminalExit: Bool? = nil,
         skipDaemonBootstrap: Bool? = nil,
         relayPort: Int? = nil,
@@ -43,6 +46,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         self.port = port
         self.identityFile = identityFile
         self.sshOptions = sshOptions
+        self.scope = scope
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.skipDaemonBootstrap = skipDaemonBootstrap
         self.relayPort = relayPort

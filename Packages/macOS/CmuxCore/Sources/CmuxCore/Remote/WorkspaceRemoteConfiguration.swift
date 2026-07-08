@@ -15,6 +15,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let port: Int?
     /// Explicit identity file path, when configured.
     public let identityFile: String?
+    /// Scope that decides whether new surfaces inherit this remote.
+    public let scope: WorkspaceRemoteScope
     /// `-o` SSH options applied to every spawned SSH process.
     public let sshOptions: [String]
     /// Deterministic local proxy port override (docker regression test hook).
@@ -57,6 +59,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         destination: String,
         port: Int?,
         identityFile: String?,
+        scope: WorkspaceRemoteScope = .workspace,
         sshOptions: [String],
         localProxyPort: Int?,
         relayPort: Int?,
@@ -77,6 +80,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
+        self.scope = scope
         self.sshOptions = sshOptions
         self.localProxyPort = localProxyPort
         self.relayPort = relayPort
@@ -101,6 +105,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         destination: String,
         port: Int?,
         identityFile: String?,
+        scope: WorkspaceRemoteScope = .workspace,
         sshOptions: [String],
         localProxyPort: Int?,
         relayPort: Int?,
@@ -121,6 +126,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             destination: destination,
             port: port,
             identityFile: identityFile,
+            scope: scope,
             sshOptions: sshOptions,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
@@ -255,6 +261,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             destination: destination,
             port: port,
             identityFile: identityFile,
+            scope: scope,
             sshOptions: sshOptions,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
@@ -314,6 +321,7 @@ extension WorkspaceRemoteConfiguration {
                 port: nil,
                 identityFile: nil,
                 sshOptions: [],
+                scope: nil,
                 preserveAfterTerminalExit: true,
                 skipDaemonBootstrap: true,
                 relayPort: nil,
@@ -330,6 +338,7 @@ extension WorkspaceRemoteConfiguration {
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),
             sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(sshOptions),
+            scope: scope == .pane ? .pane : nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,

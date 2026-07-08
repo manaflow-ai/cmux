@@ -8546,6 +8546,7 @@ struct CMUXCLI {
         let remoteRelayPort: Int
         let pinWorkspaceToTop: Bool
         let daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint?
+        let paneScope: Bool
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
@@ -8566,6 +8567,7 @@ struct CMUXCLI {
             remoteRelayPort: Int,
             pinWorkspaceToTop: Bool = false,
             daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint? = nil,
+            paneScope: Bool = false,
             skipDaemonBootstrap: Bool = false
         ) {
             self.destination = destination
@@ -8583,6 +8585,7 @@ struct CMUXCLI {
             self.remoteRelayPort = remoteRelayPort
             self.pinWorkspaceToTop = pinWorkspaceToTop
             self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
+            self.paneScope = paneScope
             self.skipDaemonBootstrap = skipDaemonBootstrap
         }
     }
@@ -9064,6 +9067,22 @@ struct CMUXCLI {
             "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
+        if sshOptions.paneScope {
+            try runSSHPaneScope(
+                sshOptions: sshOptions,
+                relayID: relayID,
+                relayToken: relayToken,
+                client: client,
+                jsonOutput: jsonOutput,
+                remoteSSHOptions: remoteSSHOptions,
+                initialSSHStartupCommand: initialSSHStartupCommand,
+                reusableTerminalStartupCommand: reusableTerminalStartupCommand,
+                configuredForegroundAuthToken: configuredForegroundAuthToken,
+                autoConnect: deferredRemoteReconnectCommandScript == nil,
+                persistentDaemonSlot: persistentDaemonSlot,
+                managedCloudVMID: vmIDForSplitAttach
+            )
+        }
 
         let normalizedWorkspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let existingPinnedWorkspace = sshOptions.pinWorkspaceToTop
@@ -9150,51 +9169,18 @@ struct CMUXCLI {
                 try pinWorkspaceToTop(workspaceId: workspaceId, windowId: workspaceWindowId, client: client)
             }
 
-            var configureParams: [String: Any] = [
-                "workspace_id": workspaceId,
-                "destination": sshOptions.destination,
-                "auto_connect": deferredRemoteReconnectCommandScript == nil,
-            ]
-            if let configuredForegroundAuthToken {
-                configureParams["foreground_auth_token"] = configuredForegroundAuthToken
-            }
-            if let port = sshOptions.port {
-                configureParams["port"] = port
-            }
-            if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
-                configureParams["identity_file"] = identityFile
-            }
-            if !remoteSSHOptions.isEmpty {
-                configureParams["ssh_options"] = remoteSSHOptions
-            }
-            if let agentSocketPath = sshOptions.agentSocketPath {
-                configureParams["ssh_auth_sock"] = agentSocketPath
-            }
-            if sshOptions.remoteRelayPort > 0 {
-                configureParams["relay_port"] = sshOptions.remoteRelayPort
-                configureParams["relay_id"] = relayID
-                configureParams["relay_token"] = relayToken
-                configureParams["local_socket_path"] = sshOptions.localSocketPath
-            }
-            if let daemon = sshOptions.daemonWebSocketEndpoint {
-                configureParams["daemon_websocket_url"] = daemon.url
-                configureParams["daemon_websocket_headers"] = daemon.headers
-                configureParams["daemon_websocket_token"] = daemon.token
-                configureParams["daemon_websocket_session_id"] = daemon.sessionId
-                configureParams["daemon_websocket_expires_at_unix"] = daemon.expiresAtUnix
-                configureParams["local_socket_path"] = sshOptions.localSocketPath
-            }
-            if let vmIDForSplitAttach {
-                configureParams["managed_cloud_vm_id"] = vmIDForSplitAttach
-            }
-            configureParams["terminal_startup_command"] = reusableTerminalStartupCommand
-            if sshOptions.skipDaemonBootstrap {
-                configureParams["skip_daemon_bootstrap"] = true
-            }
-            if let persistentDaemonSlot {
-                configureParams["preserve_after_terminal_exit"] = true
-                configureParams["persistent_daemon_slot"] = persistentDaemonSlot
-            }
+            let configureParams = sshRemoteConfigureParams(
+                workspaceId: workspaceId,
+                sshOptions: sshOptions,
+                remoteSSHOptions: remoteSSHOptions,
+                relayID: relayID,
+                relayToken: relayToken,
+                terminalStartupCommand: reusableTerminalStartupCommand,
+                foregroundAuthToken: configuredForegroundAuthToken,
+                autoConnect: deferredRemoteReconnectCommandScript == nil,
+                persistentDaemonSlot: persistentDaemonSlot,
+                managedCloudVMID: vmIDForSplitAttach
+            )
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
@@ -9369,6 +9355,7 @@ struct CMUXCLI {
         var workspaceName: String?
         var windowRaw: String?
         var noFocus = false
+        var paneScope = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
         var forwardAgentOverride: Bool?
@@ -9417,6 +9404,9 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "--pane":
+                paneScope = true
+                index += 1
             case "-A", "--forward-agent":
                 forwardAgentOverride = true
                 index += 1
@@ -9453,6 +9443,17 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
+        if paneScope {
+            if workspaceName != nil {
+                throw CLIError(message: "ssh: --name cannot be combined with --pane (the pane stays in its current workspace)")
+            }
+            if windowRaw != nil || windowOverride != nil {
+                throw CLIError(message: "ssh: --window cannot be combined with --pane (the pane stays in its current workspace)")
+            }
+            if !extraArguments.isEmpty {
+                throw CLIError(message: "ssh: remote command arguments cannot be combined with --pane")
+            }
+        }
         let agentForwarding = resolvedSSHAgentForwarding(
             sshOptions: sshOptions,
             override: forwardAgentOverride
@@ -9468,7 +9469,8 @@ struct CMUXCLI {
             extraArguments: extraArguments,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
-            remoteRelayPort: remoteRelayPort
+            remoteRelayPort: remoteRelayPort,
+            paneScope: paneScope
         )
     }
 
@@ -12994,19 +12996,6 @@ struct CMUXCLI {
         return "/tmp/cmux-ssh-\(getuid())-%C"
     }
 
-    private func normalizedSSHIdentityPath(_ rawPath: String?) -> String? {
-        guard let rawPath else { return nil }
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasPrefix("~") {
-            let expanded = (trimmed as NSString).expandingTildeInPath
-            if !expanded.isEmpty {
-                return expanded
-            }
-        }
-        return trimmed
-    }
-
     func shellQuote(_ value: String) -> String {
         let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
         if value.range(of: safePattern, options: .regularExpression) != nil {
@@ -13015,7 +13004,7 @@ struct CMUXCLI {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private func execInteractiveProgram(
+    internal func execInteractiveProgram(
         launchPath: String,
         arguments: [String]
     ) throws -> Never {
@@ -15957,12 +15946,18 @@ struct CMUXCLI {
               --ssh-option <opt>      Extra SSH -o option (repeatable)
               --window <id|ref|index> Target window for the managed workspace
               --no-focus              Create workspace without switching to it
+              --pane                  Connect the current pane only (requires running inside a cmux terminal)
 
             Example:
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
+              cmux ssh dev@my-host --pane
+
+            With --pane, only the current terminal pane attaches to the remote host.
+            Splits and tabs created from that SSH pane attach to the same host; other panes stay local.
+            Right-click the tab to disconnect. A second ssh --pane in the same workspace joins when the target matches; use a separate workspace for a different host.
             """)
         case "ssh-tmux":
             return String(localized: "cli.help.ssh-tmux", defaultValue: """
@@ -35431,7 +35426,7 @@ export default CMUXSessionRestore;
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [--pane] [-- <remote-command-args>]
           ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
