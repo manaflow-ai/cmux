@@ -55,6 +55,7 @@ output="$(
     GITHUB_ENV="$env_file" \
     CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
     CMUX_CI_DEVELOPER_DIR="$pinned_developer" \
+    CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
     CMUX_XCODE_APPLICATIONS_DIR="$tmp_dir/no-apps" \
     "$SCRIPT"
 )"
@@ -80,6 +81,29 @@ fi
 if [[ "$(cat "$xcode_select_log")" != "-s $pinned_developer" ]]; then
   echo "FAIL: select-ci-xcode.sh did not point xcode-select at the pinned developer dir"
   cat "$xcode_select_log" >&2
+  exit 1
+fi
+
+old_app="$tmp_dir/Xcode_16.4.app"
+old_developer="$old_app/Contents/Developer"
+mkdir -p "$old_developer"
+printf '%s\n' "15.5" > "$old_developer/sdk-version"
+
+wrong_sdk_output="$(
+  PATH="$bin_dir:/usr/bin:/bin" \
+    GITHUB_ENV="$env_file" \
+    CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
+    CMUX_CI_DEVELOPER_DIR="$old_developer" \
+    CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
+    "$SCRIPT" 2>&1 >/dev/null
+)" && {
+  echo "FAIL: pinned Xcode with the wrong SDK major should fail"
+  exit 1
+}
+
+if ! grep -Fq "required major is 26" <<< "$wrong_sdk_output"; then
+  echo "FAIL: wrong pinned SDK major failure was not explained"
+  printf '%s\n' "$wrong_sdk_output" >&2
   exit 1
 fi
 

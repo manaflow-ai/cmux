@@ -456,9 +456,11 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     ]:
         block = workflow_job_block(job_name)
         assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}" in block
+        assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
     release_block = workflow_job_block("release-build")
     assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}" in release_block
+    assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block
 
 
 def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> None:

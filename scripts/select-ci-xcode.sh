@@ -15,10 +15,37 @@
 set -euo pipefail
 
 APPLICATIONS_DIR="${CMUX_XCODE_APPLICATIONS_DIR:-/Applications}"
+REQUIRED_SDK_MAJOR="${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}"
+
+sdk_major() {
+  local v="$1" maj
+  maj="${v%%.*}"
+  case "$maj" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$maj"
+}
+
+validate_required_sdk() {
+  local selected_dir="$1" sdk_version="$2" actual_major
+  [ -n "$REQUIRED_SDK_MAJOR" ] || return 0
+  case "$REQUIRED_SDK_MAJOR" in ''|*[!0-9]*)
+    echo "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR must be numeric, got: $REQUIRED_SDK_MAJOR" >&2
+    exit 1
+    ;;
+  esac
+  if ! actual_major="$(sdk_major "$sdk_version")"; then
+    echo "Could not parse macOS SDK version for $selected_dir: $sdk_version" >&2
+    exit 1
+  fi
+  if [ "$actual_major" != "$REQUIRED_SDK_MAJOR" ]; then
+    echo "Selected Xcode at $selected_dir has macOS SDK $sdk_version; required major is $REQUIRED_SDK_MAJOR" >&2
+    exit 1
+  fi
+}
 
 select_developer_dir() {
   local selected_dir="$1" sdk_version="$2" label="$3"
 
+  validate_required_sdk "$selected_dir" "$sdk_version"
   echo "$label (DEVELOPER_DIR): $selected_dir (macOS SDK $sdk_version)"
   if [ -n "${GITHUB_ENV:-}" ]; then
     echo "DEVELOPER_DIR=$selected_dir" >> "$GITHUB_ENV"
