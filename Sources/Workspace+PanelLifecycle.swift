@@ -82,7 +82,7 @@ extension Workspace {
         return String(key[..<dotIndex])
     }
 
-    private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
+    func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
         for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
         }

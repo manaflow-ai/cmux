@@ -91,6 +91,7 @@ extension Workspace {
     @discardableResult
     func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
+        let retainedStatusKey = agentStatusKey(forAgentPIDKey: retainedKey)
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
@@ -98,8 +99,29 @@ extension Workspace {
             // key returning to a pane holding a synthesized displacement key):
             // keep the pane's status entry. A different agent type is a real
             // replacement: clear its status too.
-            let sameAgent = agentStatusKey(forAgentPIDKey: staleKey) == agentStatusKey(forAgentPIDKey: retainedKey)
+            let sameAgent = agentStatusKey(forAgentPIDKey: staleKey) == retainedStatusKey
             if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !sameAgent, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        // A pane can hold a panel-scoped structured status with NO recorded
+        // pid (`set_status --panel` without `--pid`), which the loop above
+        // never sees. A different structured agent replacing it on this pane
+        // must drop that entry and its lifecycle, or the row keeps showing
+        // the dead agent's text (nil-entry candidates lose to any entry in
+        // sidebarAgentStatusRows' comparator). Mirror pane close for the
+        // workspace-level slot: drop it when this pane was its last owner.
+        for statusKey in Set((statusEntriesByPanelId[panelId] ?? [:]).keys)
+        where statusKey != retainedStatusKey && Self.structuredAgentHookStatusKeys.contains(statusKey) {
+            if clearPanelStatusEntry(statusKey: statusKey, panelId: panelId) {
+                didChange = true
+            }
+            if clearAgentLifecycle(key: statusKey, panelId: panelId) {
+                didChange = true
+            }
+            if panelsOwningAgentStatusKey(statusKey).isEmpty,
+               !hasAgentRuntime(forStatusKey: statusKey),
+               statusEntries.removeValue(forKey: statusKey) != nil {
                 didChange = true
             }
         }
