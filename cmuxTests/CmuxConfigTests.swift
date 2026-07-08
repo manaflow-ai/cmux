@@ -502,9 +502,6 @@ struct CmuxConfigDecodingTests {
             XCTAssertEqual(moreButton.action, .builtIn(.more))
             XCTAssertEqual(moreButton.menu?.map(\.id), [
                 CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
-                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
-                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
-                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.newNote.configID,
             ])
         }
@@ -533,9 +530,6 @@ struct CmuxConfigDecodingTests {
             let moreButton = try XCTUnwrap(store.surfaceTabBarButtons.last)
             XCTAssertEqual(moreButton.menu?.map(\.id), [
                 CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
-                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
-                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
-                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.newNote.configID,
             ])
         }
