@@ -9,6 +9,8 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
     var currentDirectory: String = ""
     var surfaceTabBarDirectory: String?
     var isRemoteTmuxMirror = false
+    var usesRemoteDirectoryProvenance = false
+    var localDirectoryFallbackPanelIds: Set<UUID>?
     var requestedDirectories: [UUID: String] = [:]
     var restoredGuardedDirectories: [UUID: String] = [:]
     var agentPorts: [Int] = []
@@ -16,7 +18,11 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
     var forwardedPorts: [Int] = []
     var existingPanelIds: Set<UUID> = []
     private(set) var clearedGuardedPanelIds: [UUID] = []
+    private(set) var clearedResumeSessionPanelIds: [UUID] = []
     private(set) var ignoredReports: [(panelId: UUID, missing: String, saved: String, reported: String)] = []
+    private(set) var restoredCwdDecisions: [
+        (panelId: UUID, event: String, saved: String, reported: String)
+    ] = []
 
     var surfaceMetadataFocusedPanelId: UUID? { focusedPanelId }
 
@@ -36,6 +42,12 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
 
     var surfaceMetadataIsRemoteTmuxMirror: Bool { isRemoteTmuxMirror }
 
+    var surfaceMetadataUsesRemoteDirectoryProvenance: Bool { usesRemoteDirectoryProvenance }
+
+    func surfaceMetadataAllowsLocalDirectoryFallback(panelId: UUID) -> Bool {
+        localDirectoryFallbackPanelIds?.contains(panelId) ?? true
+    }
+
     func surfaceMetadataRequestedWorkingDirectory(panelId: UUID) -> String? {
         requestedDirectories[panelId]
     }
@@ -49,6 +61,10 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
         restoredGuardedDirectories.removeValue(forKey: panelId)
     }
 
+    func surfaceMetadataClearRestoredResumeSessionWorkingDirectory(panelId: UUID) {
+        clearedResumeSessionPanelIds.append(panelId)
+    }
+
     var surfaceMetadataAgentListeningPorts: [Int] { agentPorts }
     var surfaceMetadataRemoteDetectedPorts: [Int] { detectedPorts }
     var surfaceMetadataRemoteForwardedPorts: [Int] { forwardedPorts }
@@ -60,6 +76,15 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
         reportedDirectory: String
     ) {
         ignoredReports.append((panelId, missingVolumeRoot, savedDirectory, reportedDirectory))
+    }
+
+    func surfaceMetadataLogRestoredCwdDecision(
+        panelId: UUID,
+        event: String,
+        savedDirectory: String,
+        reportedDirectory: String
+    ) {
+        restoredCwdDecisions.append((panelId, event, savedDirectory, reportedDirectory))
     }
 }
 

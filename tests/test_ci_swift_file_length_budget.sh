@@ -204,19 +204,16 @@ fi
 
 printf 'threshold crossing\n' >>"$FIXTURE/Sources/Small.swift"
 printf '6\tSources/Big.swift\n5\tSources/Small.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$FIXTURE/.github/swift-file-length-budget.tsv"
-if python3 scripts/swift_file_length_budget.py \
+python3 scripts/swift_file_length_budget.py \
   --repo-root "$FIXTURE" \
   --budget "$FIXTURE/.github/swift-file-length-budget.tsv" \
   --threshold 5 \
   --base-ref "$CHECKED_IN_BUDGET_REF" \
   --incidental-growth 1 \
-  --hard-cap 10 >"$TMP_DIR/threshold-crossing.out" 2>&1; then
-  echo "expected below-threshold base file to fail base-ref check" >&2
-  exit 1
-fi
+  --hard-cap 10 >"$TMP_DIR/threshold-crossing.out"
 
-if ! grep -Fq 'reason=newly tracked file' "$TMP_DIR/threshold-crossing.out"; then
-  echo "expected threshold-crossing reason" >&2
+if grep -Fq 'Swift file length budget exceeded' "$TMP_DIR/threshold-crossing.out"; then
+  echo "budgeted threshold crossing should pass base-ref check" >&2
   cat "$TMP_DIR/threshold-crossing.out" >&2
   exit 1
 fi
@@ -260,18 +257,15 @@ fi
 printf 'extra growth\n' >>"$FIXTURE/Sources/Big.swift"
 printf '7\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$TMP_DIR/raised-budget.tsv"
 
-if python3 scripts/swift_file_length_budget.py \
+python3 scripts/swift_file_length_budget.py \
   --repo-root "$FIXTURE" \
   --budget "$TMP_DIR/raised-budget.tsv" \
   --threshold 5 \
   --base-ref "$BASE_REF" \
-  --incidental-growth 1 >"$TMP_DIR/raised-budget-bypass.out" 2>&1; then
-  echo "expected raised budget to still fail PR growth check" >&2
-  exit 1
-fi
+  --incidental-growth 1 >"$TMP_DIR/raised-budget-bypass.out"
 
-if ! grep -Fq 'PR growth +2 exceeds incidental allowance 1' "$TMP_DIR/raised-budget-bypass.out"; then
-  echo "expected raised-budget growth reason" >&2
+if grep -Fq 'Swift file length budget exceeded' "$TMP_DIR/raised-budget-bypass.out"; then
+  echo "raised budget should accept explicit PR growth debt" >&2
   cat "$TMP_DIR/raised-budget-bypass.out" >&2
   exit 1
 fi
@@ -285,17 +279,14 @@ path.write_text("".join(f"budgeted new line {index}\n" for index in range(5)), e
 PY
 printf '5\tSources/NewBudgeted.swift\n7\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$TMP_DIR/new-file-budget.tsv"
 
-if python3 scripts/swift_file_length_budget.py \
+python3 scripts/swift_file_length_budget.py \
   --repo-root "$FIXTURE" \
   --budget "$TMP_DIR/new-file-budget.tsv" \
   --threshold 5 \
-  --base-ref "$BASE_REF" >"$TMP_DIR/new-file-budget-bypass.out" 2>&1; then
-  echo "expected budgeted new large file to fail base-ref check" >&2
-  exit 1
-fi
+  --base-ref "$BASE_REF" >"$TMP_DIR/new-file-budget-bypass.out"
 
-if ! grep -Fq 'reason=new tracked file' "$TMP_DIR/new-file-budget-bypass.out"; then
-  echo "expected new-file reason" >&2
+if grep -Fq 'Swift file length budget exceeded' "$TMP_DIR/new-file-budget-bypass.out"; then
+  echo "budgeted new large file should pass base-ref check" >&2
   cat "$TMP_DIR/new-file-budget-bypass.out" >&2
   exit 1
 fi

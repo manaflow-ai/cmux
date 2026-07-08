@@ -48,6 +48,7 @@ struct SessionSnapshotRestoreCoordinatorTests {
         var scheduledTabs: [StubTab] = []
         var appliedRemaps: [ClosedPanelHistoryRemapOperation] = []
         var postedSelectedTabId: UUID?
+        var buildExclusions: Set<UUID>?
 
         init(build: SessionSnapshotRestoreBuild<StubTab>) {
             self.build = build
@@ -57,8 +58,11 @@ struct SessionSnapshotRestoreCoordinatorTests {
         func endSessionSnapshotRestore() { calls.append("end") }
         func currentWorkspaces() -> [StubTab] { calls.append("current"); return previous }
         func resetSubModels(previousTabs: [StubTab]) { calls.append("reset") }
-        func buildRestoredWorkspaces() -> SessionSnapshotRestoreBuild<StubTab> {
+        func buildRestoredWorkspaces(
+            excludingStableIdentities: Set<UUID>
+        ) -> SessionSnapshotRestoreBuild<StubTab> {
             calls.append("build")
+            buildExclusions = excludingStableIdentities
             return build
         }
         func commitRestoredState(

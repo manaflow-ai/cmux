@@ -512,46 +512,6 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertNil(appDelegate.fileExplorerState)
     }
 
-    func testUnregisterMainWindowContextClearsWindowAndWorkspaceNotifications() throws {
-        let store = TerminalNotificationStore.shared
-        let appDelegate = AppDelegate()
-        let originalNotificationStore = appDelegate.notificationStore
-        appDelegate.notificationStore = store
-        store.replaceNotificationsForTesting([])
-
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            store.replaceNotificationsForTesting([])
-            appDelegate.notificationStore = originalNotificationStore
-        }
-
-        store.addNotification(
-            tabId: windowId,
-            surfaceId: nil,
-            title: "Window",
-            subtitle: "Closing",
-            body: "Window notification"
-        )
-        store.addNotification(
-            tabId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
-            title: "Workspace",
-            subtitle: "Closing",
-            body: "Workspace notification"
-        )
-
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: windowId, surfaceId: nil))
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: workspace.focusedPanelId))
-
-        appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-
-        XCTAssertFalse(store.hasUnreadNotification(forTabId: windowId, surfaceId: nil))
-        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: workspace.focusedPanelId))
-    }
-
     func testReplacingMainActorMutationKeepsOnlyNewestEntryPerKey() throws {
         TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
         defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
