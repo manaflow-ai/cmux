@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import struct CmuxWorkspaces.CmuxWorkspaceDefinition
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
