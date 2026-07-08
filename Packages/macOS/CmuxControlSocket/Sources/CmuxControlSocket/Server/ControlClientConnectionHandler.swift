@@ -47,7 +47,11 @@ internal import Foundation
 /// keep serving `events.stream` unauthenticated after the user switched the
 /// running listener to password mode, a security-direction regression the
 /// command path never had.
-public final class ControlClientConnectionHandler {
+///
+/// `@unchecked Sendable` is limited to the handoff into `Thread.detachNewThread`:
+/// the instance is fully initialized first, then owned by that one handler
+/// thread for the rest of its lifetime.
+public final class ControlClientConnectionHandler: @unchecked Sendable {
     private let socket: Int32
     private let peerProcessID: pid_t?
     private let transport: SocketTransport

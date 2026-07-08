@@ -1,4 +1,4 @@
-public import CmuxSettings
+import CmuxSettings
 import Foundation
 
 /// Owns the control-socket listener lifecycle policy, draining it out of the app
@@ -66,7 +66,7 @@ public final class SocketListenerLifecycleCoordinator {
     ///   - target: The tab manager the start binds to (the caller's explicit
     ///     window tab manager).
     ///   - source: A telemetry source tag for the start breadcrumb.
-    public func start(target: SocketListenerStartTarget, source: String) {
+    public func start(target: any SocketListenerStartTarget, source: String) {
         guard let config = configurationIfEnabled() else {
             host.stopListener()
             return
@@ -87,7 +87,7 @@ public final class SocketListenerLifecycleCoordinator {
     /// - Parameters:
     ///   - target: The tab manager an (re)start binds to.
     ///   - source: A telemetry source tag for the ensure breadcrumb.
-    public func ensure(target: SocketListenerStartTarget, source: String) {
+    public func ensure(target: any SocketListenerStartTarget, source: String) {
         guard let config = configurationIfEnabled() else {
             host.stopListener()
             return

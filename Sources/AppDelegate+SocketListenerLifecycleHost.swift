@@ -36,14 +36,14 @@ extension AppDelegate: SocketListenerLifecycleHost {
         TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedSocketPath)
     }
 
-    func resolveRestartTarget() -> SocketListenerStartTarget? {
+    func resolveRestartTarget() -> (any SocketListenerStartTarget)? {
         tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
             ?? registeredMainWindows.first?.tabManager
     }
 
     func startListener(
-        target: SocketListenerStartTarget,
+        target: any SocketListenerStartTarget,
         socketPath: String,
         mode: SocketControlMode
     ) {

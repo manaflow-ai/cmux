@@ -40,11 +40,11 @@ public protocol SocketListenerLifecycleHost: AnyObject {
 
     /// Resolves the tab manager a restart should bind to (the app's current
     /// active or first-registered main window), or `nil` when none exists.
-    func resolveRestartTarget() -> SocketListenerStartTarget?
+    func resolveRestartTarget() -> (any SocketListenerStartTarget)?
 
     /// Starts the live listener against `target` at `socketPath` with `mode`.
     func startListener(
-        target: SocketListenerStartTarget,
+        target: any SocketListenerStartTarget,
         socketPath: String,
         mode: SocketControlMode
     )

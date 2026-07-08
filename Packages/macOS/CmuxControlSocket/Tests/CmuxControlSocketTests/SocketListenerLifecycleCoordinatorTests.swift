@@ -22,7 +22,7 @@ struct SocketListenerLifecycleCoordinatorTests {
         nonisolated let reclaimable: Bool
         nonisolated let activePath: String
         nonisolated let health: SocketListenerHealth
-        var restartTarget: SocketListenerStartTarget?
+        var restartTarget: (any SocketListenerStartTarget)?
 
         private(set) var reservedPaths: [String] = []
         private(set) var startCalls: [(path: String, mode: SocketControlMode)] = []
@@ -39,7 +39,7 @@ struct SocketListenerLifecycleCoordinatorTests {
                 socketPathExists: true,
                 socketPathOwnedByListener: true
             ),
-            restartTarget: SocketListenerStartTarget? = nil
+            restartTarget: (any SocketListenerStartTarget)? = nil
         ) {
             self.reclaimable = reclaimable
             self.activePath = activePath
@@ -51,9 +51,9 @@ struct SocketListenerLifecycleCoordinatorTests {
         func reserveStartupSocketPath(_ path: String) { reservedPaths.append(path) }
         nonisolated func activeSocketPath(preferredPath: String) -> String { activePath }
         nonisolated func listenerHealth(expectedSocketPath: String) -> SocketListenerHealth { health }
-        func resolveRestartTarget() -> SocketListenerStartTarget? { restartTarget }
+        func resolveRestartTarget() -> (any SocketListenerStartTarget)? { restartTarget }
         func startListener(
-            target: SocketListenerStartTarget,
+            target: any SocketListenerStartTarget,
             socketPath: String,
             mode: SocketControlMode
         ) {
