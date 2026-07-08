@@ -62,9 +62,7 @@ private struct SidebarAgentStatusEntryRow: View {
                 icon
                     .foregroundColor(foregroundColor.opacity(0.95))
             }
-            Text(displayText)
-                .underline(underlined)
-                .foregroundColor(foregroundColor)
+            statusText(underlined: underlined)
                 .lineLimit(1)
                 .truncationMode(.tail)
             if let paneLabel = row.paneLabel {
@@ -79,8 +77,37 @@ private struct SidebarAgentStatusEntryRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Mirrors `SidebarMetadataEntryRow.metadataText`: a markdown-formatted
+    /// reported value keeps its inline markdown rendering after moving from
+    /// the generic metadata renderer into the per-agent row. Lifecycle/name
+    /// fallback text is always plain.
+    @ViewBuilder
+    private func statusText(underlined: Bool) -> some View {
+        if row.format == .markdown,
+           reportedValueText != nil,
+           let attributed = try? AttributedString(
+                markdown: displayText,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+           ) {
+            Text(attributed)
+                .underline(underlined)
+                .foregroundColor(foregroundColor)
+        } else {
+            Text(displayText)
+                .underline(underlined)
+                .foregroundColor(foregroundColor)
+        }
+    }
+
+    private var reportedValueText: String? {
+        guard let value = row.value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     private var displayText: String {
-        if let value = row.value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+        if let value = reportedValueText {
             return value
         }
         let name = Self.agentDisplayName(statusKey: row.statusKey)

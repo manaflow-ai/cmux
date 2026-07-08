@@ -10,6 +10,8 @@ struct SidebarAgentStatusRow: Equatable, Identifiable {
     let icon: String?
     let color: String?
     let url: URL?
+    /// How `value` renders (markdown vs plain); tied to `value`'s source entry.
+    let format: SidebarMetadataFormat
     let lifecycle: AgentHibernationLifecycleState?
     let paneLabel: String?
     let priority: Int
@@ -200,6 +202,7 @@ extension Workspace {
                 icon: entry?.icon ?? (soleOwner ? workspaceEntry?.icon : nil),
                 color: entry?.color ?? (soleOwner ? workspaceEntry?.color : nil),
                 url: entry?.url,
+                format: entry?.format ?? .plain,
                 lifecycle: agentLifecycleStatesByPanelId[item.panelId]?[item.statusKey],
                 paneLabel: includePaneLabels ? agentStatusRowPaneLabel(panelId: item.panelId) : nil,
                 priority: entry?.priority ?? workspaceEntry?.priority ?? 0,

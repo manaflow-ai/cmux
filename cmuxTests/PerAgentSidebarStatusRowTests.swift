@@ -134,6 +134,24 @@ struct PerAgentSidebarStatusRowTests {
     }
 
     @Test
+    func testRowCarriesReportedValueFormat() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.recordAgentPID(key: "claude_code", pid: 111, panelId: panelId, refreshPorts: false)
+        workspace.recordPanelStatusEntry(
+            SidebarStatusEntry(key: "claude_code", value: "**bold** status", format: .markdown),
+            panelId: panelId
+        )
+
+        // The row must carry the reported value's format so markdown statuses
+        // keep their inline rendering after moving out of the metadata rows.
+        let row = try #require(workspace.sidebarAgentStatusRows().first)
+        #expect(row.value == "**bold** status")
+        #expect(row.format == .markdown)
+    }
+
+    @Test
     func testBareSharedPIDKeyHookSequenceKeepsBothPanesRows() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)
