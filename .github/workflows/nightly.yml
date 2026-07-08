@@ -506,6 +506,10 @@ jobs:
 
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
+      - name: Strip nightly release binaries
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux NIGHTLY.app"
+
       - name: Codesign apps
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:

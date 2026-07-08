@@ -2639,6 +2639,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin"
         ]
+        if file.fileURL.lastPathComponent.hasSuffix(".deflate") {
+            headers["Content-Encoding"] = "deflate"
+        }
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",

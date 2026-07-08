@@ -718,12 +718,14 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        try """
+        let deflatedAssetURL = assetURL.appendingPathExtension("deflate")
+        let deflatedWorkerAssetURL = workerAssetURL.appendingPathExtension("deflate")
+        try Self.writeDeflatedText("""
         export const marker = "module-ok";
-        """.write(to: assetURL, atomically: true, encoding: .utf8)
-        try """
+        """, to: deflatedAssetURL)
+        try Self.writeDeflatedText("""
         export const workerMarker = "js-ok";
-        """.write(to: workerAssetURL, atomically: true, encoding: .utf8)
+        """, to: deflatedWorkerAssetURL)
         try """
         <!doctype html>
         <html>
@@ -753,8 +755,8 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             token: token,
             files: [
                 .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
-                .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
-                .init(requestPath: "/assets/worker.js", fileURL: workerAssetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/mod.mjs", fileURL: deflatedAssetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/worker.js", fileURL: deflatedWorkerAssetURL, mimeType: "text/javascript"),
                 .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
@@ -764,6 +766,16 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
         let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
+        XCTAssertEqual(
+            CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL)?
+                .fileURL.lastPathComponent,
+            "index.html"
+        )
+        XCTAssertEqual(
+            CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/assets/mod.mjs")))?
+                .fileURL.lastPathComponent,
+            "mod.mjs.deflate"
+        )
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
@@ -798,6 +810,12 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             evaluated.fulfill()
         }
         wait(for: [evaluated], timeout: 10)
+    }
+
+    private static func writeDeflatedText(_ text: String, to url: URL) throws {
+        let data = Data(text.utf8)
+        let compressed = try (data as NSData).compressed(using: .zlib) as Data
+        try compressed.write(to: url, options: .atomic)
     }
 
     func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {
