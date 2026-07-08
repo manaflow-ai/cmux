@@ -8,6 +8,10 @@ TUI distribution versions are independent of the SDK version. The SDK package
 relocation to `cmux-sdk` is tracked separately and is not part of this release
 path.
 
+The TUI does not store its version in a checked-in manifest. The packaging
+scripts receive `--version`, so cutting a stable TUI release is just creating a
+`cmux-tui-vX.Y.Z` tag on `main`.
+
 ## Packages
 
 - npm `cmux`: launcher package for `npx cmux`.
@@ -39,6 +43,59 @@ Add a PyPI Trusted Publisher for:
 - Repository: `manaflow-ai/cmux`
 - Workflow: `tui-publish-pypi.yml`
 - Environment: `pypi-tui`
+
+Nightly publishing uses the same environments. Add trusted publishers for:
+
+- npm packages:
+  - Repository: `manaflow-ai/cmux`
+  - Workflow: `tui-nightly.yml`
+  - Environment: `npm-tui`
+- PyPI project `cmux`:
+  - Repository: `manaflow-ai/cmux`
+  - Workflow: `tui-nightly.yml`
+  - Environment: `pypi-tui`
+
+## Nightly channel
+
+`.github/workflows/tui-nightly.yml` runs on a daily schedule and by manual
+dispatch. It always checks out `main`, derives the next stable version from the
+latest reachable `cmux-tui-vX.Y.Z` tag by bumping patch, and falls back to
+`0.9.0` when no stable TUI tag exists.
+
+Nightly versions use registry-specific prerelease forms:
+
+- npm: `<next-stable>-nightly.<YYYYMMDD>.<run-number>`, for example
+  `0.9.1-nightly.20260708.1`.
+- PyPI: `<next-stable>.dev<YYYYMMDD><run-number>`, for example
+  `0.9.1.dev202607081`.
+
+npm nightlies are published with `npm publish --provenance --tag nightly`, so
+`npx cmux@nightly` opts into the latest nightly and `npx cmux` remains on the
+stable `latest` dist-tag. PyPI nightlies are dev releases, so normal
+`uvx cmux` resolution ignores them; `uvx --prerelease allow cmux` opts in.
+
+The nightly workflow intentionally always builds and publishes a fresh run
+instead of trying to skip when `main` has not changed. The build is cheap, and a
+GitHub API lookup for the last successful nightly is more fragile than the
+extra build.
+
+## Cutting a Stable Release
+
+Use `.github/workflows/tui-release-cut.yml` from `main`.
+
+- Select `patch`, `minor`, or `major`, or provide an explicit `X.Y.Z` version.
+- The workflow reads the latest reachable `cmux-tui-vX.Y.Z` tag, validates the
+  new version is strictly greater, creates annotated tag `cmux-tui-vX.Y.Z` on
+  `main` HEAD, and pushes that tag.
+- The tag is pushed with the default `GITHUB_TOKEN`, and GitHub suppresses
+  workflow triggers for token-created events, so the release-cut workflow then
+  explicitly dispatches `mux-tui-release.yml` (build + package) and
+  `tui-publish-pypi.yml` (PyPI wheels) against the new tag. A manual
+  `git push origin cmux-tui-vX.Y.Z` from a developer machine still fires both
+  tag triggers directly.
+- npm remains dispatch-gated. After the tag cut, manually dispatch
+  `tui-publish-npm.yml` with the same `X.Y.Z` version and
+  `confirm_tui_cmux=true`.
 
 ## Publishing
 

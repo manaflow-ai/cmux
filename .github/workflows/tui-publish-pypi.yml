@@ -18,117 +18,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: build ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            cross: false
-            ext: ""
-          - target: x86_64-apple-darwin
-            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            cross: true
-            ext: ""
-          - target: x86_64-unknown-linux-gnu
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: false
-            ext: ""
-          - target: aarch64-unknown-linux-gnu
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: true
-            ext: ""
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
-
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
-
-      - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: 0.15.2
-
-      - name: Install Rust target
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Install cargo-zigbuild
-        if: matrix.cross == true
-        run: cargo install --locked cargo-zigbuild@0.20.0
-
-      - name: Build cmux-mux (native)
-        if: matrix.cross == false
-        working-directory: mux
-        run: cargo build -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
-
-      - name: Build cmux-mux (cross)
-        if: matrix.cross == true
-        working-directory: mux
-        run: cargo zigbuild -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
-
-      - name: Stage binary
-        run: |
-          mkdir -p dist
-          cp "mux/target/${{ matrix.target }}/release/cmux-mux${{ matrix.ext }}" "dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}"
-          ls -la dist
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: cmux-mux-${{ matrix.target }}
-          path: dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}
-          if-no-files-found: error
-
-  package:
-    name: package PyPI wheels
-    needs: build
+  version:
+    name: derive package version
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Download darwin arm64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-aarch64-apple-darwin
-          path: dist/binaries
-
-      - name: Download darwin x64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-x86_64-apple-darwin
-          path: dist/binaries
-
-      - name: Download linux x64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-x86_64-unknown-linux-gnu
-          path: dist/binaries
-
-      - name: Download linux arm64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-aarch64-unknown-linux-gnu
-          path: dist/binaries
-
       - name: Derive package version
         id: version
         env:
@@ -150,36 +47,19 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Build PyPI wheels
-        run: |
-          python3 mux/dist/scripts/package_pypi.py \
-            --binaries-dir dist/binaries \
-            --version "${{ steps.version.outputs.version }}" \
-            --out dist/pypi-wheels
-
-      - name: Smoke verify wheels
-        run: |
-          set -euo pipefail
-          for wheel in dist/pypi-wheels/*.whl; do
-            python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
-          done
-          chmod +x dist/binaries/cmux-mux-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --version >/tmp/cmux-mux-version.txt 2>&1 || \
-            dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --help >/tmp/cmux-mux-version.txt 2>&1
-          python3 -m venv /tmp/cmux-tui-wheel-smoke
-          /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="${{ steps.version.outputs.version }}"
-          /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
-          grep -i usage /tmp/cmux-help.txt
-
-      - name: Upload PyPI wheels
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: pypi-wheels
-          path: dist/pypi-wheels/*.whl
-          if-no-files-found: error
+  build-package:
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tui-build-package.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      package_npm: false
+      package_pypi: true
+      include_windows: false
 
   publish:
-    needs: package
+    needs: build-package
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

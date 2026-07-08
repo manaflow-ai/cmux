@@ -20,184 +20,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: build ${{ matrix.target }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            cross: false
-            ext: ""
-          - target: x86_64-apple-darwin
-            runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-            cross: true
-            ext: ""
-          - target: x86_64-unknown-linux-gnu
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: false
-            ext: ""
-          - target: aarch64-unknown-linux-gnu
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: true
-            ext: ""
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
-
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
-
-      - name: Install zig
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: 0.15.2
-
-      - name: Install Rust target
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Install cargo-zigbuild
-        if: matrix.cross == true
-        run: cargo install --locked cargo-zigbuild@0.20.0
-
-      - name: Build cmux-mux (native)
-        if: matrix.cross == false
-        working-directory: mux
-        run: cargo build -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
-
-      - name: Build cmux-mux (cross)
-        if: matrix.cross == true
-        working-directory: mux
-        run: cargo zigbuild -p mux-tui --bin cmux-mux --release --locked --target ${{ matrix.target }}
-
-      - name: Stage binary
-        run: |
-          mkdir -p dist
-          cp "mux/target/${{ matrix.target }}/release/cmux-mux${{ matrix.ext }}" "dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}"
-          ls -la dist
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: cmux-mux-${{ matrix.target }}
-          path: dist/cmux-mux-${{ matrix.target }}${{ matrix.ext }}
-          if-no-files-found: error
-
-  package:
-    name: package npm distributions
-    needs: build
+  validate-version:
+    # This workflow's launcher publish deliberately omits --tag so the version
+    # becomes npm `latest`. Only strict stable X.Y.Z may go through here; a
+    # nightly-form version on latest would put a nightly in front of every
+    # `npx cmux` user (nightlies publish via tui-nightly.yml with --tag nightly).
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
-    permissions:
-      contents: read
+    timeout-minutes: 5
+    permissions: {}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Download darwin arm64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-aarch64-apple-darwin
-          path: dist/binaries
-
-      - name: Download darwin x64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-x86_64-apple-darwin
-          path: dist/binaries
-
-      - name: Download linux x64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-x86_64-unknown-linux-gnu
-          path: dist/binaries
-
-      - name: Download linux arm64 binary
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-mux-aarch64-unknown-linux-gnu
-          path: dist/binaries
-
-      - name: Validate version
+      - name: Require strict stable version
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           [[ "$DISPATCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-            echo "workflow_dispatch version must match X.Y.Z" >&2
+            echo "workflow_dispatch version must match stable X.Y.Z (no prerelease); nightlies go through tui-nightly.yml" >&2
             exit 1
           }
 
-      - name: Build npm package directories
-        env:
-          DISPATCH_VERSION: ${{ inputs.version }}
-        run: |
-          python3 mux/dist/scripts/package_npm.py \
-            --binaries-dir dist/binaries \
-            --version "$DISPATCH_VERSION" \
-            --out dist/npm-packages
-
-      - name: Smoke verify npm packages
-        env:
-          DISPATCH_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-          import pathlib
-          import stat
-          import sys
-
-          version = os.environ["DISPATCH_VERSION"]
-          root = pathlib.Path("dist/npm-packages")
-          platforms = {
-              "cmux-tui-darwin-arm64": ("darwin", "arm64"),
-              "cmux-tui-darwin-x64": ("darwin", "x64"),
-              "cmux-tui-linux-x64": ("linux", "x64"),
-              "cmux-tui-linux-arm64": ("linux", "arm64"),
-          }
-          launcher = json.loads((root / "cmux" / "package.json").read_text())
-          deps = launcher.get("optionalDependencies", {})
-          if deps != {name: version for name in platforms}:
-              print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
-              raise SystemExit(1)
-          for name, (os_name, cpu) in platforms.items():
-              package_json = json.loads((root / name / "package.json").read_text())
-              if package_json["version"] != version:
-                  raise SystemExit(f"{name}: version mismatch")
-              if package_json["os"] != [os_name] or package_json["cpu"] != [cpu]:
-                  raise SystemExit(f"{name}: os/cpu mismatch")
-              binary = root / name / "bin" / "cmux-mux"
-              if not binary.stat().st_mode & stat.S_IXUSR:
-                  raise SystemExit(f"{binary} is not executable")
-          PY
-          chmod +x dist/binaries/cmux-mux-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --version >/tmp/cmux-mux-version.txt 2>&1 || \
-            dist/binaries/cmux-mux-x86_64-unknown-linux-gnu --help >/tmp/cmux-mux-version.txt 2>&1
-
-      - name: Upload npm package directories
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: npm-packages
-          path: dist/npm-packages
-          if-no-files-found: error
+  build-package:
+    needs: validate-version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tui-build-package.yml
+    with:
+      version: ${{ inputs.version }}
+      package_npm: true
+      package_pypi: false
+      include_windows: false
 
   publish:
-    needs: package
+    needs: build-package
     runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
       contents: read

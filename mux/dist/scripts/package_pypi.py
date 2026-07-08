@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]{9,})$")
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         required=True,
-        help="Package version in X.Y.Z form.",
+        help="Package version in X.Y.Z or X.Y.Z.devYYYYMMDDN form.",
     )
     parser.add_argument(
         "--out",
@@ -161,7 +161,7 @@ def write_wheel(path: Path, files: list[tuple[str, bytes, int]], version: str) -
 def main() -> None:
     args = parse_args()
     if not VERSION_RE.fullmatch(args.version):
-        raise SystemExit("--version must match X.Y.Z")
+        raise SystemExit("--version must match X.Y.Z or X.Y.Z.devYYYYMMDDN")
 
     binaries_dir = args.binaries_dir.resolve()
     out_dir = args.out.resolve()
