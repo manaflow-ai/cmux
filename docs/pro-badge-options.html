@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cmux Pro — badge & upgrade options</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --panel-2: #1b1f26;
+    --border: #262b33;
+    --text: #e6e9ee;
+    --muted: #9aa4b2;
+    --faint: #6b7482;
+    --accent: #3a86ff;
+    /* cmux logo chevron gradient (web/public/cmux-icon.svg) */
+    --logo-full: linear-gradient(90deg, #12c7f5 0%, #2d8cff 52%, #6c5cff 100%);
+    /* narrow local slice used by the badge */
+    --logo-subtle: linear-gradient(90deg, #249ffc 0%, #4b75ff 100%);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #fff; --panel-2: #f0f2f5; --border: #e3e6ea;
+      --text: #14171c; --muted: #5a6472; --faint: #8a94a2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 40px 28px 80px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  .logo {
+    width: 34px; height: 34px; border-radius: 9px; background: #fff;
+    display: grid; place-items: center; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  }
+  .logo svg { width: 22px; height: 22px; }
+  h1 { font-size: 20px; font-weight: 650; letter-spacing: -.01em; margin: 0; }
+  .sub { color: var(--muted); margin: 2px 0 30px; }
+  h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--faint); font-weight: 600; margin: 34px 0 14px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px; margin-bottom: 14px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+  .variant {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; display: flex; flex-direction: column;
+    gap: 10px; align-items: flex-start;
+  }
+  .variant .name { font-size: 12px; color: var(--muted); }
+  .variant.pick { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* Badge rendering, matched to the Swift ProBadgeLabel */
+  .badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    height: 20px; padding: 0 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 640; line-height: 1;
+    border: 1px solid var(--border); color: var(--muted);
+    background: transparent; white-space: nowrap;
+  }
+  .badge .ico { font-size: 11px; }
+  .badge.tint {
+    border: none; color: transparent;
+    background:
+      linear-gradient(var(--logo-subtle)) padding-box,
+      var(--logo-subtle) border-box;
+    /* gradient text */
+    background: var(--logo-subtle);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    position: relative;
+  }
+  .badge.tint::before {
+    content: ""; position: absolute; inset: 0; border-radius: 999px;
+    background: var(--logo-subtle); opacity: .18; z-index: -1;
+  }
+  .badge.solid {
+    border: none; color: #fff; background: var(--logo-subtle);
+  }
+  .badge.solid .ico { color: #fff; }
+  .swatch { display: flex; gap: 8px; align-items: center; }
+  .rail {
+    height: 16px; width: 120px; border-radius: 4px; background: var(--logo-full);
+  }
+  .rail.slice { width: 120px; background: var(--logo-subtle); }
+  .kbd {
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--panel-2); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 5px; color: var(--text);
+  }
+  p { margin: 8px 0; color: var(--muted); }
+  p.tight { margin: 4px 0; }
+  ul { margin: 8px 0; padding-left: 18px; color: var(--muted); }
+  li { margin: 4px 0; }
+  strong { color: var(--text); font-weight: 620; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; }
+  .flag {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px;
+    color: var(--muted); background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.on { background: #35c46b; } .dot.off { background: #e0524d; }
+  code { font: 12px ui-monospace, Menlo, monospace; color: var(--text); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 680px) { .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="logo" aria-hidden="true">
+      <svg viewBox="0 0 256 256"><defs><linearGradient id="g" x1="91" y1="128" x2="179" y2="128" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#12c7f5"/><stop offset=".52" stop-color="#2d8cff"/><stop offset="1" stop-color="#6c5cff"/></linearGradient></defs><path d="M91 65 L179 128 L91 191 L91 151 L139 128 L91 105 Z" fill="url(#g)"/></svg>
+    </span>
+    <div>
+      <h1>cmux Pro — badge &amp; upgrade options</h1>
+    </div>
+  </header>
+  <p class="sub">Everything on the <code>feat-pro-plan</code> branch. Live in the tagged build <span class="kbd">pro1</span>. Pick a badge and I'll ship one, deleting the rest.</p>
+
+  <h2>Badge variants — switch live in Debug → Debug Windows → Pro Badge Style…</h2>
+  <div class="card">
+    <div class="grid">
+      <div class="variant"><span class="badge">Pro</span><span class="name">Text: Pro</span></div>
+      <div class="variant"><span class="badge">Get Pro</span><span class="name">Text: Get Pro</span></div>
+      <div class="variant"><span class="badge">Upgrade</span><span class="name">Text: Upgrade</span></div>
+      <div class="variant pick"><span class="badge tint">Pro</span><span class="name">Gradient: Pro (tint) — the one you liked</span></div>
+      <div class="variant"><span class="badge solid">Pro</span><span class="name">Gradient: Pro (solid)</span></div>
+      <div class="variant"><span class="badge"><span class="ico">♔</span> Pro</span><span class="name">Crown + Pro</span></div>
+      <div class="variant"><span class="badge"><span class="ico">♔</span></span><span class="name">Crown only</span></div>
+      <div class="variant"><span class="badge tint"><span class="ico">♔</span> Pro</span><span class="name">Crown + Pro (gradient)</span></div>
+      <div class="variant"><span class="badge"><span class="ico">✦</span> Pro</span><span class="name">Sparkles + Pro</span></div>
+      <div class="variant"><span class="badge"><span class="ico">⚡</span> Pro</span><span class="name">Bolt + Pro</span></div>
+      <div class="variant"><span class="badge"><span class="ico">▢</span> Pro</span><span class="name">iPhone + Pro</span></div>
+      <div class="variant"><span class="badge">👑 Pro</span><span class="name">Emoji crown</span></div>
+      <div class="variant"><span class="badge">✨ Pro</span><span class="name">Emoji sparkles</span></div>
+      <div class="variant"><span class="badge">💎 Pro</span><span class="name">Emoji gem</span></div>
+      <div class="variant"><span class="badge">🚀 Pro</span><span class="name">Emoji rocket</span></div>
+    </div>
+  </div>
+
+  <h2>The gradient</h2>
+  <div class="card">
+    <p>The badge uses the cmux logo chevron gradient, but a <strong>narrow slice</strong> of it. On the icon the ramp is spread across the whole chevron, so any small patch shifts hue only slightly — the tiny badge samples the middle stretch so it reads as a soft blue shimmer, not a full rainbow.</p>
+    <div class="row" style="margin-top:10px">
+      <div class="swatch"><div class="rail"></div><span class="name">full logo ramp&nbsp; #12c7f5 → #2d8cff → #6c5cff</span></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="swatch"><div class="rail slice"></div><span class="name">badge slice&nbsp; #249ffc → #4b75ff</span></div>
+    </div>
+  </div>
+
+  <h2>Interaction</h2>
+  <div class="two">
+    <div class="card">
+      <p class="tight"><strong>Click</strong> the badge → opens the native pricing screen <strong>docked on the right side, inside the app</strong> (all four plans; no external browser).</p>
+      <p class="tight"><strong>Hover</strong> → only the capsule <strong>width animates</strong> to reveal a dismiss <strong>✕ inside</strong> it (the ✕ itself doesn't fade or slide — it's wiped in by the widening capsule). Click the ✕ to hide the badge for good.</p>
+      <p class="tight">Dismissal persists across launches. Reset it from the same debug window (“show it again”). Settings → Account keeps the durable upgrade entry regardless.</p>
+    </div>
+    <div class="card">
+      <p class="tight"><strong>Placements</strong></p>
+      <ul>
+        <li>Sidebar footer, bottom-left, next to Help</li>
+        <li>Window titlebar, top-right, left of the iPhone button</li>
+      </ul>
+      <p class="tight"><strong>Also reachable from</strong></p>
+      <ul>
+        <li>Settings → Account (“cmux Pro” card)</li>
+        <li>Command palette → “Upgrade to cmux Pro”</li>
+        <li>Help menu → “Upgrade to cmux Pro…”</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>iPhone button</h2>
+  <div class="card">
+    <p>Separate from the badge: a small <strong>iPhone icon in the titlebar top-right</strong> that opens the <strong>Mobile Connect</strong> pairing window in one click. It's a real built-in tab-bar action (<code>cmux.mobileconnect</code>) too, so it's also configurable via <code>cmux.json</code>.</p>
+  </div>
+
+  <h2>Feature flags (PostHog project 244066)</h2>
+  <div class="card">
+    <div class="row">
+      <span class="flag"><span class="dot on"></span> <code>pro-upgrade-ui-enabled-release</code> — badge + all Pro entrypoints · ON</span>
+      <span class="flag"><span class="dot on"></span> <code>mobile-connect-button-enabled-release</code> — titlebar iPhone button · ON</span>
+      <span class="flag"><span class="dot off"></span> <code>pro-checkout-enabled-release</code> — pricing CTA → checkout · OFF</span>
+    </div>
+    <p style="margin-top:12px">Each is registered in code (owner + review date + safe default), gated live from the PostHog dashboard, and enforced by <code>scripts/lint-feature-flags.py</code> in CI against the posthog.com feature-flag-mistakes rules.</p>
+  </div>
+
+  <h2>In-app pricing screen (native)</h2>
+  <div class="card">
+    <p>Every upgrade entrypoint — badge, Settings → Account, command palette, Help menu — now opens a <strong>native SwiftUI pricing screen docked to the right of the window</strong>, inside cmux. It shows Free / Pro / Team / Enterprise cards (Pro highlighted with the logo gradient CTA); the plan buttons open the web checkout for the actual purchase.</p>
+  </div>
+
+  <h2>Pricing page (web)</h2>
+  <div class="card">
+    <p><strong>/pricing</strong> — Free / Pro / Team / Enterprise, adopted from PR #6791. Pro is <strong>$30/mo billed annually</strong> ($360/yr, the checkout default), $45/mo month-to-month. CTA one-clicks into Stack hosted checkout when the checkout flag is on; download link otherwise. Hosted-networking and Vault copy are flagged off until they ship (Tailscale still required).</p>
+  </div>
+</div>
+</body>
+</html>

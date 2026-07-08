@@ -94,16 +94,17 @@ extension TerminalSurface {
     /// no-ops if there is no runtime surface, it is already released, or the
     /// surface is currently visible (a hard safety net so we never blank an
     /// on-screen terminal regardless of how the caller picked it).
+    @discardableResult
     @MainActor
-    public func releaseRenderer() {
+    public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard rendererRealized, !rendererPortalVisible else { return }
+        guard rendererRealized, !rendererPortalVisible else { return false }
         // The reclamation controller is default-on and scans every registered
         // wrapper, so validate the native pointer (registry ownership +
         // liveness) before the C call instead of trusting `surface != nil`.
         // This self-heals a stale wrapper whose runtime surface was freed
         // out-of-band rather than passing a dangling pointer to Ghostty.
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return false }
         // Only advance our mirror state when the message was actually enqueued
         // (a `.forever` push can still drop on a spurious wakeup while the
         // mailbox is full). If it dropped, keep `rendererRealized = true` so the
@@ -111,7 +112,11 @@ extension TerminalSurface {
         // Ghostty's still-realized swap chain.
         if GhosttySurfaceRendererRealizer().setRealized(surface, false) {
             rendererRealized = false
+            return true
         }
+        return false
+#else
+        return false
 #endif
     }
 

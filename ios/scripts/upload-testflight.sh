@@ -117,7 +117,14 @@ Options:
                             groups (e.g. "cmux beta") instantly but can never
                             be added to an external group. External-eligible
                             builds must pass Apple Beta App Review (~24h) before
-                            external testers can install. Also set via
+                            external testers can install the first build of a new
+                            MARKETING_VERSION. With ASC API-key auth, the script
+                            also assigns the processed build to the selected
+                            external beta group (single external group by
+                            default, or CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID / _NAME)
+                            and auto-submits a new MARKETING_VERSION for Beta App
+                            Review when Apple reports READY_FOR_BETA_SUBMISSION.
+                            Also set via
                             CMUX_TESTFLIGHT_EXTERNAL=1.
   --archive-path <path>     Reuse an existing archive instead of archiving.
   --export-only             Stop after exporting the signed IPA.
@@ -130,8 +137,8 @@ Options:
                             iOS-affecting commits in <base>..HEAD instead of the
                             ios/CHANGELOG.md top entry (used by the every-2h beta
                             lane so each build's notes reflect what changed since
-                            the previous beta). Skips the changelog preflight and
-                            version-match guard.
+                            the previous beta for the selected audience). Skips
+                            the changelog preflight and version-match guard.
   --auto-version            Stamp the build's MARKETING_VERSION at archive time
                             (no repo commit) to the next patch above the last
                             iOS release (newest ios-v<X.Y.Z> tag, else the
@@ -179,10 +186,19 @@ SIGNING="manual"
 # Default 0 keeps the historical internal-only behavior (fast dogfood, no Apple
 # review). Set to 1 by --external or CMUX_TESTFLIGHT_EXTERNAL=1 to drop the
 # testFlightInternalTestingOnly flag so the build can be added to an external
-# group; such builds then require a one-time Apple Beta App Review per version.
+# group; such builds then require a one-time Apple Beta App Review per
+# MARKETING_VERSION.
 EXTERNAL_TESTING=0
 if [[ "${CMUX_TESTFLIGHT_EXTERNAL:-}" == "1" ]]; then
   EXTERNAL_TESTING=1
+fi
+# Whether this invocation should assign an uploaded external build to the
+# external beta group itself. The scheduled GitHub Actions lane disables this and
+# runs assignment in a separate post-upload job so a distribution failure cannot
+# cause duplicate uploads of the same SHA on the next schedule.
+ASSIGN_EXTERNAL_GROUP=1
+if [[ "${CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP:-1}" == "0" ]]; then
+  ASSIGN_EXTERNAL_GROUP=0
 fi
 # After a successful upload, push the top ios/CHANGELOG.md entry to the build's
 # TestFlight "What to Test" so testers see what changed instead of an opaque
@@ -193,11 +209,11 @@ if [[ "${CMUX_TESTFLIGHT_SKIP_NOTES:-}" == "1" ]]; then
 fi
 # --notes-from-range <base>: auto-generate the "What to Test" notes from the
 # iOS-affecting commits in <base>..HEAD (via generate-testflight-notes.sh) instead
-# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta lane
-# so each build's notes reflect what actually changed since the previous beta. When
-# set, the changelog preflight + version-match guard are skipped (the notes no
-# longer come from the changelog, and --auto-version stamps a version the changelog
-# would not match).
+# of the hand-maintained ios/CHANGELOG.md top entry. Used by the every-2h beta
+# lane so each build's notes reflect what actually changed since the previous
+# beta for whichever audience is being shipped. When set, the changelog
+# preflight + version-match guard are skipped (the notes no longer come from the
+# changelog, and --auto-version stamps a version the changelog would not match).
 NOTES_RANGE_BASE=""
 # --auto-version: stamp the build's MARKETING_VERSION at archive time (no repo
 # commit-back, mirroring the timestamp build number) to the next patch above the
@@ -862,9 +878,9 @@ fi
 # API needs the ASC API key (JWT); the Apple ID upload path has no key, so notes are
 # only attempted when the ASC API creds are present.
 #
-# Audience: --external uses the curated External block; the default internal cut uses
-# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that actually
-# shipped (post-guard, or the reused archive's embedded version).
+# Audience: --external uses the External audience; the default internal cut uses
+# the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that
+# actually shipped (post-guard, or the reused archive's embedded version).
 if [[ "$SKIP_NOTES" -eq 1 ]]; then
   echo "note: --skip-notes set; not setting TestFlight What to Test notes" >&2
 elif [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
@@ -921,4 +937,25 @@ else
   else
     echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
   fi
+fi
+
+# --external means "ship to founders", not merely "make this build externally
+# eligible in principle". After upload, assign the processed build to the app's
+# external beta group so external testers actually receive it, and create the
+# Beta App Review submission when Apple requires one for a new
+# MARKETING_VERSION. This is fatal: a red CI/upload is preferable to claiming
+# the external lane tracked main when the build never reached the founders lane.
+if [[ "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && "$ASSIGN_EXTERNAL_GROUP" -eq 1 ]]; then
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+    echo "warning: no ASC API key (JWT) available; uploaded the external-eligible build but skipped automatic external-group assignment and Beta App Review submission. Supply ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH (or ASC_API_KEY_P8_BASE64) to distribute the build automatically." >&2
+    exit 0
+  fi
+  echo "assigning external TestFlight build $SHIPPED_BUILD_NUMBER to the founders beta group" >&2
+  ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+    ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
+    CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID:-}" \
+    CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME="${CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME:-}" \
+    python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
+      --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+      --build-number "$SHIPPED_BUILD_NUMBER"
 fi

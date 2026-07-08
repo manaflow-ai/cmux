@@ -29,7 +29,7 @@ struct AgentResumeArgvTests {
     func builtInSpecialShapes() {
         #expect(
             AgentResumeArgv().builtInKind(kind: "codex", sessionId: "SID", executablePath: nil, arguments: ["codex"])
-                == ["codex", "resume", "SID"]
+                == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
         )
         #expect(
             AgentResumeArgv().builtInKind(kind: "amp", sessionId: "SID", executablePath: nil, arguments: ["amp"])
@@ -118,7 +118,73 @@ struct AgentResumeArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex"]
-            ) == ["/opt/bin/codex", "resume", "SID"]
+            ) == ["/opt/bin/codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+        )
+    }
+
+    @Test("Codex resume suppresses codex's blocking startup update prompt per-invocation")
+    func codexResumeSuppressesStartupUpdatePrompt() {
+        // `codex resume <id>` passes no initial prompt, so codex's TUI shows a blocking
+        // "Update available!" picker before restoring the session — a cmux relaunch that
+        // auto-restores codex panes lands them on that prompt instead of the conversation.
+        // The per-invocation `-c` override keeps cmux-driven restores non-interactive
+        // without mutating the user's ~/.codex/config.toml, and it precedes the preserved
+        // launch arguments so a user-captured explicit override still wins.
+        let overrides = ["-c", "check_for_update_on_startup=false"]
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "--model", "gpt-5.4"]
+            ) == ["codex", "resume", "SID"] + overrides + ["--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codexTeams",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["cmux", "codex-teams", "--model", "gpt-5.4"]
+            ) == .resolved(["cmux", "codex-teams", "resume", "SID"] + overrides + ["--model", "gpt-5.4"])
+        )
+    }
+
+    @Test("Codex resume respects an explicit captured check_for_update_on_startup setting")
+    func codexResumeRespectsExplicitUpdateCheckSetting() {
+        // The codex sanitizer policy preserves `-c key=value` pairs, so a captured
+        // explicit setting must stay authoritative (no injected override) and a
+        // restore-of-a-restore must not stack duplicate overrides.
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c", "check_for_update_on_startup=true"]
+            ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=true"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c", "check_for_update_on_startup=false"]
+            ) == ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["codex", "-c=check_for_update_on_startup=true"]
+            ) == ["codex", "resume", "SID", "-c=check_for_update_on_startup=true"]
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codexTeams",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: ["cmux", "codex-teams", "-c", "check_for_update_on_startup=true"]
+            ) == .resolved(["cmux", "codex-teams", "resume", "SID", "-c", "check_for_update_on_startup=true"])
         )
     }
 
@@ -156,7 +222,7 @@ struct AgentResumeArgvTests {
         #expect(
             AgentResumeArgv().launcherResolution(
                 launcher: "codexTeams", sessionId: "SID", executablePath: nil, arguments: ["cmux", "codex-teams"]
-            ) == .resolved(["cmux", "codex-teams", "resume", "SID"])
+            ) == .resolved(["cmux", "codex-teams", "resume", "SID", "-c", "check_for_update_on_startup=false"])
         )
         #expect(
             AgentResumeArgv().launcherResolution(
