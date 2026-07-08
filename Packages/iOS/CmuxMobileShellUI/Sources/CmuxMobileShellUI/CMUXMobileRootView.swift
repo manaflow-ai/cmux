@@ -220,6 +220,7 @@ struct CMUXMobileRootView: View {
                 store: store,
                 signOut: signOut,
                 showAddDevice: showAddDevice,
+                telemetryConsentStore: telemetryConsentStore,
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if shouldShowOnboarding {

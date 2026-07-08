@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileShell
@@ -21,12 +22,16 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     )
     @State private var browserStore = BrowserSurfaceStore()
     @State private var didStartFixture = false
+    private let telemetryConsentStore = MobileTelemetryConsentStore(
+        defaults: UserDefaults(suiteName: "WorkspaceDetailDelayedTerminalPreviewView.telemetry")!
+    )
 
     var body: some View {
         WorkspaceShellView(
             store: store,
             signOut: {},
-            showAddDevice: nil
+            showAddDevice: nil,
+            telemetryConsentStore: telemetryConsentStore
         )
         .environment(browserStore)
         .task {
