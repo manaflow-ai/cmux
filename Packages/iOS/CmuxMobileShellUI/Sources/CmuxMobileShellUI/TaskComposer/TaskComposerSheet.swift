@@ -116,6 +116,10 @@ struct TaskComposerSheet: View {
                         submitTask?.cancel()
                         dismiss()
                     }
+                    // A sent workspace.create cannot be recalled; keep the
+                    // sheet up until the bounded RPC reports success/failure
+                    // rather than dismissing and hiding the outcome.
+                    .disabled(isSubmitting)
                 }
             }
             .sheet(isPresented: $isEditorPresented) {
@@ -131,14 +135,15 @@ struct TaskComposerSheet: View {
                 isPromptFocused = true
             }
             .onDisappear {
-                // Drag-to-dismiss and Cancel both end the submit flow: a create
-                // the user backed out of must not apply its result or persist
-                // last-used defaults after the sheet is gone.
+                // Safety net for parent-driven dismissal: a submit whose sheet
+                // is gone must not apply its result or persist last-used
+                // defaults. User-driven dismissal is blocked while submitting.
                 submitTask?.cancel()
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isSubmitting)
     }
 
     private var selectedTemplate: MobileTaskTemplate? {
@@ -187,13 +192,7 @@ struct TaskComposerSheet: View {
             ForEach(machines) { mac in
                 Button {
                     selectedMacDeviceID = mac.macDeviceID
-                    if !didEditDirectory {
-                        directory = Self.suggestedDirectory(
-                            template: selectedTemplate,
-                            macDeviceID: mac.macDeviceID,
-                            templateStore: store.taskTemplateStore
-                        )
-                    }
+                    syncSuggestedDirectory()
                 } label: {
                     HStack {
                         machineIcon(mac)
@@ -222,11 +221,7 @@ struct TaskComposerSheet: View {
             selectedTemplateID = template.id
             failureText = nil
             didEditDirectory = false
-            directory = Self.suggestedDirectory(
-                template: template,
-                macDeviceID: selectedMacDeviceID,
-                templateStore: store.taskTemplateStore
-            )
+            syncSuggestedDirectory()
         } label: {
             HStack(spacing: 6) {
                 TaskTemplateIcon(value: template.icon)
@@ -281,6 +276,7 @@ struct TaskComposerSheet: View {
     private func addTemplate(_ template: MobileTaskTemplate) {
         store.taskTemplateStore?.addTemplate(template)
         selectedTemplateID = template.id
+        syncSuggestedDirectory()
     }
 
     private func updateTemplate(_ template: MobileTaskTemplate) {
@@ -295,10 +291,24 @@ struct TaskComposerSheet: View {
 
     private func refreshTemplates() {
         templates = store.taskTemplateStore?.listTemplates() ?? []
-        if let selectedTemplateID, templates.contains(where: { $0.id == selectedTemplateID }) {
-            return
+        if let selectedTemplateID, !templates.contains(where: { $0.id == selectedTemplateID }) {
+            self.selectedTemplateID = templates.first?.id
         }
-        selectedTemplateID = templates.first?.id
+        // Selection or the selected template's default directory may have
+        // changed (add/edit/delete in the editor); keep the field in sync
+        // unless the user typed a directory themselves.
+        syncSuggestedDirectory()
+    }
+
+    /// Recompute the suggested directory for the current template/Mac unless
+    /// the user hand-edited the field.
+    private func syncSuggestedDirectory() {
+        guard !didEditDirectory else { return }
+        directory = Self.suggestedDirectory(
+            template: selectedTemplate,
+            macDeviceID: selectedMacDeviceID,
+            templateStore: store.taskTemplateStore
+        )
     }
 
     private func failureMessage(_ failure: MobileWorkspaceMutationFailure) -> String {
