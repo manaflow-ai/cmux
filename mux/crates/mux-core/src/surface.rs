@@ -160,6 +160,7 @@ pub struct PtySurface {
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
     size: Mutex<(u16, u16)>,
+    mux: Weak<Mux>,
     /// Live output subscribers (attach streams). Guarded by the terminal
     /// lock ordering: the reader thread broadcasts while holding the
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
@@ -258,6 +259,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
+            mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
         }));
 
@@ -273,9 +275,12 @@ impl Surface {
                         Ok(n) => n,
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                    let mut scroll_changed = None;
                     {
                         let mut term = pty.term.lock().unwrap();
+                        let before = terminal_scroll_position(&term);
                         term.vt_write(&buf[..n]);
+                        let after = terminal_scroll_position(&term);
                         {
                             let mut taps = pty.taps.lock().unwrap();
                             if !taps.is_empty() {
@@ -292,6 +297,18 @@ impl Surface {
                         }
                         if let Some(pwd) = term.pwd() {
                             *pty.pwd.lock().unwrap() = Some(pwd);
+                        }
+                        if before != after {
+                            scroll_changed = Some(after);
+                        }
+                    }
+                    if let Some((offset, at_bottom)) = scroll_changed {
+                        if let Some(mux) = mux.upgrade() {
+                            mux.emit(MuxEvent::ScrollChanged {
+                                surface: surface.id,
+                                offset,
+                                at_bottom,
+                            });
                         }
                     }
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
@@ -366,6 +383,7 @@ impl Surface {
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
+            mux,
             taps: Mutex::new(Vec::new()),
         })))
     }
@@ -418,6 +436,44 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         Ok(f(&mut pty.term.lock().unwrap()))
+    }
+
+    pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let changed = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            term.scroll_delta(delta);
+            let after = terminal_scroll_position(&term);
+            (before != after).then_some(after)
+        };
+        if let Some((offset, at_bottom)) = changed {
+            if let Some(mux) = pty.mux.upgrade() {
+                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn scroll_to_bottom(&self) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let changed = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            term.scroll_to_bottom();
+            let after = terminal_scroll_position(&term);
+            (before != after).then_some(after)
+        };
+        if let Some((offset, at_bottom)) = changed {
+            if let Some(mux) = pty.mux.upgrade() {
+                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            }
+        }
+        Ok(())
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
@@ -734,5 +790,12 @@ impl PtySurface {
             });
         }
         true
+    }
+}
+
+fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
+    match term.scrollbar() {
+        Some(scrollbar) => (scrollbar.offset, !scrollbar.scrolled_back()),
+        None => (0, true),
     }
 }
