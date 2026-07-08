@@ -122,7 +122,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .vaultPane:
             return "books.vertical"
         case .diffViewer:
-            return "plusminus.circle"
+            return "plus.forwardslash.minus"
         case .revealCurrentDirectoryInFinder:
             return "folder"
         case .customizeSurfaceTabBar:
@@ -147,7 +147,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .newBrowser:
             return String(localized: "surfaceTabBar.menu.newBrowser", defaultValue: "Browser")
         case .newNote:
-            return String(localized: "surfaceTabBar.menu.newNote", defaultValue: "New Note")
+            return String(localized: "surfaceTabBar.menu.newNote", defaultValue: "Note")
         case .splitRight:
             return String(localized: "surfaceTabBar.menu.splitRight", defaultValue: "Split Right")
         case .splitDown:

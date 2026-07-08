@@ -13565,6 +13565,10 @@ extension Workspace: BonsplitDelegate {
         to menu: NSMenu,
         target: SurfaceTabBarMenuTarget
     ) {
+        guard surfaceTabBarMenuItemIsVisible(executable, inPane: target.pane) else {
+            return
+        }
+
         let item = NSMenuItem(
             title: surfaceTabBarMenuTitle(for: executable),
             action: executable.menuItems.isEmpty ? #selector(SurfaceTabBarMenuTarget.performMenuItem(_:)) : nil,
@@ -13583,6 +13587,33 @@ extension Workspace: BonsplitDelegate {
             item.isEnabled = !submenu.items.isEmpty
         }
         menu.addItem(item)
+    }
+
+    private func surfaceTabBarMenuItemIsVisible(_ executable: SurfaceTabBarExecutableButton, inPane pane: PaneID) -> Bool {
+        guard let builtInAction = executable.builtInAction else { return true }
+        switch builtInAction {
+        case .diffViewer:
+            return surfaceTabBarPaneHasDisplayableDiff(inPane: pane)
+        case .newWorkspace, .cloudVM, .mobileConnect, .newTerminal, .newBrowser, .newNote,
+             .splitRight, .splitDown, .more, .rightSidebarFiles, .rightSidebarNotes,
+             .rightSidebarFind, .rightSidebarVault, .rightSidebarFeed, .rightSidebarDock,
+             .filesPane, .findPane, .vaultPane, .revealCurrentDirectoryInFinder,
+             .customizeSurfaceTabBar:
+            return true
+        }
+    }
+
+    private func surfaceTabBarPaneHasDisplayableDiff(inPane pane: PaneID) -> Bool {
+        guard owningTabManager != nil else { return false }
+        if let selectedTab = bonsplitController.selectedTab(inPane: pane),
+           let panelId = panelIdFromSurfaceId(selectedTab.id),
+           let isDirty = panelGitBranches[panelId]?.isDirty {
+            return isDirty
+        }
+        if let workspaceIsDirty = gitBranch?.isDirty {
+            return workspaceIsDirty
+        }
+        return panelGitBranches.values.contains { $0.isDirty }
     }
 
     private func surfaceTabBarMenuTitle(for executable: SurfaceTabBarExecutableButton) -> String {

@@ -44,6 +44,9 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
     static let defaultMoreMenu: [CmuxSurfaceTabBarMenuItem] = [
         .actionReference(CmuxSurfaceTabBarBuiltInAction.diffViewer.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.newNote.configID),
+        .actionReference(CmuxSurfaceTabBarBuiltInAction.filesPane.configID),
+        .actionReference(CmuxSurfaceTabBarBuiltInAction.findPane.configID),
+        .actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID),
     ]
 
     static let defaults: [CmuxSurfaceTabBarButton] = [

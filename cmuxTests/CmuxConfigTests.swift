@@ -503,6 +503,9 @@ struct CmuxConfigDecodingTests {
             XCTAssertEqual(moreButton.menu?.map(\.id), [
                 CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
                 CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
             ])
         }
     }
@@ -531,6 +534,9 @@ struct CmuxConfigDecodingTests {
             XCTAssertEqual(moreButton.menu?.map(\.id), [
                 CmuxSurfaceTabBarBuiltInAction.diffViewer.configID,
                 CmuxSurfaceTabBarBuiltInAction.newNote.configID,
+                CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.findPane.configID,
+                CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
             ])
         }
     }
