@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const accountDeletionModule = await import("../services/account/deletion");
 const realIsStackAccountDeletionInProgress = accountDeletionModule.isStackAccountDeletionInProgress;
+const realMarkStackUserDeletionInProgress = accountDeletionModule.markStackUserDeletionInProgress;
 const calls: string[] = [];
+let stackUserMetadata: unknown = {};
 let cleanupError: Error | null = null;
 let postHogPreflightError: Error | null = null;
 const assertPostHogDeletionConfigured = mock(() => {
@@ -12,8 +14,11 @@ const assertPostHogDeletionConfigured = mock(() => {
 const deletePostHogPersonData = mock(async () => {
   calls.push("posthog-delete");
 });
-const markStackUserDeletionInProgress = mock(async () => {
+const markStackUserDeletionInProgress = mock(async (user) => {
   calls.push("mark-deleting");
+  await realMarkStackUserDeletionInProgress(
+    user as Parameters<typeof realMarkStackUserDeletionInProgress>[0],
+  );
 });
 const deleteCmuxAccountData = mock(async () => {
   calls.push("cleanup");
@@ -26,9 +31,13 @@ function stackUser() {
   return {
     id: "user-1",
     selectedTeam: { id: "team-selected" },
-    clientReadOnlyMetadata: {},
+    get clientReadOnlyMetadata() {
+      return stackUserMetadata;
+    },
     listTeams: async () => [{ id: "team-1" }, { id: "team-selected" }],
-    update: async () => undefined,
+    update: async ({ clientReadOnlyMetadata }: { clientReadOnlyMetadata: Record<string, unknown> }) => {
+      stackUserMetadata = clientReadOnlyMetadata;
+    },
     delete: async () => {
       calls.push("delete");
       await deleteUser();
@@ -57,6 +66,7 @@ const route = await import("../app/api/account/deletion/route");
 
 beforeEach(() => {
   calls.length = 0;
+  stackUserMetadata = {};
   cleanupError = null;
   postHogPreflightError = null;
   assertPostHogDeletionConfigured.mockClear();
@@ -105,6 +115,7 @@ describe("account deletion route", () => {
       teamIds: ["team-selected", "team-1"],
     });
     expect(deleteCmuxAccountData).toHaveBeenCalledTimes(1);
+    expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(true);
     expect(deleteUser).toHaveBeenCalledTimes(1);
     expect(deletePostHogPersonData).toHaveBeenCalledWith("user-1");
     expect(calls).toEqual(["posthog-preflight", "mark-deleting", "cleanup", "posthog-delete", "delete"]);
