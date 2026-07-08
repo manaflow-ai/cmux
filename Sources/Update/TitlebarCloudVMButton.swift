@@ -424,7 +424,7 @@ struct TitlebarCloudVMButton: View {
 
     private static func mouseDownMenuItem(title: String, action: @escaping () -> Void) -> NSMenuItem {
         let item = menuItem(title: title, action: #selector(CloudVMMenuTarget.open))
-        item.view = CloudVMMouseDownMenuItemView(title: title, action: action)
+        item.view = MouseDownMenuItemView(title: title, action: action)
         return item
     }
 
@@ -499,87 +499,5 @@ private final class CloudVMMenuTarget: NSObject {
 
     @objc func handoff() {
         _ = AppDelegate.shared?.performCurrentCloudVMCommand(.handoff, debugSource: "titlebar.cloudVM.menu.handoff")
-    }
-}
-
-@MainActor
-private final class CloudVMMouseDownMenuItemView: NSView {
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let action: () -> Void
-    private var trackingArea: NSTrackingArea?
-    private var isHighlighted = false {
-        didSet {
-            guard oldValue != isHighlighted else { return }
-            needsDisplay = true
-            titleLabel.textColor = isHighlighted ? .selectedMenuItemTextColor : .labelColor
-        }
-    }
-
-    init(title: String, action: @escaping () -> Void) {
-        self.action = action
-        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 28))
-        // NSMenu sizes to its widest item (e.g. "Checkpoint Cloud VM", the
-        // Advanced submenu row); let this custom view stretch to that width so
-        // its highlight spans the full menu like a native item instead of
-        // stopping at the fixed 260pt frame.
-        autoresizingMask = [.width]
-        wantsLayer = true
-        titleLabel.stringValue = title
-        titleLabel.font = .menuFont(ofSize: 0)
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(titleLabel)
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        trackingArea = area
-        addTrackingArea(area)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHighlighted = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHighlighted = false
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        isHighlighted = true
-        enclosingMenuItem?.menu?.cancelTrackingWithoutAnimation()
-        action()
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard isHighlighted else { return }
-        // Match native menu selection: rounded highlight, not a sharp rect.
-        NSColor.selectedContentBackgroundColor.setFill()
-        NSBezierPath(
-            roundedRect: bounds.insetBy(dx: 5, dy: 2),
-            xRadius: 5,
-            yRadius: 5
-        ).fill()
     }
 }
