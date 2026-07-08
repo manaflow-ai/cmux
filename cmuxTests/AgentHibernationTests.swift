@@ -557,7 +557,7 @@ struct AgentHibernationTests {
                 key: (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([123, 456]),
+                    processIDs: Set([123, 456]), agentProcessIDs: Set([123]),
                     sessionIDSource: .explicit
                 ),
             ]
@@ -626,7 +626,7 @@ struct AgentHibernationTests {
                 key: (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([321]),
+                    processIDs: Set([321]), agentProcessIDs: Set([321]),
                     sessionIDSource: .explicit
                 ),
             ]
@@ -696,7 +696,7 @@ struct AgentHibernationTests {
                 key: (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([654]),
+                    processIDs: Set([654]), agentProcessIDs: Set([654]),
                     sessionIDSource: .explicit
                 ),
             ]
@@ -733,7 +733,7 @@ struct AgentHibernationTests {
                 key: (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([789]),
+                    processIDs: Set([789]), agentProcessIDs: Set([789]),
                     sessionIDSource: .explicit
                 ),
             ]
@@ -824,7 +824,7 @@ struct AgentHibernationTests {
                 key: (
                     snapshot: snapshot,
                     updatedAt: 100,
-                    processIDs: Set([42]),
+                    processIDs: Set([42]), agentProcessIDs: Set([42]),
                     sessionIDSource: .explicit
                 ),
             ]

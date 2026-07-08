@@ -90,6 +90,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
+    private static let workspaceMoveCapability = "workspace.move.v1"
+    private static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
+    private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -309,8 +312,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports workspace move/reorder requests.
+    public var supportsWorkspaceMoveActions: Bool { supportedHostCapabilities.contains(Self.workspaceMoveCapability) && allowsMacScopedWorkspaceMutations }
+    /// Whether the Mac supports workspace group mutation requests.
+    public var supportsWorkspaceGroupActions: Bool { supportedHostCapabilities.contains(Self.workspaceGroupActionsCapability) && allowsMacScopedWorkspaceMutations }
+    /// Whether the Mac supports creating a workspace directly inside a group.
+    public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
+    /// Bumped whenever the applied terminal theme actually changes (a connect
+    /// that reports a different theme than the one currently in
+    /// ``TerminalThemeStore``). The mounted terminal representable observes this
+    /// and drives a live recolor in place: it rebuilds the shared ghostty config
+    /// from the store and pushes the new colors to the running app and surfaces
+    /// (`ghostty_app_update_config` / `ghostty_surface_update_config`) plus the
+    /// SwiftUI/UIKit chrome, without remounting the surface, so scrollback is
+    /// preserved across a theme change. The counter only advances on a real
+    /// value change, so an unchanged theme on reconnect does no work.
+    public private(set) var terminalThemeGeneration: UInt64 = 0
+
+    /// Applies the Mac's reported terminal theme to the process-wide
+    /// ``TerminalThemeStore`` and, when the resolved value actually changes,
+    /// bumps ``terminalThemeGeneration`` so the mounted terminal surface (and
+    /// the chrome that blends with it) rebuilds with the new colors. Passing a
+    /// `nil`/invalid theme resolves to Monokai via the store.
+    public func applyTerminalTheme(_ theme: TerminalTheme?) {
+        let previous = TerminalThemeStore.current
+        TerminalThemeStore.set(theme)
+        if TerminalThemeStore.current != previous {
+            terminalThemeGeneration &+= 1
+        }
+    }
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every
@@ -628,6 +660,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
+    public var usesLocalWorkspaceCreationFallback: Bool {
+        remoteClient == nil && connectionState == .connected
+    }
     /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
     /// Identity token that changes when the paired Mac chat event source is rebuilt.
@@ -676,16 +712,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
-    private var createWorkspaceTask: Task<Void, Never>?
+    var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
+    var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
     private var pullToRefreshTask: Task<Void, Never>?
-    private var createWorkspaceTaskID: UUID?
+    var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
-    private var connectionGeneration: UUID
+    var connectionGeneration: UUID
     private var connectionAttemptGeneration: UUID
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
@@ -926,6 +963,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalEventListenerID = nil
         self.terminalSubscriptionRefreshTask = nil
         self.createWorkspaceTask = nil
+        self.createWorkspaceTaskGroupID = nil
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
@@ -1398,6 +1436,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case networkChange
         case manual
         case presencePush
+
+        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
+
         var description: String {
             switch self {
             case .networkChange: return "networkChange"
@@ -1442,6 +1483,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if connectionState == .connected, remoteClient != nil {
             markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
+            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+                scheduleSecondaryAggregation()
+            }
             return
         }
         guard !recoveryInFlight else { return }
@@ -2965,6 +3009,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             guard !Task.isCancelled,
                   let payload = try? MobileHostStatusResponse.decode(data) else { return }
+            // This runs with the full RPC timeout when the 750ms transport probe
+            // timed out, so it is also the recovery path for theme adoption: the
+            // probe applies the theme when it succeeds, but on a slow link it
+            // fails fast and never does. applyTerminalTheme is idempotent (it
+            // only bumps the generation on a real change), so re-applying here is
+            // free in the common case and keeps the phone's colors in sync with
+            // the Mac even when the probe could not.
+            self.applyTerminalTheme(payload.theme)
             await self.applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
@@ -3419,7 +3471,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             route: route,
             ticket: ticket,
             supportedHostCapabilities: capabilities,
-            actionCapabilities: Self.workspaceActionCapabilities(from: capabilities)
+            actionCapabilities: Self.workspaceActionCapabilities(
+                from: capabilities,
+                allowsMacScopedMutations: MobileShellWorkspaceMutationTicketPolicy(now: runtime.now())
+                    .allowsMacScopedWorkspaceMutations(ticket)
+            )
         )
     }
 
@@ -3796,22 +3852,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
-    /// then UserDefaults, then DEBUG on / Release off — so the aggregation (still
-    /// being hardened) ships dark in Release and the single-Mac list is the exact
-    /// prior behavior unless explicitly turned on.
+    /// then UserDefaults, then enabled by default. Env/defaults are kill switches
+    /// for rollout control.
     private var multiMacAggregationEnabled: Bool {
-        if let raw = ProcessInfo.processInfo.environment["CMUX_MULTI_MAC_AGGREGATION"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-            return ["1", "true", "yes", "on"].contains(raw.lowercased())
-        }
-        if multiMacAggregationDefaults.object(forKey: "multiMacAggregation") != nil {
-            return multiMacAggregationDefaults.bool(forKey: "multiMacAggregation")
-        }
-        #if DEBUG
-        return true
-        #else
-        return false
-        #endif
+        MultiMacAggregationFlag(
+            environment: ProcessInfo.processInfo.environment,
+            defaults: multiMacAggregationDefaults
+        ).isEnabled
     }
 
     /// Sentinel key for the foreground Mac when its attach ticket carries no
@@ -3824,7 +3871,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }
-        state.actionCapabilities = Self.workspaceActionCapabilities(from: supportedHostCapabilities)
+        state.actionCapabilities = Self.workspaceActionCapabilities(
+            from: supportedHostCapabilities,
+            allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
+        )
         workspacesByMac[foregroundMacKey] = state
     }
 
@@ -3967,7 +4017,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if let groups { state.groups = groups }
         state.status = .connected
-        state.actionCapabilities = Self.workspaceActionCapabilities(from: supportedHostCapabilities)
+        state.actionCapabilities = Self.workspaceActionCapabilities(
+            from: supportedHostCapabilities,
+            allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
+        )
         workspacesByMac[key] = state
     }
 
@@ -4072,20 +4125,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         body(&state.workspaces)
         workspacesByMac[key] = state
     }
-
     /// Create a workspace locally or through the connected Mac, then select it.
-    public func createWorkspace() {
+    public func createWorkspace(
+        inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
+    ) {
         guard remoteClient == nil else {
             guard createWorkspaceTask == nil else { return }
             let taskID = UUID()
             createWorkspaceTaskID = taskID
             createWorkspaceTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateWorkspaceTask(id: taskID) }
-                guard let self else { return }
-                await self.createRemoteWorkspace()
+                guard let self else { return .success(()) }
+                return await self.createRemoteWorkspace(inGroup: groupID)
             }
+            createWorkspaceTaskGroupID = groupID
             return
         }
+        guard groupID == nil else { return }
         if createLocalWorkspaceWithoutTerminalForDelayedUITestIfNeeded() { return }
         let nextIndex = workspaces.count + 1
         let workspace = MobileWorkspacePreview(
@@ -4103,6 +4159,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = workspace.terminals.first?.id
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
     }
+
     /// Creates a terminal in `workspaceID`, or the selected workspace when nil.
     ///
     /// Callers that act on a specific workspace (e.g. the "+" button on a
@@ -4185,7 +4242,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Marks `terminalID` so its surface does not autofocus on its next window
     /// attach. Called by every create path the instant the new terminal becomes
     /// the selection, so a freshly created terminal never steals the keyboard.
-    private func suppressTerminalAutoFocusOnNextAttach(for terminalID: MobileTerminalPreview.ID?) {
+    func suppressTerminalAutoFocusOnNextAttach(for terminalID: MobileTerminalPreview.ID?) {
         guard let terminalID else { return }
         terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
     }
@@ -5052,9 +5109,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     }
-                    // Aggregate the user's other Macs' workspaces in the
-                    // background (no-op / off in Release). Best-effort; never
-                    // blocks the foreground connect.
+                    // Aggregate the user's other Macs' workspaces in the background.
+                    // Best-effort; never blocks the foreground connect.
                     if multiMacAggregationEnabled {
                         self.scheduleSecondaryAggregation()
                     }
@@ -5269,6 +5325,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask = nil
         createWorkspaceTask?.cancel()
         createWorkspaceTask = nil
+        createWorkspaceTaskGroupID = nil
         createWorkspaceTaskID = nil
         createTerminalTask?.cancel()
         createTerminalTask = nil
@@ -5564,7 +5621,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Surface an operational error (a request failing on an already-live
     /// connection, e.g. create-workspace) through the same classifier as
     /// pairing. Does NOT emit `ios_pairing_failed` (no attempt is in flight).
-    private func applyOperationalError(_ error: any Error) {
+    func applyOperationalError(_ error: any Error) {
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
         connectionError = category.message.isEmpty
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
@@ -5601,9 +5658,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return .failedOffline
     }
 
-    private func clearCreateWorkspaceTask(id: UUID) {
+    func clearCreateWorkspaceTask(id: UUID) {
         guard createWorkspaceTaskID == id else { return }
         createWorkspaceTask = nil
+        createWorkspaceTaskGroupID = nil
         createWorkspaceTaskID = nil
     }
 
@@ -5613,7 +5671,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
     }
 
-    private func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
+    func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
         isCurrentRemoteConnection(client: client, generation: generation)
             && connectionState == .connected
     }
@@ -5660,7 +5718,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markMacConnectionUnavailable()
     }
 
-    private func syncSelectedTerminalForWorkspace() {
+    func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
             selectedTerminalID = nil
             return
@@ -5810,40 +5868,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalID: MobileTerminalPreview.ID
     ) -> MobileTerminalViewportKey {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
-    }
-
-    private func createRemoteWorkspace() async {
-        guard let client = remoteClient else { return }
-        let generation = connectionGeneration
-        do {
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "workspace.create")
-            )
-            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            guard isCurrentRemoteOperation(client: client, generation: generation),
-                  !Task.isCancelled else { return }
-            applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
-            if let createdWorkspace {
-                setSelectedWorkspaceID(rowWorkspaceID(
-                    forRemoteWorkspaceID: createdWorkspace,
-                    macDeviceID: foregroundMacDeviceID
-                ) ?? createdWorkspace)
-            }
-            syncSelectedTerminalForWorkspace()
-            if createdWorkspace != nil {
-                // A "+" actually created and selected a new workspace, so its
-                // terminal is freshly created: don't pop the keyboard on mount.
-                // When no workspace was created the selection never moved, so we
-                // must not suppress the user's current terminal.
-                suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
-            }
-        } catch {
-            guard generation == connectionGeneration, !Task.isCancelled else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
-            applyOperationalError(error)
-        }
     }
 
     private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
@@ -6213,6 +6237,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return fallback
             }
             supportedHostCapabilities = Set(payload.capabilities)
+            // Adopt the Mac's resolved terminal theme. Older Macs omit the
+            // field (`payload.theme == nil`), which the store resolves to the
+            // built-in Monokai default. This funnels through the same
+            // `TerminalThemeStore` the embedded ghostty runtime reads, and bumps
+            // the remount generation only on a real change.
+            applyTerminalTheme(payload.theme)
             updateForegroundWorkspaceActionCapabilities()
             await applyHostReportedIdentity(
                 client: client,
@@ -7508,11 +7538,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 
-    private func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
+    func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {
         selectedWorkspaceID = id
     }
 
-    private func applyRemoteWorkspaceList(
+    func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
         mergeExistingWorkspaces: Bool = false,
