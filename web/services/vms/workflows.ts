@@ -983,6 +983,28 @@ function rollbackPausedResumeReservation(
   }).pipe(Effect.catchAll(() => Effect.void));
 }
 
+function rollbackEndpointPreflightResume(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  resumedForEndpoint: boolean,
+): Effect.Effect<void, never> {
+  if (!resumedForEndpoint) return Effect.void;
+  const pause = providers.pause;
+  if (!pause) return Effect.void;
+  return pause(vm.provider, providerVmId).pipe(
+    Effect.andThen(
+      repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: "paused",
+      }).pipe(Effect.catchAll(() => Effect.void)),
+    ),
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
 function recordResumeUsageEvent(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
@@ -1012,11 +1034,11 @@ function preflightResumeIfSuspended(
   vm: CloudVmRow,
   providerVmId: string,
   resumeSource: VmResumeSource,
-): Effect.Effect<void, VmWorkflowError> {
+): Effect.Effect<boolean, VmWorkflowError> {
   return Effect.gen(function* () {
     const getStatus = providers.getStatus;
     const resume = providers.resume;
-    if (!getStatus || !resume) return;
+    if (!getStatus || !resume) return false;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeoutFail({
@@ -1063,7 +1085,7 @@ function preflightResumeIfSuspended(
       if (!recorded) {
         return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
       }
-      return;
+      return false;
     }
     if (status === "running") {
       // Freestyle's SSH gateway can resume a VM entirely outside the control
@@ -1079,9 +1101,9 @@ function preflightResumeIfSuspended(
           return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
         }
       }
-      return;
+      return false;
     }
-    if (status !== "paused") return;
+    if (status !== "paused") return false;
 
     const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId);
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
@@ -1097,6 +1119,7 @@ function preflightResumeIfSuspended(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
     if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+    return true;
   });
 }
 
@@ -1345,10 +1368,12 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    // Fail cleanup before resuming a paused VM. If cleanup is unavailable, the
-    // caller gets an error without leaving a paused VM durably running.
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    const resumedForEndpoint = yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true }).pipe(
+      Effect.tapError(() =>
+        rollbackEndpointPreflightResume(repo, providers, vm, input.providerVmId, resumedForEndpoint),
+      ),
+    );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -1411,10 +1436,12 @@ export function openSshEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    // Fail cleanup before resuming a paused VM. If cleanup is unavailable, the
-    // caller gets an error without leaving a paused VM durably running.
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
+    const resumedForEndpoint = yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true }).pipe(
+      Effect.tapError(() =>
+        rollbackEndpointPreflightResume(repo, providers, vm, input.providerVmId, resumedForEndpoint),
+      ),
+    );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,

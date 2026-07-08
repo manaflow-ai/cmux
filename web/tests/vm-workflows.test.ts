@@ -1076,7 +1076,7 @@ describe("VM Effect workflows", () => {
     });
   });
 
-  test("openSshEndpoint fails cleanup before resuming a paused VM", async () => {
+  test("openSshEndpoint rolls back a paused resume when cleanup fails before minting", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000128",
       userId: "user-workflow-ssh-cleanup-before-resume",
@@ -1098,9 +1098,11 @@ describe("VM Effect workflows", () => {
       revokedAt: null,
       createdAt: new Date(),
     };
-    const repo = testWorkflowRepo({ vm, activeIdentityLeases: [activeLease] });
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, activeIdentityLeases: [activeLease], observedStatuses });
     let statusCalls = 0;
     let resumeCalls = 0;
+    let pauseCalls = 0;
     let openCalls = 0;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
@@ -1112,6 +1114,10 @@ describe("VM Effect workflows", () => {
         resumeCalls += 1;
         return Effect.succeed(testVmHandle({ providerVmId: vm.providerVmId! }));
       },
+      pause: () =>
+        Effect.sync(() => {
+          pauseCalls += 1;
+        }),
       revokeSSHIdentity: () =>
         Effect.fail(providerOperationError("revokeSSHIdentity", "provider delete failed")),
       openSSH: () => {
@@ -1137,9 +1143,14 @@ describe("VM Effect workflows", () => {
       ),
     ).rejects.toThrow();
 
-    expect(statusCalls).toBe(0);
-    expect(resumeCalls).toBe(0);
+    expect(statusCalls).toBe(1);
+    expect(resumeCalls).toBe(1);
+    expect(pauseCalls).toBe(1);
     expect(openCalls).toBe(0);
+    expect(observedStatuses).toEqual([
+      { id: vm.id, providerVmId: vm.providerVmId!, status: "running" },
+      { id: vm.id, providerVmId: vm.providerVmId!, status: "paused" },
+    ]);
   });
 
   test("openAttachEndpoint recovers when the VM suspends between preflight and minting", async () => {
