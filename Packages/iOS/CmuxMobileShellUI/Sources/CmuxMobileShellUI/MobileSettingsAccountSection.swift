@@ -105,7 +105,13 @@ struct MobileSettingsAccountSection: View {
                 if case AccountDeletionRequestError.stackDeleteIncomplete = error {
                     deleteAccountFailureKind = .stackDeleteIncomplete
                 } else if case AccountDeletionRequestError.timedOut = error {
-                    deleteAccountFailureKind = .timedOut
+                    if let signOut {
+                        signOut()
+                    } else {
+                        await authManager.signOut()
+                    }
+                    dismiss()
+                    return
                 } else if case AuthError.timedOut = error {
                     deleteAccountFailureKind = .timedOut
                 } else {

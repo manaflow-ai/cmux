@@ -4,6 +4,9 @@ public enum AccountDeletionRequestError: Error, Equatable {
     case invalidAPIBaseURL
     case unauthorized
     case stackDeleteIncomplete
+    /// The DELETE request reached the transport layer and timed out before a
+    /// definitive response. The backend may still complete account deletion, so
+    /// callers must treat the local session as no longer trustworthy.
     case timedOut
     case rejected(statusCode: Int)
     case invalidResponse
@@ -85,12 +88,12 @@ extension AuthCoordinator {
     public func deleteAccount() async throws {
         let apiBaseURL = apiBaseURL
         let timeout = timeouts.network
-        try await runPhase(.accountDeletion, timeout: timeout) {
-            let tokens = try await self.currentTokens()
-            try await AccountDeletionClient(apiBaseURL: apiBaseURL).deleteAccount(
-                accessToken: tokens.accessToken,
-                refreshToken: tokens.refreshToken
-            )
+        let tokens = try await runTokenTouchingPhase(.accountDeletion, timeout: timeout) {
+            try await self.currentTokens()
         }
+        try await AccountDeletionClient(apiBaseURL: apiBaseURL).deleteAccount(
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken
+        )
     }
 }

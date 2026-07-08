@@ -51,15 +51,15 @@ export async function DELETE(request: Request): Promise<Response> {
   if (!stackUser || stackUser.id !== user.id) return unauthorized();
 
   try {
+    await markAccountDeletingAndClearBillingEntitlements(stackUser);
     const destroyedVms = await destroyPersonalCloudVms(user.id);
     await deleteVaultObjectsForAccount(user.id);
     await resolveUserBillingForAccountDeletion(user.id);
-    await markAccountDeletingAndClearBillingEntitlements(stackUser);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
     // final Stack deletion when the distinct response below is returned.
-    await deleteCmuxOwnedAccountRows(user.id);
+    await deleteCollectedVaultObjects(await deleteCmuxOwnedAccountRows(user.id));
     try {
       await stackUser.delete();
     } catch (error) {
@@ -71,7 +71,7 @@ export async function DELETE(request: Request): Promise<Response> {
       }, 500);
     }
     await deleteVaultObjectsForAccount(user.id);
-    await deleteCmuxOwnedAccountRows(user.id);
+    await deleteCollectedVaultObjects(await deleteCmuxOwnedAccountRows(user.id));
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
     logAccountDeleteError("account.delete.failed", error);
@@ -148,6 +148,12 @@ async function deleteVaultObjectsForAccount(userId: string): Promise<void> {
   }
 
   for (const objectKey of objectKeys) {
+    await deleteObject(objectKey);
+  }
+}
+
+async function deleteCollectedVaultObjects(rows: DeletedAccountRows): Promise<void> {
+  for (const objectKey of rows.vaultObjectKeys) {
     await deleteObject(objectKey);
   }
 }
@@ -235,8 +241,13 @@ function isStripeAlreadyInDeletionTargetState(error: unknown, messagePatterns: r
   return messagePatterns.some((pattern) => pattern.test(message));
 }
 
-async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
+type DeletedAccountRows = {
+  readonly vaultObjectKeys: readonly string[];
+};
+
+async function deleteCmuxOwnedAccountRows(userId: string): Promise<DeletedAccountRows> {
   const db = cloudDb();
+  const vaultObjectKeys = new Set<string>();
   await db.transaction(async (tx) => {
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
@@ -273,11 +284,52 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
 
     await tx.delete(devices).where(eq(devices.userId, userId));
 
-    await tx.delete(vaultUploadGrants).where(eq(vaultUploadGrants.userId, userId));
-    await tx.delete(vaultUploadTombstones).where(eq(vaultUploadTombstones.userId, userId));
+    const deletedGrants = await tx
+      .delete(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.userId, userId))
+      .returning({
+        objectKey: vaultUploadGrants.objectKey,
+        uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+      });
+    for (const grant of deletedGrants) {
+      vaultObjectKeys.add(grant.objectKey);
+      vaultObjectKeys.add(grant.uploadObjectKey);
+    }
+
+    const deletedTombstones = await tx
+      .delete(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.userId, userId))
+      .returning({
+        objectKey: vaultUploadTombstones.objectKey,
+        uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+      });
+    for (const tombstone of deletedTombstones) {
+      vaultObjectKeys.add(tombstone.objectKey);
+      vaultObjectKeys.add(tombstone.uploadObjectKey);
+    }
+
     await tx.delete(vaultCliAuthRequests).where(eq(vaultCliAuthRequests.userId, userId));
-    await tx.delete(vaultSessions).where(eq(vaultSessions.userId, userId));
+
+    const sessions = await tx
+      .select({ id: vaultSessions.id })
+      .from(vaultSessions)
+      .where(eq(vaultSessions.userId, userId));
+    const sessionIds = sessions.map((session) => session.id);
+    if (sessionIds.length > 0) {
+      const deletedSnapshots = await tx
+        .delete(vaultSnapshots)
+        .where(inArray(vaultSnapshots.sessionId, sessionIds))
+        .returning({ objectKey: vaultSnapshots.objectKey });
+      for (const snapshot of deletedSnapshots) vaultObjectKeys.add(snapshot.objectKey);
+    }
+
+    const deletedSessions = await tx
+      .delete(vaultSessions)
+      .where(eq(vaultSessions.userId, userId))
+      .returning({ latestObjectKey: vaultSessions.latestObjectKey });
+    for (const session of deletedSessions) vaultObjectKeys.add(session.latestObjectKey);
   });
+  return { vaultObjectKeys: [...vaultObjectKeys] };
 }
 
 function personalVmScope(userId: string) {
