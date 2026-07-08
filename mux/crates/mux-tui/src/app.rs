@@ -2548,11 +2548,7 @@ impl App {
             return Ok(RenderAction::None);
         }
         let Some(sent_arrows) = surface.with_terminal(|term| {
-            if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
-                true
-            } else {
-                false
-            }
+            term.active_screen() == Screen::Alternate && !term.mouse_tracking()
         }) else {
             return Ok(RenderAction::None);
         };
