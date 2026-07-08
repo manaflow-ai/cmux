@@ -89,6 +89,9 @@ extension NSWindow {
 #endif
                 return true
             }
+            // Do not fall through to AppKit Undo from generic browser focus:
+            // that is the stale NSUndoManager path this router avoids. Focused
+            // editable AppKit responders and Web Inspector are exempted above.
             return true
         }
         return false
