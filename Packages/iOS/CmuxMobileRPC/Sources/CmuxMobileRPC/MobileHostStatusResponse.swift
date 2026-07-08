@@ -13,6 +13,11 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     public let capabilities: [String]
     /// The host's reported terminal fidelity (for example `render_grid`), if any.
     public let terminalFidelity: String?
+    /// Current attach routes advertised by the Mac. Dev builds may fall back to
+    /// an ephemeral port when the configured port is already bound, so the phone
+    /// uses this status field to refresh persisted reconnect routes after a
+    /// successful handshake.
+    public let routes: [CmxAttachRoute]
     /// The Mac's user-facing name. The pairing QR no longer carries the name,
     /// so this is where a freshly paired phone learns what to call the Mac.
     /// `nil` from older Macs that predate the field.
@@ -36,6 +41,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case capabilities
         case terminalFidelity = "terminal_fidelity"
+        case routes
         case macDisplayName = "mac_display_name"
         case macDeviceID = "mac_device_id"
         case macAppVersion = "mac_app_version"
@@ -47,6 +53,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         capabilities = (try container.decodeIfPresent([String].self, forKey: .capabilities)) ?? []
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
+        routes = (try? container.decodeIfPresent([CmxAttachRoute].self, forKey: .routes)) ?? []
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)

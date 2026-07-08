@@ -3003,7 +3003,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// succeeds (no extra request in the common case) and calls this when it
     /// cannot, so the recovery request runs with the full RPC timeout. Both
     /// feed the same guarded
-    /// ``applyHostReportedIdentity(client:deviceID:displayName:)`` path.
+    /// ``applyHostReportedIdentity(client:deviceID:displayName:routes:)`` path.
     private func scheduleHostIdentityAdoptionIfNeeded(client: MobileCoreRPCClient) {
         guard activeTicket?.macDeviceID.isEmpty == true else { return }
         hostIdentityAdoptionTask?.cancel()
@@ -3034,9 +3034,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await self.applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
-                displayName: payload.macDisplayName
+                displayName: payload.macDisplayName,
+                routes: payload.routes
             )
         }
+    }
+
+    /// Persist routes learned from the successful `mobile.host.status`
+    /// handshake. A tagged dev Mac can move to a new fallback port after another
+    /// build takes the configured port; this write makes the paired-Mac reconnect
+    /// record follow the Mac that answered the current connection.
+    private func applyHostReportedRoutes(
+        _ routes: [CmxAttachRoute],
+        forMacDeviceID macDeviceID: String,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async {
+        guard !routes.isEmpty,
+              let ticket = activeTicket,
+              ticket.macDeviceID == macDeviceID,
+              let updatedRoutes = DeviceRegistryService.selectReconnectRoutes(
+                local: ticket.routes,
+                registry: routes
+              ),
+              let updatedTicket = try? ticket.replacingRoutes(updatedRoutes) else {
+            return
+        }
+        activeTicket = updatedTicket
+        await persistPairedMacFromTicket(updatedTicket, ifStillCurrent: ifStillCurrent)
     }
 
     /// Adopts the identity (`mac_device_id`, `mac_display_name`) reported by
@@ -3053,27 +3077,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func applyHostReportedIdentity(
         client: MobileCoreRPCClient,
         deviceID: String?,
-        displayName: String?
+        displayName: String?,
+        routes: [CmxAttachRoute]
     ) async {
         guard remoteClient === client else { return }
         if let reportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !reportedID.isEmpty,
            let ticket = activeTicket,
            ticket.macDeviceID.isEmpty,
-           let adopted = try? CmxAttachTicket(
-               version: ticket.version,
-               workspaceID: ticket.workspaceID,
-               terminalID: ticket.terminalID,
+           let adopted = try? ticket.replacingIdentity(
                macDeviceID: reportedID,
-               macDisplayName: ticket.macDisplayName,
-               macUserEmail: ticket.macUserEmail,
-               macUserID: ticket.macUserID,
-               macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
-               macAppVersion: ticket.macAppVersion,
-               macAppBuild: ticket.macAppBuild,
-               routes: ticket.routes,
-               expiresAt: ticket.expiresAt,
-               authToken: ticket.authToken
+               routes: routes.isEmpty ? ticket.routes : routes
            ) {
             activeTicket = adopted
             // Move the foreground aggregate key from the anonymous key to the real
@@ -3085,6 +3099,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // empty-id ticket was skipped by the connect-time persist).
             await persistPairedMacFromTicket(
                 adopted,
+                ifStillCurrent: { [weak self] in self?.remoteClient === client }
+            )
+        } else if let reportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !reportedID.isEmpty,
+                  activeTicket?.macDeviceID == reportedID {
+            await applyHostReportedRoutes(
+                routes,
+                forMacDeviceID: reportedID,
                 ifStillCurrent: { [weak self] in self?.remoteClient === client }
             )
         }
@@ -5119,7 +5141,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         connections[resolvedForegroundMacID] = MacConnection(
                             macDeviceID: resolvedForegroundMacID,
                             ticket: ticket,
-                            route: firstRoute,
+                            route: route,
                             client: client,
                             generation: generation
                         )
@@ -6298,7 +6320,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
-                displayName: payload.macDisplayName
+                displayName: payload.macDisplayName,
+                routes: payload.routes
             )
             // A decoded status can still be identity-free: the probe's token
             // attach is best-effort, and the host withholds identity from an
@@ -7661,6 +7684,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalEventListenerID = nil
         terminalSubscriptionStartTask?.cancel()
         terminalSubscriptionStartTask = nil
+        terminalSubscriptionRefreshTask?.cancel()
+        terminalSubscriptionRefreshTask = nil
+        terminalSubscriptionRefreshID = nil
         cancelTerminalEventPongWaiters()
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }

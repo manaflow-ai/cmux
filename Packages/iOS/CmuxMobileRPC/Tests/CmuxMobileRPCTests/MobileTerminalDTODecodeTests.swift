@@ -30,7 +30,32 @@ import Testing
         let response = try MobileHostStatusResponse.decode(Data("{}".utf8))
         #expect(response.capabilities.isEmpty)
         #expect(response.terminalFidelity == nil)
+        #expect(response.routes.isEmpty)
         #expect(response.theme == nil)
+    }
+
+    @Test func hostStatusDecodesAdvertisedRoutes() throws {
+        let payload: [String: Any] = [
+            "routes": [
+                [
+                    "id": "tailscale",
+                    "kind": "tailscale",
+                    "endpoint": [
+                        "type": "host_port",
+                        "host": "100.70.231.80",
+                        "port": 52420,
+                    ],
+                    "priority": 10,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let response = try MobileHostStatusResponse.decode(data)
+        let route = try #require(response.routes.first)
+        #expect(route.id == "tailscale")
+        #expect(route.kind == .tailscale)
+        #expect(route.priority == 10)
+        #expect(route.endpoint == .hostPort(host: "100.70.231.80", port: 52420))
     }
 
     /// A theme nested in the host-status payload, serialized with the Mac

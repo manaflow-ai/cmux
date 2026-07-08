@@ -26,24 +26,51 @@ extension GhosttySurfaceView {
     static var registeredSurfaceViews: [UInt: WeakGhosttySurfaceViewBox] = [:]
     @MainActor
     private static var cachedSnapshotFallbacksByHostSurfaceID: [String: CachedTerminalSnapshotFallback] = [:]
+    private static let maxCachedSnapshotFallbacks = 32
+    private static let maxCachedSnapshotFallbackCharacters = 65_536
+    private static let snapshotFallbackCacheTTL: CFTimeInterval = 30 * 60
 
     @MainActor
     static func cachedSnapshotFallback(for hostSurfaceID: String) -> String? {
-        cachedSnapshotFallbacksByHostSurfaceID[hostSurfaceID]?.text
+        let now = CACurrentMediaTime()
+        pruneSnapshotFallbackCache(now: now)
+        guard let cached = cachedSnapshotFallbacksByHostSurfaceID[hostSurfaceID],
+              now - cached.capturedAt <= snapshotFallbackCacheTTL else {
+            cachedSnapshotFallbacksByHostSurfaceID.removeValue(forKey: hostSurfaceID)
+            return nil
+        }
+        return cached.text
     }
 
     @MainActor
     static func rememberSnapshotFallback(_ text: String, for hostSurfaceID: String?, capturedAt: CFTimeInterval) {
         guard let hostSurfaceID,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pruneSnapshotFallbackCache(now: capturedAt)
         if let existing = cachedSnapshotFallbacksByHostSurfaceID[hostSurfaceID],
            existing.capturedAt > capturedAt {
             return
         }
+        let boundedText = text.count > maxCachedSnapshotFallbackCharacters
+            ? String(text.suffix(maxCachedSnapshotFallbackCharacters))
+            : text
         cachedSnapshotFallbacksByHostSurfaceID[hostSurfaceID] = CachedTerminalSnapshotFallback(
-            text: text,
+            text: boundedText,
             capturedAt: capturedAt
         )
+        pruneSnapshotFallbackCache(now: capturedAt)
+    }
+
+    @MainActor
+    private static func pruneSnapshotFallbackCache(now: CFTimeInterval) {
+        cachedSnapshotFallbacksByHostSurfaceID = cachedSnapshotFallbacksByHostSurfaceID
+            .filter { now - $0.value.capturedAt <= snapshotFallbackCacheTTL }
+        guard cachedSnapshotFallbacksByHostSurfaceID.count > maxCachedSnapshotFallbacks else { return }
+        let survivors = cachedSnapshotFallbacksByHostSurfaceID
+            .sorted { $0.value.capturedAt > $1.value.capturedAt }
+            .prefix(maxCachedSnapshotFallbacks)
+            .map { ($0.key, $0.value) }
+        cachedSnapshotFallbacksByHostSurfaceID = Dictionary(uniqueKeysWithValues: survivors)
     }
 
     @MainActor
