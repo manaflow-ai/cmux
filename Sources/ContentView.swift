@@ -31,7 +31,7 @@ import WebKit
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
-
+private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(5)) } ?? "nil" }
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
@@ -10376,6 +10376,7 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
 #endif
+        let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
         let tabs = tabManager.tabs
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
@@ -10446,7 +10447,7 @@ struct VerticalTabsSidebar: View {
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
-
+        let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
             if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
                 workspaceScrollArea(renderContext: renderContext)
@@ -10528,7 +10529,7 @@ struct VerticalTabsSidebar: View {
                 reason: "drag_state_change"
             )
 #if DEBUG
-            cmuxDebugLog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
+            cmuxDebugLog("sidebar.dragState.sidebar tab=\(sidebarShortTabId(newDraggedTabId))")
 #endif
             if newDraggedTabId != nil {
                 // The failsafe monitor probes the real mouse-button state and
@@ -10551,7 +10552,7 @@ struct VerticalTabsSidebar: View {
             guard dragState.draggedTabId != nil || dragState.dropIndicator != nil else { return }
             let reason = SidebarDragLifecycleNotification().reason(from: notification)
 #if DEBUG
-            cmuxDebugLog("sidebar.dragClear tab=\(debugShortSidebarTabId(dragState.draggedTabId)) reason=\(reason)")
+            cmuxDebugLog("sidebar.dragClear tab=\(sidebarShortTabId(dragState.draggedTabId)) reason=\(reason)")
 #endif
             dragState.clearDrag()
         }
@@ -11786,6 +11787,7 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         minHeight: CGFloat
     ) -> some View {
+        let signpost = SidebarProfilingSignposts.begin("sidebar-scroll-content", "workspaces=\(renderContext.workspaceCount) renderItems=\(renderContext.workspaceRenderItems.count) minHeight=\(minHeight)"); defer { SidebarProfilingSignposts.end(signpost) }
         let shouldCollectWorkspaceDropTargets = SidebarDropPlanner().shouldCollectWorkspaceDropTargets(
             draggedTabId: dragState.draggedTabId,
             isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive ||
@@ -11861,12 +11863,13 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
+        let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
         let renderItems = renderContext.workspaceRenderItems
         // LazyVStack is safe here because `dragState` is @Observable:
         // drag mutations at 60fps invalidate only the rows/overlays that
         // read them, never this sidebar body. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        LazyVStack(spacing: tabRowSpacing) {
+        let rows = LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
                 case .groupHeader(let group, let memberWorkspaceIds):
@@ -11891,8 +11894,9 @@ struct VerticalTabsSidebar: View {
         // total height (GeometryReader, or a custom Layout's sizeThatFits) fed a
         // non-converging relayout loop (#2586 / #5764 / #5845). Fill is handled
         // by `.frame(minHeight:)` in workspaceScrollContent.
+        let _ = SidebarProfilingSignposts.end(signpost)
+        rows
     }
-
     /// Conditionally installs the row-frame `overlayPreferenceValue` reader (the part
     /// that defeats `LazyVStack` virtualization) only while a drag is collecting drop
     /// targets. Kept separate from the always-mounted drop-capture overlay so the gate
@@ -12259,6 +12263,7 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
+        let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-row", "index=\(renderContext.tabIndexById[tab.id] ?? -1) workspace=\(sidebarShortTabId(tab.id)) selected=\(tabManager.selectedTabId == tab.id)")
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
         let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
@@ -12395,6 +12400,7 @@ struct VerticalTabsSidebar: View {
         .id(tab.id)
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
 
+        let _ = SidebarProfilingSignposts.end(signpost)
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
             .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
@@ -12402,10 +12408,6 @@ struct VerticalTabsSidebar: View {
             .contentShape(Rectangle())
     }
 
-    private func debugShortSidebarTabId(_ id: UUID?) -> String {
-        guard let id else { return "nil" }
-        return String(id.uuidString.prefix(5))
-    }
 }
 
 struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
@@ -12582,7 +12584,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
         )
 #if DEBUG
         cmuxDebugLog(
-            "sidebar.dropOutside.validate tab=\(debugShortSidebarTabId(draggedTabId)) " +
+            "sidebar.dropOutside.validate tab=\(sidebarShortTabId(draggedTabId)) " +
             "hasType=\(hasSidebarPayload) allowed=\(shouldReset)"
         )
 #endif
@@ -12591,20 +12593,20 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 
     func dropEntered(info: DropInfo) {
 #if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.entered tab=\(debugShortSidebarTabId(draggedTabId))")
+        cmuxDebugLog("sidebar.dropOutside.entered tab=\(sidebarShortTabId(draggedTabId))")
 #endif
     }
 
     func dropExited(info: DropInfo) {
 #if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.exited tab=\(debugShortSidebarTabId(draggedTabId))")
+        cmuxDebugLog("sidebar.dropOutside.exited tab=\(sidebarShortTabId(draggedTabId))")
 #endif
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         guard validateDrop(info: info) else { return nil }
 #if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.updated tab=\(debugShortSidebarTabId(draggedTabId)) op=move")
+        cmuxDebugLog("sidebar.dropOutside.updated tab=\(sidebarShortTabId(draggedTabId)) op=move")
 #endif
         // Explicit move proposal avoids AppKit showing a copy (+) cursor.
         return DropProposal(operation: .move)
@@ -12613,16 +12615,12 @@ private struct SidebarExternalDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         guard validateDrop(info: info) else { return false }
 #if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.perform tab=\(debugShortSidebarTabId(draggedTabId))")
+        cmuxDebugLog("sidebar.dropOutside.perform tab=\(sidebarShortTabId(draggedTabId))")
 #endif
         SidebarDragLifecycleNotification().postClearRequest(reason: "outside_sidebar_drop")
         return true
     }
 
-    private func debugShortSidebarTabId(_ id: UUID?) -> String {
-        guard let id else { return "nil" }
-        return String(id.uuidString.prefix(5))
-    }
 }
 
 private struct SidebarFooter: View {
@@ -13629,6 +13627,7 @@ struct TabItemView: View, Equatable {
 #if DEBUG
         let _ = { sidebarLazyContractProbe.workspaceRowBody?() }()
 #endif
+        let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(tab.id)) active=\(isActive) unread=\(unreadCount)")
         let workspaceSnapshot = self.workspaceSnapshot
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
@@ -13660,8 +13659,7 @@ struct TabItemView: View, Equatable {
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
             scaledCloseButtonHitSize
         )
-
-        VStack(alignment: .leading, spacing: 4) {
+        let rowView = VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 if unreadCount > 0 {
                     ZStack {
@@ -14184,8 +14182,9 @@ struct TabItemView: View, Equatable {
                     flushDeferredWorkspaceObservationInvalidation()
                 }
         }
+        let _ = SidebarProfilingSignposts.end(signpost)
+        rowView
     }
-
     private func beginInlineRename() {
         updateSelection()
         renameDraft = workspaceSnapshot.title
@@ -14773,6 +14772,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func makeWorkspaceSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-snapshot", "workspace=\(sidebarShortTabId(tab.id)) details=\(settings.visibleAuxiliaryDetails)"); defer { SidebarProfilingSignposts.end(signpost) }
         let detailVisibility = visibleAuxiliaryDetails
         let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
             ? tab.sidebarOrderedPanelIds()
