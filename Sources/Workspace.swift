@@ -3019,7 +3019,6 @@ final class Workspace: Identifiable, ObservableObject {
             if let tabId = bonsplitController.createTab(
                 title: title,
                 icon: "terminal.fill",
-                iconAsset: terminalTabAgentIconAsset(forPanelId: terminalPanel.id),
                 kind: SurfaceKind.terminal.rawValue,
                 isDirty: false,
                 isPinned: false
@@ -4805,13 +4804,6 @@ final class Workspace: Identifiable, ObservableObject {
             "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
         )
 #endif
-    }
-
-    private func clearRestoredAgentSnapshot(panelId: UUID) {
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     private func clearRestoredAgentResumeBinding(
@@ -7437,7 +7429,6 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            iconAsset: terminalTabAgentIconAsset(forPanelId: newPanel.id),
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
@@ -7719,7 +7710,6 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            iconAsset: terminalTabAgentIconAsset(forPanelId: newPanel.id),
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false,
@@ -7829,7 +7819,6 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: title,
             icon: "rectangle.connected.to.line.below",
-            iconAsset: terminalTabAgentIconAsset(forPanelId: newPanel.id),
             kind: SurfaceKind.terminal.rawValue,
             inPane: paneId
         ) else {
@@ -9589,10 +9578,6 @@ final class Workspace: Identifiable, ObservableObject {
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
             iconImageData: detached.iconImageData,
-            iconAsset: TerminalTabAgentIconResolver().assetName(
-                agentPIDKeys: detached.agentRuntime?.agentPIDKeys ?? [],
-                restoredAgentKind: detached.restorableAgent?.kind.rawValue
-            ),
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
@@ -10328,7 +10313,6 @@ final class Workspace: Identifiable, ObservableObject {
         if let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            iconAsset: terminalTabAgentIconAsset(forPanelId: newPanel.id),
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
@@ -10882,7 +10866,6 @@ final class Workspace: Identifiable, ObservableObject {
     func setRestoredAgentSnapshotForTesting(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID) {
         restoredAgentSnapshotsByPanelId[panelId] = snapshot
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func restoredAgentSnapshotForTesting(panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -11432,7 +11415,6 @@ final class Workspace: Identifiable, ObservableObject {
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            iconAsset: terminalTabAgentIconAsset(forPanelId: newPanel.id),
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false
@@ -12893,7 +12875,6 @@ extension Workspace: BonsplitDelegate {
                         title: replacementPanel.displayTitle,
                         icon: .some(replacementPanel.displayIcon),
                         iconImageData: .some(nil),
-                        iconAsset: .some(terminalTabAgentIconAsset(forPanelId: replacementPanel.id)),
                         kind: .some(SurfaceKind.terminal.rawValue),
                         hasCustomTitle: false,
                         isDirty: replacementPanel.isDirty,
@@ -12960,7 +12941,6 @@ extension Workspace: BonsplitDelegate {
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            iconAsset: terminalTabAgentIconAsset(forPanelId: newPanel.id),
             kind: SurfaceKind.terminal.rawValue,
             isDirty: newPanel.isDirty,
             isPinned: false,

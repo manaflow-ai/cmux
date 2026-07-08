@@ -140,12 +140,7 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
-        if let previousPanelId, previousPanelId != panelId {
-            syncTerminalTabAgentIconAsset(forPanelId: previousPanelId)
-        }
-        if let panelId {
-            syncTerminalTabAgentIconAsset(forPanelId: panelId)
-        }
+        syncTerminalTabAgentIconAssets(forPanelIds: previousPanelId, panelId)
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -349,10 +344,16 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
-        if let panelId = ownedPanelId ?? panelId {
-            syncTerminalTabAgentIconAsset(forPanelId: panelId)
-        }
+        syncTerminalTabAgentIconAssets(forPanelIds: ownedPanelId ?? panelId)
         return didChange
+    }
+
+    /// Clears a panel's restored agent snapshot and resume metadata, then refreshes the tab's agent brand mark.
+    func clearRestoredAgentSnapshot(panelId: UUID) {
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
