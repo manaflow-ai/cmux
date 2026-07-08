@@ -1,8 +1,6 @@
 import { redirect } from "next/navigation";
 
 import enMessages from "../../messages/en.json";
-import { getStackServerApp, isStackConfigured } from "../lib/stack";
-import { resolveProPlanStatus } from "../../services/billing/pro";
 import {
   appPricingAppearance,
   appPricingFirstParam,
@@ -36,12 +34,13 @@ export default async function AppProWelcomePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  // The cmux app only opens this page for a Pro user (the native presenter is
+  // gated on the billing plan) and it carries no sensitive data. Web auth is
+  // not enforced here yet because the in-app webview does not share the desktop
+  // Stack session; once app-browser SSO lands, a getUser + Pro check can gate
+  // this like the dashboard. The cmux_app flag keeps it out of the localized
+  // route tree.
   if (appPricingFirstParam(params.cmux_app) !== "1") redirect("/dashboard/billing");
-
-  // The welcome checklist is a post-purchase page, so it only renders for a
-  // signed-in, non-anonymous Pro user. Everyone else (signed out, anonymous,
-  // or Free) is sent to the billing page rather than shown the Pro checklist.
-  if (!(await isSignedInProUser())) redirect("/dashboard/billing");
 
   const appearance = appPricingAppearance(params);
   const pageBackground = appPricingPageBackground(params, appearance);
@@ -102,12 +101,4 @@ export default async function AppProWelcomePage({
       </main>
     </>
   );
-}
-
-async function isSignedInProUser(): Promise<boolean> {
-  if (!isStackConfigured()) return false;
-  const user = await getStackServerApp().getUser({ or: "return-null" });
-  if (!user || user.isAnonymous) return false;
-  const status = await resolveProPlanStatus(user);
-  return status.isPro;
 }
