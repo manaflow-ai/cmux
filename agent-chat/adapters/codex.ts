@@ -72,14 +72,27 @@ export const codexAdapter: Adapter = {
       const st = await ensureCodexState(sess);
       let threadId = sess.internal.threadId as string | undefined;
       if (!threadId) {
-        const res = await srv.request("thread/start", { cwd: sess.cwd });
-        threadId = res.thread?.id;
-        if (!threadId) throw new Error("codex thread/start returned no thread id");
-        sess.internal.threadId = threadId;
-        srv.sessionsByThread.set(threadId, sess);
-        sess.emit({ kind: "meta", providerSessionId: threadId });
-        emitOptions(sess);
-        await refreshCommands(sess);
+        // Single-flight: concurrent first sends must share one thread/start or
+        // each spawns its own thread and the UI tracks only one of them.
+        let starting = sess.internal.threadStarting as Promise<string> | undefined;
+        if (!starting) {
+          starting = (async () => {
+            const res = await srv.request("thread/start", { cwd: sess.cwd });
+            const id: string | undefined = res.thread?.id;
+            if (!id) throw new Error("codex thread/start returned no thread id");
+            sess.internal.threadId = id;
+            srv.sessionsByThread.set(id, sess);
+            sess.emit({ kind: "meta", providerSessionId: id });
+            emitOptions(sess);
+            await refreshCommands(sess);
+            return id;
+          })();
+          sess.internal.threadStarting = starting;
+          starting.catch(() => {}).finally(() => {
+            if (sess.internal.threadStarting === starting) sess.internal.threadStarting = undefined;
+          });
+        }
+        threadId = await starting;
       }
       if (sess.status === "running") {
         const turnId = st.currentTurnId ?? await waitForTurnId(st);
@@ -217,24 +230,62 @@ async function startServer(): Promise<AppServer> {
   });
   readLines(proc.stderr, () => {});
 
-  await request("initialize", {
-    clientInfo: { name: "cmux", title: "cmux", version: "0.1" },
-    capabilities: { experimentalApi: true, requestAttestation: false },
-  });
+  // A hung initialize would otherwise block every codex session forever;
+  // killing the process closes stdout, which rejects all pending requests.
+  let initTimedOut = false;
+  const initTimer = setTimeout(() => {
+    initTimedOut = true;
+    proc.kill();
+  }, 30_000);
+  try {
+    await request("initialize", {
+      clientInfo: { name: "cmux", title: "cmux", version: "0.1" },
+      capabilities: { experimentalApi: true, requestAttestation: false },
+    });
+  } catch (err) {
+    throw initTimedOut ? new Error("codex app-server did not initialize within 30s") : err;
+  } finally {
+    clearTimeout(initTimer);
+  }
   shared = srv;
   return srv;
 }
 
+// The app server speaks two protocol generations: v1 approvals
+// (execCommandApproval/applyPatchApproval, keyed by conversationId, answered
+// with ReviewDecision "approved"/"denied") and v2 item approvals
+// (item/*/requestApproval, keyed by threadId, answered with
+// "accept"/"decline"). Shapes verified against
+// `codex app-server generate-json-schema`. Anything else (permission
+// profiles, tool user input) is declined with a JSON-RPC error so the server
+// falls back instead of hanging on a malformed result.
+function approvalResponse(method: string, approve: boolean): { result: unknown } | { error: unknown } {
+  switch (method) {
+    case "execCommandApproval":
+    case "applyPatchApproval":
+      return { result: { decision: approve ? "approved" : "denied" } };
+    case "item/commandExecution/requestApproval":
+    case "item/fileChange/requestApproval":
+      return { result: { decision: approve ? "accept" : "decline" } };
+    default:
+      return { error: { code: -32601, message: `${method} is not supported by cmux-agent-ui` } };
+  }
+}
+
 function handleServerMessage(srv: AppServer, msg: any) {
   const p = msg.params ?? {};
-  const sess = p.threadId ? srv.sessionsByThread.get(p.threadId) : undefined;
+  const threadKey = p.threadId ?? p.conversationId;
+  const sess = threadKey ? srv.sessionsByThread.get(threadKey) : undefined;
 
   // Server -> client request (approvals such as command execution / patches).
   if (msg.id != null && msg.method) {
     const approve = sess ? codexState(sess).approvals === "never" : false;
-    srv.write({ jsonrpc: "2.0", id: msg.id, result: { decision: approve ? "approved" : "denied" } });
-    if (sess && !approve) {
+    const response = approvalResponse(msg.method, approve);
+    srv.write({ jsonrpc: "2.0", id: msg.id, ...response });
+    if (sess && "result" in response && !approve) {
       sess.emit({ kind: "status", text: `denied: ${truncate(String(p.command ?? msg.method), 120)} (auto-approve is off)` });
+    } else if (sess && "error" in response) {
+      sess.emit({ kind: "status", text: `declined unsupported request: ${truncate(String(msg.method), 120)}` });
     }
     return;
   }
