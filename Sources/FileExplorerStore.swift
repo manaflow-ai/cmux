@@ -861,8 +861,8 @@ final class FileExplorerStore {
 
     private func setWorkspaceRootIdentity(_ identity: UUID?) {
         guard workspaceRootIdentity != identity else { return }
+        // didSet on workspaceRootIdentity already signals the change.
         workspaceRootIdentity = identity
-        signalChange()
     }
 
     func setRootPath(_ path: String) {
