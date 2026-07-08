@@ -21,7 +21,7 @@ extension VMOnboardDeriver {
             var derived: [VMEnvSpec.Step] = []
             for step in job.steps {
                 if let uses = step.uses {
-                    if let translated = translateWorkflowAction(uses: uses, with: step.with) {
+                    if let translated = translateWorkflowAction(uses: uses, with: step.with, repoName: repoName) {
                         derived.append(translated)
                     }
                     continue
@@ -74,13 +74,17 @@ extension VMOnboardDeriver {
         while index < lines.count, !lines[index].hasPrefix("jobs:") { index += 1 }
         guard index < lines.count else { return [] }
         index += 1
+        // Job keys sit one level under `jobs:`; the first non-comment line
+        // fixes that level (2- and 4-space indented workflows both occur).
+        var jobIndent: Int?
         while index < lines.count {
             let line = lines[index]
             let indent = leadingSpaces(line)
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty || trimmed.hasPrefix("#") { index += 1; continue }
             if indent == 0 { break } // next top-level key
-            if indent == 2, trimmed.hasSuffix(":"), !trimmed.hasPrefix("-") {
+            if jobIndent == nil { jobIndent = indent }
+            if indent == jobIndent, trimmed.hasSuffix(":"), !trimmed.hasPrefix("-") {
                 var job = WorkflowJob(name: String(trimmed.dropLast()), steps: [], runsOn: nil)
                 index += 1
                 // Scan the job body
@@ -89,7 +93,7 @@ extension VMOnboardDeriver {
                     let bodyIndent = leadingSpaces(bodyLine)
                     let bodyTrimmed = bodyLine.trimmingCharacters(in: .whitespaces)
                     if bodyTrimmed.isEmpty || bodyTrimmed.hasPrefix("#") { index += 1; continue }
-                    if bodyIndent <= 2 { break }
+                    if bodyIndent <= indent { break }
                     if bodyTrimmed.hasPrefix("runs-on:") {
                         job.runsOn = String(bodyTrimmed.dropFirst("runs-on:".count)).trimmingCharacters(in: .whitespaces)
                         index += 1
@@ -217,7 +221,7 @@ extension VMOnboardDeriver {
     }
 
     /// Map well-known setup actions to toolchain installs; drop CI plumbing.
-    private static func translateWorkflowAction(uses: String, with: [String: String]) -> VMEnvSpec.Step? {
+    private static func translateWorkflowAction(uses: String, with: [String: String], repoName: String) -> VMEnvSpec.Step? {
         let action = uses.lowercased()
         func version(_ keys: String...) -> String {
             for key in keys {
@@ -247,7 +251,9 @@ extension VMOnboardDeriver {
             return VMEnvSpec.Step(name: "zig", run: "mise use -g zig\(version("version", "zig-version"))", timeoutMinutes: nil)
         }
         if action.hasPrefix("jdx/mise-action") {
-            return VMEnvSpec.Step(name: "mise install", run: "mise install", timeoutMinutes: nil)
+            // mise install reads the repo's mise.toml, so it must run inside
+            // the clone (unlike the global `mise use -g` toolchain installs).
+            return VMEnvSpec.Step(name: "mise install", run: "cd \(repoName)\nmise install", timeoutMinutes: nil)
         }
         // checkout, caches, artifact upload/download, codecov etc.: CI plumbing.
         return nil

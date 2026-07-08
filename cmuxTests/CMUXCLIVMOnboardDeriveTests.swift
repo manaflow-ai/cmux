@@ -282,6 +282,56 @@ struct CMUXCLIVMOnboardDeriveTests {
     }
 
     @Test
+    func workflowDerivationHandlesFourSpaceIndentAndMiseAction() throws {
+        let workflow = """
+        name: CI
+        jobs:
+            build:
+                runs-on: ubuntu-latest
+                steps:
+                    - uses: jdx/mise-action@v2
+                    - name: test
+                      run: cargo test
+        """
+        let result = try #require(VMOnboardDeriver.deriveFromWorkflow(workflow, repoName: "app"))
+        #expect(result.jobName == "build")
+        // mise install must run inside the clone so it reads the repo's mise.toml.
+        #expect(result.steps.map(\.run).contains("cd app\nmise install"))
+        #expect(result.steps.map(\.run).contains("cd app\ncargo test"))
+    }
+
+    @Test
+    func miseTomlStillContributesWhenWorkflowInstallsNoToolchains() throws {
+        let workflow = """
+        jobs:
+          test:
+            runs-on: ubuntu-latest
+            steps:
+              - run: make test
+        """
+        let root = try makeRepo(files: [
+            ".github/workflows/test.yml": workflow,
+            "mise.toml": "[tools]\nnode = \"22\"\n",
+        ])
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let derivation = try #require(VMOnboardDeriver.derive(
+            repoRoot: root,
+            cloneURL: "https://github.com/o/app",
+            repoName: "app"
+        ))
+        // Workflow only ran plain commands (preinstalled runner), so the
+        // declared toolchains still get their layer.
+        #expect(derivation.sources.map(\.kind).contains(.githubWorkflow))
+        #expect(derivation.sources.map(\.kind).contains(.mise))
+        // The toolchain layer must come after the clone but before the
+        // workflow's project commands.
+        let miseIndex = try #require(derivation.steps.firstIndex { $0.run == "mise use -g node@22" })
+        let testIndex = try #require(derivation.steps.firstIndex { $0.run == "cd app\nmake test" })
+        #expect(miseIndex == 1)
+        #expect(miseIndex < testIndex)
+    }
+
+    @Test
     func devcontainerFallsBackToRootFileWhenNestedYieldsNothing() throws {
         let root = try makeRepo(files: [
             ".devcontainer/devcontainer.json": "{ \"image\": \"ubuntu\" }",

@@ -139,6 +139,7 @@ enum VMOnboardDeriver {
         }
 
         // 2. GitHub workflows: pick the best build/test job.
+        var workflowInstalledToolchains = false
         if let workflowDir = listDir(repoRoot, ".github/workflows") {
             var best: (score: Int, path: String, result: WorkflowDerivation)?
             for file in workflowDir where file.hasSuffix(".yml") || file.hasSuffix(".yaml") {
@@ -157,24 +158,30 @@ enum VMOnboardDeriver {
                     summary: "job `\(best.result.jobName)` (\(best.result.steps.count) steps)"
                 ))
                 steps.append(contentsOf: best.result.steps)
+                workflowInstalledToolchains = best.result.steps.contains {
+                    $0.run.contains("mise use -g") || $0.run.contains("mise install")
+                }
             }
         }
 
-        // 3. mise / .tool-versions (skip if a workflow already installed toolchains).
-        let workflowDerived = sources.contains { $0.kind == .githubWorkflow }
-        if !workflowDerived {
+        // 3. mise / .tool-versions — skipped only when the workflow's steps
+        // actually installed toolchains (a workflow of plain run steps, e.g.
+        // CI on a preinstalled runner, still needs the declared toolchains).
+        if !workflowInstalledToolchains {
             let miseFile = [("mise.toml", read("mise.toml")), (".mise.toml", read(".mise.toml"))]
                 .compactMap { path, text in text.map { (path: path, text: $0) } }
                 .first
             if let miseFile {
                 if let step = deriveFromMise(miseFile.text) {
                     sources.append(Source(path: miseFile.path, kind: .mise, summary: "declared toolchains"))
-                    steps.append(step)
+                    // Toolchains must exist before any project step runs, so
+                    // this layer goes right after the clone.
+                    steps.insert(step, at: 1)
                 }
             } else if let text = read(".tool-versions") {
                 if let step = deriveFromToolVersions(text) {
                     sources.append(Source(path: ".tool-versions", kind: .mise, summary: "declared toolchains"))
-                    steps.append(step)
+                    steps.insert(step, at: 1)
                 }
             }
         }
