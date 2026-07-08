@@ -24,7 +24,7 @@
 4759	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4132	Sources/BrowserWindowPortal.swift
+4134	Sources/BrowserWindowPortal.swift
 4007	cmuxTests/TabManagerUnitTests.swift
 3964	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3953	cmuxTests/WindowAndDragTests.swift
@@ -202,7 +202,7 @@
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
-580	Sources/Update/TitlebarCloudVMButton.swift
+585	Sources/Update/TitlebarCloudVMButton.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/WorkspaceCoordinatorTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift

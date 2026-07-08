@@ -84,10 +84,16 @@ extension WKWebView {
     func browserPortalPrepareForHiddenHostAdoption() {
         browserPortalNotifyHidden(reason: "prewarmAdoption")
     }
+
+    /// Internal (not fileprivate) so cmuxTests can assert that a claimed
+    /// prewarmed webview was marked for rendering-state reattach.
+    var browserPortalRequiresRenderingStateReattach: Bool {
+        browserPortalNeedsRenderingStateReattach
+    }
 }
 
 private extension WKWebView {
-    private var browserPortalNeedsRenderingStateReattach: Bool {
+    fileprivate var browserPortalNeedsRenderingStateReattach: Bool {
         get {
             (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsRenderingStateReattachKey) as? NSNumber)?
                 .boolValue ?? false
@@ -100,10 +106,6 @@ private extension WKWebView {
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }
-    }
-
-    var browserPortalRequiresRenderingStateReattach: Bool {
-        browserPortalNeedsRenderingStateReattach
     }
 
     func browserPortalNotifyHidden(reason: String) {
