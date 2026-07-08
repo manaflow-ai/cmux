@@ -149,4 +149,29 @@ import Testing
         // Nothing after the header but the trailing newline split.
         #expect(lines.filter { !$0.isEmpty }.count == 1)
     }
+
+    @Test func exportRowsIncludeRenderFreezeDiagnosticCodes() async {
+        let log = DiagnosticLog(capacity: 32)
+        let events = DiagnosticEventCode.allCases
+            .filter { (25...44).contains($0.rawValue) }
+            .enumerated()
+            .map { index, code in
+                DiagnosticEvent(
+                    code: code,
+                    tNanos: UInt64(index + 1),
+                    surface: 9,
+                    ms: 123,
+                    a: 1,
+                    b: 2
+                )
+            }
+        for (index, event) in events.enumerated() {
+            await recordAndDrain(log, event, processedAfter: index + 1)
+        }
+
+        let text = String(decoding: await log.export(), as: UTF8.self)
+        for code in 25...44 {
+            #expect(text.contains(",\(code),9,123,1,2,"))
+        }
+    }
 }
