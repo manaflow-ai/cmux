@@ -17230,6 +17230,7 @@ private extension NSWindow {
             }
             return false
         }
+        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -17268,7 +17269,6 @@ private extension NSWindow {
 #endif
             return false
         }
-
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
