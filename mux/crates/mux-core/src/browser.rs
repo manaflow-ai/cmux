@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use mux_cdp::{
-    discover_browser_ws_url, resolve_browser_ws_url, CdpClient, CdpEvent, CdpKeyEvent, Chrome,
-    ChromeLaunchOptions, TargetCreated,
+    CdpClient, CdpEvent, CdpKeyEvent, Chrome, ChromeLaunchOptions, TargetCreated,
+    discover_browser_ws_url, resolve_browser_ws_url,
 };
 
 use crate::platform;
@@ -332,11 +332,7 @@ fn capture_scale_for(pane_px_w: u32, pane_px_h: u32, opts: BrowserCaptureOptions
     }
     let area = f64::from(pane_px_w.max(1)) * f64::from(pane_px_h.max(1));
     let budget = opts.max_capture_megapixels.max(f64::MIN_POSITIVE) * 1_000_000.0;
-    if area <= budget {
-        1.0
-    } else {
-        (budget / area).sqrt().clamp(f64::MIN_POSITIVE, 1.0)
-    }
+    if area <= budget { 1.0 } else { (budget / area).sqrt().clamp(f64::MIN_POSITIVE, 1.0) }
 }
 
 fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
@@ -382,7 +378,7 @@ fn runtime_endpoint(
             &opts.browser_session_name,
         )?)
     };
-    let chrome = Chrome::launch_with(ChromeLaunchOptions {
+    let chrome = Chrome::launch_with(&ChromeLaunchOptions {
         binary: chrome_binary,
         user_data_dir,
         ephemeral: opts.browser_ephemeral,
@@ -440,11 +436,7 @@ fn sanitize_session_name(name: &str) -> String {
         }
     }
     let trimmed = out.trim_matches('-');
-    if trimmed.is_empty() {
-        "default".to_string()
-    } else {
-        trimmed.to_string()
-    }
+    if trimmed.is_empty() { "default".to_string() } else { trimmed.to_string() }
 }
 
 fn start_router(runtime: Arc<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
@@ -1141,8 +1133,8 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
-        BrowserCaptureOptions, BrowserFrame, BrowserSource, BrowserStatus,
+        BrowserCaptureOptions, BrowserFrame, BrowserSource, BrowserStatus, capture_scale_for,
+        new_surface, normalize_url, runtime_endpoint, scaled_pixels,
     };
     use crate::SurfaceOptions;
     use std::io::{Read, Write};

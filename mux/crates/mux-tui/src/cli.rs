@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use mux_core::platform::transport;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const REQUEST_ID: u64 = 1;
 

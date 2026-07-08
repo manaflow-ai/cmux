@@ -8,12 +8,12 @@
 
 use ghostty_vt::{Cell as VtCell, ColorSpec, RenderState, Rgb};
 use mux_core::{BrowserStatus, Rect, SurfaceKind};
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
+use ratatui::style::{Color, Modifier, Style};
 
 use super::{thumb_geometry, truncate};
 use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
-use crate::config::{tab_label, Theme};
+use crate::config::{Theme, tab_label};
 use crate::session::TabNotificationView;
 
 /// Border style for a pane box: active gets the accent color, idle

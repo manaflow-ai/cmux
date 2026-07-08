@@ -16,8 +16,8 @@ mod session;
 mod ui;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use mux_core::{Mux, SurfaceOptions};
 use session::{RemoteSession, Session};

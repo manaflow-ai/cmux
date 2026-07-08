@@ -6,19 +6,19 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 use mux_core::{
-    platform::transport, BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb,
-    SurfaceId, SurfaceKind,
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb, SurfaceId,
+    SurfaceKind, platform::transport,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::tree::{parse_tree, TreeView};
+use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
 #[derive(Clone)]
@@ -626,8 +626,8 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
 
     use ghostty_vt::{Callbacks, Terminal};
     use serde_json::json;

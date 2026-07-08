@@ -25,17 +25,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use base64::Engine;
-use ghostty_vt::{key_input_from_chord, KeyEncoder};
+use ghostty_vt::{KeyEncoder, key_input_from_chord};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
 use crate::{
-    assign_short_ids, AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction,
-    LayoutLeafSpec, LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId,
-    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode,
+    AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
+    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SplitDir, SurfaceId,
+    SurfaceKind, SurfaceNotification, WorkspaceId, ZoomMode, assign_short_ids,
 };
 
 pub const PROTOCOL_VERSION: u32 = 6;
@@ -436,12 +436,14 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let listener = transport::listen(&path)?;
     platform::restrict_file(&path)?;
 
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || loop {
-        let Ok(stream) = listener.accept() else { continue };
-        let mux = mux.clone();
-        let _ = std::thread::Builder::new()
-            .name("mux-conn".into())
-            .spawn(move || handle_connection(mux, stream));
+    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+        loop {
+            let Ok(stream) = listener.accept() else { continue };
+            let mux = mux.clone();
+            let _ = std::thread::Builder::new()
+                .name("mux-conn".into())
+                .spawn(move || handle_connection(mux, stream));
+        }
     })?;
     Ok(path)
 }

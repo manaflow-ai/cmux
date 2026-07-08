@@ -13,9 +13,9 @@ mod scrollbar;
 mod sidebar;
 
 use mux_core::Rect;
+use ratatui::Frame;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::Frame;
 
 use crate::app::{App, Hit};
 

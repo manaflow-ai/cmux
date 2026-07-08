@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use mux_core::{
-    assign_short_ids, BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId,
-    SurfaceKind, SurfaceNotification, WorkspaceId,
+    BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind,
+    SurfaceNotification, WorkspaceId, assign_short_ids,
 };
 use serde_json::Value;
 

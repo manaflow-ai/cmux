@@ -7,8 +7,8 @@
 //! after the sidebar). Rebuilds the click hit map as it draws.
 
 use mux_core::Rect;
-use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
+use ratatui::style::{Color, Modifier, Style};
 
 use super::truncate;
 use crate::app::{App, Hit};

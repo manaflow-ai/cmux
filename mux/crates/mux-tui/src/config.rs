@@ -61,8 +61,8 @@
 use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use mux_core::platform;
 use mux_core::SurfaceOptions;
+use mux_core::platform;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;

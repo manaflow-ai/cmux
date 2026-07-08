@@ -4,7 +4,7 @@ use std::ptr;
 use ghostty_vt_sys as sys;
 
 use crate::terminal::{Rgb, Terminal};
-use crate::{check, Result};
+use crate::{Result, check};
 
 /// Global dirty state after a [`RenderState::update`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

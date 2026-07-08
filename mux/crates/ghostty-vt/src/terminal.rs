@@ -3,7 +3,7 @@ use std::ptr;
 
 use ghostty_vt_sys as sys;
 
-use crate::{check, Result};
+use crate::{Result, check};
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
