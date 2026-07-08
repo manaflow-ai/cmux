@@ -50,7 +50,7 @@ cleanup_display_churn() {
   DRC_DISPLAY_LOCK_DIR=""
   DRC_DISPLAY_LOCK_TOKEN=""
   pkill -x "cmux DEV" 2>/dev/null || true
-  rm -f "$DRC_HELPER_PATH" "$DRC_DIAG_PATH" "$DRC_DISPLAY_READY" "$DRC_DISPLAY_ID_PATH" "$DRC_DISPLAY_START" "$DRC_DISPLAY_DONE" "$DRC_HELPER_LOG" "$DRC_XCODEBUILD_LOG"
+  rm -f "$DRC_DIAG_PATH" "$DRC_DISPLAY_READY" "$DRC_DISPLAY_ID_PATH" "$DRC_DISPLAY_START" "$DRC_DISPLAY_DONE" "$DRC_HELPER_LOG" "$DRC_XCODEBUILD_LOG"
   rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
 }
 
@@ -72,6 +72,7 @@ cleanup_persistent_display() {
 cleanup_all() {
   cleanup_display_churn
   cleanup_persistent_display
+  rm -f "$DRC_HELPER_PATH"
 }
 trap cleanup_all EXIT
 
