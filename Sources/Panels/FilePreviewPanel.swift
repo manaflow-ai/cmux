@@ -994,11 +994,17 @@ enum FilePreviewTextSaver {
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
     private var originalTextContent = ""
+    @ObservationIgnored
     private var textEncoding: String.Encoding = .utf8
+    @ObservationIgnored
     private var previewModeGeneration = 0
+    @ObservationIgnored
     private var textLoadGeneration = 0
+    @ObservationIgnored
     private var saveGeneration = 0
+    @ObservationIgnored
     private var activeSaveGeneration: Int?
+    @ObservationIgnored
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result

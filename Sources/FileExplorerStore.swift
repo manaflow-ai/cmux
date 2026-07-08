@@ -540,50 +540,72 @@ enum FileExplorerSelectionRestoration {
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
 @Observable final class FileExplorerStore {
+    @ObservationIgnored
     var rootPath: String = "" { didSet { signalChange() } }
+    @ObservationIgnored
     var rootNodes: [FileExplorerNode] = [] { didSet { signalChange() } }
+    @ObservationIgnored
     private(set) var isRootLoading: Bool = false { didSet { signalChange() } }
+    @ObservationIgnored
     private(set) var gitStatusByPath: [String: GitFileStatus] = [:] { didSet { signalChange() } }
+    @ObservationIgnored
     private(set) var contentRevision = 0 { didSet { signalChange() } }
+    @ObservationIgnored
     private(set) var rootStatusMessage: String? { didSet { signalChange() } }
+    @ObservationIgnored
     private(set) var workspaceRootIdentity: UUID? { didSet { signalChange() } }
     let storeDidChange = PassthroughSubject<Void, Never>()
 
+    @ObservationIgnored
     var provider: FileExplorerProvider?
 
     /// Whether hidden files are shown. Set from FileExplorerState externally.
+    @ObservationIgnored
     var showHiddenFiles: Bool = false
 
     /// Watches the root directory for filesystem changes (local only).
+    @ObservationIgnored
     private var directoryWatcher: FileWatcher?
+    @ObservationIgnored
     private var directoryWatchTask: Task<Void, Never>?
+    @ObservationIgnored
     private var directoryWatchPath: String?
 
     /// Paths that are logically expanded (persisted across provider changes)
+    @ObservationIgnored
     private(set) var expandedPaths: Set<String> = [] { didSet { signalChange() } }
 
     /// Stable navigation selection. The outline view mirrors this path after reloads.
+    @ObservationIgnored
     private(set) var selectedPath: String? { didSet { signalChange() } }
 
     /// Stable multi-selection. `selectedPath` remains the keyboard/navigation anchor.
+    @ObservationIgnored
     private(set) var selectedPaths: Set<String> = [] { didSet { signalChange() } }
 
     /// Folder path whose first child should be selected once its async load completes.
+    @ObservationIgnored
     private var pendingDescendIntoFirstChildPath: String?
 
     /// Paths currently being loaded
+    @ObservationIgnored
     private(set) var loadingPaths: Set<String> = [] { didSet { signalChange() } }
 
     /// In-flight load tasks keyed by path
+    @ObservationIgnored
     private var loadTasks: [String: Task<Void, Never>] = [:]
 
     /// Cache of path -> node for quick lookup
+    @ObservationIgnored
     private var nodesByPath: [String: FileExplorerNode] = [:]
 
     /// Prefetch debounce: path -> work item
+    @ObservationIgnored
     private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
 
+    @ObservationIgnored
     private var remoteHomeResolutionTask: Task<Void, Never>?
+    @ObservationIgnored
     private var remoteHomeResolutionKey: String?
 
     private let gitStatusProvider: GitStatusProvider
