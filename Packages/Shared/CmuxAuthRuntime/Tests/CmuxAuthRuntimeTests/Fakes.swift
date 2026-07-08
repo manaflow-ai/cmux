@@ -19,6 +19,11 @@ final class FakeKeyValueStore: CMUXAuthKeyValueStore, @unchecked Sendable {
 actor FakeAuthClient: AuthClient {
     var access: String?
     var refresh: String?
+    /// Optional scripted return values for successive ``accessToken()`` calls,
+    /// consumed front-to-back; once exhausted the fake falls back to ``access``.
+    /// Lets a test simulate a transient refresh (nil) that recovers on retry.
+    var accessTokenSequence: [String?]?
+    private(set) var accessTokenCallCount = 0
     /// Result of ``forceRefreshAccessToken()``. When `nil` (the default), the
     /// fake returns the current ``access`` to preserve the original behavior;
     /// set it explicitly to script a force-refresh outcome independent of the
@@ -55,13 +60,22 @@ actor FakeAuthClient: AuthClient {
         self.refresh = refresh
     }
     func setForceRefreshResult(_ result: String?) { forceRefreshResult = .some(result) }
+    func setAccessTokenSequence(_ sequence: [String?]?) { accessTokenSequence = sequence }
     func setMintedAccessToken(_ token: String?) { mintedAccessToken = token }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
 
-    func accessToken() async -> String? { access }
+    func accessToken() async -> String? {
+        accessTokenCallCount += 1
+        if var seq = accessTokenSequence, !seq.isEmpty {
+            let next = seq.removeFirst()
+            accessTokenSequence = seq
+            return next
+        }
+        return access
+    }
     func refreshToken() async -> String? { refresh }
     func forceRefreshAccessToken() async -> String? {
         if case let .some(scripted) = forceRefreshResult {

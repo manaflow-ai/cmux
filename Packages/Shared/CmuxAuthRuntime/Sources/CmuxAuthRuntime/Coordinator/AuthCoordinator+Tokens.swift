@@ -100,17 +100,42 @@ extension AuthCoordinator {
     ///   required by backend requests.
     public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
         await awaitBootstrapped()
-        guard let access = await client.accessToken(), !access.isEmpty else {
-            if let refresh = await client.refreshToken(), !refresh.isEmpty {
-                throw AuthError.networkError
+        // `accessToken()` refreshes on demand, but a single transient blip
+        // (URLSession throw, brief 5xx/429) makes it return nil while the
+        // refresh token survives. That is explicitly retryable, so give the
+        // mint a few bounded attempts with short backoff before surfacing
+        // `.networkError` — otherwise one hiccup dead-ends callers (the Cloud VM
+        // panel) with "could not refresh your session" after "Waited 0s".
+        // Each retry re-enters `accessToken()`, which re-attempts the refresh.
+        for backoff in Self.currentTokensRetryBackoff {
+            if let access = await client.accessToken(), !access.isEmpty {
+                guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+                    throw AuthError.unauthorized
+                }
+                return (access, refresh)
             }
-            throw AuthError.unauthorized
+            // Access token empty. Without a refresh token the session is
+            // genuinely gone (not retryable); stop immediately.
+            guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+                throw AuthError.unauthorized
+            }
+            _ = refresh
+            // A `nil` backoff marks the final attempt: fall through and fail.
+            guard let delay = backoff else { break }
+            try? await clock.sleep(for: delay)
         }
-        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-            throw AuthError.unauthorized
-        }
-        return (access, refresh)
+        throw AuthError.networkError
     }
+
+    /// Backoff schedule for `currentTokens()`. The trailing `nil` is the final
+    /// attempt with no further wait, so this yields 3 refresh attempts spaced by
+    /// ~0.3s then ~0.8s (worst-case ~1.1s added only on a genuinely failing
+    /// refresh; the success path returns on the first attempt with no delay).
+    static let currentTokensRetryBackoff: [Duration?] = [
+        .milliseconds(300),
+        .milliseconds(800),
+        nil,
+    ]
 
     /// Force-mint a fresh access token, bypassing the cached-token freshness
     /// check. Call this after the host rejected the current token so the retry
