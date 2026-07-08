@@ -275,6 +275,36 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
         ))
     }
 
+    // The dock-status lookup is an app-wide ownership sweep; disposition must not
+    // evaluate it unless a file-URL payload is present. Drag callbacks fire for
+    // every payload type, so an eager lookup would run on every non-file drag.
+    func testDispositionDoesNotEvaluateDockStatusWithoutFileURL() {
+        var dockStatusEvaluations = 0
+        func countingDockStatus() -> Bool {
+            dockStatusEvaluations += 1
+            return true
+        }
+
+        XCTAssertNil(BrowserPaneFileDropRouting.disposition(
+            pasteboardTypes: nil,
+            modifierFlags: [],
+            isDockHosted: countingDockStatus(),
+            defaultBehavior: .text
+        ))
+        XCTAssertEqual(dockStatusEvaluations, 0)
+
+        XCTAssertEqual(
+            BrowserPaneFileDropRouting.disposition(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                modifierFlags: [],
+                isDockHosted: countingDockStatus(),
+                defaultBehavior: .text
+            ),
+            .forwardToPage
+        )
+        XCTAssertEqual(dockStatusEvaluations, 1)
+    }
+
     private func withFileDropDefault(_ behavior: FileDropDefaultBehavior, run: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)

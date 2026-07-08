@@ -12,10 +12,13 @@ enum BrowserPaneFileDropDisposition: Equatable {
 /// Routes browser-pane file drops by intent only: intent never depends on transient webview
 /// availability; delivery failure refuses the drop instead of reinterpreting it.
 enum BrowserPaneFileDropRouting {
+    /// `isDockHosted` is an autoclosure so callers can defer the app-wide dock
+    /// ownership lookup until a file-URL payload is actually present; drag
+    /// callbacks fire for every payload type and must not pay for it otherwise.
     static func disposition(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         modifierFlags: NSEvent.ModifierFlags,
-        isDockHosted: Bool,
+        isDockHosted: @autoclosure () -> Bool,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
     ) -> BrowserPaneFileDropDisposition? {
         guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes) else { return nil }
@@ -27,7 +30,7 @@ enum BrowserPaneFileDropRouting {
         // and it fell through to the web view; without it, preview-mode (or Shift-inverted)
         // file drops on Dock browsers would be claimed by the pane target and rejected by the
         // Dock guard instead of reaching the page.
-        if isDockHosted {
+        if isDockHosted() {
             return .forwardToPage
         }
 

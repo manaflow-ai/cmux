@@ -35,16 +35,22 @@ final class BrowserPaneDropTargetView: NSView {
     @MainActor
     static func shouldCaptureHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?,
-        isDockHosted: Bool = false
+        eventType: NSEvent.EventType?
     ) -> Bool {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
+        // Dock-hosted status is deliberately not consulted here: it cannot change
+        // the capture result (a file-URL payload always yields a disposition, so
+        // `shouldCaptureFileDrop` is true either way; without a file URL the
+        // disposition is nil either way), and this runs from `hitTest` on
+        // pointer-hover events, where an app-wide dock ownership sweep per event
+        // is too expensive. Prepare/perform resolve the real dock-aware
+        // disposition via `fileDropDisposition(_:)`.
         let disposition = BrowserPaneFileDropRouting.disposition(
             pasteboardTypes: pasteboardTypes,
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
-            isDockHosted: isDockHosted
+            isDockHosted: false
         )
         let fileDropWantsPreview = disposition == .previewInWorkspace
         let shouldCaptureFileDrop = disposition != nil
@@ -68,8 +74,7 @@ final class BrowserPaneDropTargetView: NSView {
         let pasteboardTypes = NSPasteboard(name: .drag).types
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: eventType,
-            isDockHosted: isDockHostedPane
+            eventType: eventType
         )
 #if DEBUG
         logHitTestDecision(capture: capture, pasteboardTypes: pasteboardTypes, eventType: eventType)
