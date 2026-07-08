@@ -86,7 +86,7 @@ Fields:
 - `id`: stable unique identifier for the control.
 - `title`: label shown on the Dock tab.
 - `type`: optional, `command` (default), `terminal`, or `browser`.
-- `command`: command to run in the Dock terminal. Required for command controls. Command controls may omit `type`.
+- `command`: command to run in the Dock terminal. Required for command controls. Command controls may omit `type`. For terminal controls, omit `command` to open a plain login shell; a present but blank `command` is invalid.
 - `url`: page to open. Required for browser controls.
 - `profile`: optional cmux browser profile reference. Prefer the stable profile UUID shown by `browser.profiles.list`; unambiguous profile slugs or display names are accepted for compatibility. If absent, Dock uses the default browser profile. Unknown or ambiguous profile references stop the Dock config instead of falling back to another cookie store.
 - `cwd`: optional working directory for command and terminal controls.
@@ -95,7 +95,7 @@ Fields:
 
 Dock configs can define up to 64 controls. Each command or terminal control can define up to 64 `env` variables. Individual text fields are limited to 4096 UTF-8 bytes. Larger configs are rejected before the project trust prompt is rendered.
 
-Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command. Project Dock trust prompts show each command or login shell with its effective `cwd` and `env` overrides before cmux opens the controls. Browser controls show each requested URL and profile, including the resolved profile ID for non-default profiles. Trust for browser controls is bound to the resolved profile UUID, so a display-name or slug reference that later points at a different profile asks for trust again.
+Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command; if a `command` key is present, it must contain a non-blank command. Project Dock trust prompts show each command or login shell with its effective `cwd` and `env` overrides before cmux opens the controls. Browser controls show each requested URL and profile, including the resolved profile ID for non-default profiles. Trust for browser controls is bound to the resolved profile UUID, so a display-name or slug reference that later points at a different profile asks for trust again.
 
 Existing configs without `type` keep loading unchanged as command controls. Legacy configs that set `type: "terminal"` together with a `command` also keep loading as command controls. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
 

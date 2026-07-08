@@ -56,7 +56,7 @@ struct DockTrustControlSummaryRow: View {
 
     private func workingDirectoryLine(_ workingDirectory: String) -> String {
         String(
-            format: String(localized: "dock.trust.control.workingDirectory", defaultValue: "cwd: %@"),
+            format: String(localized: "dock.trust.control.workingDirectory", defaultValue: "Working directory: %@"),
             workingDirectory
         )
     }
@@ -64,7 +64,7 @@ struct DockTrustControlSummaryRow: View {
     private func environmentRows(_ environment: [String: String]) -> [String] {
         environment.sorted { $0.key < $1.key }.map { entry in
             String(
-                format: String(localized: "dock.trust.control.environment", defaultValue: "env: %@"),
+                format: String(localized: "dock.trust.control.environment", defaultValue: "Environment: %@"),
                 "\(entry.key)=\(entry.value)"
             )
         }
