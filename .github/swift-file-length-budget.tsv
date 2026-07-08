@@ -11,7 +11,7 @@
 11641	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8032	Sources/Panels/BrowserPanelView.swift
-8016	CLI/cmux_open.swift
+8010	CLI/cmux_open.swift
 7743	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7490	cmuxTests/WorkspaceUnitTests.swift
 7312	cmuxTests/WorkspaceRemoteConnectionTests.swift
@@ -33,12 +33,12 @@
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3323	Sources/CmuxConfig.swift
 3124	Sources/Update/UpdateTitlebarAccessory.swift
-2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
 2611	Sources/KeyboardShortcutSettings.swift
 2563	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
+2507	cmuxTests/CMUXOpenCommandTests.swift
 2404	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
