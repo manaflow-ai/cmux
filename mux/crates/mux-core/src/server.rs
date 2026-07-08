@@ -56,6 +56,12 @@ struct Request {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    Ping,
+    ReloadConfig,
+    SetWindowTitle {
+        title: String,
+    },
+    ClearWindowTitle,
     ListWorkspaces,
     ExportLayout {
         #[serde(default)]
@@ -440,6 +446,21 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+pub fn window_title_osc(title: &str) -> Vec<u8> {
+    let title = sanitize_window_title(title);
+    format!("\x1b]0;{title}\x07\x1b]2;{title}\x07").into_bytes()
+}
+
+fn sanitize_window_title(title: &str) -> String {
+    title
+        .chars()
+        .map(|ch| match ch {
+            '\u{00}'..='\u{1f}' | '\u{7f}' => ' ',
+            _ => ch,
+        })
+        .collect()
+}
+
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let Ok(write_half) = stream.try_clone_box() else { return };
     let writer = LineWriter(Arc::new(Mutex::new(write_half)));
@@ -801,20 +822,31 @@ fn spawn_attach_notification_stream(
         .name("mux-attach-notifications".into())
         .spawn(move || {
             while let Ok(event) = events.recv() {
-                let MuxEvent::Notification(notification) = event else {
-                    continue;
+                let value = match event {
+                    MuxEvent::Notification(notification)
+                        if notification.surface == Some(surface_id) =>
+                    {
+                        json!({
+                            "event": "notification",
+                            "notification": notification.notification,
+                            "title": notification.title,
+                            "body": notification.body,
+                            "level": notification.level.as_str(),
+                            "surface": notification.surface,
+                        })
+                    }
+                    MuxEvent::ScrollChanged { surface, offset, at_bottom }
+                        if surface == surface_id =>
+                    {
+                        json!({
+                            "event": "scroll-changed",
+                            "surface": surface,
+                            "offset": offset,
+                            "at_bottom": at_bottom,
+                        })
+                    }
+                    _ => continue,
                 };
-                if notification.surface != Some(surface_id) {
-                    continue;
-                }
-                let value = json!({
-                    "event": "notification",
-                    "notification": notification.notification,
-                    "title": notification.title,
-                    "body": notification.body,
-                    "level": notification.level.as_str(),
-                    "surface": notification.surface,
-                });
                 if writer.send(&value).is_err() {
                     break;
                 }
@@ -832,6 +864,26 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             "session": mux.session,
             "pid": std::process::id(),
         })),
+        Command::Ping => Ok(json!({
+            "ok": true,
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocol": PROTOCOL_VERSION,
+        })),
+        Command::ReloadConfig => {
+            mux.emit(MuxEvent::ConfigReloadRequested);
+            Ok(json!({
+                "reloaded": true,
+                "path": platform::config_path().map(|path| path.display().to_string()),
+            }))
+        }
+        Command::SetWindowTitle { title } => {
+            mux.emit(MuxEvent::WindowTitleRequested(title));
+            Ok(json!({}))
+        }
+        Command::ClearWindowTitle => {
+            mux.emit(MuxEvent::WindowTitleRequested(String::new()));
+            Ok(json!({}))
+        }
         Command::ListWorkspaces => {
             let notifications = mux.surface_notifications();
             Ok(mux.with_state(|state| workspaces_json(state, &notifications)))
@@ -952,8 +1004,8 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             }
             let mut encoder = KeyEncoder::new()?;
             let mut encoded = Vec::new();
+            surface.scroll_to_bottom()?;
             surface.try_with_terminal(|term| {
-                term.scroll_to_bottom();
                 encoder.sync_from_terminal(term);
                 for key in &keys {
                     let Some(input) = key_input_from_chord(key) else {
@@ -1288,7 +1340,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            surface.try_with_terminal(|t| t.scroll_delta(delta))?;
+            surface.scroll_delta(delta)?;
             Ok(json!({}))
         }
         Command::Subscribe => {
@@ -1326,6 +1378,18 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                         MuxEvent::Status(message) => {
                             json!({"event": "status", "message": message})
                         }
+                        MuxEvent::ConfigReloadRequested => {
+                            json!({"event": "config-reload-requested"})
+                        }
+                        MuxEvent::WindowTitleRequested(title) => {
+                            json!({"event": "window-title-requested", "title": title})
+                        }
+                        MuxEvent::ScrollChanged { surface, offset, at_bottom } => json!({
+                            "event": "scroll-changed",
+                            "surface": surface,
+                            "offset": offset,
+                            "at_bottom": at_bottom,
+                        }),
                         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
                         MuxEvent::LayoutChanged(screen) => {
                             json!({"event": "layout-changed", "screen": screen})
@@ -1413,4 +1477,138 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SurfaceOptions;
+    use std::io::{Read, Write};
+    use std::sync::mpsc::TryRecvError;
+    use std::time::Duration;
+
+    struct NullStream;
+
+    impl Read for NullStream {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Ok(0)
+        }
+    }
+
+    impl Write for NullStream {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for NullStream {
+        fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
+            Ok(Box::new(NullStream))
+        }
+
+        fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_mux() -> Arc<Mux> {
+        Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    fn test_writer() -> LineWriter {
+        LineWriter(Arc::new(Mutex::new(Box::new(NullStream) as Box<dyn transport::Stream>)))
+    }
+
+    #[test]
+    fn ping_returns_version_and_protocol() {
+        let mux = test_mux();
+        let data = handle_command(&mux, Command::Ping, &test_writer()).unwrap();
+        assert_eq!(data["ok"].as_bool(), Some(true));
+        assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+    }
+
+    #[test]
+    fn reload_config_returns_path_and_emits_request() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+        let data = handle_command(&mux, Command::ReloadConfig, &test_writer()).unwrap();
+        assert_eq!(data["reloaded"].as_bool(), Some(true));
+        assert!(data.get("path").is_some());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::ConfigReloadRequested)
+        ));
+    }
+
+    #[test]
+    fn window_title_commands_emit_requests() {
+        let mux = test_mux();
+        let events = mux.subscribe();
+
+        let data = handle_command(
+            &mux,
+            Command::SetWindowTitle { title: "hello".to_string() },
+            &test_writer(),
+        )
+        .unwrap();
+        assert_eq!(data, json!({}));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::WindowTitleRequested(title)) if title == "hello"
+        ));
+
+        handle_command(&mux, Command::ClearWindowTitle, &test_writer()).unwrap();
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()
+        ));
+    }
+
+    #[test]
+    fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
+        assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
+        assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
+    }
+
+    #[test]
+    fn scroll_surface_emits_one_scroll_changed_event() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        surface
+            .try_with_terminal(|term| {
+                for i in 0..20 {
+                    term.vt_write(format!("line{i}\r\n").as_bytes());
+                }
+            })
+            .unwrap();
+        let events = mux.subscribe();
+
+        handle_command(
+            &mux,
+            Command::ScrollSurface { surface: surface.id, delta: -5 },
+            &test_writer(),
+        )
+        .unwrap();
+
+        let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            event,
+            MuxEvent::ScrollChanged { surface: id, offset, at_bottom: false }
+                if id == surface.id && offset > 0
+        ));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+
+        handle_command(
+            &mux,
+            Command::ScrollSurface { surface: surface.id, delta: 0 },
+            &test_writer(),
+        )
+        .unwrap();
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
 }

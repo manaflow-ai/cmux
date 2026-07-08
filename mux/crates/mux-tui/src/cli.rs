@@ -48,6 +48,28 @@ const VERBS: &[VerbSpec] = &[
         print: print_identify,
         stream: false,
     },
+    VerbSpec { name: "ping", allowed: &[], build: build_no_args, print: print_ping, stream: false },
+    VerbSpec {
+        name: "reload-config",
+        allowed: &[],
+        build: build_no_args,
+        print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "set-window-title",
+        allowed: &["title"],
+        build: build_set_window_title,
+        print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "clear-window-title",
+        allowed: &[],
+        build: build_no_args,
+        print: print_empty,
+        stream: false,
+    },
     VerbSpec {
         name: "list-workspaces",
         allowed: &[],
@@ -908,6 +930,10 @@ fn build_set_default_colors(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(value)
 }
 
+fn build_set_window_title(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({ "title": flags.required("title")? }))
+}
+
 fn build_rename_pane(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "pane": flags.required_u64("pane")?, "name": flags.required("name")? }))
 }
@@ -1100,6 +1126,15 @@ fn print_identify(data: &Value, out: &mut dyn Write) -> io::Result<()> {
         data.get("session").and_then(Value::as_str).unwrap_or(""),
         data.get("protocol").and_then(Value::as_u64).unwrap_or(0),
         data.get("pid").and_then(Value::as_u64).unwrap_or(0)
+    )
+}
+
+fn print_ping(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    writeln!(
+        out,
+        "cmux-mux version={} protocol={}",
+        data.get("version").and_then(Value::as_str).unwrap_or(""),
+        data.get("protocol").and_then(Value::as_u64).unwrap_or(0)
     )
 }
 
