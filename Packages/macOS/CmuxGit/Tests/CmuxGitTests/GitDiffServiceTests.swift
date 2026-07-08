@@ -90,6 +90,20 @@ import Testing
         #expect(diff.unifiedDiff.contains("+let payload"))
     }
 
+    @Test func untrackedLeadingWhitespacePathDiffsVerbatim() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let spacedName = " leading-space.txt"
+        try Data("padded name\n".utf8)
+            .write(to: repo.appendingPathComponent(spacedName))
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: spacedName))
+
+        #expect(diff.path == spacedName)
+        #expect(diff.unifiedDiff.contains("+padded name"))
+    }
+
     @Test func fileDiffBelowMaxOutputBytesIsUnaffected() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

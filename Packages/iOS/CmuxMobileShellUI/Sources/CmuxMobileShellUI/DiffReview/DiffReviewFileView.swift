@@ -12,6 +12,15 @@ struct DiffReviewFileView: View {
     @State private var isLoading = false
     @State private var isTruncated = false
     @State private var errorMessage: String?
+    /// Bumped by the error state's Retry action so the load task re-runs for
+    /// the same file after a transient RPC failure.
+    @State private var loadAttempt = 0
+
+    /// Identity of one load: the file plus the retry generation.
+    private struct LoadRequest: Equatable {
+        let path: String?
+        let attempt: Int
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,7 +56,7 @@ struct DiffReviewFileView: View {
                 .accessibilityIdentifier("DiffReviewJumpBack")
             }
         }
-        .task(id: session.currentFile?.path) {
+        .task(id: LoadRequest(path: session.currentFile?.path, attempt: loadAttempt)) {
             await loadCurrentFile()
         }
         .sensoryFeedback(.selection, trigger: session.navigationGeneration)
@@ -59,11 +68,20 @@ struct DiffReviewFileView: View {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage {
-            ContentUnavailableView(
-                L10n.string("mobile.diff.loadFailed", defaultValue: "Could not load diff"),
-                systemImage: "exclamationmark.triangle",
-                description: Text(errorMessage)
-            )
+            ContentUnavailableView {
+                Label(
+                    L10n.string("mobile.diff.loadFailed", defaultValue: "Could not load diff"),
+                    systemImage: "exclamationmark.triangle"
+                )
+            } description: {
+                Text(errorMessage)
+            } actions: {
+                Button(L10n.string("mobile.diff.retry", defaultValue: "Retry")) {
+                    loadAttempt &+= 1
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("DiffReviewRetry")
+            }
         } else if let hunk = currentHunk {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {

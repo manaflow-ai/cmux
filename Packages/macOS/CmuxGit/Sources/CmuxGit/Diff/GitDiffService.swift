@@ -64,25 +64,27 @@ public struct GitDiffService: Sendable {
     ///     exceeds the cap and their truncation detection fires.
     /// - Returns: Raw one-file unified diff, or `nil` when git fails.
     public func fileDiff(repoRoot: String, path: String, maxOutputBytes: Int? = nil) -> GitFileDiff? {
-        let normalizedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedPath.isEmpty else { return nil }
-        if isUntracked(repoRoot: repoRoot, path: normalizedPath) {
+        // Validate on a trimmed copy only; the pathspec passed to git must stay
+        // byte-exact because repository paths may legitimately start or end
+        // with whitespace (`changedFiles` reports them verbatim).
+        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if isUntracked(repoRoot: repoRoot, path: path) {
             let result = runGit(
                 in: repoRoot,
-                arguments: ["diff", "--no-index", "--no-color", "--", "/dev/null", normalizedPath],
+                arguments: ["diff", "--no-index", "--no-color", "--", "/dev/null", path],
                 acceptedTerminationStatuses: [0, 1],
                 maxOutputBytes: maxOutputBytes
             )
             guard let output = result.successOutput else { return nil }
-            return GitFileDiff(path: normalizedPath, unifiedDiff: output)
+            return GitFileDiff(path: path, unifiedDiff: output)
         }
         let result = runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--no-color", "--find-renames", "--", normalizedPath],
+            arguments: ["diff", "HEAD", "--no-color", "--find-renames", "--", path],
             maxOutputBytes: maxOutputBytes
         )
         guard let output = result.successOutput else { return nil }
-        return GitFileDiff(path: normalizedPath, unifiedDiff: output)
+        return GitFileDiff(path: path, unifiedDiff: output)
     }
 
     func parseChangedFiles(numstatOutput: String?, nameStatusOutput: String?, untrackedOutput: String?) -> [GitDiffSummary] {
