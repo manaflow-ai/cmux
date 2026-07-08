@@ -13,7 +13,7 @@ private let workspaceGroupLogger = Logger(subsystem: "com.cmuxterm.app", categor
 /// through `WorkspaceGroupHosting`.
 @MainActor
 public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
-    private let model: WorkspacesModel<Tab>
+    let model: WorkspacesModel<Tab>
     private weak var host: (any WorkspaceGroupHosting<Tab>)?
 
     /// Creates the coordinator over the window's workspace model.
