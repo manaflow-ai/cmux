@@ -46,6 +46,10 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
+    return NextResponse.next();
+  }
+
   // Post-checkout pages live outside the [locale] tree, like /app-pricing.
   // Without this bypass next-intl rewrites them into /<locale>/billing/...,
   // which has no route and 404s via the pass-through root layout.
