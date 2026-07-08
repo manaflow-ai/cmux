@@ -158,6 +158,34 @@ func TestSyncerUploadsIncrementallyAndCompresses(t *testing.T) {
 	}
 }
 
+func TestPrepareBatchRejectsSymlinkedSessionFile(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, "secret.jsonl")
+	link := filepath.Join(home, ".codex", "sessions", "2026", "07", "04", "rollout-2026-07-04T00-00-00-11111111-1111-4111-8111-111111111111.jsonl")
+	writeTestFile(t, target, []byte(`{"message":"secret"}`+"\n"))
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := Engine{TempDir: filepath.Join(home, "tmp")}
+	_, err := engine.prepareBatch([]candidate{{
+		session: agentdirs.Session{
+			AgentName:      "codex",
+			AgentSessionID: "11111111-1111-4111-8111-111111111111",
+			AbsPath:        link,
+			RelPath:        "sessions/2026/07/04/rollout-2026-07-04T00-00-00-11111111-1111-4111-8111-111111111111.jsonl",
+			SizeBytes:      1,
+			ModTime:        time.Now(),
+		},
+	}})
+	if err == nil {
+		t.Fatal("expected symlinked session file to be rejected")
+	}
+}
+
 func writeTestFile(t *testing.T, path string, data []byte) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

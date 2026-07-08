@@ -38,10 +38,6 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = BrowserAutomationController.reactGrabDidCopySelectionName
 }
 
-nonisolated private struct SocketLineProcessingResult: Sendable {
-    let response: String?
-    let authenticated: Bool
-}
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
 
