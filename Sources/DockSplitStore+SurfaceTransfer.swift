@@ -169,6 +169,9 @@ extension DockSplitStore {
             isLoading: isLoading,
             isPinned: false,
             directory: detachedDirectory,
+            directoryIsTrustedRemoteReport: detachedDirectory != nil &&
+                detachedDirectory == preservedTransfer?.directory &&
+                preservedTransfer?.directoryIsTrustedRemoteReport == true,
             directoryDisplayLabel: detachedDirectory == preservedTransfer?.directory
                 ? preservedTransfer?.directoryDisplayLabel
                 : nil,
