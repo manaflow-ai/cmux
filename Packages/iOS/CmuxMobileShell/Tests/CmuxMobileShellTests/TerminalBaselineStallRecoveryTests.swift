@@ -4,9 +4,99 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-/// Regression coverage for the missing-baseline stall: a successful
-/// missing-baseline replay must resolve the baseline_wait gate episode
-/// (https://github.com/manaflow-ai/cmux/issues/7573 review round).
+/// Regression coverage for stall recovery fidelity around resets and replays:
+/// a successful missing-baseline replay must resolve the baseline_wait gate
+/// episode, and reset paths that leave a replay barrier gating output must
+/// not claim recovery (https://github.com/manaflow-ai/cmux/issues/7573
+/// review rounds).
+
+@MainActor
+@Test func ackResetRetryResolvesOnlyGatesTheResetActuallyWipes() async throws {
+    let clock = TestClock()
+    let analytics = RecordingFreezeAnalytics()
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+        analytics: analytics
+    )
+
+    let surfaceID = "live-terminal"
+    let surfaceHandle = MobileShellComposite.diagnosticSurfaceHandle(surfaceID)
+    let iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    _ = iterator
+    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    #expect(!store.deliverTerminalBytes(Data("drop-1".utf8), surfaceID: surfaceID))
+    store.terminalSyncDiagnostics.renderGridDropped(
+        surface: surfaceHandle,
+        gate: .baselineWait,
+        droppedFrames: 1,
+        replayRetryCount: 0,
+        barrierFollowUpCount: 0,
+        transport: "renderGrid"
+    )
+    clock.advance(by: 6)
+    #expect(!store.deliverTerminalBytes(Data("drop-2".utf8), surfaceID: surfaceID))
+    store.terminalSyncDiagnostics.renderGridDropped(
+        surface: surfaceHandle,
+        gate: .baselineWait,
+        droppedFrames: 2,
+        replayRetryCount: 0,
+        barrierFollowUpCount: 0,
+        transport: "renderGrid"
+    )
+    #expect(analytics.events(named: "ios_terminal_render_stall").count == 2)
+
+    // The reset arrives on a stream token that carried the barrier ack, but
+    // the retry keeps the SAME barrier armed (retry budget exhausted so the
+    // barrier is preserved). Only the wiped gates may resolve.
+    let streamToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+    store.terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] = streamToken
+    store.terminalReplayFailureRetryCountsBySurfaceID[surfaceID] = MobileShellComposite.maxTerminalReplayFailureRetries
+    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: streamToken)
+
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == barrierToken)
+    let recovered = analytics.events(named: "ios_terminal_render_stall_recovered")
+    #expect(recovered.count == 1)
+    #expect(recovered.first?["gate"] == .string("baseline_wait"))
+    #expect(recovered.first?["recovery"] == .string("manual_refresh"))
+}
+
+@MainActor
+@Test func needsReplayWithPendingViewportAckDoesNotClaimStallRecovery() async throws {
+    let clock = TestClock()
+    let analytics = RecordingFreezeAnalytics()
+    let runtime = LivenessTestRuntime(
+        transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+        analytics: analytics
+    )
+
+    let surfaceID = "live-terminal"
+    let iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    _ = iterator
+    let barrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    store.terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] = barrierToken
+    #expect(!store.deliverTerminalBytes(Data("drop-1".utf8), surfaceID: surfaceID))
+    clock.advance(by: 6)
+    #expect(!store.deliverTerminalBytes(Data("drop-2".utf8), surfaceID: surfaceID))
+    #expect(analytics.events(named: "ios_terminal_render_stall").count == 1)
+
+    store.terminalOutputNeedsReplay(surfaceID: surfaceID)
+
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == barrierToken)
+    #expect(analytics.events(named: "ios_terminal_render_stall_recovered").isEmpty)
+    #expect(analytics.events(named: "ios_terminal_manual_recovery").count == 1)
+}
 
 @MainActor
 @Test func baselineReplaySuccessResolvesBaselineWaitStall() async throws {

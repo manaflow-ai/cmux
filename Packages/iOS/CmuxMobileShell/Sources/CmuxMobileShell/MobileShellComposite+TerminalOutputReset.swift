@@ -29,8 +29,21 @@ extension MobileShellComposite {
                 MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
                 return
             }
-            terminalSyncDiagnostics.surfaceResolved(
+            // The ack-holding retry wipes the pending-input and baseline
+            // tracking below but keeps the SAME replay barrier armed and
+            // re-requests under it, so only the gates whose state is
+            // genuinely reset resolve here. The replay-barrier episode stays
+            // open until the retried replay actually clears the barrier; a
+            // hung or exhausted retry must keep reading as an ongoing stall.
+            terminalSyncDiagnostics.gateResolved(
                 surface: Self.diagnosticSurfaceHandle(surfaceID),
+                gate: .pendingInputSeq,
+                how: .manualRefresh,
+                transport: terminalOutputTransport.debugName
+            )
+            terminalSyncDiagnostics.gateResolved(
+                surface: Self.diagnosticSurfaceHandle(surfaceID),
+                gate: .baselineWait,
                 how: .manualRefresh,
                 transport: terminalOutputTransport.debugName
             )
@@ -99,11 +112,6 @@ extension MobileShellComposite {
     public func terminalOutputNeedsReplay(surfaceID: String) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
         recordTerminalManualRecovery(action: .renderReset, surfaceID: surfaceID)
-        terminalSyncDiagnostics.surfaceResolved(
-            surface: Self.diagnosticSurfaceHandle(surfaceID),
-            how: .manualRefresh,
-            transport: terminalOutputTransport.debugName
-        )
         if let pendingAckToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID],
            terminalReplayBarrierTokensBySurfaceID[surfaceID] == pendingAckToken {
             // A pending viewport acknowledgement owns the next replay
@@ -111,10 +119,17 @@ extension MobileShellComposite {
             // token and let the acknowledgement dedupe its post-resize replay
             // against this pre-resize request; record the reset as owed
             // output so the acknowledgement's resolution replays instead.
+            // The barrier keeps gating output, so no stall episode resolves
+            // here; the acknowledgement's own resolution reports recovery.
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
             MobileDebugLog.anchormux("terminal.output.replay_deferred_viewport_ack surface=\(surfaceID)")
             return
         }
+        terminalSyncDiagnostics.surfaceResolved(
+            surface: Self.diagnosticSurfaceHandle(surfaceID),
+            how: .manualRefresh,
+            transport: terminalOutputTransport.debugName
+        )
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID, trigger: .barrier)
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
