@@ -23,6 +23,7 @@ final class CodexSessionCwdLookupCache {
             .path
         guard fileManager.fileExists(atPath: dbPath) else { return nil }
         let cacheKey = dbPath + "\u{0}" + sessionId
+        // dict[key] is String?? here: .some(nil) is a memoized negative result.
         if let cached = cwdByDatabaseAndSession[cacheKey] {
             return cached
         }
@@ -46,7 +47,8 @@ final class CodexSessionCwdLookupCache {
         sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
         guard sqlite3_step(stmt) == SQLITE_ROW,
               let cwd = normalizedCodexCwdValue(SessionIndexStore.sqliteText(stmt, 0)) else {
-            cwdByDatabaseAndSession[cacheKey] = nil
+            // updateValue stores .some(nil); subscript nil-assignment would remove the key.
+            cwdByDatabaseAndSession.updateValue(nil, forKey: cacheKey)
             return nil
         }
         cwdByDatabaseAndSession[cacheKey] = cwd
