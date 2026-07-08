@@ -167,6 +167,9 @@ def compare_budget(
             if base_count is None:
                 failures.append((rel_path, actual_count, allowed_count, "new tracked file"))
                 continue
+            if base_count < threshold:
+                failures.append((rel_path, actual_count, allowed_count, "newly tracked file"))
+                continue
 
             base_growth = actual_count - base_count if base_count is not None else None
             if actual_count > hard_cap and base_growth is not None and base_growth > 0:

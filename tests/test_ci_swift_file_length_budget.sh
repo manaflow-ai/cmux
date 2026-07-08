@@ -202,6 +202,28 @@ if ! grep -Fq 'budget lowered below actual count (base budget 6)' "$TMP_DIR/lowe
   exit 1
 fi
 
+printf 'threshold crossing\n' >>"$FIXTURE/Sources/Small.swift"
+printf '6\tSources/Big.swift\n5\tSources/Small.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$FIXTURE/.github/swift-file-length-budget.tsv"
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$FIXTURE/.github/swift-file-length-budget.tsv" \
+  --threshold 5 \
+  --base-ref "$CHECKED_IN_BUDGET_REF" \
+  --incidental-growth 1 \
+  --hard-cap 10 >"$TMP_DIR/threshold-crossing.out" 2>&1; then
+  echo "expected below-threshold base file to fail base-ref check" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'reason=newly tracked file' "$TMP_DIR/threshold-crossing.out"; then
+  echo "expected threshold-crossing reason" >&2
+  cat "$TMP_DIR/threshold-crossing.out" >&2
+  exit 1
+fi
+
+sed -i.bak '$d' "$FIXTURE/Sources/Small.swift"
+rm "$FIXTURE/Sources/Small.swift.bak"
+
 if python3 scripts/swift_file_length_budget.py \
   --repo-root "$FIXTURE" \
   --budget "$BUDGET" \
