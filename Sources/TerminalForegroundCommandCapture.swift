@@ -83,10 +83,10 @@ enum TerminalForegroundCommandCapture {
     /// and every token including the executable is shell-quoted so nothing
     /// replays as shell syntax.
     static func commandLine(fromArgv argv: [String]) -> String? {
-        let argv = AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-            argv,
+        let runtimeUnwrapper = JavaScriptRuntimeAgentLaunchUnwrapper(
             isKnownAgentExecutableName: { knownAgentKind(forExecutableName: $0) != nil }
-        ) ?? argv
+        )
+        let argv = runtimeUnwrapper.unwrappedArgv(argv) ?? argv
         guard let executable = argv.first, !executable.isEmpty else { return nil }
         let executableName = (executable as NSString).lastPathComponent
         guard !executableName.isEmpty, !isShellProcessName(executableName) else { return nil }
@@ -110,7 +110,7 @@ enum TerminalForegroundCommandCapture {
             // shim and cmux hooks are re-injected fresh; a marker-less argv
             // (user typed a path themselves) keeps its executable verbatim.
             if !sanitizedArgv.isEmpty,
-               AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments(argv) {
+               runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(argv) {
                 sanitizedArgv[0] = executableName
             }
         }

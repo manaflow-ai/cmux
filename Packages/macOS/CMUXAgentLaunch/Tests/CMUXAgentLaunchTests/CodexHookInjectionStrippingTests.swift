@@ -175,9 +175,8 @@ struct CodexHookInjectionStrippingTests {
     @Test("Unwraps node-hosted known agent argv")
     func unwrapsNodeHostedKnownAgentArgv() {
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
             ) == ["codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
         )
     }
@@ -185,7 +184,7 @@ struct CodexHookInjectionStrippingTests {
     @Test("Unwrap skips node options before script")
     func unwrapSkipsNodeOptionsBeforeScript() {
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+            runtimeUnwrapper.unwrappedArgv(
                 [
                     "node",
                     "--require",
@@ -197,8 +196,7 @@ struct CodexHookInjectionStrippingTests {
                     cmuxClaudeHookSettingsMarker,
                     "--model",
                     "claude-fable-5",
-                ],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+                ]
             ) == ["claude", cmuxClaudeHookSettingsMarker, "--model", "claude-fable-5"]
         )
     }
@@ -206,15 +204,13 @@ struct CodexHookInjectionStrippingTests {
     @Test("Unwrap bails when node option consumes script")
     func unwrapBailsWhenNodeOptionConsumesScript() {
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "-e", "require('/tools/codex')"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "-e", "require('/tools/codex')"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
             ) == nil
         )
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "--eval", "require('/tools/codex')"] + cmuxCodexHookArgs,
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "--eval", "require('/tools/codex')"] + cmuxCodexHookArgs
             ) == nil
         )
     }
@@ -225,19 +221,18 @@ struct CodexHookInjectionStrippingTests {
         // matches an agent name, so the injected-marker identity is used when
         // the script lives inside that agent's own npm package directory.
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+            runtimeUnwrapper.unwrappedArgv(
                 [
                     "node",
                     "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
                     cmuxClaudeHookSettingsMarker,
                     "--model",
                     "claude-fable-5",
-                ],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+                ]
             ) == ["claude", cmuxClaudeHookSettingsMarker, "--model", "claude-fable-5"]
         )
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+            runtimeUnwrapper.unwrappedArgv(
                 [
                     "node",
                     "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
@@ -246,8 +241,7 @@ struct CodexHookInjectionStrippingTests {
                     cmuxClaudeHookSettingsMarker,
                     "--model",
                     "claude-fable-5",
-                ],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+                ]
             ) == [
                 "claude",
                 "--session-id",
@@ -258,23 +252,20 @@ struct CodexHookInjectionStrippingTests {
             ]
         )
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "/opt/homebrew/lib/node_modules/@openai/codex/dist/cli.js"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "/opt/homebrew/lib/node_modules/@openai/codex/dist/cli.js"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
             ) == ["codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
         )
         // Hook-looking argv contents on a script outside the agent's package
         // must never rewrite it into an agent command.
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "script.js"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "script.js"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
             ) == nil
         )
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "/tools/router.js", cmuxClaudeHookSettingsMarker, "--model", "claude-fable-5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "/tools/router.js", cmuxClaudeHookSettingsMarker, "--model", "claude-fable-5"]
             ) == nil
         )
     }
@@ -282,9 +273,8 @@ struct CodexHookInjectionStrippingTests {
     @Test("Unwrap accepts bun-hosted known agents")
     func unwrapAcceptsBunHostedKnownAgents() {
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["bun", "/Users/u/.bun/install/global/node_modules/@openai/codex/bin/codex.mjs"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["bun", "/Users/u/.bun/install/global/node_modules/@openai/codex/bin/codex.mjs"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
             ) == ["codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
         )
     }
@@ -297,54 +287,54 @@ struct CodexHookInjectionStrippingTests {
         // launched directly or a project-local pinned version — must never be
         // rewritten into whatever the bare name resolves to.
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "/tools/claude.js", "--model", "claude-fable-5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "/tools/claude.js", "--model", "claude-fable-5"]
             ) == nil
         )
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "./codex.js", "--foo"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "./codex.js", "--foo"]
             ) == nil
         )
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["node", "/repo/node_modules/@openai/codex/bin/codex", "--model", "gpt-5.5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "/repo/node_modules/@openai/codex/bin/codex", "--model", "gpt-5.5"]
             ) == nil
         )
         #expect(
-            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
-                ["bun", "/repo/bin/codex.mjs", "--model", "gpt-5.5"],
-                isKnownAgentExecutableName: isKnownAgentExecutableName
+            runtimeUnwrapper.unwrappedArgv(
+                ["bun", "/repo/bin/codex.mjs", "--model", "gpt-5.5"]
             ) == nil
         )
     }
 
     @Test("Wrapper marker detection identifies injected argv")
     func wrapperMarkerDetectionIdentifiesInjectedArgv() {
-        #expect(AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments(realisticCodexHookArgv()))
-        #expect(AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
+        #expect(runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(realisticCodexHookArgv()))
+        #expect(runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             "/Users/u/.local/bin/claude", cmuxClaudeHookSettingsMarker,
         ]))
-        #expect(AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
+        #expect(runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             "/Users/u/.local/bin/claude",
             "--session-id",
             "4e06e114-61b2-48ed-93cd-561a23eb5216",
             "--settings",
             cmuxClaudeHookSettingsValue,
         ]))
-        #expect(!AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
+        #expect(!runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             codexExecutable,
             "--model",
             "gpt-5.5",
             "-c",
             "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
         ]))
-        #expect(!AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
+        #expect(!runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             codexExecutable, "--model", "gpt-5.5",
         ]))
+    }
+
+    private var runtimeUnwrapper: JavaScriptRuntimeAgentLaunchUnwrapper {
+        JavaScriptRuntimeAgentLaunchUnwrapper(isKnownAgentExecutableName: isKnownAgentExecutableName)
     }
 
     private func realisticCodexHookArgv() -> [String] {

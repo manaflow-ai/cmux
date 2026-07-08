@@ -1,22 +1,28 @@
 import Foundation
 
-extension AgentLaunchSanitizer {
-    static func preservedCodexLaunchArguments(args: [String]) -> [String]? {
-        let args = removingCmuxInjectedCodexHookArguments(args)
-        if let forkCommand = codexForkCommand(in: args) {
-            return CodexForkLaunchCapture(
-                args: args,
-                forkIndex: forkCommand.forkIndex,
-                sessionIndex: forkCommand.sessionIndex,
-                preserveOptions: preserveOptions
-            ).arguments()
-        }
-        return preservedArguments(kind: "codex", args: args)
+func preservedCodexLaunchArguments(args: [String]) -> [String]? {
+    let args = removingCmuxInjectedCodexHookArguments(args)
+    if let forkCommand = codexForkCommand(in: args) {
+        return CodexForkLaunchCapture(
+            args: args,
+            forkIndex: forkCommand.forkIndex,
+            sessionIndex: forkCommand.sessionIndex,
+            preserveOptions: AgentLaunchSanitizer.preserveOptions
+        ).arguments()
     }
+    return AgentLaunchSanitizer.preservedArguments(kind: "codex", args: args)
+}
 
-    static func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {
-        guard let injectedPrefixEnd = cmuxInjectedCodexHookArgumentPrefixEnd(args) else { return args }
-        return Array(args.dropFirst(injectedPrefixEnd))
+func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {
+    guard let injectedPrefixEnd = cmuxInjectedCodexHookArgumentPrefixEnd(args) else { return args }
+    return Array(args.dropFirst(injectedPrefixEnd))
+}
+
+public struct JavaScriptRuntimeAgentLaunchUnwrapper {
+    private let isKnownAgentExecutableName: (String) -> Bool
+
+    public init(isKnownAgentExecutableName: @escaping (String) -> Bool) {
+        self.isKnownAgentExecutableName = isKnownAgentExecutableName
     }
 
     /// Unwraps a node/bun-hosted known agent to a bare agent executable argv.
@@ -45,10 +51,7 @@ extension AgentLaunchSanitizer {
     /// contents on an unrelated script can never rewrite it into an agent.
     /// Basename wins first so a wrapped agent that shares another agent's
     /// hook plumbing still unwraps to its own name.
-    public static func unwrappedJavaScriptRuntimeAgentArgv(
-        _ argv: [String],
-        isKnownAgentExecutableName: (String) -> Bool
-    ) -> [String]? {
+    public func unwrappedArgv(_ argv: [String]) -> [String]? {
         guard let executable = argv.first else { return nil }
         let runtimeName = (executable as NSString).lastPathComponent.lowercased()
         guard runtimeName == "node" || runtimeName == "bun",
@@ -81,45 +84,46 @@ extension AgentLaunchSanitizer {
     /// name. Capture uses this to save the bare name instead of the resolved
     /// absolute binary path, so replay routes back through the shim and hooks
     /// are re-injected fresh.
-    public static func containsCmuxWrapperInjectedHookArguments(_ argv: [String]) -> Bool {
+    public func containsCmuxWrapperInjectedHookArguments(_ argv: [String]) -> Bool {
         guard !argv.isEmpty else { return false }
         return cmuxWrapperInjectedAgentNameFromArgumentPrefix(Array(argv.dropFirst())) != nil
     }
+}
 
-    struct CodexForkCommand {
-        let forkIndex: Int
-        let sessionIndex: Int
-    }
+struct CodexForkCommand {
+    let forkIndex: Int
+    let sessionIndex: Int
+}
 
-    static func codexForkCommand(in args: [String]) -> CodexForkCommand? {
-        var index = 0
-        while index < args.count {
-            let arg = args[index]
-            if arg == "--" {
+func codexForkCommand(in args: [String]) -> CodexForkCommand? {
+    let codexPolicy = AgentLaunchSanitizer.codexPolicy
+    var index = 0
+    while index < args.count {
+        let arg = args[index]
+        if arg == "--" {
+            return nil
+        }
+        if !isOptionToken(arg) || arg == "-" {
+            guard arg == "fork",
+                  let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
                 return nil
             }
-            if !isOptionToken(arg) || arg == "-" {
-                guard arg == "fork",
-                      let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: index) else {
-                    return nil
-                }
-                return CodexForkCommand(forkIndex: index, sessionIndex: sessionIndex)
-            }
-            let width = optionWidth(args, index: index, policy: codexPolicy)
-            if codexPolicy.variadicOptions.contains(arg) {
-                let end = min(args.count, index + width)
-                if index + 2 < end {
-                    for candidateIndex in (index + 2)..<end where args[candidateIndex] == "fork" {
-                        if let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: candidateIndex) {
-                            return CodexForkCommand(forkIndex: candidateIndex, sessionIndex: sessionIndex)
-                        }
+            return CodexForkCommand(forkIndex: index, sessionIndex: sessionIndex)
+        }
+        let width = AgentLaunchSanitizer.optionWidth(args, index: index, policy: codexPolicy)
+        if codexPolicy.variadicOptions.contains(arg) {
+            let end = min(args.count, index + width)
+            if index + 2 < end {
+                for candidateIndex in (index + 2)..<end where args[candidateIndex] == "fork" {
+                    if let sessionIndex = codexForkCommandSessionIndex(args, forkIndex: candidateIndex) {
+                        return CodexForkCommand(forkIndex: candidateIndex, sessionIndex: sessionIndex)
                     }
                 }
             }
-            index += width
         }
-        return nil
+        index += width
     }
+    return nil
 }
 
 // MARK: - File-scope codex launch helpers
