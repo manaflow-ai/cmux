@@ -55,11 +55,12 @@ extension RestorableAgentSessionIndex {
         // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan, and the
         // OpenCode, claude-fork-fallback, and registry passes below all walk the same
         // cmux-scoped process list; memoize so each pid is read once per snapshot.
+        // updateValue (not subscript) so a nil miss is unambiguously stored, not removed.
         var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
         func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
             if let cached = processArgumentsByPID[processID] { return cached }
             let resolved = processArgumentsProvider(processID)
-            processArgumentsByPID[processID] = resolved
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
             return resolved
         }
 

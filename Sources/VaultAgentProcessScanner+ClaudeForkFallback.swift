@@ -207,6 +207,30 @@ extension RestorableAgentSessionIndex {
         }
         return trimmed
     }
+
+    /// A pane's own hook record overrides the fork-parent fallback only when it was
+    /// written during the detected fork process's lifetime (the fork minting its id at
+    /// first prompt); an older record belongs to a previous session in a reused pane.
+    /// Unknown start times keep the hook record authoritative (pre-fallback behavior).
+    static func hookCandidateRepresentsDetectedProcess(
+        _ candidate: Entry,
+        detected: ProcessDetectedSnapshotEntry,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
+    ) -> Bool {
+        guard let earliestStart = detected.agentProcessIDs
+            .compactMap({ processIdentityProvider($0)?.startSeconds }).min() else { return true }
+        return candidate.updatedAt >= TimeInterval(earliestStart)
+    }
+
+    /// A `.forkParentFallback` detection is claude-kind identity inferred from a live
+    /// process, so it may fill an empty pane or refine a claude pane, but it must never
+    /// displace a hook-backed entry of another agent kind (a nested
+    /// `claude --resume <id> --fork-session` child inside a codex/opencode/custom pane
+    /// inherits that pane's cmux scope).
+    static func forkParentFallbackMustYield(toExisting existing: Entry?) -> Bool {
+        guard let existing else { return false }
+        return existing.snapshot.kind != .claude
+    }
 }
 
 private extension Array where Element == String {

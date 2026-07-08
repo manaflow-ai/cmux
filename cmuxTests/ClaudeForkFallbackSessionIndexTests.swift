@@ -137,6 +137,46 @@ struct ClaudeForkFallbackSessionIndexTests {
         #expect(forkSnapshot.sessionId == fixture.parentSessionId)
     }
 
+    @Test func forkParentFallbackYieldsToOtherAgentKindHookEntryOnSamePane() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        // The fork-shaped claude process is a nested child inside an opencode pane
+        // (it inherits the pane's cmux scope); the pane's opencode hook identity
+        // must survive the fallback.
+        try writeHookStore(
+            root: fixture.root,
+            storeFilename: "opencode-hook-sessions.json",
+            sessions: [
+                "oc-session-1": [
+                    "sessionId": "oc-session-1",
+                    "workspaceId": fixture.workspaceId.uuidString,
+                    "surfaceId": fixture.forkPanelId.uuidString,
+                    "cwd": fixture.cwd.path,
+                    "updatedAt": 30,
+                    "launchCommand": [
+                        "launcher": "opencode",
+                        "executablePath": "/usr/local/bin/opencode",
+                        "arguments": ["/usr/local/bin/opencode"],
+                        "workingDirectory": fixture.cwd.path,
+                        "capturedAt": 30,
+                        "source": "test",
+                    ],
+                ],
+            ]
+        )
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session"]
+        )
+        let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
+
+        let paneSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
+        #expect(paneSnapshot.kind == .opencode)
+        #expect(paneSnapshot.sessionId == "oc-session-1")
+    }
+
     @Test func mintedForkChildRecordUpdatedAfterProcessStartStillWins() throws {
         // Same shape as the stale-record case, but the pane record (updatedAt 20)
         // was written after the fork process started (startSeconds 15): it is the
@@ -434,8 +474,16 @@ struct ClaudeForkFallbackSessionIndexTests {
     }
 
     private func writeHookStore(root: URL, sessions: [String: [String: Any]]) throws {
+        try writeHookStore(root: root, storeFilename: "claude-hook-sessions.json", sessions: sessions)
+    }
+
+    // The index loads hook stores from `<home>/.cmuxterm/<kind>-hook-sessions.json`
+    // (RestorableAgentKind.hookStoreFileURL), so the fixture must write there.
+    private func writeHookStore(root: URL, storeFilename: String, sessions: [String: [String: Any]]) throws {
+        let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         let store: [String: Any] = ["version": 1, "sessions": sessions]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
-        try data.write(to: root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+        try data.write(to: stateDir.appendingPathComponent(storeFilename), options: .atomic)
     }
 }

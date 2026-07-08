@@ -1206,6 +1206,11 @@ struct RestorableAgentSessionIndex: Sendable {
                    processIdentityProvider: processIdentityProvider
                ) {
                 resolved[key] = processDetectedEntry(snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+            } else if detected.sessionIDSource == .forkParentFallback,
+                      Self.forkParentFallbackMustYield(toExisting: resolved[key]) {
+                // A nested claude fork process inside another agent's pane must not
+                // displace that pane's hook-backed identity.
+                continue
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -1246,20 +1251,6 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         return RestorableAgentSessionIndex(entriesByPanel: resolved)
-    }
-
-    /// A pane's own hook record overrides the fork-parent fallback only when it was
-    /// written during the detected fork process's lifetime (the fork minting its id at
-    /// first prompt); an older record belongs to a previous session in a reused pane.
-    /// Unknown start times keep the hook record authoritative (pre-fallback behavior).
-    private static func hookCandidateRepresentsDetectedProcess(
-        _ candidate: Entry,
-        detected: ProcessDetectedSnapshotEntry,
-        processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
-    ) -> Bool {
-        guard let earliestStart = detected.agentProcessIDs
-            .compactMap({ processIdentityProvider($0)?.startSeconds }).min() else { return true }
-        return candidate.updatedAt >= TimeInterval(earliestStart)
     }
 
     private static func matchingHookEntry(
