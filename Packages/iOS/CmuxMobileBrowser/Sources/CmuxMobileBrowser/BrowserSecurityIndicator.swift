@@ -54,10 +54,24 @@ public enum BrowserSecurityIndicator: Equatable, Sendable {
         if values[0] == 10 { return true }
         if values[0] == 192 && values[1] == 168 { return true }
         if values[0] == 172 && (16...31).contains(values[1]) { return true }
+        // IPv4 link-local.
+        if values[0] == 169 && values[1] == 254 { return true }
+        // CGNAT 100.64.0.0/10 — Tailscale addresses live here, and Tailscale
+        // is the primary way cmux devices reach each other.
+        if values[0] == 100 && (64...127).contains(values[1]) { return true }
         return false
     }
 
     private static func isPrivateOrLoopbackIPv6(_ host: String) -> Bool {
+        // Only IPv6 literals contain ":" (the port is not part of `URL.host`).
+        // Ordinary DNS names must never match the ULA/link-local prefixes;
+        // e.g. fda.gov is a public host and keeps its HTTP warning.
+        guard host.contains(":") else { return false }
+        // IPv4-mapped IPv6 (`::ffff:127.0.0.1`) classifies by its embedded
+        // IPv4 address.
+        if host.hasPrefix("::ffff:") {
+            return isPrivateOrLoopbackIPv4(String(host.dropFirst("::ffff:".count)))
+        }
         if host.hasPrefix("fc") || host.hasPrefix("fd") {
             return true
         }
