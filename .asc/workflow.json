@@ -1,0 +1,41 @@
+{
+  "workflows": {
+    "ios-app-store-validate": {
+      "description": "Validate the cmux iOS production App Store review package.",
+      "steps": [
+        {
+          "name": "package_files",
+          "run": "test -s ios/AppStoreReview/review-notes.md && test -s ios/AppStoreReview/metadata-screenshots-checklist.md"
+        },
+        {
+          "name": "readiness",
+          "run": "ios/scripts/validate-app-store-release.sh --app \"$APP_ID\" --version \"$VERSION\" ${BUILD_NUMBER:+--build-number \"$BUILD_NUMBER\"} ${STRICT_VALIDATE:+--strict}"
+        }
+      ]
+    },
+    "ios-app-store-stage-dry-run": {
+      "description": "Preview App Store version staging after a production iOS upload.",
+      "steps": [
+        {
+          "workflow": "ios-app-store-validate"
+        },
+        {
+          "name": "stage",
+          "run": "ios/scripts/validate-app-store-release.sh --app \"$APP_ID\" --version \"$VERSION\" --build-number \"$BUILD_NUMBER\" --copy-metadata-from \"$COPY_METADATA_FROM\" --stage-dry-run ${STRICT_VALIDATE:+--strict}"
+        }
+      ]
+    },
+    "ios-app-store-submit-dry-run": {
+      "description": "Preview App Store review submission for a prepared iOS version.",
+      "steps": [
+        {
+          "workflow": "ios-app-store-validate"
+        },
+        {
+          "name": "submit_dry_run",
+          "run": "ios/scripts/validate-app-store-release.sh --app \"$APP_ID\" --version \"$VERSION\" --build-number \"$BUILD_NUMBER\" --submit-dry-run ${STRICT_VALIDATE:+--strict}"
+        }
+      ]
+    }
+  }
+}
