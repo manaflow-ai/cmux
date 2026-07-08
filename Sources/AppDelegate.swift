@@ -3858,13 +3858,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] note in
             guard let self else { return }
-            self.handleDisplayReconfiguration(
-                isBeginning: note.userInfo?["isBeginning"] as? Bool ?? false
-            )
+            self.handleDisplayReconfiguration(isBeginning: note.userInfo?["isBeginning"] as? Bool ?? false)
         }
         lifecycleSnapshotObservers.append(displayReconfigurationObserver)
 
-        // Re-clamp main windows skipped by AppKit's automatic constraining.
         let screenReconcileObserver = NotificationCenter.default.addObserver(
             forName: Self.screenChangeReconcileNotification,
             object: self,
@@ -3887,12 +3884,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "monitorMemory.screenChange displays=\(NSScreen.screens.count) [\(names)]"
             )
 #endif
-            // No capture here: AppKit already reflects the new configuration,
-            // so this would write the outgoing frame under the incoming slot.
             self.beginScreenChangeCaptureSuppression()
-            if !self.isDisplayReconfigurationActive {
-                self.scheduleScreenChangeReconcileWhenIdle()
-            }
+            if !self.isDisplayReconfigurationActive { self.scheduleScreenChangeReconcileWhenIdle() }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
     }
