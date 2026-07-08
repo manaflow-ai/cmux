@@ -18,6 +18,7 @@ import { makeAcpAdapter } from "./adapters/acp";
 import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -107,6 +108,7 @@ interface WsData {
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
+const turnGenerationContext = new AsyncLocalStorage<number>();
 const optionCatalog = new Map<string, {
   options: SessionOption[];
   fetchedAt: number;
@@ -242,7 +244,7 @@ function createSession(
 }
 
 function emitSessionEvent(sess: Session, evt: AgentEvent) {
-  const generation = Number(sess.internal.turnGeneration ?? 0);
+  const generation = turnGenerationContext.getStore() ?? Number(sess.internal.turnGeneration ?? 0);
   const generations = eventGenerations(sess);
   sess.events.push(evt);
   generations.push(generation);
@@ -307,7 +309,7 @@ export function insertDeferredTurnEvents(events: AgentEvent[], generations: numb
 }
 
 function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
-  const generation = Number(sess.internal.turnGeneration ?? 0);
+  const generation = turnGenerationContext.getStore() ?? Number(sess.internal.turnGeneration ?? 0);
   const pending = (async () => {
     const finalEvents: AgentEvent[] = [];
     const filesEvt = await filesChangedEvent(sess, DONE_FILES_TIMEOUT_MS)
@@ -336,15 +338,18 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
 }
 
 function sendPrompt(sess: Session, prompt: string) {
-  sess.internal.turnGeneration = Number(sess.internal.turnGeneration ?? 0) + 1;
-  sess.emit({ kind: "user", text: prompt });
-  Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
-    console.error("[agent-chat] send failed", err);
-    sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
-    // The UI treats "done" as the turn boundary; without it a failed send
-    // leaves an open streaming block with no footer.
-    sess.emit({ kind: "done" });
-    sess.setStatus("idle");
+  const generation = Number(sess.internal.turnGeneration ?? 0) + 1;
+  sess.internal.turnGeneration = generation;
+  turnGenerationContext.run(generation, () => {
+    sess.emit({ kind: "user", text: prompt });
+    Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+      console.error("[agent-chat] send failed", err);
+      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+      // The UI treats "done" as the turn boundary; without it a failed send
+      // leaves an open streaming block with no footer.
+      sess.emit({ kind: "done" });
+      sess.setStatus("idle");
+    });
   });
 }
 
@@ -1230,7 +1235,11 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       });
       if (requestId && !existing) {
         startRequests.set(requestId, { createdAt: Date.now(), promise: startPromise });
-        startPromise.catch(() => startRequests.delete(requestId));
+        startPromise.finally(() => {
+          setTimeout(() => {
+            if (startRequests.get(requestId)?.promise === startPromise) startRequests.delete(requestId);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
       }
       startPromise.then((sess) => {
         subscribe(ws, sess);

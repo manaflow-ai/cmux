@@ -82,7 +82,6 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   const last = blocks[blocks.length - 1];
   switch (evt.kind) {
     case "user":
-      if (last?.kind === "user" && last.text === evt.text) return blocks;
       return [...closeStreaming(blocks), { kind: "user", text: evt.text }];
     case "delta":
       if (last && last.kind === "assistant" && last.open) {
@@ -164,6 +163,12 @@ const PENDING_START_TIMEOUT_MS = 30_000;
 
 export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: string) {
   storage.setItem(composerDraftKey, prompt);
+}
+
+export function consumeOptimisticUserEcho(queue: string[], text: string): boolean {
+  if (queue[0] !== text) return false;
+  queue.shift();
+  return true;
 }
 
 export function useSession(): SessionState {
@@ -327,8 +332,7 @@ export function useSession(): SessionState {
           case "event":
             if (msg.sessionId === sessionIdRef.current) {
               const evt = msg.evt as AgentEvent;
-              if (evt.kind === "user" && optimisticUsersRef.current[0] === evt.text) {
-                optimisticUsersRef.current.shift();
+              if (evt.kind === "user" && consumeOptimisticUserEcho(optimisticUsersRef.current, evt.text)) {
                 break;
               }
               setBlocks((bs) => foldEvent(bs, evt));
