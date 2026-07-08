@@ -322,6 +322,19 @@ struct CodexHookInjectionStrippingTests {
             cmuxClaudeHookSettingsValue,
         ]))
         #expect(!runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
+            "/opt/pinned/claude",
+            "--settings",
+            userOwnedClaudeHookSettingsValue,
+        ]))
+        #expect(
+            runtimeUnwrapper.unwrappedArgv([
+                "node",
+                "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                "--settings",
+                userOwnedClaudeHookSettingsValue,
+            ]) == nil
+        )
+        #expect(!runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments([
             codexExecutable,
             "--model",
             "gpt-5.5",
@@ -379,10 +392,15 @@ struct CodexHookInjectionStrippingTests {
     /// A cmux-wrapper-injected claude hook settings payload in joined
     /// `--settings=` form.
     private let cmuxClaudeHookSettingsMarker =
-        #"--settings={"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"hooks claude session-start"}]}]}}"#
+        #"--settings={"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
 
     /// The same cmux-wrapper-injected claude hook settings payload in split
     /// `--settings <json>` form.
     private let cmuxClaudeHookSettingsValue =
-        #"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"hooks claude session-start"}]}]}}"#
+        #"{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
+
+    /// User-owned settings may mention hook commands without proving that cmux's
+    /// wrapper launched the executable.
+    private let userOwnedClaudeHookSettingsValue =
+        #"{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/Users/u/bin/hooks claude session-start"}]}]}}"#
 }
