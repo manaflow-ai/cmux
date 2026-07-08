@@ -831,9 +831,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         /// Route a clicked link to a brand-new cmux browser tab in the same
         /// pane as this markdown panel — mirroring how Browser panels open
-        /// child links via `openLinkInNewTab`. Falls back to the system
-        /// browser only when the in-app browser is disabled or the panel
-        /// can't be located in any workspace.
+        /// child links via `openLinkInNewTab`. Falls back to the preferred
+        /// external browser (or system default) when the in-app browser is
+        /// disabled or the panel can't be located in any workspace.
         private func handleExternalLink(_ url: URL) {
 #if DEBUG
             NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
@@ -856,7 +856,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             guard BrowserAvailabilitySettings.isEnabled() else {
-                NSWorkspace.shared.open(url)
+                cmuxOpenURLExternally(url)
                 return
             }
 
@@ -867,7 +867,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                   ),
                   let paneId = location.workspace.paneId(forPanelId: panelId) else {
                 // No workspace context — last-resort fallback.
-                NSWorkspace.shared.open(url)
+                cmuxOpenURLExternally(url)
                 return
             }
 
