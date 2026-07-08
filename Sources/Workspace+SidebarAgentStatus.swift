@@ -205,8 +205,11 @@ extension Workspace {
                 format: entry?.format ?? .plain,
                 lifecycle: agentLifecycleStatesByPanelId[item.panelId]?[item.statusKey],
                 paneLabel: includePaneLabels ? agentStatusRowPaneLabel(panelId: item.panelId) : nil,
-                priority: entry?.priority ?? workspaceEntry?.priority ?? 0,
-                timestamp: entry?.timestamp ?? workspaceEntry?.timestamp ?? .distantPast
+                // No workspace fallback here: when the pane is not the sole
+                // owner, the last-write-wins workspace entry's freshness must
+                // not influence this row's sort position either.
+                priority: entry?.priority ?? 0,
+                timestamp: entry?.timestamp ?? .distantPast
             )
         }
         return rows.sorted { lhs, rhs in

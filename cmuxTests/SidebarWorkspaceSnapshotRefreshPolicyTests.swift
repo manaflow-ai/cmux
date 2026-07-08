@@ -12,12 +12,14 @@ import Testing
 
 @Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
+        let currentAgentRows = [Self.agentStatusRow(value: "Running")]
         let current = Self.snapshot(
             title: "lmao",
             isPinned: false,
             customColorHex: nil,
             remoteConnectionStatusText: "Connected",
             latestConversationMessage: "old message",
+            agentStatusRows: currentAgentRows,
             listeningPorts: [3000],
             finderDirectoryPath: "/old"
         )
@@ -27,6 +29,7 @@ import Testing
             customColorHex: nil,
             remoteConnectionStatusText: "Disconnected",
             latestConversationMessage: "new message",
+            agentStatusRows: [],
             listeningPorts: [3000, 4000],
             finderDirectoryPath: nil
         )
@@ -45,6 +48,9 @@ import Testing
         #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
         #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
         #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
+        // Agent rows are noisy telemetry: they must survive the immediate
+        // context-menu refresh unchanged, like metadataEntries/listeningPorts.
+        #expect(decision.workspaceSnapshotStorage?.agentStatusRows == currentAgentRows)
         #expect(decision.workspaceSnapshotStorage?.finderDirectoryPath == nil)
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
@@ -131,6 +137,7 @@ import Testing
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
+        agentStatusRows: [SidebarAgentStatusRow] = [],
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
@@ -148,7 +155,7 @@ import Testing
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
-            agentStatusRows: [],
+            agentStatusRows: agentStatusRows,
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
@@ -161,6 +168,22 @@ import Testing
             listeningPorts: listeningPorts,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity
+        )
+    }
+
+    private static func agentStatusRow(value: String) -> SidebarAgentStatusRow {
+        SidebarAgentStatusRow(
+            panelId: UUID(),
+            statusKey: "claude_code",
+            value: value,
+            icon: nil,
+            color: nil,
+            url: nil,
+            format: .plain,
+            lifecycle: nil,
+            paneLabel: nil,
+            priority: 0,
+            timestamp: Date(timeIntervalSince1970: 0)
         )
     }
 

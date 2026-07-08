@@ -268,6 +268,97 @@ struct PerAgentSidebarStatusRowTests {
     }
 
     @Test
+    func testClosingPanelWithoutPIDClearsSoleOwnerWorkspaceStatus() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        // `set_status --panel` without `--pid`: the workspace slot and the
+        // panel copy are both written, but there is no PID ownership for the
+        // runtime cleanup to sweep.
+        let entry = makeEntry(key: "claude_code", value: "Running")
+        workspace.recordPanelStatusEntry(entry, panelId: secondPanelId)
+        workspace.statusEntries["claude_code"] = entry
+
+        _ = workspace.discardClosedPanelLifecycleState(
+            panelId: secondPanelId,
+            paneId: nil,
+            panel: workspace.panels[secondPanelId],
+            origin: "test",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false
+        )
+
+        // The closed pane was the key's only plausible owner, so the stale
+        // workspace-level slot must not survive to be adopted by a future
+        // same-type agent pane through the sole-owner fallback.
+        #expect(workspace.statusEntries["claude_code"] == nil)
+    }
+
+    @Test
+    func testClosingPanelKeepsWorkspaceStatusWhenAnotherPaneOwnsKey() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        let entry = makeEntry(key: "claude_code", value: "Running")
+        workspace.recordPanelStatusEntry(entry, panelId: firstPanelId)
+        workspace.recordPanelStatusEntry(entry, panelId: secondPanelId)
+        workspace.statusEntries["claude_code"] = entry
+
+        _ = workspace.discardClosedPanelLifecycleState(
+            panelId: secondPanelId,
+            paneId: nil,
+            panel: workspace.panels[secondPanelId],
+            origin: "test",
+            closePanel: false,
+            publishSurfaceClosedEvent: false,
+            clearSurfaceNotifications: false,
+            requestTransferredRemoteCleanup: false
+        )
+
+        // The first pane still owns the key, so the workspace-level slot
+        // stays for its sole-owner fallback.
+        #expect(workspace.statusEntries["claude_code"]?.value == "Running")
+        #expect(workspace.statusEntriesByPanelId[firstPanelId]?["claude_code"]?.value == "Running")
+    }
+
+    @Test
+    func testAmbiguousSharedKeyRowDoesNotInheritWorkspaceSortFreshness() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.recordAgentPID(key: "claude_code.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "claude_code.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
+        // Only the second pane has a panel-scoped entry; the workspace slot
+        // is newer and high-priority but ambiguous between the two panes.
+        workspace.recordPanelStatusEntry(
+            makeEntry(key: "claude_code", value: "Idle", timestamp: Date(timeIntervalSince1970: 100)),
+            panelId: secondPanelId
+        )
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            priority: 500,
+            timestamp: Date(timeIntervalSince1970: 9_999)
+        )
+
+        let rows = workspace.sidebarAgentStatusRows()
+        let rowsByPanel = Dictionary(uniqueKeysWithValues: rows.map { ($0.panelId, $0) })
+        // The pane without its own entry must not borrow the ambiguous
+        // workspace entry's freshness for sorting.
+        #expect(rowsByPanel[firstPanelId]?.priority == 0)
+        #expect(rowsByPanel[firstPanelId]?.timestamp == .distantPast)
+        #expect(rows.first?.panelId == secondPanelId)
+    }
+
+    @Test
     func testAccordionSummaryCounts() {
         func row(lifecycle: AgentHibernationLifecycleState?) -> SidebarAgentStatusRow {
             SidebarAgentStatusRow(

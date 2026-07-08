@@ -74,6 +74,12 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
+    /// `clear_status <key>` is the workspace-scoped user command: it removes
+    /// the key from the whole workspace, including every pane's panel-scoped
+    /// copy, by contract. Agent lifecycle hooks never send it; they clean up
+    /// via `clear_agent_pid <key> --panel=<surface> --clear-status`, which
+    /// routes through the panel-scoped `clearAgentPID` and cannot touch
+    /// sibling panes' rows.
     nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {
         controlSidebarScheduleMutation(target: target) { _, tab in
             _ = tab.statusEntries.removeValue(forKey: key)

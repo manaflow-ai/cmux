@@ -407,6 +407,7 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        let closedPanelStatusKeys = Set((statusEntriesByPanelId[panelId] ?? [:]).keys)
         statusEntriesByPanelId.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
@@ -418,6 +419,16 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
+        // A pane can hold a panel-scoped structured status with no recorded
+        // PID (`set_status --panel` without `--pid`); discardAgentRuntimeState
+        // only sweeps PID-owned keys. Clear the workspace-level slot for keys
+        // whose last plausible owner was this pane, or a future same-type
+        // agent pane would adopt the dead pane's text via the sole-owner
+        // fallback in sidebarAgentStatusRows().
+        for statusKey in closedPanelStatusKeys
+        where panelsOwningAgentStatusKey(statusKey).isEmpty && !hasAgentRuntime(forStatusKey: statusKey) {
+            statusEntries.removeValue(forKey: statusKey)
+        }
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
