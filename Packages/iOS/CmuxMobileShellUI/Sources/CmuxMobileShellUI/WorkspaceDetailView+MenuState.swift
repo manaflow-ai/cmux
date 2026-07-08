@@ -28,6 +28,10 @@ extension WorkspaceDetailView {
         workspace.terminals.map(TerminalPickerMenuRow.init)
     }
 
+    var terminalPickerLiveIDs: [MobileTerminalPreview.ID] {
+        workspace.terminals.map(\.id)
+    }
+
     var hasTitleMenuActions: Bool {
         workspace.actionCapabilities.supportsWorkspaceActions
             || workspace.actionCapabilities.supportsReadStateActions

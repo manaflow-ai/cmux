@@ -312,10 +312,10 @@ struct WorkspaceListView: View {
             updateMachineSnapshots(currentMachineSnapshots)
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
         }
-        .onChange(of: filteredWorkspaces) { _, _ in
-            optimisticFlatWorkspaces = nil
+        .onChange(of: filteredWorkspaceOrderKey) { _, _ in
+            if optimisticFlatWorkspaces != nil { optimisticFlatWorkspaces = nil }
         }
-        .onChange(of: groupedListItems) { _, _ in
+        .onChange(of: groupedWorkspaceOrderKey) { _, _ in
             syncOptimisticWorkspaceOrder()
         }
         .onChange(of: rendersGroupedSections) { _, _ in

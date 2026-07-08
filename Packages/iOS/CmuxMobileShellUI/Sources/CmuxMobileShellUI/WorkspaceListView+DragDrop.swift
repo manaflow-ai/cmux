@@ -22,6 +22,14 @@ extension WorkspaceListView {
         rendersGroupedSections ? groupedWorkspaces : filteredWorkspaces
     }
 
+    var filteredWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
+        filteredWorkspaces.map { WorkspaceListStableOrderKey(workspace: $0) }
+    }
+
+    var groupedWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
+        groupedListItems.map { WorkspaceListStableOrderKey(item: $0) }
+    }
+
     var canCreateWorkspaceInGroups: Bool {
         createWorkspaceInGroup != nil
             && canCreateWorkspaceForMacSelection
@@ -29,6 +37,11 @@ extension WorkspaceListView {
     }
 
     func syncOptimisticWorkspaceOrder() {
+        guard optimisticFlatWorkspaces != nil
+            || optimisticGroupedItems != nil
+            || optimisticGroupedWorkspaces != nil else {
+            return
+        }
         optimisticFlatWorkspaces = nil
         optimisticGroupedItems = nil
         optimisticGroupedWorkspaces = nil
@@ -96,6 +109,53 @@ extension WorkspaceListView {
             await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup)
             isWorkspaceMovePending = false
             syncOptimisticWorkspaceOrder()
+        }
+    }
+}
+
+struct WorkspaceListStableOrderKey: Equatable {
+    let rowID: String
+    let workspaceID: MobileWorkspacePreview.ID?
+    let groupID: MobileWorkspaceGroupPreview.ID?
+    let windowID: String?
+    let macDeviceID: String?
+    let isPinned: Bool?
+    let isGroupCollapsed: Bool?
+
+    init(workspace: MobileWorkspacePreview) {
+        rowID = "workspace.\(workspace.id.rawValue)"
+        workspaceID = workspace.id
+        groupID = workspace.groupID
+        windowID = workspace.windowID
+        macDeviceID = workspace.macDeviceID
+        isPinned = workspace.isPinned
+        isGroupCollapsed = nil
+    }
+
+    init(item: MobileWorkspaceListItem) {
+        rowID = item.id
+        switch item {
+        case .workspace(let workspace, _):
+            workspaceID = workspace.id
+            groupID = workspace.groupID
+            windowID = workspace.windowID
+            macDeviceID = workspace.macDeviceID
+            isPinned = workspace.isPinned
+            isGroupCollapsed = nil
+        case .groupHeader(let group, _):
+            workspaceID = group.anchorWorkspaceID
+            groupID = group.id
+            windowID = nil
+            macDeviceID = nil
+            isPinned = group.isPinned
+            isGroupCollapsed = group.isCollapsed
+        case .groupFooter(let groupID):
+            workspaceID = nil
+            self.groupID = groupID
+            windowID = nil
+            macDeviceID = nil
+            isPinned = nil
+            isGroupCollapsed = nil
         }
     }
 }

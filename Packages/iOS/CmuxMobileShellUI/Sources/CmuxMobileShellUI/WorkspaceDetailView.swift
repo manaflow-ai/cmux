@@ -385,7 +385,7 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(selection?.name ?? "")
         .onAppear(perform: syncTerminalPickerRows)
-        .onChange(of: liveRows) { _, _ in syncTerminalPickerRows() }
+        .onChange(of: terminalPickerLiveIDs) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
