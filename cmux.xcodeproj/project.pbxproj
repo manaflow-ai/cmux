@@ -406,7 +406,6 @@
 		A5FB1209 /* CmuxConfigActionDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120A /* CmuxConfigActionDefinition.swift */; };
 		A5FB1201 /* CmuxConfigActionSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1202 /* CmuxConfigActionSaver.swift */; };
 		A5FB1305 /* CmuxConfigActionSaverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1306 /* CmuxConfigActionSaverTests.swift */; };
-		C7D41E01 /* WorkspaceActionSaveDialogAccessoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D41E02 /* WorkspaceActionSaveDialogAccessoryTests.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
@@ -1439,6 +1438,7 @@
 		7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */; };
 		7F0A0E04A8CADC84BB4F1DF7 /* WorkspaceActionDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */; };
 		A5FB1313 /* WorkspaceActionSaveDialogAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1314 /* WorkspaceActionSaveDialogAccessory.swift */; };
+		C7D41E01 /* WorkspaceActionSaveDialogAccessoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D41E02 /* WorkspaceActionSaveDialogAccessoryTests.swift */; };
 		D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */; };
 		A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */; };
 		A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */; };
@@ -1961,7 +1961,6 @@
 		A5FB120A /* CmuxConfigActionDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionDefinition.swift; sourceTree = "<group>"; };
 		A5FB1202 /* CmuxConfigActionSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionSaver.swift; sourceTree = "<group>"; };
 		A5FB1306 /* CmuxConfigActionSaverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigActionSaverTests.swift; sourceTree = "<group>"; };
-		C7D41E02 /* WorkspaceActionSaveDialogAccessoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionSaveDialogAccessoryTests.swift; sourceTree = "<group>"; };
 		C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigContextMenuTests.swift; sourceTree = "<group>"; };
 		A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigExecutor+WorkspaceLaunch.swift"; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
@@ -2939,6 +2938,7 @@
 		C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcher.swift; sourceTree = "<group>"; };
 		EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcherTests.swift; sourceTree = "<group>"; };
 		A5FB1314 /* WorkspaceActionSaveDialogAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionSaveDialogAccessory.swift; sourceTree = "<group>"; };
+		C7D41E02 /* WorkspaceActionSaveDialogAccessoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionSaveDialogAccessoryTests.swift; sourceTree = "<group>"; };
 		D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAdjacentPaneMoveTests.swift; sourceTree = "<group>"; };
 		A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceConfigResolutionTests.swift; sourceTree = "<group>"; };
 		A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceResolution.swift; sourceTree = "<group>"; };
@@ -6216,7 +6216,6 @@
 					C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */,
 					C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */,
 				A5FB1305 /* CmuxConfigActionSaverTests.swift in Sources */,
-				C7D41E01 /* WorkspaceActionSaveDialogAccessoryTests.swift in Sources */,
 				C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */,
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				A5FB130C /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift in Sources */,
@@ -6474,6 +6473,7 @@
 				606600010000000000000001 /* WindowTerminalHostViewTitlebarHitTests.swift in Sources */,
 				604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */,
 				7F0A0E04A8CADC84BB4F1DF7 /* WorkspaceActionDispatcherTests.swift in Sources */,
+				C7D41E01 /* WorkspaceActionSaveDialogAccessoryTests.swift in Sources */,
 				D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */,
 				A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */,
 				D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */,
