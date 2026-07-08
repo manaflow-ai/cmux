@@ -6526,8 +6526,25 @@ extension BrowserPanel {
     private func syncDeveloperToolsPresentationPreferenceFromUI() {
         normalizeDeveloperToolsDockControls()
         if !detachedDeveloperToolsWindowsForPanel().isEmpty {
+            // A live detached inspector window is authoritative: while it
+            // exists (including mid-redock, before WebKit closes it), stay
+            // classified detached and let the close resolver adopt any
+            // attached layout once the window is actually gone.
             setPreferredDeveloperToolsPresentation(.detached)
             cancelDetachedDeveloperToolsWindowDismissal()
+        } else if hasAttachedDeveloperToolsLayout() {
+            // WebKit can open DevTools directly in its saved attached/bottom
+            // dock configuration without ever creating a detached window, so
+            // the close resolver never runs. Adopt the attached classification
+            // here or attached manual-close detection
+            // (`consumeAttachedDeveloperToolsManualCloseIfNeeded`) refuses to
+            // run and preserved visible intent can resurrect an inspector the
+            // user explicitly closed.
+            setPreferredDeveloperToolsPresentation(.attached)
+            developerToolsDetachedOpenGraceDeadline = nil
+            if developerToolsLastAttachedHostAt == nil {
+                developerToolsLastAttachedHostAt = Date()
+            }
         }
     }
 
