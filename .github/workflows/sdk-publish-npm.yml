@@ -124,7 +124,7 @@ jobs:
     # npm --provenance rejects self-hosted runners; the attestation is only
     # verifiable from a GitHub-hosted runner. This one publish job must stay on
     # ubuntu-latest (github-hosted), unlike the routed self-hosted jobs above.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
       contents: read
       id-token: write
