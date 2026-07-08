@@ -238,6 +238,27 @@ struct CodexHookInjectionStrippingTests {
         )
         #expect(
             AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                [
+                    "node",
+                    "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                    "--session-id",
+                    "4e06e114-61b2-48ed-93cd-561a23eb5216",
+                    cmuxClaudeHookSettingsMarker,
+                    "--model",
+                    "claude-fable-5",
+                ],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == [
+                "claude",
+                "--session-id",
+                "4e06e114-61b2-48ed-93cd-561a23eb5216",
+                cmuxClaudeHookSettingsMarker,
+                "--model",
+                "claude-fable-5",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
                 ["node", "/opt/homebrew/lib/node_modules/@openai/codex/dist/cli.js"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"],
                 isKnownAgentExecutableName: isKnownAgentExecutableName
             ) == ["codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
@@ -307,6 +328,13 @@ struct CodexHookInjectionStrippingTests {
         #expect(AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
             "/Users/u/.local/bin/claude", cmuxClaudeHookSettingsMarker,
         ]))
+        #expect(AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
+            "/Users/u/.local/bin/claude",
+            "--session-id",
+            "4e06e114-61b2-48ed-93cd-561a23eb5216",
+            "--settings",
+            cmuxClaudeHookSettingsValue,
+        ]))
         #expect(!AgentLaunchSanitizer.containsCmuxWrapperInjectedHookArguments([
             codexExecutable,
             "--model",
@@ -362,4 +390,9 @@ struct CodexHookInjectionStrippingTests {
     /// `--settings=` form.
     private let cmuxClaudeHookSettingsMarker =
         #"--settings={"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"hooks claude session-start"}]}]}}"#
+
+    /// The same cmux-wrapper-injected claude hook settings payload in split
+    /// `--settings <json>` form.
+    private let cmuxClaudeHookSettingsValue =
+        #"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"hooks claude session-start"}]}]}}"#
 }
