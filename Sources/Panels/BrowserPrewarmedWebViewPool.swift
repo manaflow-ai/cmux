@@ -45,7 +45,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     init(
         timeToLive: Duration = .seconds(180),
         makeWebView: @escaping @MainActor (UUID) -> CmuxWebView = { profileID in
-            BrowserPanel.makePrewarmedWebView(profileID: profileID)
+            BrowserPanel.makeWebView(profileID: profileID)
         },
         startLoad: @escaping @MainActor (CmuxWebView, URLRequest) -> Void = { webView, request in
             webView.load(request)

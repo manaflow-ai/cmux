@@ -712,54 +712,6 @@ enum BrowserInsecureHTTPSettings {
 
 }
 
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    defaults: UserDefaults = .standard
-) -> Bool {
-    browserShouldBlockInsecureHTTPURL(
-        url,
-        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
-    )
-}
-
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    rawAllowlist: String?
-) -> Bool {
-    guard url.scheme?.lowercased() == "http" else { return false }
-    guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return true }
-    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
-}
-
-func browserShouldConsumeOneTimeInsecureHTTPBypass(
-    _ url: URL,
-    bypassHostOnce: inout String?
-) -> Bool {
-    guard let bypassHost = bypassHostOnce else { return false }
-    guard url.scheme?.lowercased() == "http",
-          let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-        return false
-    }
-    guard host == bypassHost else { return false }
-    bypassHostOnce = nil
-    return true
-}
-
-func browserShouldPersistInsecureHTTPAllowlistSelection(
-    response: NSApplication.ModalResponse,
-    suppressionEnabled: Bool
-) -> Bool {
-    guard suppressionEnabled else { return false }
-    return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
-}
-
-func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
-    var preparedRequest = request
-    // Match browser behavior for ordinary loads while preserving method/body/headers.
-    preparedRequest.cachePolicy = .useProtocolCachePolicy
-    return preparedRequest
-}
-
 /// Carries the request and one-shot HTTP bypass needed to seed a retargeted tab.
 struct BrowserNewTabNavigationSeed {
     let url: URL
@@ -3619,23 +3571,9 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    /// The profile a panel would use for the given requested ID. Shared with
-    /// prewarm callers so a prewarmed webview and the panel that later adopts
-    /// it resolve to the same profile and website data store.
-    static func resolvedProfileID(requested: UUID?) -> UUID {
-        let requestedProfileID = requested ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
-        return BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
-            ? requestedProfileID
-            : BrowserProfileStore.shared.builtInDefaultProfileID
-    }
-
-    /// Factory for ``BrowserPrewarmedWebViewPool``: identical configuration to
-    /// the webview a panel builds for itself, so adoption is a drop-in swap.
-    static func makePrewarmedWebView(profileID: UUID) -> CmuxWebView {
-        makeWebView(profileID: profileID)
-    }
-
-    private static func makeWebView(
+    // Internal so BrowserPrewarmedWebViewPool builds prewarm webviews with
+    // identical configuration, making adoption a drop-in swap.
+    static func makeWebView(
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> CmuxWebView {
@@ -4027,20 +3965,16 @@ final class BrowserPanel: Panel, ObservableObject {
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
-        // Adopt a hover-prewarmed webview when it matches this panel's initial
-        // navigation exactly, so entrypoints like the Pro upgrade badge open an
-        // already-loaded page instead of starting a cold load.
-        var adoptedPrewarmedWebView = false
         let webView: CmuxWebView
-        if !isRemoteWorkspace,
-           initialRequest == nil,
-           renderInitialNavigation,
-           let initialURL,
-           let prewarmed = BrowserPrewarmedWebViewPool.shared.claim(
-               url: initialURL,
-               profileID: resolvedProfileID,
-               websiteDataStore: websiteDataStore
-           ) {
+        var adoptedPrewarmedWebView = false
+        if let prewarmed = Self.claimedPrewarmedWebView(
+            isRemoteWorkspace: isRemoteWorkspace,
+            initialRequest: initialRequest,
+            renderInitialNavigation: renderInitialNavigation,
+            initialURL: initialURL,
+            profileID: resolvedProfileID,
+            websiteDataStore: websiteDataStore
+        ) {
             webView = prewarmed
             adoptedPrewarmedWebView = true
         } else {
@@ -4246,8 +4180,7 @@ final class BrowserPanel: Panel, ObservableObject {
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
             if adoptedPrewarmedWebView {
-                // The adopted webview already finished this navigation while
-                // hidden; record it for recovery paths instead of reloading.
+                // Already navigated while hidden; record for recovery paths.
                 navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
                 refreshBackgroundAppearance()
             } else {
