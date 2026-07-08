@@ -22,6 +22,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
     private let directAddrs: [String]
     private let secretKey: [UInt8]?
     private let enableRelay: Bool
+    private let relayOnly: Bool
     private let connectTimeoutMilliseconds: UInt64
     private let maximumReceiveLength: Int
 
@@ -46,12 +47,15 @@ public actor CmxIrohByteTransport: CmxByteTransport {
     ///     Keychain key so the phone has a stable EndpointId).
     ///   - enableRelay: Whether the local endpoint enables n0 relays/discovery.
     ///     Defaults to true; tests pass false for hermetic loopback dials.
+    ///   - relayOnly: Whether the dialer disables local IP transports and dials
+    ///     with relay hints only. Defaults to false.
     public init(
         endpointID: String,
         relayURL: String?,
         directAddrs: [String],
         secretKey: [UInt8]? = nil,
         enableRelay: Bool = true,
+        relayOnly: Bool = false,
         connectTimeoutMilliseconds: UInt64 = CmxIrohByteTransport.defaultConnectTimeoutMilliseconds,
         maximumReceiveLength: Int = CmxIrohByteTransport.defaultMaximumReceiveLength
     ) {
@@ -60,6 +64,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         self.directAddrs = directAddrs
         self.secretKey = secretKey
         self.enableRelay = enableRelay
+        self.relayOnly = relayOnly
         self.connectTimeoutMilliseconds = connectTimeoutMilliseconds
         self.maximumReceiveLength = maximumReceiveLength
     }
@@ -71,6 +76,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         route: CmxAttachRoute,
         secretKey: [UInt8]? = nil,
         enableRelay: Bool = true,
+        relayOnly: Bool = false,
         connectTimeoutMilliseconds: UInt64 = CmxIrohByteTransport.defaultConnectTimeoutMilliseconds,
         maximumReceiveLength: Int = CmxIrohByteTransport.defaultMaximumReceiveLength
     ) throws {
@@ -87,6 +93,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
             directAddrs: directAddrs,
             secretKey: secretKey,
             enableRelay: enableRelay,
+            relayOnly: relayOnly,
             connectTimeoutMilliseconds: connectTimeoutMilliseconds,
             maximumReceiveLength: maximumReceiveLength
         )
@@ -119,25 +126,43 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         let relay = relayURL
         let addrs = directAddrs
         let relayEnabled = enableRelay
+        let relayOnlyDial = relayOnly
         let timeout = connectTimeoutMilliseconds
 
         let result = await runBlocking { () -> Result<CmxIrohHandles, CmxIrohByteTransportError> in
             let bind = Self.withErrorBuffer { kindPtr, errBuf, cap in
                 key.withUnsafeBufferPointer { keyBuffer in
-                    cmux_iroh_endpoint_bind(
-                        keyBuffer.baseAddress,
-                        keyBuffer.count,
-                        relayEnabled,
-                        // The dialer homes on the default relay fleet; the
-                        // peer's relay (custom or default) is supplied as a dial
-                        // hint in `dialConnection` below, so cross-relay dials
-                        // still work.
-                        nil,
-                        false,
-                        kindPtr,
-                        errBuf,
-                        cap
-                    )
+                    if relayOnlyDial {
+                        cmux_iroh_endpoint_bind_relay_only(
+                            keyBuffer.baseAddress,
+                            keyBuffer.count,
+                            relayEnabled,
+                            // The dialer homes on the default relay fleet; the
+                            // peer's relay (custom or default) is supplied as a dial
+                            // hint in `dialConnection` below, so cross-relay dials
+                            // still work.
+                            nil,
+                            false,
+                            kindPtr,
+                            errBuf,
+                            cap
+                        )
+                    } else {
+                        cmux_iroh_endpoint_bind(
+                            keyBuffer.baseAddress,
+                            keyBuffer.count,
+                            relayEnabled,
+                            // The dialer homes on the default relay fleet; the
+                            // peer's relay (custom or default) is supplied as a dial
+                            // hint in `dialConnection` below, so cross-relay dials
+                            // still work.
+                            nil,
+                            false,
+                            kindPtr,
+                            errBuf,
+                            cap
+                        )
+                    }
                 }
             }
             guard let endpoint = bind.result else {
@@ -149,6 +174,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
                     endpointID: id,
                     relayURL: relay,
                     directAddrs: addrs,
+                    relayOnly: relayOnlyDial,
                     timeoutMs: timeout,
                     kindPtr,
                     errBuf,
@@ -170,13 +196,21 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         switch result {
         case let .success(handles):
             endpoint = handles.endpoint.value
-            stream = CmxIrohByteStream(
+            let openedStream = CmxIrohByteStream(
                 connection: handles.connection.value,
                 maximumReceiveLength: maximumReceiveLength
             )
+            stream = openedStream
+            let pathKind = await openedStream.connectionPathKind()
+            Self.diagnosticLogger.info("iroh path=\(pathKind, privacy: .public)")
         case let .failure(error):
             throw error
         }
+    }
+
+    public func connectionPathKind() async -> String {
+        guard let stream else { return "unknown" }
+        return await stream.connectionPathKind()
     }
 
     public func receive() async throws -> Data? {

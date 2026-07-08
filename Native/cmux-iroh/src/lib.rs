@@ -408,6 +408,49 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_bind(
         enable_relay,
         relay_url,
         accept_connections,
+        false,
+    );
+    match result {
+        Ok(endpoint) => register_endpoint(EndpointInner { endpoint }),
+        Err(error) => {
+            report_error(err_kind, err_buf, err_cap, &error);
+            ptr::null_mut()
+        }
+    }
+}
+
+/// Binds an iroh endpoint for relay-only dialing.
+///
+/// This is the same as [`cmux_iroh_endpoint_bind`], except it removes all IP
+/// transports from the local endpoint builder. Without local IP transports,
+/// this endpoint cannot create a direct LAN/loopback path; callers should pair
+/// this with [`cmux_iroh_endpoint_connect_relay_only`] so the remote hints are
+/// relay-only too. Intended for DEBUG/simulator verification of the production
+/// relay path; the default bind/connect APIs retain direct+relay behavior.
+///
+/// # Safety
+///
+/// Same contract as [`cmux_iroh_endpoint_bind`].
+#[unsafe(no_mangle)]
+#[must_use]
+pub unsafe extern "C" fn cmux_iroh_endpoint_bind_relay_only(
+    secret_key: *const u8,
+    secret_key_len: usize,
+    enable_relay: bool,
+    relay_url: *const c_char,
+    accept_connections: bool,
+    err_kind: *mut i32,
+    err_buf: *mut c_char,
+    err_cap: usize,
+) -> *mut CmuxIrohEndpoint {
+    clear_error(err_kind, err_buf, err_cap);
+    let result = bind_impl(
+        secret_key,
+        secret_key_len,
+        enable_relay,
+        relay_url,
+        accept_connections,
+        true,
     );
     match result {
         Ok(endpoint) => register_endpoint(EndpointInner { endpoint }),
@@ -424,6 +467,7 @@ fn bind_impl(
     enable_relay: bool,
     relay_url: *const c_char,
     accept_connections: bool,
+    relay_only: bool,
 ) -> Result<Endpoint, FfiError> {
     let key = parse_secret_key(secret_key, secret_key_len)?;
     // Parse an optional custom relay URL up front so a malformed value fails
@@ -449,6 +493,9 @@ fn bind_impl(
             let mut builder = Endpoint::builder(presets::N0)
                 .secret_key(key)
                 .relay_mode(relay_mode);
+            if relay_only {
+                builder = builder.clear_ip_transports();
+            }
             if accept_connections {
                 builder = builder.alpns(vec![ALPN.to_vec()]);
             }
@@ -632,6 +679,56 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_connect(
             direct_addrs,
             direct_addr_count,
             timeout_ms,
+            false,
+        )
+    };
+    finish_connection(result, err_kind, err_buf, err_cap)
+}
+
+/// Dials `endpoint_id` using only the supplied relay URL, ignoring direct
+/// address hints, and opens one bidirectional stream.
+///
+/// This is the dial-side pair for [`cmux_iroh_endpoint_bind_relay_only`]. It
+/// constructs the remote [`EndpointAddr`] from the peer id and relay URL only;
+/// no direct socket addresses are parsed or passed to iroh. The local endpoint
+/// should also have been bound via [`cmux_iroh_endpoint_bind_relay_only`] to
+/// remove local IP transports and prevent later LAN/loopback path creation.
+/// `relay_url` is required because an id-only relay-only dial would otherwise
+/// fall back to discovery, which can learn direct addresses.
+///
+/// # Safety
+///
+/// Same contract as [`cmux_iroh_endpoint_connect`]. `direct_addrs` is ignored
+/// and may be null.
+#[unsafe(no_mangle)]
+#[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "C ABI surface; grouping into structs would complicate the Swift call sites"
+)]
+pub unsafe extern "C" fn cmux_iroh_endpoint_connect_relay_only(
+    endpoint: *mut CmuxIrohEndpoint,
+    endpoint_id: *const c_char,
+    relay_url: *const c_char,
+    direct_addrs: *const *const c_char,
+    direct_addr_count: usize,
+    timeout_ms: u64,
+    err_kind: *mut i32,
+    err_buf: *mut c_char,
+    err_cap: usize,
+) -> *mut CmuxIrohConnection {
+    clear_error(err_kind, err_buf, err_cap);
+    // SAFETY: forwarded caller contract for `endpoint`, `endpoint_id`, and
+    // `relay_url`; direct address parameters are intentionally ignored.
+    let result = unsafe {
+        connect_impl(
+            endpoint,
+            endpoint_id,
+            relay_url,
+            direct_addrs,
+            direct_addr_count,
+            timeout_ms,
+            true,
         )
     };
     finish_connection(result, err_kind, err_buf, err_cap)
@@ -647,6 +744,7 @@ unsafe fn connect_impl(
     direct_addrs: *const *const c_char,
     direct_addr_count: usize,
     timeout_ms: u64,
+    relay_only: bool,
 ) -> Result<(Connection, SendStream, RecvStream), FfiError> {
     let endpoint = lookup_endpoint(endpoint)?;
     let Some(id_str) = c_to_str(endpoint_id) else {
@@ -663,7 +761,7 @@ unsafe fn connect_impl(
     })?;
 
     let mut addrs: Vec<TransportAddr> = Vec::new();
-    if !direct_addrs.is_null() {
+    if !relay_only && !direct_addrs.is_null() {
         for index in 0..direct_addr_count {
             // SAFETY: caller guarantees `direct_addrs` points at
             // `direct_addr_count` entries.
@@ -691,6 +789,11 @@ unsafe fn connect_impl(
             )
         })?;
         addrs.push(TransportAddr::Relay(url));
+    } else if relay_only {
+        return Err(FfiError::new(
+            CmuxIrohErrorKind::InvalidArgument,
+            "relay-only connect requires a relay url",
+        ));
     }
     let addr = if addrs.is_empty() {
         EndpointAddr::from(id)
@@ -720,6 +823,69 @@ unsafe fn connect_impl(
         })
         .await?
     })
+}
+
+/// Returns the current iroh transport path type for a live connection.
+///
+/// Return values are ABI:
+/// - `0`: none/unknown (no open path or only custom/unsupported paths)
+/// - `1`: relay
+/// - `2`: direct IP
+/// - `3`: mixed relay+direct paths with no selected application-data path
+///
+/// The value is derived from iroh rc.1's live [`Connection::paths`] snapshot.
+/// When iroh has selected a path for application data, that selected path wins;
+/// otherwise the open-path set is summarized. This call does not block.
+///
+/// # Safety
+///
+/// - `connection`, when non-null, must be a live pointer returned by
+///   `cmux_iroh_endpoint_accept`/`cmux_iroh_endpoint_connect` that has not
+///   been closed.
+/// - Error out-params as on `cmux_iroh_endpoint_bind`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_iroh_connection_type(
+    connection: *const CmuxIrohConnection,
+    err_kind: *mut i32,
+    err_buf: *mut c_char,
+    err_cap: usize,
+) -> c_int {
+    clear_error(err_kind, err_buf, err_cap);
+    match lookup_connection(connection) {
+        Ok(connection) => connection_type_impl(&connection),
+        Err(error) => {
+            report_error(err_kind, err_buf, err_cap, &error);
+            0
+        }
+    }
+}
+
+fn connection_type_impl(connection: &ConnectionInner) -> c_int {
+    let paths = connection.connection.paths();
+    let mut has_relay = false;
+    let mut has_direct = false;
+
+    for path in paths.iter() {
+        let path_type = if path.is_relay() {
+            has_relay = true;
+            1
+        } else if path.is_ip() {
+            has_direct = true;
+            2
+        } else {
+            0
+        };
+        if path.is_selected() && path_type != 0 {
+            return path_type;
+        }
+    }
+
+    match (has_relay, has_direct) {
+        (true, true) => 3,
+        (true, false) => 1,
+        (false, true) => 2,
+        (false, false) => 0,
+    }
 }
 
 /// Receives up to `cap` bytes. Returns bytes read (>0), 0 on clean end of
@@ -1254,6 +1420,54 @@ mod ffi_seam_tests {
     }
 
     #[test]
+    fn relay_only_connect_requires_relay_url_and_ignores_direct_addrs() {
+        let _bind_symbol: unsafe extern "C" fn(
+            *const u8,
+            usize,
+            bool,
+            *const c_char,
+            bool,
+            *mut i32,
+            *mut c_char,
+            usize,
+        ) -> *mut CmuxIrohEndpoint = cmux_iroh_endpoint_bind_relay_only;
+
+        let key = generate_key();
+        let endpoint = bind(&key, false);
+        let peer_key = generate_key();
+        let peer_id = take_string(unsafe {
+            cmux_iroh_secret_key_endpoint_id(peer_key.as_ptr(), peer_key.len())
+        });
+        let id_cstr = CString::new(peer_id).expect("cstring");
+        let addrs_with_null: [*const c_char; 1] = [ptr::null()];
+
+        let mut err = ErrOut::new();
+        let connection = unsafe {
+            cmux_iroh_endpoint_connect_relay_only(
+                endpoint,
+                id_cstr.as_ptr(),
+                ptr::null(),
+                addrs_with_null.as_ptr(),
+                addrs_with_null.len(),
+                1_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(connection.is_null());
+        assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
+        assert!(
+            err.message()
+                .contains("relay-only connect requires a relay url"),
+            "{}",
+            err.message()
+        );
+
+        cmux_iroh_endpoint_close(endpoint);
+    }
+
+    #[test]
     #[allow(
         clippy::too_many_lines,
         reason = "one deliberate end-to-end scenario: bind two endpoints, dial, roundtrip, clean close"
@@ -1435,6 +1649,18 @@ mod ffi_seam_tests {
             echoed.extend_from_slice(&buf[..read]);
         }
         assert_eq!(echoed, payload, "echoed bytes must match");
+
+        let mut err = ErrOut::new();
+        let path_type = unsafe {
+            cmux_iroh_connection_type(connection, &raw mut err.kind, err.buf.as_mut_ptr(), ERR_CAP)
+        };
+        assert_eq!(
+            path_type,
+            2,
+            "relay-less loopback must report direct path type (kind {}, message {:?})",
+            err.kind(),
+            err.message()
+        );
 
         cmux_iroh_connection_close(connection);
         accept_thread.join().expect("accept thread joins cleanly");

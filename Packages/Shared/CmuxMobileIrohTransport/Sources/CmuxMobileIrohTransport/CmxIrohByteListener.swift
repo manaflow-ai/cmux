@@ -19,6 +19,7 @@ public actor CmxIrohByteListener {
     private let secretKey: [UInt8]?
     private let enableRelay: Bool
     private let relayURL: String?
+    private let relayOnly: Bool
     private let maximumReceiveLength: Int
 
     private var endpoint: OpaquePointer?
@@ -38,15 +39,19 @@ public actor CmxIrohByteListener {
     ///   - relayURL: When set (and `enableRelay` is true), the endpoint homes on
     ///     this custom relay (the user's own `iroh-relay`) instead of the default
     ///     n0 fleet. nil/empty keeps the default fleet (cmux-hosted iroh).
+    ///   - relayOnly: Whether the listener disables local IP transports.
+    ///     Defaults to false.
     public init(
         secretKey: [UInt8]? = nil,
         enableRelay: Bool = true,
         relayURL: String? = nil,
+        relayOnly: Bool = false,
         maximumReceiveLength: Int = CmxIrohByteTransport.defaultMaximumReceiveLength
     ) {
         self.secretKey = secretKey
         self.enableRelay = enableRelay
         self.relayURL = relayURL
+        self.relayOnly = relayOnly
         self.maximumReceiveLength = maximumReceiveLength
     }
 
@@ -69,21 +74,35 @@ public actor CmxIrohByteListener {
         }
         let relayEnabled = enableRelay
         let relay = relayURL
+        let relayOnlyBind = relayOnly
 
         let result = await runBlocking { () -> Result<CmxIrohUnsafeBox<OpaquePointer>, CmxIrohByteTransportError> in
             let bind = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
                 CmxIrohByteTransport.withOptionalCString(relay) { relayC in
                     key.withUnsafeBufferPointer { keyBuffer in
-                        cmux_iroh_endpoint_bind(
-                            keyBuffer.baseAddress,
-                            keyBuffer.count,
-                            relayEnabled,
-                            relayC,
-                            true,
-                            kindPtr,
-                            errBuf,
-                            cap
-                        )
+                        if relayOnlyBind {
+                            cmux_iroh_endpoint_bind_relay_only(
+                                keyBuffer.baseAddress,
+                                keyBuffer.count,
+                                relayEnabled,
+                                relayC,
+                                true,
+                                kindPtr,
+                                errBuf,
+                                cap
+                            )
+                        } else {
+                            cmux_iroh_endpoint_bind(
+                                keyBuffer.baseAddress,
+                                keyBuffer.count,
+                                relayEnabled,
+                                relayC,
+                                true,
+                                kindPtr,
+                                errBuf,
+                                cap
+                            )
+                        }
                     }
                 }
             }
@@ -169,10 +188,13 @@ public actor CmxIrohByteListener {
                 CmxIrohConnectFailureKind(rawKind: outcome.errorKind)
             )
         }
-        return CmxIrohByteStream(
+        let stream = CmxIrohByteStream(
             connection: connectionBox.value,
             maximumReceiveLength: capacity
         )
+        let pathKind = await stream.connectionPathKind()
+        CmxIrohByteTransport.diagnosticLogger.info("iroh path=\(pathKind, privacy: .public)")
+        return stream
     }
 
     /// Closes the endpoint, waking any blocked ``accept()``. Idempotent.

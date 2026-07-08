@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 internal import CmuxIrohFFI
 
 // Low-level CmuxIrohFFI bridging, scoped onto the transport that owns it rather
@@ -6,6 +7,8 @@ internal import CmuxIrohFFI
 // endpoint exists (key generation) or inside the actor's background queue
 // closures (the error-buffer and C-string marshalling shims).
 extension CmxIrohByteTransport {
+    static let diagnosticLogger = Logger(subsystem: "dev.cmux", category: "mobile-iroh")
+
     /// Length in bytes of an iroh Ed25519 secret key (CMUX_IROH_SECRET_KEY_LEN).
     static let secretKeyLength = 32
 
@@ -47,6 +50,7 @@ extension CmxIrohByteTransport {
         endpointID: String,
         relayURL: String?,
         directAddrs: [String],
+        relayOnly: Bool,
         timeoutMs: UInt64,
         _ errKind: UnsafeMutablePointer<Int32>,
         _ errBuffer: UnsafeMutablePointer<CChar>,
@@ -55,19 +59,42 @@ extension CmxIrohByteTransport {
         endpointID.withCString { idC in
             withOptionalCString(relayURL) { relayC in
                 withCStringArray(directAddrs) { addrsPointer, addrCount in
-                    cmux_iroh_endpoint_connect(
-                        endpoint,
-                        idC,
-                        relayC,
-                        addrsPointer,
-                        addrCount,
-                        timeoutMs,
-                        errKind,
-                        errBuffer,
-                        errCapacity
-                    )
+                    if relayOnly {
+                        cmux_iroh_endpoint_connect_relay_only(
+                            endpoint,
+                            idC,
+                            relayC,
+                            addrsPointer,
+                            addrCount,
+                            timeoutMs,
+                            errKind,
+                            errBuffer,
+                            errCapacity
+                        )
+                    } else {
+                        cmux_iroh_endpoint_connect(
+                            endpoint,
+                            idC,
+                            relayC,
+                            addrsPointer,
+                            addrCount,
+                            timeoutMs,
+                            errKind,
+                            errBuffer,
+                            errCapacity
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    static func pathKindName(_ rawValue: Int32) -> String {
+        switch rawValue {
+        case 1: "relay"
+        case 2: "direct"
+        case 3: "mixed"
+        default: "unknown"
         }
     }
 

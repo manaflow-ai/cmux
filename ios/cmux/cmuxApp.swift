@@ -28,8 +28,16 @@ struct cmuxApp: App {
         var registrations = networkKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
+        #if DEBUG
+        let irohRelayOnly = ProcessInfo.processInfo.environment["CMUX_IROH_RELAY_ONLY"] == "1"
+        #else
+        let irohRelayOnly = false
+        #endif
         registrations.append(
-            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: CmxIrohByteTransportFactory())
+            CmxRouteTransportFactoryRegistration(
+                kind: .iroh,
+                factory: CmxIrohByteTransportFactory(relayOnly: irohRelayOnly)
+            )
         )
         let transportFactory: CmxRouteTransportFactory
         do {

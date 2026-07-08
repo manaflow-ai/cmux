@@ -36,6 +36,15 @@ public actor CmxIrohByteStream {
         self.maximumReceiveLength = maximumReceiveLength
     }
 
+    public func connectionPathKind() -> String {
+        guard let connection, !didClose else { return "unknown" }
+        let outcome = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
+            cmux_iroh_connection_type(connection, kindPtr, errBuf, cap)
+        }
+        guard outcome.errorKind == 0 else { return "unknown" }
+        return CmxIrohByteTransport.pathKindName(outcome.result)
+    }
+
     /// Reads the next chunk, or nil at a clean end of stream.
     public func receive() async throws -> Data? {
         if didClose { return nil }

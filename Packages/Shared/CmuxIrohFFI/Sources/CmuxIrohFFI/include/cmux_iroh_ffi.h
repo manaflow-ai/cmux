@@ -71,6 +71,20 @@ CmuxIrohEndpoint *cmux_iroh_endpoint_bind(
     char *err_buf,
     size_t err_cap);
 
+// Binds an endpoint with relays enabled as requested but with all local IP
+// transports removed. Pair with cmux_iroh_endpoint_connect_relay_only for
+// DEBUG/simulator relay-path verification; the default bind/connect APIs keep
+// direct+relay behavior.
+CmuxIrohEndpoint *cmux_iroh_endpoint_bind_relay_only(
+    const uint8_t *secret_key,
+    size_t secret_key_len,
+    bool enable_relay,
+    const char *relay_url,
+    bool accept_connections,
+    int32_t *err_kind,
+    char *err_buf,
+    size_t err_cap);
+
 // Returns the endpoint's EndpointId (z-base-32) as a heap string.
 // Free with cmux_iroh_string_free.
 char *cmux_iroh_endpoint_id(const CmuxIrohEndpoint *endpoint);
@@ -110,6 +124,31 @@ CmuxIrohConnection *cmux_iroh_endpoint_connect(
     const char *const *direct_addrs,
     size_t direct_addr_count,
     uint64_t timeout_ms,
+    int32_t *err_kind,
+    char *err_buf,
+    size_t err_cap);
+
+// Dials endpoint_id using relay_url only, ignoring direct_addrs. relay_url is
+// required; an id-only dial would fall back to discovery and could learn direct
+// addresses. Use with cmux_iroh_endpoint_bind_relay_only on the local dialer
+// endpoint to prevent later LAN/loopback path creation.
+CmuxIrohConnection *cmux_iroh_endpoint_connect_relay_only(
+    CmuxIrohEndpoint *endpoint,
+    const char *endpoint_id,
+    const char *relay_url,
+    const char *const *direct_addrs,
+    size_t direct_addr_count,
+    uint64_t timeout_ms,
+    int32_t *err_kind,
+    char *err_buf,
+    size_t err_cap);
+
+// Returns the current iroh transport path type for a live connection:
+// 0 = none/unknown, 1 = relay, 2 = direct IP, 3 = mixed relay+direct paths
+// with no selected application-data path. Derived from iroh's live path
+// snapshot and does not block.
+int cmux_iroh_connection_type(
+    const CmuxIrohConnection *connection,
     int32_t *err_kind,
     char *err_buf,
     size_t err_cap);

@@ -9,13 +9,16 @@ public struct CmxIrohByteTransportFactory: CmxRouteAwareByteTransportFactory {
     /// ephemeral key; full PR 3 supplies the stable Keychain key so the phone
     /// keeps one EndpointId.
     private let secretKey: [UInt8]?
+    private let relayOnly: Bool
     private let maximumReceiveLength: Int
 
     public init(
         secretKey: [UInt8]? = nil,
+        relayOnly: Bool = false,
         maximumReceiveLength: Int = CmxIrohByteTransport.defaultMaximumReceiveLength
     ) {
         self.secretKey = secretKey
+        self.relayOnly = relayOnly
         self.maximumReceiveLength = maximumReceiveLength
     }
 
@@ -26,6 +29,7 @@ public struct CmxIrohByteTransportFactory: CmxRouteAwareByteTransportFactory {
         return try CmxIrohByteTransport(
             route: route,
             secretKey: secretKey,
+            relayOnly: relayOnly,
             maximumReceiveLength: maximumReceiveLength
         )
     }
