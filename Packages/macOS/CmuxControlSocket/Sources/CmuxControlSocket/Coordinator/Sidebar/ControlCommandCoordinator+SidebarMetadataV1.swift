@@ -332,6 +332,9 @@ extension ControlCommandCoordinator {
         ) else {
             return "ERROR: Workspace not found"
         }
+        if let failureReason = result.failureReason {
+            return "ERROR: \(failureReason)"
+        }
         func label(_ value: Bool) -> String { value ? "ON" : "OFF" }
         return "before=\(label(result.before));after=\(label(result.after))"
     }

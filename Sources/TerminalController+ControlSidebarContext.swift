@@ -177,8 +177,21 @@ extension TerminalController: ControlSidebarContext {
             let manualLoaderCount = tab.agentLifecycleStatesByPanelId.values.reduce(0) { partial, states in
                 partial + states.keys.reduce(0) { AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0 }
             }
-            if manualLoaderCount < 32, let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
+            guard manualLoaderCount < 32 else {
+                return ControlSidebarWorkspaceLoadingState(
+                    before: before,
+                    after: tab.hasRunningAgentLifecycle(key: key),
+                    failureReason: "Manual workspace loading limit reached"
+                )
+            }
+            if let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
                 tab.setAgentLifecycle(key: key, panelId: panelId, lifecycle: .running)
+            } else {
+                return ControlSidebarWorkspaceLoadingState(
+                    before: before,
+                    after: false,
+                    failureReason: "Workspace has no panel for manual loading"
+                )
             }
         } else {
             // Workspace-scoped: clear from all panels, not just the caller's.
