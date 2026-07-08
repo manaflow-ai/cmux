@@ -17,6 +17,25 @@ enum ProUpgradePresenter {
         presentAppPricingWeb()
     }
 
+    /// Hover hook for upgrade entrypoints: loads the pricing page into a
+    /// hidden webview so a subsequent ``present()`` adopts it and opens
+    /// instantly. Safe to call repeatedly; a live matching entry is a no-op.
+    @MainActor
+    static func prefetch() {
+        guard BrowserAvailabilitySettings.isEnabled() else { return }
+        // When an upgrade workspace already exists, present() refocuses it and
+        // navigates its existing panel, so a prewarmed webview would go unused.
+        if let workspaceId = workspaceReuseState.workspaceId,
+           let appDelegate = AppDelegate.shared,
+           appDelegate.proUpgradeWorkspaceExists(workspaceId: workspaceId) {
+            return
+        }
+        BrowserPrewarmedWebViewPool.shared.prewarm(
+            url: appPricingURLForCurrentAppearance(),
+            profileID: BrowserPanel.resolvedProfileID(requested: nil)
+        )
+    }
+
     @MainActor
     static func presentAppPricingWeb() {
         let url = appPricingURLForCurrentAppearance()

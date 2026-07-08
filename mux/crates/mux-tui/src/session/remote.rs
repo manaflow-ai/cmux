@@ -343,6 +343,14 @@ impl RemoteSession {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
             }
+            Some("layout-changed") => {
+                self.tree_stale.store(true, Ordering::Release);
+                if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
+                    self.emit(MuxEvent::LayoutChanged(screen));
+                } else {
+                    self.emit(MuxEvent::TreeChanged);
+                }
+            }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
                     self.tree_stale.store(true, Ordering::Release);
@@ -367,6 +375,21 @@ impl RemoteSession {
             Some("status") => {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
                     self.emit(MuxEvent::Status(message.to_string()));
+                }
+            }
+            Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
+            Some("window-title-requested") => {
+                if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
+                    self.emit(MuxEvent::WindowTitleRequested(title.to_string()));
+                }
+            }
+            Some("scroll-changed") => {
+                if let (Some(surface), Some(offset), Some(at_bottom)) = (
+                    surface_id(),
+                    value.get("offset").and_then(|v| v.as_u64()),
+                    value.get("at_bottom").and_then(|v| v.as_bool()),
+                ) {
+                    self.emit(MuxEvent::ScrollChanged { surface, offset, at_bottom });
                 }
             }
             Some("empty") => self.emit(MuxEvent::Empty),

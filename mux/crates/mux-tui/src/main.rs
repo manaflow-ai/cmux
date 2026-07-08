@@ -73,14 +73,17 @@ MOUSE
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, list-workspaces, send, read-screen, vt-state, new-tab,
-  new-browser-tab, new-workspace, new-screen, split, set-ratio,
-  set-default-colors, close-surface, close-pane, close-screen,
-  close-workspace, rename-pane, rename-surface, rename-screen,
-  rename-workspace, resize-surface, focus-pane, select-tab,
-  select-screen, select-workspace, move-tab, move-workspace,
-  scroll-surface, subscribe, attach-surface, wait-for, run,
-  send-key, copy, ids, notify, list-agents, report-agent
+  identify, ping, reload-config, set-window-title, clear-window-title,
+  list-workspaces, export-layout, apply-layout, send,
+  read-screen, vt-state, new-tab, new-browser-tab, new-workspace,
+  new-screen, split, set-ratio, pane-neighbor, focus-direction,
+  swap-pane, zoom-pane, process-info, set-default-colors,
+  close-surface, close-pane, close-screen, close-workspace,
+  rename-pane, rename-surface, rename-screen, rename-workspace,
+  resize-surface, focus-pane, select-tab, select-screen,
+  select-workspace, move-tab, move-workspace, scroll-surface,
+  subscribe, attach-surface, wait-for, run, send-key, copy, ids,
+  notify, list-agents, report-agent
 ";
 
 struct Args {
@@ -155,14 +158,7 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 fn run_server(args: Args) -> anyhow::Result<()> {
     let mut surface_options = SurfaceOptions::default();
     let config = config::load();
-    surface_options.chrome_binary = config.browser.chrome_binary.clone();
-    surface_options.cdp_url = config.browser.cdp_url.clone();
-    surface_options.browser_discover = config.browser.discover;
-    surface_options.browser_discover_ports = config.browser.discover_ports.clone();
-    surface_options.browser_user_data_dir = config.browser.user_data_dir.clone();
-    surface_options.browser_ephemeral = config.browser.ephemeral;
-    surface_options.browser_max_capture_megapixels = config.browser.max_capture_megapixels;
-    surface_options.browser_capture_scale = config.browser.capture_scale;
+    config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
     }

@@ -48,11 +48,47 @@ const VERBS: &[VerbSpec] = &[
         print: print_identify,
         stream: false,
     },
+    VerbSpec { name: "ping", allowed: &[], build: build_no_args, print: print_ping, stream: false },
+    VerbSpec {
+        name: "reload-config",
+        allowed: &[],
+        build: build_no_args,
+        print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "set-window-title",
+        allowed: &["title"],
+        build: build_set_window_title,
+        print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "clear-window-title",
+        allowed: &[],
+        build: build_no_args,
+        print: print_empty,
+        stream: false,
+    },
     VerbSpec {
         name: "list-workspaces",
         allowed: &[],
         build: build_no_args,
         print: print_tree,
+        stream: false,
+    },
+    VerbSpec {
+        name: "export-layout",
+        allowed: &["screen"],
+        build: build_export_layout,
+        print: print_json_data,
+        stream: false,
+    },
+    VerbSpec {
+        name: "apply-layout",
+        allowed: &["workspace", "name", "layout"],
+        build: build_apply_layout,
+        print: print_applied_layout,
         stream: false,
     },
     VerbSpec {
@@ -166,6 +202,41 @@ const VERBS: &[VerbSpec] = &[
         allowed: &["pane", "dir", "ratio"],
         build: build_set_ratio,
         print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "pane-neighbor",
+        allowed: &["pane", "dir"],
+        build: build_pane_direction,
+        print: print_optional_pane,
+        stream: false,
+    },
+    VerbSpec {
+        name: "focus-direction",
+        allowed: &["pane", "dir"],
+        build: build_optional_pane_direction,
+        print: print_pane,
+        stream: false,
+    },
+    VerbSpec {
+        name: "swap-pane",
+        allowed: &["pane", "dir", "target"],
+        build: build_swap_pane,
+        print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "zoom-pane",
+        allowed: &["pane", "mode"],
+        build: build_zoom_pane,
+        print: print_zoom_state,
+        stream: false,
+    },
+    VerbSpec {
+        name: "process-info",
+        allowed: &["surface"],
+        build: build_surface,
+        print: print_process_info,
         stream: false,
     },
     VerbSpec {
@@ -790,6 +861,20 @@ fn build_new_screen(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(value)
 }
 
+fn build_export_layout(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    flags.insert_optional_u64(&mut value, "screen")?;
+    Ok(value)
+}
+
+fn build_apply_layout(flags: &FlagMap) -> Result<Value, UsageError> {
+    let layout = flags.required_json("layout")?;
+    let mut value = json!({ "layout": layout });
+    flags.insert_optional_u64(&mut value, "workspace")?;
+    flags.insert_optional_string(&mut value, "name");
+    Ok(value)
+}
+
 fn build_split(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({ "pane": flags.required_u64("pane")?, "dir": flags.required_dir()? });
     flags.insert_optional_size(&mut value)?;
@@ -804,11 +889,49 @@ fn build_set_ratio(flags: &FlagMap) -> Result<Value, UsageError> {
     }))
 }
 
+fn build_pane_direction(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({ "pane": flags.required_u64("pane")?, "dir": flags.required_direction()? }))
+}
+
+fn build_optional_pane_direction(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "dir": flags.required_direction()? });
+    flags.insert_optional_u64(&mut value, "pane")?;
+    Ok(value)
+}
+
+fn build_swap_pane(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({ "pane": flags.required_u64("pane")? });
+    match (flags.optional("dir"), flags.optional("target")) {
+        (Some(dir), None) => value["dir"] = json!(parse_direction("dir", &dir)?),
+        (None, Some(target)) => value["target"] = json!(parse_u64("target", &target)?),
+        (Some(_), Some(_)) => {
+            return Err(UsageError("use only one of --dir or --target".to_string()));
+        }
+        (None, None) => {
+            return Err(UsageError("one of --dir or --target is required".to_string()));
+        }
+    }
+    Ok(value)
+}
+
+fn build_zoom_pane(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    flags.insert_optional_u64(&mut value, "pane")?;
+    if let Some(mode) = flags.optional("mode") {
+        value["mode"] = json!(parse_zoom_mode(&mode)?);
+    }
+    Ok(value)
+}
+
 fn build_set_default_colors(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({});
     flags.insert_optional_string(&mut value, "fg");
     flags.insert_optional_string(&mut value, "bg");
     Ok(value)
+}
+
+fn build_set_window_title(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({ "title": flags.required("title")? }))
 }
 
 fn build_rename_pane(flags: &FlagMap) -> Result<Value, UsageError> {
@@ -927,6 +1050,15 @@ impl FlagMap {
         }
     }
 
+    fn required_direction(&self) -> Result<String, UsageError> {
+        parse_direction("dir", &self.required("dir")?)
+    }
+
+    fn required_json(&self, name: &str) -> Result<Value, UsageError> {
+        serde_json::from_str(&self.required(name)?)
+            .map_err(|err| UsageError(format!("--{name} must be JSON: {err}")))
+    }
+
     fn insert_optional_string(&self, value: &mut Value, name: &str) {
         if let Some(text) = self.optional(name) {
             value[name] = json!(text);
@@ -969,6 +1101,20 @@ fn parse_isize(name: &str, value: &str) -> Result<isize, UsageError> {
     value.parse::<isize>().map_err(|_| UsageError(format!("--{name} must be an isize")))
 }
 
+fn parse_direction(name: &str, value: &str) -> Result<String, UsageError> {
+    match value {
+        "left" | "right" | "up" | "down" => Ok(value.to_string()),
+        _ => Err(UsageError(format!("--{name} must be left, right, up, or down"))),
+    }
+}
+
+fn parse_zoom_mode(value: &str) -> Result<String, UsageError> {
+    match value {
+        "toggle" | "on" | "off" => Ok(value.to_string()),
+        _ => Err(UsageError("--mode must be toggle, on, or off".to_string())),
+    }
+}
+
 fn print_empty(_: &Value, _: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
@@ -980,6 +1126,15 @@ fn print_identify(data: &Value, out: &mut dyn Write) -> io::Result<()> {
         data.get("session").and_then(Value::as_str).unwrap_or(""),
         data.get("protocol").and_then(Value::as_u64).unwrap_or(0),
         data.get("pid").and_then(Value::as_u64).unwrap_or(0)
+    )
+}
+
+fn print_ping(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    writeln!(
+        out,
+        "cmux-mux version={} protocol={}",
+        data.get("version").and_then(Value::as_str).unwrap_or(""),
+        data.get("protocol").and_then(Value::as_u64).unwrap_or(0)
     )
 }
 
@@ -1019,6 +1174,37 @@ fn print_ids(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
 
+fn print_pane(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    writeln!(out, "{}", data.get("pane").and_then(Value::as_u64).unwrap_or(0))
+}
+
+fn print_optional_pane(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    match data.get("pane").and_then(Value::as_u64) {
+        Some(pane) => writeln!(out, "{pane}"),
+        None => writeln!(out, "null"),
+    }
+}
+
+fn print_json_data(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    serde_json::to_writer(&mut *out, data).map_err(io::Error::other)?;
+    writeln!(out)
+}
+
+fn print_applied_layout(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    writeln!(out, "screen={}", data.get("screen").and_then(Value::as_u64).unwrap_or(0))?;
+    if let Some(panes) = data.get("panes").and_then(Value::as_array) {
+        for pane in panes {
+            writeln!(
+                out,
+                "pane={} surface={}",
+                pane.get("pane").and_then(Value::as_u64).unwrap_or(0),
+                pane.get("surface").and_then(Value::as_u64).unwrap_or(0)
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn print_agents(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     let Some(agents) = data.get("agents").and_then(Value::as_array) else { return Ok(()) };
     for agent in agents {
@@ -1032,6 +1218,26 @@ fn print_agents(data: &Value, out: &mut dyn Write) -> io::Result<()> {
         )?;
     }
     Ok(())
+}
+
+fn print_zoom_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    writeln!(
+        out,
+        "pane={} zoomed={} zoomed_pane={}",
+        data.get("pane").and_then(Value::as_u64).unwrap_or(0),
+        data.get("zoomed").and_then(Value::as_bool).unwrap_or(false),
+        atom(data.get("zoomed_pane"))
+    )
+}
+
+fn print_process_info(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    writeln!(
+        out,
+        "pid={} command={} cwd={}",
+        atom(data.get("pid")),
+        atom(data.get("command")),
+        atom(data.get("cwd"))
+    )
 }
 
 fn print_tree(data: &Value, out: &mut dyn Write) -> io::Result<()> {

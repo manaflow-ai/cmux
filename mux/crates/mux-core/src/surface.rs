@@ -150,6 +150,9 @@ pub struct PtySurface {
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
+    pid: Option<u32>,
+    command: Vec<String>,
+    cwd: Option<String>,
     dead: AtomicBool,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
@@ -157,6 +160,7 @@ pub struct PtySurface {
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
     size: Mutex<(u16, u16)>,
+    mux: Weak<Mux>,
     /// Live output subscribers (attach streams). Guarded by the terminal
     /// lock ordering: the reader thread broadcasts while holding the
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
@@ -195,13 +199,16 @@ impl Surface {
         for (k, v) in &opts.extra_env {
             cmd.env(k, v);
         }
-        if let Some(cwd) = opts.cwd.as_deref() {
+        let cwd = opts
+            .cwd
+            .clone()
+            .or_else(|| platform::home_dir().map(|path| path.to_string_lossy().into_owned()));
+        if let Some(cwd) = cwd.as_deref() {
             cmd.cwd(cwd);
-        } else if let Some(home) = platform::home_dir() {
-            cmd.cwd(home);
         }
 
         let mut child = pty.slave.spawn_command(cmd)?;
+        let pid = child.process_id();
         drop(pty.slave);
         let killer = child.clone_killer();
         let mut reader = pty.master.try_clone_reader()?;
@@ -244,11 +251,15 @@ impl Surface {
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
+            pid,
+            command: argv,
+            cwd,
             dead: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
+            mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
         }));
 
@@ -264,9 +275,12 @@ impl Surface {
                         Ok(n) => n,
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                    let mut scroll_changed = None;
                     {
                         let mut term = pty.term.lock().unwrap();
+                        let before = terminal_scroll_position(&term);
                         term.vt_write(&buf[..n]);
+                        let after = terminal_scroll_position(&term);
                         {
                             let mut taps = pty.taps.lock().unwrap();
                             if !taps.is_empty() {
@@ -283,6 +297,18 @@ impl Surface {
                         }
                         if let Some(pwd) = term.pwd() {
                             *pty.pwd.lock().unwrap() = Some(pwd);
+                        }
+                        if before != after {
+                            scroll_changed = Some(after);
+                        }
+                    }
+                    if let Some((offset, at_bottom)) = scroll_changed {
+                        if let Some(mux) = mux.upgrade() {
+                            mux.emit(MuxEvent::ScrollChanged {
+                                surface: surface.id,
+                                offset,
+                                at_bottom,
+                            });
                         }
                     }
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
@@ -349,11 +375,15 @@ impl Surface {
                 }),
             })),
             killer: Mutex::new(Box::new(TestChildKiller)),
+            pid: Some(id as u32),
+            command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
+            cwd: opts.cwd,
             dead: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
+            mux,
             taps: Mutex::new(Vec::new()),
         })))
     }
@@ -406,6 +436,44 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         Ok(f(&mut pty.term.lock().unwrap()))
+    }
+
+    pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let changed = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            term.scroll_delta(delta);
+            let after = terminal_scroll_position(&term);
+            (before != after).then_some(after)
+        };
+        if let Some((offset, at_bottom)) = changed {
+            if let Some(mux) = pty.mux.upgrade() {
+                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn scroll_to_bottom(&self) -> anyhow::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let changed = {
+            let mut term = pty.term.lock().unwrap();
+            let before = terminal_scroll_position(&term);
+            term.scroll_to_bottom();
+            let after = terminal_scroll_position(&term);
+            (before != after).then_some(after)
+        };
+        if let Some((offset, at_bottom)) = changed {
+            if let Some(mux) = pty.mux.upgrade() {
+                mux.emit(MuxEvent::ScrollChanged { surface: self.id, offset, at_bottom });
+            }
+        }
+        Ok(())
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
@@ -476,6 +544,18 @@ impl Surface {
 
     pub fn pwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
+    }
+
+    pub fn process_id(&self) -> Option<u32> {
+        self.as_pty().and_then(|pty| pty.pid)
+    }
+
+    pub fn spawn_command(&self) -> Option<String> {
+        self.as_pty().map(|pty| pty.command.join(" "))
+    }
+
+    pub fn spawn_cwd(&self) -> Option<String> {
+        self.as_pty().and_then(|pty| pty.cwd.clone())
     }
 
     pub fn is_dead(&self) -> bool {
@@ -710,5 +790,12 @@ impl PtySurface {
             });
         }
         true
+    }
+}
+
+fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
+    match term.scrollbar() {
+        Some(scrollbar) => (scrollbar.offset, !scrollbar.scrolled_back()),
+        None => (0, true),
     }
 }
