@@ -200,6 +200,32 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("rejects account-deleting users before reaching workflows", async () => {
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({ provider: "freestyle" }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("rejects unauthenticated VM mutations before reaching workflows", async () => {
     const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
     const responses = await Promise.all([

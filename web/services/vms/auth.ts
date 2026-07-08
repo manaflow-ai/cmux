@@ -34,7 +34,11 @@ export type AuthedTeam = {
  */
 export async function verifyRequest(
   request: Request,
-  options: { readonly requestedTeamId?: string | null; readonly allowCookie?: boolean } = {},
+  options: {
+    readonly requestedTeamId?: string | null;
+    readonly allowCookie?: boolean;
+    readonly allowDeletingAccount?: boolean;
+  } = {},
 ): Promise<AuthedUser | null> {
   if (!isStackConfigured()) {
     return null;
@@ -71,8 +75,12 @@ export async function verifyRequest(
 
 async function authedUserFromStackUser(
   user: StackUserLike,
-  options: { readonly requestedTeamId?: string | null },
-): Promise<AuthedUser> {
+  options: { readonly requestedTeamId?: string | null; readonly allowDeletingAccount?: boolean },
+): Promise<AuthedUser | null> {
+  if (!options.allowDeletingAccount && isAccountDeletionInProgress(user.clientReadOnlyMetadata)) {
+    return null;
+  }
+
   const selectedTeam = billingTeamFromUnknown(user.selectedTeam);
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
   // When the selected team is enough, entitlements resolve from it before any
@@ -109,6 +117,13 @@ async function authedUserFromStackUser(
     userBillingPlanId,
     billingPlanId,
   };
+}
+
+function isAccountDeletionInProgress(metadata: unknown): boolean {
+  return !!metadata &&
+    typeof metadata === "object" &&
+    !Array.isArray(metadata) &&
+    (metadata as { cmuxAccountDeleting?: unknown }).cmuxAccountDeleting === true;
 }
 
 type StackUserLike = {

@@ -1,8 +1,24 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { cloudVmBillingGrants } from "../db/schema";
 
+process.env.RESEND_API_KEY ??= "test-resend-key";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
+process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "test-stack-project";
+process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
+
 const ACCOUNT_USER_ID = "account-user-1";
+const stackModule = await import("../app/lib/stack");
+const realGetStackServerApp = stackModule.getStackServerApp;
+const realIsStackConfigured = stackModule.isStackConfigured;
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const stripeModule = await import("../services/billing/stripe");
+const realIsStripeBillingConfigured = stripeModule.isStripeBillingConfigured;
+const realStripe = stripeModule.stripe;
 const storageModule = await import("../services/vault/storage");
 const realDeleteObject = storageModule.deleteObject;
 const workflowsModule = await import("../services/vms/workflows");
@@ -73,6 +89,7 @@ let cancelledStripeSubscriptions: string[] = [];
 let deletedStripeCustomers: string[] = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
+let useAccountRouteStubs = false;
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
@@ -109,14 +126,15 @@ const mockDb = {
 };
 
 mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({ getUser }),
-  isStackConfigured: () => true,
-  stackServerApp: { getUser },
+  ...stackModule,
+  getStackServerApp: () => useAccountRouteStubs ? { getUser } : realGetStackServerApp(),
+  isStackConfigured: () => useAccountRouteStubs ? true : realIsStackConfigured(),
 }));
 
 mock.module("../db/client", () => ({
-  cloudDb: () => mockDb,
-  closeCloudDbForTests: async () => {},
+  ...dbClientModule,
+  cloudDb: () => useAccountRouteStubs ? mockDb : realCloudDb(),
+  closeCloudDbForTests: () => useAccountRouteStubs ? Promise.resolve() : realCloseCloudDbForTests(),
 }));
 
 mock.module("../services/vault/storage", () => ({
@@ -129,11 +147,16 @@ mock.module("../services/vault/storage", () => ({
 }));
 
 mock.module("../services/billing/stripe", () => ({
-  isStripeBillingConfigured: () => stripeConfigured,
-  stripe: () => ({
-    subscriptions: { cancel: cancelSubscription },
-    customers: { del: deleteCustomer },
-  }),
+  ...stripeModule,
+  isStripeBillingConfigured: () => useAccountRouteStubs
+    ? stripeConfigured
+    : realIsStripeBillingConfigured(),
+  stripe: () => useAccountRouteStubs
+    ? {
+        subscriptions: { cancel: cancelSubscription },
+        customers: { del: deleteCustomer },
+      }
+    : realStripe(),
 }));
 
 mock.module("../services/vms/workflows", () => ({
@@ -156,6 +179,14 @@ mock.module("../services/vms/workflows", () => ({
 }));
 
 const { DELETE } = await import("../app/api/account/route");
+
+beforeAll(() => {
+  useAccountRouteStubs = true;
+});
+
+afterAll(() => {
+  useAccountRouteStubs = false;
+});
 
 beforeEach(() => {
   console.error = consoleError as typeof console.error;
@@ -217,7 +248,7 @@ describe("account deletion route", () => {
     expect(destroyVm).toHaveBeenCalledTimes(2);
     expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-1" });
     expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedVaultObjects).toEqual([
@@ -231,10 +262,15 @@ describe("account deletion route", () => {
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
     expect(updateStackUser).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: {},
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(routeEvents).toEqual(["metadata-update", "transaction", "stack-delete"]);
+    expect(routeEvents).toEqual([
+      "metadata-update",
+      "transaction",
+      "stack-delete",
+      "transaction",
+    ]);
   });
 
   test("does not delete rows or Stack user when vault object cleanup fails", async () => {
@@ -292,10 +328,14 @@ describe("account deletion route", () => {
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(updateStackUser).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: {},
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(routeEvents).toEqual(["metadata-update", "transaction", "stack-delete"]);
+    expect(routeEvents).toEqual([
+      "metadata-update",
+      "transaction",
+      "stack-delete",
+    ]);
     expect(consoleError).toHaveBeenCalledWith(
       "account.delete.stack_user_failed_after_data_delete",
       "Error: raw [redacted] leaked by upstream",
@@ -320,7 +360,7 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 

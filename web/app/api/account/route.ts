@@ -26,7 +26,7 @@ import {
 } from "../../../db/schema";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
-  syncProPlanMetadata,
+  type ProMetadataJson,
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
 import { isStripeBillingConfigured, stripe } from "../../../services/billing/stripe";
@@ -44,7 +44,7 @@ type DeletableStackUser = {
 } & ProMetadataCustomer;
 
 export async function DELETE(request: Request): Promise<Response> {
-  const user = await verifyRequest(request, { allowCookie: false });
+  const user = await verifyRequest(request, { allowCookie: false, allowDeletingAccount: true });
   if (!user) return unauthorized();
 
   const stackUser = await currentDeletableStackUser(request);
@@ -54,7 +54,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const destroyedVms = await destroyPersonalCloudVms(user.id);
     await deleteVaultObjectsForAccount(user.id);
     await resolveUserBillingForAccountDeletion(user.id);
-    await clearUserBillingEntitlementsForAccountDeletion(stackUser);
+    await markAccountDeletingAndClearBillingEntitlements(stackUser);
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -70,6 +70,8 @@ export async function DELETE(request: Request): Promise<Response> {
         destroyedVms,
       }, 500);
     }
+    await deleteVaultObjectsForAccount(user.id);
+    await deleteCmuxOwnedAccountRows(user.id);
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
     logAccountDeleteError("account.delete.failed", error);
@@ -183,8 +185,15 @@ async function resolveUserBillingForAccountDeletion(userId: string): Promise<voi
   }
 }
 
-async function clearUserBillingEntitlementsForAccountDeletion(user: DeletableStackUser): Promise<void> {
-  await syncProPlanMetadata(user, false);
+async function markAccountDeletingAndClearBillingEntitlements(user: DeletableStackUser): Promise<void> {
+  const raw = user.clientReadOnlyMetadata;
+  const metadata: Record<string, unknown> =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? { ...(raw as Record<string, unknown>) }
+      : {};
+  delete metadata.cmuxPlan;
+  metadata.cmuxAccountDeleting = true;
+  await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
 }
 
 async function cancelStripeSubscriptionForAccountDeletion(

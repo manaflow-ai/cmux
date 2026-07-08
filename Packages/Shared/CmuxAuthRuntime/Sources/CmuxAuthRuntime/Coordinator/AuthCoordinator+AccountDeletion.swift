@@ -83,10 +83,10 @@ extension AuthCoordinator {
     /// Callers clear local shell/auth state through their normal sign-out owner
     /// after this succeeds so app-level teardown hooks run in the right order.
     public func deleteAccount() async throws {
-        let tokens = try await currentTokens()
         let apiBaseURL = apiBaseURL
         let timeout = timeouts.network
         try await runPhase(.accountDeletion, timeout: timeout) {
+            let tokens = try await self.currentTokens()
             try await AccountDeletionClient(apiBaseURL: apiBaseURL).deleteAccount(
                 accessToken: tokens.accessToken,
                 refreshToken: tokens.refreshToken
