@@ -284,6 +284,9 @@ extension Workspace {
                 hasher.combine(entry.value)
                 hasher.combine(entry.icon)
                 hasher.combine(entry.color)
+                hasher.combine(entry.url)
+                hasher.combine(entry.priority)
+                hasher.combine(entry.format.rawValue)
             }
         }
         hasher.combine(agentLifecycleStatesByPanelId)
@@ -302,7 +305,10 @@ extension Workspace {
                     value: $0.value,
                     icon: $0.icon,
                     color: $0.color,
-                    timestamp: $0.timestamp.timeIntervalSince1970
+                    timestamp: $0.timestamp.timeIntervalSince1970,
+                    url: $0.url?.absoluteString,
+                    priority: $0.priority,
+                    format: $0.format.rawValue
                 )
             }
         return entries.isEmpty ? nil : entries
@@ -329,6 +335,9 @@ extension Workspace {
                     value: snapshot.value,
                     icon: snapshot.icon,
                     color: snapshot.color,
+                    url: snapshot.url.flatMap(URL.init(string:)),
+                    priority: snapshot.priority ?? 0,
+                    format: snapshot.format.flatMap(SidebarMetadataFormat.init(rawValue:)) ?? .plain,
                     timestamp: Date(timeIntervalSince1970: snapshot.timestamp)
                 ),
                 panelId: panelId

@@ -240,6 +240,12 @@ struct SessionStatusEntrySnapshot: Codable, Sendable {
     var icon: String?
     var color: String?
     var timestamp: TimeInterval
+    /// Row behavior fields (click-to-open URL, sort priority, markdown
+    /// rendering). Nil in legacy snapshots; panel-scoped restores must keep
+    /// them or a markdown/clickable/high-priority row degrades on relaunch.
+    var url: String? = nil
+    var priority: Int? = nil
+    var format: String? = nil
 }
 
 struct SessionLogEntrySnapshot: Codable, Sendable {
