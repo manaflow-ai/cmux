@@ -178,6 +178,41 @@ describe("Vault uploads route", () => {
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(rows).toHaveLength(0);
   });
+
+  dbTest("rejects duplicate object keys before a later entry can overwrite the first grant", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+
+    const response = await POST(duplicateUploadRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      items: [
+        {
+          agent: "codex",
+          agentSessionId: "session-1",
+          relPath: "sessions/session-1.jsonl.zst",
+          status: "upload",
+          objectKey,
+          putUrl: `https://storage.test/${encodeURIComponent(objectKey)}?contentLength=456`,
+        },
+        {
+          agent: "codex",
+          agentSessionId: "session-1",
+          relPath: "sessions/session-1-duplicate.jsonl.zst",
+          status: "error",
+          error: "duplicate_object_key",
+        },
+      ],
+    });
+    expect(presignPut).toHaveBeenCalledTimes(1);
+    const rows = await db
+      .select({ compressedSizeBytes: vaultUploadGrants.compressedSizeBytes })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].compressedSizeBytes).toBe(456);
+  });
 });
 
 function uploadRequest(input: { readonly compressedSizeBytes: number }): Request {
@@ -198,6 +233,39 @@ function uploadRequest(input: { readonly compressedSizeBytes: number }): Request
         sizeBytes: 999,
         compressedSizeBytes: input.compressedSizeBytes,
       }],
+    }),
+  });
+}
+
+function duplicateUploadRequest(): Request {
+  return new Request("https://cmux.test/api/vault/uploads", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer access-token",
+      "x-stack-refresh-token": "refresh-token",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      items: [
+        {
+          agent: "codex",
+          agentSessionId: "session-1",
+          relPath: "sessions/session-1.jsonl.zst",
+          cwd: "/workspace",
+          sha256,
+          sizeBytes: 999,
+          compressedSizeBytes: 456,
+        },
+        {
+          agent: "codex",
+          agentSessionId: "session-1",
+          relPath: "sessions/session-1-duplicate.jsonl.zst",
+          cwd: "/workspace",
+          sha256,
+          sizeBytes: 999,
+          compressedSizeBytes: 789,
+        },
+      ],
     }),
   });
 }

@@ -109,15 +109,29 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
     // size). Grants for keys in this batch are excluded from the pending sum and
     // re-added per item below, so retries are not double-counted. The commit
     // route re-checks, so previously issued URLs cannot bypass the quota either.
-    const batchObjectKeys = batch.value.map((item) =>
+    const batchObjectKeys = [...new Set(batch.value.map((item) =>
       buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256),
-    );
+    ))];
     let projectedUserBytes =
       (await getVaultStoredCompressedBytes(lockedDb, userId)) +
       (await getVaultPendingGrantBytes(lockedDb, userId, now, batchObjectKeys));
     const lockedResults: ReservedUploadResult[] = [];
     const objectKeysCreatedInRequest = new Set<string>();
+    const objectKeysSeenInRequest = new Set<string>();
     for (const item of batch.value) {
+      const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
+      if (objectKeysSeenInRequest.has(objectKey)) {
+        lockedResults.push({
+          agent: item.agent,
+          agentSessionId: item.agentSessionId,
+          relPath: item.relPath,
+          status: "error",
+          error: "duplicate_object_key",
+        });
+        continue;
+      }
+      objectKeysSeenInRequest.add(objectKey);
+
       // Per-item so one oversized transcript cannot block the rest of the batch.
       if (item.compressedSizeBytes > config.maxUploadBytes) {
         lockedResults.push({
@@ -175,7 +189,6 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         continue;
       }
 
-      const objectKey = buildObjectKey(userId, item.agent, item.agentSessionId, item.sha256);
       const grantExpiresAt = new Date(now.getTime() + UPLOAD_GRANT_TTL_MS);
       const [previousGrant] = await lockedDb
         .select({

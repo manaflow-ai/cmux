@@ -101,6 +101,9 @@ export const cloudVmLeases = pgTable(
   (table) => [
     index("cloud_vm_leases_vm_kind_idx").on(table.vmId, table.kind),
     index("cloud_vm_leases_identity_idx").on(table.providerIdentityHandle),
+    index("cloud_vm_leases_identity_cleanup_idx")
+      .on(table.expiresAt, table.createdAt, table.id)
+      .where(sql`${table.providerIdentityHandle} is not null and ${table.revokedAt} is null`),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
   ],
