@@ -28,9 +28,13 @@ export function resolveBillingTeamFromTeams(
   if (teams.length === 1) return teams[0];
   if (teams.length < 2) return null;
 
+  // filter() returns a fresh array, so sorting it in place mutates nothing
+  // shared. Avoid Array.prototype.toSorted here: this resolver runs on billing
+  // and VM auth server paths, and toSorted is not guaranteed on every Node
+  // runtime targeted by ES2017.
   const paidTeams = teams
     .filter((team) => hasActiveBillingPlan(team.clientReadOnlyMetadata))
-    .toSorted((left, right) => {
+    .sort((left, right) => {
       // Every billing surface (dashboard, portal, subscription, plan, TestFlight)
       // reads the real Stripe subscription by team id and never honors the
       // operator-set cmuxVmPlan override. So a team paid only through a
