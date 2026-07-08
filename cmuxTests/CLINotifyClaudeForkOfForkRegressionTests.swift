@@ -27,9 +27,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             activeTurnId: "fork-parent-turn"
         )
 
-        let start = runForkOfForkHookListingSurfaces(
+        // One detached server pool covers both CLI invocations. Starting a second
+        // expectation-backed server on the same listener would race its accept
+        // workers against the first call's leftover workers and time out.
+        startForkOfForkSurfaceServer(
             context: context,
             surfaceIds: [forkParentSurfaceId, context.surfaceId],
+            connectionCount: 16
+        )
+
+        let start = runForkOfForkHook(
+            context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(forkParentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: forkOfForkLaunchEnvironment(context: context, parentSessionId: forkParentSessionId)
@@ -44,9 +52,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Second-level fork SessionStart reports session B and must not move B from pane 2 to the new fork pane"
         )
 
-        let prompt = runForkOfForkHookListingSurfaces(
+        let prompt = runForkOfForkHook(
             context: context,
-            surfaceIds: [forkParentSurfaceId, context.surfaceId],
             arguments: ["hooks", "claude", "prompt-submit"],
             standardInput: #"{"session_id":"\#(childSessionId)","turn_id":"child-fork-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"diverge again"}"#,
             extraEnvironment: forkOfForkLaunchEnvironment(context: context, parentSessionId: forkParentSessionId)
@@ -127,14 +134,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try data.write(to: context.root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
     }
 
-    private func runForkOfForkHookListingSurfaces(
+    private func startForkOfForkSurfaceServer(
         context: ForkOfForkContext,
         surfaceIds: [String],
-        arguments: [String],
-        standardInput: String,
-        extraEnvironment: [String: String]
-    ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        connectionCount: Int
+    ) {
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: connectionCount) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -161,7 +166,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": method])
             }
         }
+    }
 
+    private func runForkOfForkHook(
+        context: ForkOfForkContext,
+        arguments: [String],
+        standardInput: String,
+        extraEnvironment: [String: String]
+    ) -> ProcessRunResult {
         var environment = [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -176,15 +188,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment[key] = value
         }
 
-        let result = runProcess(
+        return runProcess(
             executablePath: context.cliPath,
             arguments: arguments,
             environment: environment,
             standardInput: standardInput,
             timeout: 5
         )
-        wait(for: [serverHandled], timeout: 5)
-        return result
     }
 
     private func forkOfForkLaunchEnvironment(
