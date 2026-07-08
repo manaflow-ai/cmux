@@ -11,6 +11,8 @@ public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
+    @State private var preventSleepWhileAgentsRunning: DefaultsValueModel<Bool>
+    @State private var preventSleepWhileMobileConnected: DefaultsValueModel<Bool>
     @State private var status: MobilePairingStatusModel
 
     /// The user's in-progress port edit, or `nil` when the field should track
@@ -45,6 +47,8 @@ public struct MobileSection: View {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
+        _preventSleepWhileAgentsRunning = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.power.preventSleepWhileAgentsRunning))
+        _preventSleepWhileMobileConnected = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.power.preventSleepWhileMobileConnected))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
         self.hostActions = hostActions
     }
@@ -78,6 +82,11 @@ public struct MobileSection: View {
                 boundPortStatusRow
                 SettingsCardDivider()
                 displayNameRow
+                SettingsCardDivider()
+                SettingsCardNote(String(localized: "settings.mobile.keepAwake", defaultValue: "Keep Awake"))
+                preventSleepWhileAgentsRunningRow
+                SettingsCardDivider()
+                preventSleepWhileMobileConnectedRow
                 if iOSPairingHost.current {
                     SettingsCardDivider()
                     diagnostics
@@ -96,6 +105,8 @@ public struct MobileSection: View {
             iOSPairingHost,
             port,
             displayName,
+            preventSleepWhileAgentsRunning,
+            preventSleepWhileMobileConnected,
             status,
         ]
         models.forEach { $0.startObserving() }
@@ -132,6 +143,36 @@ public struct MobileSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsMobileIOSPairingHostToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var preventSleepWhileAgentsRunningRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:preventSleepWhileAgentsRunning",
+            String(localized: "settings.mobile.preventSleepWhileAgentsRunning", defaultValue: "Prevent sleep while agents are running"),
+            subtitle: String(localized: "settings.mobile.preventSleepWhileAgentsRunning.subtitle", defaultValue: "Keeps system sleep off while agents run; the display can still sleep.")
+        ) {
+            Toggle("", isOn: Binding(get: { preventSleepWhileAgentsRunning.current }, set: { preventSleepWhileAgentsRunning.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMobilePreventSleepWhileAgentsRunningToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var preventSleepWhileMobileConnectedRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:preventSleepWhileMobileConnected",
+            String(localized: "settings.mobile.preventSleepWhileMobileConnected", defaultValue: "Prevent sleep while iPhone is connected"),
+            subtitle: String(localized: "settings.mobile.preventSleepWhileMobileConnected.subtitle", defaultValue: "Keeps system sleep off while a mobile client is connected; the display can still sleep.")
+        ) {
+            Toggle("", isOn: Binding(get: { preventSleepWhileMobileConnected.current }, set: { preventSleepWhileMobileConnected.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMobilePreventSleepWhileMobileConnectedToggle")
         }
     }
 

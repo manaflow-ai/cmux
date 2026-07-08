@@ -741,6 +741,47 @@ struct MobileHostAuthorizationTests {
         service.debugRemoveConnectionForTesting(id: connectionID)
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
+    @Test func testAuthenticatedConnectionCountTracksAuthorizedConnectionsOnly() {
+        let service = MobileHostService.shared
+        let connectionID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+        #expect(service.authenticatedConnectionCount == 0)
+        #expect(service.statusSnapshot().authenticatedConnectionCount == 0)
+
+        // Client-id bookkeeping alone (viewport-report cleanup tracking)
+        // must not mark the connection authenticated.
+        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        #expect(service.authenticatedConnectionCount == 0)
+
+        // Marking an untracked connection (client disconnected while the
+        // authorization await was suspended) must be refused, or the stale
+        // entry would pin the keep-awake assertion until restart.
+        service.recordAuthorizedConnection(connectionID)
+        #expect(service.authenticatedConnectionCount == 0)
+
+        // Register a never-started dummy session so the real liveness gate
+        // in recordAuthorizedConnection sees a tracked connection.
+        service.activeConnections[connectionID] = MobileHostConnection(
+            id: connectionID,
+            connection: NWConnection(host: "127.0.0.1", port: 65535, using: .tcp),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .failure(MobileHostRPCError(code: "test", message: "test")) },
+            onClose: { _ in }
+        )
+        service.recordAuthorizedConnection(connectionID)
+        #expect(service.authenticatedConnectionCount == 1)
+        #expect(service.statusSnapshot().authenticatedConnectionCount == 1)
+
+        // Re-marking the same connection must not double-count.
+        service.recordAuthorizedConnection(connectionID)
+        #expect(service.authenticatedConnectionCount == 1)
+
+        service.debugRemoveConnectionForTesting(id: connectionID)
+        #expect(service.authenticatedConnectionCount == 0)
+        #expect(service.statusSnapshot().authenticatedConnectionCount == 0)
+    }
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
         MobileHostRequestActivity.resetForTesting()
         MobileHostRequestActivity.beginConnection()

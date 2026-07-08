@@ -106,6 +106,12 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.count
     }
 
+    func contains(id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections[id] != nil
+    }
+
     func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
         lock.lock()
         guard connections.count < limit else {
@@ -250,6 +256,12 @@ struct MobileHostServiceStatus {
     let usesEphemeralFallback: Bool
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
+    /// Connections that have completed at least one authorized request.
+    /// `activeConnectionCount` counts raw accepted TCP sessions, which include
+    /// peers that never authenticate (`mobile.host.status` is auth-exempt), so
+    /// consumers gating behavior on "a phone is really connected" — like the
+    /// keep-awake power assertion — must use this count instead.
+    let authenticatedConnectionCount: Int
     let lastErrorDescription: String?
 
     var payload: [String: Any] {
@@ -260,6 +272,7 @@ struct MobileHostServiceStatus {
             "uses_ephemeral_fallback": usesEphemeralFallback,
             "routes": routes.map(\.mobileHostJSONObject),
             "active_connection_count": activeConnectionCount,
+            "authenticated_connection_count": authenticatedConnectionCount,
             "last_error": lastErrorDescription ?? NSNull()
         ]
     }
@@ -388,8 +401,17 @@ final class MobileHostService {
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
-    private var activeConnections: [UUID: MobileHostConnection] = [:]
+    // Internal (not private): the test target's authorized-connection tests
+    // register never-started dummy sessions here via @testable import.
+    var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
+    /// Connections that have passed authorization for at least one
+    /// auth-required verb. Feeds ``authenticatedConnectionCount``; kept
+    /// separate from `clientIDsByConnectionID` because not every authorized
+    /// verb carries a `client_id`, and `mobile.events.subscribe` (the
+    /// long-lived path a streaming phone actually sits on) is intercepted
+    /// before the client-id hook runs.
+    private var authorizedConnectionIDs: Set<UUID> = []
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
     /// advertised route set (and the team device registry that
@@ -704,6 +726,7 @@ final class MobileHostService {
         }
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        authorizedConnectionIDs.removeAll()
 
         listener = candidate
         listenerGeneration = generation
@@ -837,6 +860,7 @@ final class MobileHostService {
         }
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        authorizedConnectionIDs.removeAll()
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
@@ -941,8 +965,38 @@ final class MobileHostService {
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            authenticatedConnectionCount: authenticatedConnectionCount,
             lastErrorDescription: lastErrorDescription
         )
+    }
+
+    /// Lean accessor for ``MobileHostServiceStatus/authenticatedConnectionCount``:
+    /// callers that only need the count (keep-awake reconciliation on every
+    /// settings/agent event) must not pay ``statusSnapshot()``'s route
+    /// resolution, which enumerates network interfaces on each call.
+    var authenticatedConnectionCount: Int { authorizedConnectionIDs.count }
+
+    /// Marks a connection as having passed authorization for an auth-required
+    /// verb. Called from the `authorizeRequest` gate, never from the
+    /// `onAuthorizedRequest` hook: subscription RPCs are intercepted before
+    /// that hook runs. Internal (not private): exercised directly by the
+    /// authorized-connection tests via `@testable import`.
+    func recordAuthorizedConnection(_ connectionID: UUID) {
+        // authorizationError can suspend on network Stack verification. If the
+        // client disconnects during that await, onClose has already removed
+        // the connection, so an unconditional insert here would be stale and
+        // nothing would ever clean it up — pinning the authenticated count
+        // (and the keep-awake assertion) until the listener restarts. Both
+        // this method and removeConnection run on the main actor, so gating
+        // on live tracking makes either interleaving converge.
+        guard activeConnections[connectionID] != nil
+            || MobileHostConnectionRegistry.shared.contains(id: connectionID) else {
+            return
+        }
+        guard authorizedConnectionIDs.insert(connectionID).inserted else { return }
+        // Unauthenticated -> authenticated transition; authenticated-count
+        // consumers (keep-awake) resync on this signal.
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     /// Reconcile the live listener with current settings (enable/disable and
@@ -1021,9 +1075,25 @@ final class MobileHostService {
                     if !Self.requiresAuthorization(method: request.method) {
                         return nil
                     }
-                    return await MobileHostService.shared.authorizationError(for: request)
+                    let error = await MobileHostService.shared.authorizationError(for: request)
+                    if error == nil {
+                        // Mark here, at the authorization gate: subscription
+                        // RPCs (mobile.events.subscribe) are intercepted
+                        // before onAuthorizedRequest, and a phone connected
+                        // only for live events must still count as an
+                        // authenticated connection for keep-awake.
+                        await MobileHostService.shared.recordAuthorizedConnection(id)
+                    }
+                    return error
                 },
                 onAuthorizedRequest: { request in
+                    // Auth-exempt verbs (mobile.host.status) reach this hook
+                    // too, because authorizeRequest returns nil for them.
+                    // Client-id bookkeeping (viewport-report cleanup) must
+                    // only reflect verbs that actually passed authorization.
+                    guard Self.requiresAuthorization(method: request.method) else {
+                        return
+                    }
                     guard let clientID = Self.clientID(from: request.params) else {
                         return
                     }
@@ -1141,9 +1211,22 @@ final class MobileHostService {
             id: id,
             connection: connection,
             authorizeRequest: { request in
-                await MobileHostService.shared.authorizationError(for: request)
+                let error = await MobileHostService.shared.authorizationError(for: request)
+                // Same marking as the network listener: authorizationError
+                // exempts mobile.host.status internally, so gate on
+                // requiresAuthorization before counting the connection.
+                if error == nil, Self.requiresAuthorization(method: request.method) {
+                    await MobileHostService.shared.recordAuthorizedConnection(id)
+                }
+                return error
             },
             onAuthorizedRequest: { request in
+                // Same guard as the network listener above: authorizationError
+                // exempts mobile.host.status internally, so this hook also
+                // fires for unauthenticated status requests.
+                guard Self.requiresAuthorization(method: request.method) else {
+                    return
+                }
                 if let clientID = Self.clientID(from: request.params) {
                     await MobileHostService.shared.recordClientID(clientID, for: id)
                 }
@@ -1204,6 +1287,7 @@ final class MobileHostService {
         // Drop this connection's sticky viewport reports so a disconnected
         // device stops pinning the shared grid (and its macOS viewport border
         // clears) even though it never sent an explicit clear.
+        let wasAuthorized = authorizedConnectionIDs.remove(id) != nil
         let clientIDs = clientIDsByConnectionID[id] ?? []
         clientIDsByConnectionID.removeValue(forKey: id)
         if !clientIDs.isEmpty {
@@ -1211,6 +1295,13 @@ final class MobileHostService {
                 clientIDs: clientIDs,
                 reason: "mobile.connection.closed"
             )
+        }
+        if wasAuthorized {
+            // The registry's own remove() post can be delivered before this
+            // main-actor cleanup runs (onClose posts from the network callback
+            // thread), so re-post after the authenticated count actually
+            // dropped or keep-awake would hold until an unrelated event.
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
         }
         MobileHostRequestActivity.endConnection()
     }
@@ -1671,6 +1762,7 @@ extension MobileHostService {
         listenerPort = nil
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
+        authorizedConnectionIDs.removeAll()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
     }

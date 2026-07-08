@@ -163,6 +163,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
+            .init(section: .mobile, id: "preventSleepWhileAgentsRunning", title: String(localized: "settings.mobile.preventSleepWhileAgentsRunning", defaultValue: "Prevent sleep while agents are running"), synonyms: "power.preventSleepWhileAgentsRunning.enabled agents running keep awake caffeinate prevent sleep insomnia system sleep idle"),
+            .init(section: .mobile, id: "preventSleepWhileMobileConnected", title: String(localized: "settings.mobile.preventSleepWhileMobileConnected", defaultValue: "Prevent sleep while iPhone is connected"), synonyms: "power.preventSleepWhileMobileConnected.enabled iphone mobile connected keep awake caffeinate prevent sleep insomnia system sleep idle"),
 
             // Custom Sidebars
             .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),
