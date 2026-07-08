@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$APP" ]] || die "--app or ASC_APP_ID is required"
+[[ -n "$APP" ]] || die "App Store app id is required; pass --app or configure the App Store app id"
 if [[ -z "$VERSION" ]]; then
   VERSION="$(
     sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([0-9]+(\.[0-9]+){1,2}).*/\1/p' \

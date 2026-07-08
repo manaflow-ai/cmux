@@ -3462,6 +3462,9 @@
       }
     }
   },
+  "pricing": {
+    "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

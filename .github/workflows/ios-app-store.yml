@@ -66,11 +66,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
-            echo "Missing one of ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_P8_BASE64 secrets" >&2
+            echo "Missing App Store Connect API key secrets" >&2
             exit 1
           fi
           if [ -z "${ASC_APP_ID:-}" ]; then
-            echo "Missing IOS_APPSTORE_APP_ID repository variable" >&2
+            echo "Missing App Store Connect app id repository variable" >&2
             exit 1
           fi
           KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
@@ -123,7 +123,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${IOS_APPSTORE_PROVISIONING_PROFILE_BASE64:-}" ]; then
-            echo "Missing IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 secret" >&2
+            echo "Missing App Store production provisioning profile secret" >&2
             exit 1
           fi
 
