@@ -138,6 +138,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
+    let codingAgentDefinitionCacheLock = NSLock()
+    var codingAgentDefinitionCache: [Int: CmuxTaskManagerCodingAgentDefinition?] = [:]
 
     static func capture(
         includeProcessDetails: Bool = false,
@@ -447,14 +449,6 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             guard let aggregate = aggregates[definition.id] else { return nil }
             return aggregate.payload()
         }
-    }
-
-    static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
-        guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
-            processName: process.name,
-            processPath: process.path
-        ) else { return nil }
-        return processArgumentsAndEnvironment(for: process.pid)
     }
 
     private struct CmuxProgramProcessAggregate {

@@ -10,21 +10,49 @@ nonisolated func cmuxTopCanonicalProcessName(name: String, path: String?) -> Str
 }
 
 nonisolated extension CmuxTopProcessSnapshot {
+    static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
+        guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: process.name,
+            processPath: process.path
+        ) else { return nil }
+        return processArgumentsAndEnvironment(for: process.pid)
+    }
+
+    /// Memoized per snapshot: each PID is classified at most once, so program totals,
+    /// coding-agent totals, and memory diagnostics always agree even if a process
+    /// exits (or KERN_PROCARGS2 stops answering) between payload sections, and the
+    /// live argument read runs at most once per PID per snapshot.
     func codingAgentDefinitionsByPID(
         for pids: some Sequence<Int>
     ) -> [Int: CmuxTaskManagerCodingAgentDefinition] {
         var definitions: [Int: CmuxTaskManagerCodingAgentDefinition] = [:]
+        codingAgentDefinitionCacheLock.lock()
+        defer { codingAgentDefinitionCacheLock.unlock() }
         for pid in pids {
-            guard let process = processesByPID[pid] else { continue }
-            let processArguments = Self.processArgumentsIfNeeded(for: process)
-            guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-                processName: process.name,
-                processPath: process.path,
-                arguments: processArguments?.arguments ?? [],
-                environment: processArguments?.environment ?? [:]
-            ) else { continue }
-            definitions[pid] = definition
+            let definition: CmuxTaskManagerCodingAgentDefinition?
+            if let cached = codingAgentDefinitionCache[pid] {
+                definition = cached
+            } else {
+                definition = classifyCodingAgent(pid: pid)
+                // updateValue stores .some(nil) for unclassified PIDs; plain subscript
+                // assignment of a nil optional would remove the entry instead.
+                codingAgentDefinitionCache.updateValue(definition, forKey: pid)
+            }
+            if let definition {
+                definitions[pid] = definition
+            }
         }
         return definitions
+    }
+
+    private func classifyCodingAgent(pid: Int) -> CmuxTaskManagerCodingAgentDefinition? {
+        guard let process = processesByPID[pid] else { return nil }
+        let processArguments = Self.processArgumentsIfNeeded(for: process)
+        return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: process.name,
+            processPath: process.path,
+            arguments: processArguments?.arguments ?? [],
+            environment: processArguments?.environment ?? [:]
+        )
     }
 }

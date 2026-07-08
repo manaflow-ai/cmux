@@ -52,6 +52,28 @@ import Testing
         #expect(codingAgentNames == ["Claude Code"])
     }
 
+    @Test func agentClassificationStaysConsistentWithinSnapshotAfterProcessExit() throws {
+        let agent = try SpawnedVersionedClaudeProcess.start()
+        defer { agent.terminate() }
+
+        let snapshot = snapshot([
+            process(pid: agent.pid, name: "2.1.204", path: SpawnedVersionedClaudeProcess.executablePath),
+            process(pid: 9_003, name: "worker", path: "/usr/bin/worker")
+        ])
+        let pids: Set<Int> = [agent.pid, 9_003]
+
+        // Classify while the process is alive, as the coding_agents section does.
+        #expect(snapshot.codingAgentSummaryPayload(for: pids).count == 1)
+
+        // Reap the process; live KERN_PROCARGS2 reads for this PID now fail.
+        agent.terminate()
+
+        // The same snapshot must keep the classification for every payload section.
+        let programNames = snapshot.programSummaryPayload(for: pids).compactMap { $0["name"] as? String }
+        #expect(!programNames.contains("2.1.204"))
+        #expect(snapshot.codingAgentSummaryPayload(for: pids).count == 1)
+    }
+
     @Test func programRowsUseCanonicalUntruncatedDisplayName() {
         let snapshot = snapshot([
             process(pid: 101, name: "com.apple.WebKi", path: "/System/Library/com.apple.WebKit.WebContent"),
