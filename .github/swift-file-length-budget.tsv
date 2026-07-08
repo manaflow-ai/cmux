@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 35600	CLI/cmux.swift
-17866	Sources/AppDelegate.swift
+17862	Sources/AppDelegate.swift
 16424	Sources/ContentView.swift
 15098	Sources/TerminalController.swift
 13228	Sources/Workspace.swift
@@ -24,8 +24,8 @@
 4759	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4032	Sources/BrowserWindowPortal.swift
 4007	cmuxTests/TabManagerUnitTests.swift
+3981	Sources/BrowserWindowPortal.swift
 3964	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3953	cmuxTests/WindowAndDragTests.swift
 3934	Sources/Feed/FeedPanelView.swift
@@ -145,9 +145,9 @@
 710	Sources/TerminalSSHSessionDetector.swift
 709	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SidebarDrop/SidebarWorkspaceReorderDropResolver.swift
 706	CLI/CMUXCLI+Config.swift
-699	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
+696	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 696	cmuxTests/KeyboardShortcutContextTests.swift
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
