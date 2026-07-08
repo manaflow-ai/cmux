@@ -4,7 +4,7 @@ import CmuxSettings
 @testable import CmuxWorkspaces
 
 @MainActor
-private final class CoordinatorStubTab: WorkspaceTabRepresenting {
+final class CoordinatorStubTab: WorkspaceTabRepresenting {
     let id: UUID
     var groupId: UUID?
     var isPinned: Bool
@@ -26,7 +26,7 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
 /// inverted effect, and removes closed tabs from the model like the real
 /// `closeWorkspace` teardown does.
 @MainActor
-private final class StubGroupHost: WorkspaceGroupHosting {
+final class StubGroupHost: WorkspaceGroupHosting {
     typealias Tab = CoordinatorStubTab
 
     let model: WorkspacesModel<CoordinatorStubTab>
