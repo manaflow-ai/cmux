@@ -31,42 +31,35 @@ struct NoteTitleRenameField: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "doc.text")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.58))
-                .frame(width: 16, height: 20)
-
-            // Size the editable field from label text so the title behaves like
-            // the other compact panel headers while still accepting in-place edits.
-            Text(draft.isEmpty ? placeholder : draft)
-                .font(titleFont)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .opacity(0)
-                .accessibilityHidden(true)
-                .overlay(alignment: .leading) {
-                    NoteTitleTextFieldRepresentable(
-                        placeholder: placeholder,
-                        text: $draft,
-                        isFocused: $isFocused,
-                        font: titleNSFont,
-                        foregroundColor: foregroundColor,
-                        onBeginEditing: onBeginEditing,
-                        onCommit: commit,
-                        onCancel: { draft = title }
-                    )
-                }
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(isFocused ? Color.accentColor.opacity(0.65) : Color(nsColor: foregroundColor).opacity(0.22))
-                        .frame(height: 1)
-                        .opacity(isFocused || isHovering ? 1 : 0)
-                }
-                .frame(minWidth: 40, minHeight: 20, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .layoutPriority(1)
+        // Size the editable field from label text so the title behaves like
+        // the other compact panel headers while still accepting in-place edits.
+        Text(draft.isEmpty ? placeholder : draft)
+            .font(titleFont)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .opacity(0)
+            .accessibilityHidden(true)
+            .overlay(alignment: .leading) {
+                NoteTitleTextFieldRepresentable(
+                    placeholder: placeholder,
+                    text: $draft,
+                    isFocused: $isFocused,
+                    font: titleNSFont,
+                    foregroundColor: foregroundColor,
+                    onBeginEditing: onBeginEditing,
+                    onCommit: commit,
+                    onCancel: { draft = title }
+                )
+            }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(isFocused ? Color.accentColor.opacity(0.65) : Color(nsColor: foregroundColor).opacity(0.22))
+                    .frame(height: 1)
+                    .opacity(isFocused || isHovering ? 1 : 0)
+            }
+            .frame(minWidth: 40, minHeight: 20, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
             .onHover { isHovering = $0 }
             .onAppear { draft = title }
             .onChange(of: title) { _, newValue in
