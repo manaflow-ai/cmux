@@ -17033,14 +17033,29 @@ private extension AppDelegate {
             appendCandidate(route.tabManager)
         }
 
+        func appendPanel(_ panel: any Panel) {
+            guard let browserPanel = panel as? BrowserPanel else { return }
+            let identifier = ObjectIdentifier(browserPanel)
+            guard seenPanels.insert(identifier).inserted else { return }
+            panels.append(browserPanel)
+        }
+
         for manager in candidateManagers {
             for workspace in manager.tabs {
                 for panel in workspace.panels.values {
-                    guard let browserPanel = panel as? BrowserPanel else { continue }
-                    let identifier = ObjectIdentifier(browserPanel)
-                    guard seenPanels.insert(identifier).inserted else { continue }
-                    panels.append(browserPanel)
+                    appendPanel(panel)
                 }
+                // Workspace Docks keep their own panel store; include their
+                // browser panels so detached-inspector close routing and focus
+                // handoff cover Dock-hosted DevTools too.
+                workspace._dockSplit?.forEachPanel { _, panel in
+                    appendPanel(panel)
+                }
+            }
+        }
+        for context in mainWindowContexts.values {
+            context.existingWindowDock()?.forEachPanel { _, panel in
+                appendPanel(panel)
             }
         }
 
