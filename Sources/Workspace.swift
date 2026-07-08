@@ -7162,7 +7162,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        let ghosttyInheritedWorkingDirectory = terminalPanel(for: panelId)?.surface.surface == nil || restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning ? nil : Self.normalizedTerminalWorkingDirectory(inheritedConfig?.workingDirectory)
+        let ghosttyInheritedWorkingDirectory = terminalPanel(for: panelId)?.surface.surface == nil || isRemoteTerminalSurface(panelId) || restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning ? nil : Self.normalizedTerminalWorkingDirectory(inheritedConfig?.workingDirectory)
         let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
             inheritedWorkingDirectory: ghosttyInheritedWorkingDirectory
