@@ -314,7 +314,7 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     }
 
     let mut style =
-        sys::GhosttyStyle { size: std::mem::size_of::<sys::GhosttyStyle>(), ..Default::default() };
+        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
     let style_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,
