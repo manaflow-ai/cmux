@@ -43,15 +43,7 @@ extension TerminalController: ControlSidebarContext {
                 format: appFormat,
                 timestamp: Date()
             )
-            // The panel-scoped copy is recorded independently of the workspace
-            // guard below: the workspace slot is last-write-wins per key, so
-            // "no change" there can still be a change for this panel's own row.
-            // recordPanelStatusEntry drops identical repeats itself so agent
-            // heartbeats do not churn the sidebar snapshot.
-            if let panelId = panelID {
-                tab.recordPanelStatusEntry(entry, panelId: panelId)
-            }
-            guard Self.shouldReplaceStatusEntry(
+            if Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
                 value: value,
@@ -60,16 +52,24 @@ extension TerminalController: ControlSidebarContext {
                 url: url,
                 priority: priority,
                 format: appFormat
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pid {
-                    tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
-                }
-                return
+            ) {
+                tab.statusEntries[key] = entry
             }
-            tab.statusEntries[key] = entry
+            // PID tracking updates even when the status display hasn't changed.
+            // It must also run BEFORE the panel-scoped write below: recording a
+            // new agent PID evicts stale structured runtimes on the panel and
+            // that cleanup clears their panel-scoped entries, so writing the
+            // panel copy first would let the eviction delete it.
             if let pid {
                 tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
+            }
+            // The panel-scoped copy is recorded independently of the workspace
+            // guard above: the workspace slot is last-write-wins per key, so
+            // "no change" there can still be a change for this panel's own row.
+            // recordPanelStatusEntry drops identical repeats itself so agent
+            // heartbeats do not churn the sidebar snapshot.
+            if let panelId = panelID {
+                tab.recordPanelStatusEntry(entry, panelId: panelId)
             }
         }
     }

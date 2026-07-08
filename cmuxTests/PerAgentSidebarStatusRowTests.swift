@@ -148,6 +148,27 @@ final class PerAgentSidebarStatusRowTests: XCTestCase {
     }
 
     @MainActor
+    func testAgentReplacementOnSamePanelKeepsFreshPanelEntry() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.recordAgentPID(key: "claude_code.old", pid: 111, panelId: panelId, refreshPorts: false)
+        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "Old session"), panelId: panelId)
+
+        // A new session replacing the agent on the same panel: PID recording
+        // runs first (evicting the stale runtime, which clears its panel
+        // entry), then the new report's panel-scoped write. This is the upsert
+        // order the control-socket path uses; writing the panel copy first
+        // would let the eviction delete the fresh entry.
+        workspace.recordAgentPID(key: "claude_code.new", pid: 222, panelId: panelId, refreshPorts: false)
+        XCTAssertNil(workspace.statusEntriesByPanelId[panelId]?["claude_code"])
+        workspace.recordPanelStatusEntry(makeEntry(key: "claude_code", value: "New session"), panelId: panelId)
+
+        XCTAssertEqual(workspace.statusEntriesByPanelId[panelId]?["claude_code"]?.value, "New session")
+        XCTAssertEqual(workspace.sidebarAgentStatusRows().first?.value, "New session")
+    }
+
+    @MainActor
     func testClearingAgentPIDRemovesThatPanelsRow() throws {
         let workspace = Workspace()
         let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
