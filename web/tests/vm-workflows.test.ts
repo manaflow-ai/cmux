@@ -1678,7 +1678,7 @@ describe("VM Effect workflows", () => {
     expect(leases[1]).toMatchObject({ providerIdentityHandle: "identity-2", revokedAt: null });
   });
 
-  dbTest("keeps opening SSH endpoints when previous identity cleanup fails", async () => {
+  dbTest("does not mint a replacement SSH endpoint when active identity cleanup fails", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const [vm] = await sql<{ id: string }[]>`
@@ -1717,14 +1717,15 @@ describe("VM Effect workflows", () => {
         providerVmId: "provider-vm-ssh-revoke-failure",
       }).pipe(Effect.provide(layer)),
     );
-    const endpoint2 = await Effect.runPromise(
-      openSshEndpoint({
-        userId: "user-workflow-ssh-revoke-failure",
-        providerVmId: "provider-vm-ssh-revoke-failure",
-      }).pipe(Effect.provide(layer)),
-    );
-
-    expect(endpoint2.identityHandle).toBe("identity-revoke-failure-2");
+    await expect(
+      Effect.runPromise(
+        openSshEndpoint({
+          userId: "user-workflow-ssh-revoke-failure",
+          providerVmId: "provider-vm-ssh-revoke-failure",
+        }).pipe(Effect.provide(layer)),
+      ),
+    ).rejects.toThrow();
+    expect(mintCount).toBe(1);
 
     const leases = await sql<{ providerIdentityHandle: string; revokedAt: Date | null }[]>`
       select provider_identity_handle as "providerIdentityHandle", revoked_at as "revokedAt"
@@ -1734,7 +1735,6 @@ describe("VM Effect workflows", () => {
     `;
     expect(leases).toEqual([
       { providerIdentityHandle: "identity-revoke-failure-1", revokedAt: null },
-      { providerIdentityHandle: "identity-revoke-failure-2", revokedAt: null },
     ]);
   });
 

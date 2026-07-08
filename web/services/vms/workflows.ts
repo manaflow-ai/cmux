@@ -1337,7 +1337,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     // user's existing identities, so a preflight failure never strands them
     // with old credentials revoked and no replacement minted.
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
-    yield* revokeActiveIdentities(vm);
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -1406,7 +1406,7 @@ export function openSshEndpoint(input: {
     // user's existing identities, so a preflight failure never strands them
     // with old credentials revoked and no replacement minted.
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
-    yield* revokeActiveIdentities(vm);
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -1462,7 +1462,10 @@ function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRo
   return new Set(input.teamIds).has(billingTeamId);
 }
 
-function revokeActiveIdentities(vm: CloudVmRow) {
+function revokeActiveIdentities(
+  vm: CloudVmRow,
+  options: { readonly failOnCleanupError?: boolean } = {},
+) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -1473,7 +1476,13 @@ function revokeActiveIdentities(vm: CloudVmRow) {
       if (!identityHandle) continue;
       const revoked = yield* providers.revokeSSHIdentity(vm.provider, identityHandle).pipe(
         Effect.as(true),
-        Effect.catchAll((err) => Effect.succeed(isProviderNotFoundError(err.cause))),
+        Effect.catchAll((err) => {
+          if (isProviderNotFoundError(err.cause)) return Effect.succeed(true);
+          if (!options.failOnCleanupError) return Effect.succeed(false);
+          return repo.markLeasesRevoked(revokedIds).pipe(
+            Effect.andThen(Effect.fail(err)),
+          );
+        }),
       );
       if (revoked) revokedIds.push(lease.id);
     }
