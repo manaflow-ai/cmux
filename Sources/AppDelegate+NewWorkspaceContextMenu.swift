@@ -93,6 +93,7 @@ extension AppDelegate {
                     to: menu
                 )
             case .cloud:
+                guard CmuxFeatureFlags.shared.isCloudVMUIEnabled else { continue }
                 let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
                 appendNewWorkspaceMenuSection(cloudMenu.items, to: menu)
             }

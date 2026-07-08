@@ -121,7 +121,10 @@ jobs:
     # action, so tag pushes never publish to npm and manual runs must opt in.
     if: github.event_name == 'workflow_dispatch'
     needs: bindings-e2e-typescript
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # npm --provenance rejects self-hosted runners; the attestation is only
+    # verifiable from a GitHub-hosted runner. This one publish job must stay on
+    # ubuntu-latest (github-hosted), unlike the routed self-hosted jobs above.
+    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
       contents: read
       id-token: write
@@ -145,6 +148,13 @@ jobs:
           node-version: "22.14.0"
           registry-url: https://registry.npmjs.org
 
+      - name: Upgrade npm for OIDC trusted publishing
+        # Node 22 bundles npm 10, which signs provenance but cannot
+        # authenticate the publish via OIDC trusted publishing (the PUT is
+        # unauthenticated and 404s). npm >= 11.5.1 performs the OIDC token
+        # exchange for the publish itself.
+        run: npm install -g npm@^11.5.1
+
       - name: Build package
         working-directory: mux/bindings/typescript
         run: |
@@ -153,4 +163,7 @@ jobs:
 
       - name: Publish package to npm
         working-directory: mux/bindings/typescript
-        run: npm publish --provenance
+        # The npm `cmux` name still serves the cloud-VM CLI on the `latest`
+        # dist-tag (0.8.3). The SDK ships on its own `sdk` tag so installing
+        # bare `cmux` keeps resolving the CLI; use `npm i cmux@sdk` for the SDK.
+        run: npm publish --provenance --tag sdk
