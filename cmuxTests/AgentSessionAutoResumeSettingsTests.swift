@@ -311,6 +311,50 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testAutoResumedClaudeRestoreSeedsSharedStatusSource() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                kind: .claude,
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "claude-running-at-snapshot-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, true)
+            XCTAssertEqual(snapshot.panels.first?.terminal?.agent?.kind, .claude)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+
+            XCTAssertFalse(restoredInput.hasInitialInput)
+            XCTAssertEqual(restoredInput.byteCount, 0)
+            try assertAgentAutoResumeUsesStartupCommand(
+                restoredPanel,
+                scriptContains: ["'--resume'", "claude-running-at-snapshot-session"]
+            )
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .autoResumeCommandRunning
+            )
+
+            let status = try XCTUnwrap(restored.statusEntries["claude_code"])
+            XCTAssertEqual(status.value, String(localized: "agent.generic.status.running", defaultValue: "Running"))
+            XCTAssertTrue(restored.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "claude_code" })
+            XCTAssertEqual(restored.agentHibernationLifecycleState(panelId: restoredPanelId, fallback: nil), .running)
+        }
+    }
+
+    @MainActor
     func testUnknownAgentShellStatePreservesLegacyAutoResumeBehavior() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
@@ -731,6 +775,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     private func makeRestorableAgentIndex(
+        kind: RestorableAgentKind = .codex,
         workspaceId: UUID,
         panelId: UUID,
         sessionId: String,
@@ -747,29 +792,49 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
             }
         }
-        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        let storeURL = kind.hookStoreFileURL(homeDirectory: home.path)
         try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
+        let executableName = kind == .claude ? "claude" : "codex"
+        let executablePath = "/usr/local/bin/\(executableName)"
+        let baseArguments = kind == .claude
+            ? [executablePath, "--model", "sonnet"]
+            : [executablePath, "--model", "gpt-5.4"]
+        let arguments = baseArguments + extraArguments
+        let environment = kind == .claude
+            ? ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
+            : ["CODEX_HOME": "/tmp/codex"]
+
+        // Claude hook records are only restorable when a non-empty transcript
+        // file exists on disk (claude --resume fails without one), so back the
+        // record with a real temp transcript.
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId.uuidString,
+            "surfaceId": panelId.uuidString,
+            "cwd": "/tmp/repo",
+            "updatedAt": Date().timeIntervalSince1970,
+        ]
+        if kind == .claude {
+            let transcriptURL = home.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try Data("{\"type\":\"summary\"}\n".utf8).write(to: transcriptURL, options: .atomic)
+            record["transcriptPath"] = transcriptURL.path
+        }
+
+        record["launchCommand"] = [
+            "launcher": executableName,
+            "executablePath": executablePath,
+            "arguments": arguments,
+            "workingDirectory": "/tmp/repo",
+            "environment": environment,
+            "capturedAt": Date().timeIntervalSince1970,
+            "source": "process",
+        ] as [String: Any]
 
         let jsonObject: [String: Any] = [
             "version": 1,
             "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId.uuidString,
-                    "surfaceId": panelId.uuidString,
-                    "cwd": "/tmp/repo",
-                    "updatedAt": Date().timeIntervalSince1970,
-                    "launchCommand": [
-                        "launcher": "codex",
-                        "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"] + extraArguments,
-                        "workingDirectory": "/tmp/repo",
-                        "environment": ["CODEX_HOME": "/tmp/codex"],
-                        "capturedAt": Date().timeIntervalSince1970,
-                        "source": "process",
-                    ],
-                ],
+                sessionId: record,
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])

@@ -229,6 +229,7 @@ extension Workspace {
         statusEntries.removeAll()
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
+        restoreVisibleRuntimeStatusForAutoResumedAgents()
         agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
@@ -4781,6 +4782,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
         invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
+        clearRestoredAgentRuntimeStatus(agent: restoredAgent, panelId: panelId)
         clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
         clearRestoredAgentSnapshot(panelId: panelId)
 #if DEBUG
