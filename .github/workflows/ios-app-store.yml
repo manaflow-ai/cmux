@@ -37,7 +37,6 @@ jobs:
       INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
       INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
-      CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-appstore-build-number.txt
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -158,6 +157,8 @@ jobs:
 
       - name: Archive, export, and upload production build
         id: upload
+        env:
+          CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-appstore-build-number.txt
         run: |
           set -euo pipefail
           ARGS=(--signing manual)
