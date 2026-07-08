@@ -15,8 +15,8 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
-import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
+import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -109,7 +109,9 @@ interface WsData {
 
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
-let currentTheme = resolveGhosttyTheme();
+let fileTheme = resolveGhosttyTheme();
+let cmuxThemeOverride: GhosttyTheme | null = null;
+let currentTheme = fileTheme;
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
@@ -1250,6 +1252,67 @@ function themeForClient(theme: GhosttyTheme): GhosttyTheme {
   return theme;
 }
 
+const THEME_POST_KEYS = [
+  "background",
+  "foreground",
+  "palette",
+  "selectionBackground",
+  "cursorColor",
+  "fontFamily",
+  "fontSize",
+  "opacity",
+  "blur",
+  "isLight",
+  "source",
+] as const;
+
+function isColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function nullableColor(value: unknown): string | null {
+  if (value === null) return null;
+  if (isColor(value)) return value.toLowerCase();
+  throw new Error("invalid theme color");
+}
+
+function requiredColor(value: unknown): string {
+  if (isColor(value)) return value.toLowerCase();
+  throw new Error("invalid theme color");
+}
+
+export function validateCmuxThemePayload(body: unknown): GhosttyTheme {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("theme payload must be an object");
+  const obj = body as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const expected = [...THEME_POST_KEYS].sort();
+  if (keys.length !== expected.length || keys.some((key, i) => key !== expected[i])) throw new Error("theme payload has unexpected keys");
+  if (obj.source !== "cmux") throw new Error("theme source must be cmux");
+  if (!Array.isArray(obj.palette) || obj.palette.length !== 16 || !obj.palette.every(isColor)) throw new Error("theme palette must contain 16 colors");
+  const fontSize = obj.fontSize;
+  if (fontSize !== null && (typeof fontSize !== "number" || !Number.isFinite(fontSize) || fontSize <= 0)) throw new Error("theme fontSize must be positive or null");
+  const opacity = obj.opacity;
+  const blur = obj.blur;
+  if (typeof opacity !== "number" || !Number.isFinite(opacity) || opacity <= 0 || opacity > 1) throw new Error("theme opacity must be 0-1");
+  if (typeof blur !== "number" || !Number.isFinite(blur) || blur < 0) throw new Error("theme blur must be non-negative");
+  if (typeof obj.isLight !== "boolean") throw new Error("theme isLight must be boolean");
+  if (obj.fontFamily !== null && typeof obj.fontFamily !== "string") throw new Error("theme fontFamily must be string or null");
+  return {
+    background: requiredColor(obj.background),
+    foreground: requiredColor(obj.foreground),
+    palette: obj.palette.map((color) => String(color).toLowerCase()),
+    selectionBackground: nullableColor(obj.selectionBackground),
+    cursorColor: nullableColor(obj.cursorColor),
+    fontFamily: obj.fontFamily ? String(obj.fontFamily) : null,
+    fontSize: fontSize === null ? null : Number(fontSize),
+    opacity,
+    blur,
+    isLight: Boolean(obj.isLight),
+    source: "cmux",
+    sources: [],
+  };
+}
+
 function sameTheme(a: GhosttyTheme, b: GhosttyTheme): boolean {
   return JSON.stringify(themeForClient(a)) === JSON.stringify(themeForClient(b));
 }
@@ -1259,18 +1322,60 @@ function broadcastTheme(theme: GhosttyTheme) {
   for (const ws of allSockets) ws.send(payload);
 }
 
+function setCurrentTheme(theme: GhosttyTheme, source: "cmux" | "ghostty") {
+  if (source === "cmux") cmuxThemeOverride = theme;
+  else cmuxThemeOverride = null;
+  currentTheme = theme;
+}
+
+export function themeOverrideStateForTest(action: "cmux" | "ghostty", theme: GhosttyTheme): { current: GhosttyTheme; hasOverride: boolean } {
+  if (action === "ghostty") fileTheme = theme;
+  setCurrentTheme(theme, action);
+  return { current: currentTheme, hasOverride: cmuxThemeOverride !== null };
+}
+
 let themeWatchers: FSWatcher[] = [];
 let themeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let themePollTimer: ReturnType<typeof setInterval> | null = null;
+let watchedThemeSources: string[] = [];
+let watchedThemeMtimes = new Map<string, number>();
 
 function closeThemeWatchers() {
   for (const watcher of themeWatchers) watcher.close();
   themeWatchers = [];
 }
 
+function sameSources(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
+export function themeSourceMtimes(paths: string[]): Map<string, number> {
+  const mtimes = new Map<string, number>();
+  for (const path of paths) {
+    try {
+      mtimes.set(path, statSync(path).mtimeMs);
+    } catch {
+      mtimes.set(path, 0);
+    }
+  }
+  return mtimes;
+}
+
+export function themeMtimesChangedForTest(prev: Map<string, number>, next: Map<string, number>): boolean {
+  if (prev.size !== next.size) return true;
+  for (const [path, mtime] of next) {
+    if (prev.get(path) !== mtime) return true;
+  }
+  return false;
+}
+
 function armThemeWatchers(theme: GhosttyTheme) {
+  const sources = [...new Set(theme.sources)].sort();
+  watchedThemeMtimes = themeSourceMtimes(sources);
+  if (sameSources(watchedThemeSources, sources)) return;
   closeThemeWatchers();
-  for (const file of theme.sources) {
+  watchedThemeSources = sources;
+  for (const file of sources) {
     try {
       themeWatchers.push(watch(file, { persistent: false }, () => scheduleThemeRefresh()));
     } catch {
@@ -1284,23 +1389,34 @@ function scheduleThemeRefresh() {
   if (themeRefreshTimer) clearTimeout(themeRefreshTimer);
   themeRefreshTimer = setTimeout(() => {
     themeRefreshTimer = null;
-    refreshThemeNow();
+    refreshThemeNow().catch((err) => console.warn(`theme refresh failed: ${String(err)}`));
   }, 120);
 }
 
-export function refreshThemeNow(): boolean {
-  const next = resolveGhosttyTheme(true);
-  const changed = !sameTheme(currentTheme, next);
-  currentTheme = next;
-  armThemeWatchers(next);
-  if (changed) broadcastTheme(next);
+export async function refreshThemeNow(): Promise<boolean> {
+  const nextFileTheme = await resolveGhosttyThemeAsync(true);
+  const changed = !sameTheme(fileTheme, nextFileTheme);
+  fileTheme = nextFileTheme;
+  armThemeWatchers(nextFileTheme);
+  if (changed) {
+    setCurrentTheme(nextFileTheme, "ghostty");
+    broadcastTheme(nextFileTheme);
+  }
   return changed;
 }
 
 function startThemeWatcher() {
-  armThemeWatchers(currentTheme);
+  armThemeWatchers(fileTheme);
   if (themePollTimer) clearInterval(themePollTimer);
-  themePollTimer = setInterval(() => refreshThemeNow(), 5000);
+  // The poll exists only for atomic replaces or missing files that fs.watch
+  // cannot stay attached to. It stats watched files cheaply and resolves
+  // Ghostty only when an mtime/source-set change is observed.
+  themePollTimer = setInterval(() => {
+    const next = themeSourceMtimes(watchedThemeSources);
+    if (!themeMtimesChangedForTest(watchedThemeMtimes, next)) return;
+    watchedThemeMtimes = next;
+    refreshThemeNow().catch((err) => console.warn(`theme poll refresh failed: ${String(err)}`));
+  }, 5000);
 }
 
 export function themeMessageForTest(theme: GhosttyTheme): string {
@@ -1313,7 +1429,10 @@ export function themeMessageForTest(theme: GhosttyTheme): string {
 // transparent_background, so only genuinely transparent surfaces get an alpha
 // body; `?opacity=` is a dogfood override.
 function renderPage(url: URL): string {
-  currentTheme = resolveGhosttyTheme();
+  if (!cmuxThemeOverride) {
+    fileTheme = resolveGhosttyTheme();
+    currentTheme = fileTheme;
+  }
   const transparent = url.searchParams.get("transparent") === "1";
   const override = parseFloat(url.searchParams.get("opacity") ?? "");
   // In opaque mode html paints the same solid bg as body, so nothing behind
@@ -1494,8 +1613,23 @@ function startServer() {
     if (url.pathname === "/app.css") {
       return assetResponse(req, await cssAsset());
     }
+    if (url.pathname === "/api/theme" && req.method === "POST") {
+      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
+      try {
+        const theme = validateCmuxThemePayload(await req.json());
+        setCurrentTheme(theme, "cmux");
+        broadcastTheme(theme);
+        return Response.json(themeForClient(theme));
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+      }
+    }
     if (url.pathname === "/api/theme") {
-      currentTheme = resolveGhosttyTheme();
+      if (!cmuxThemeOverride) {
+        fileTheme = resolveGhosttyTheme();
+        currentTheme = fileTheme;
+        armThemeWatchers(fileTheme);
+      }
       return Response.json(themeForClient(currentTheme));
     }
     // REST for the CLI: create a session (optionally with a first prompt) and

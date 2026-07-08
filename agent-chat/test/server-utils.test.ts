@@ -20,12 +20,16 @@ import {
   resolveFileDiffPath,
   sendPromptForTest,
   themeCssVars,
+  themeMtimesChangedForTest,
   themeMessageForTest,
+  themeOverrideStateForTest,
+  themeSourceMtimes,
   themeVarMap,
   turnBaselineCountForTest,
   turnBaselineKeysForTest,
+  validateCmuxThemePayload,
 } from "../server";
-import type { GhosttyTheme } from "../theme";
+import { applyManagedThemeOverrideForTest, resolveThemeNameForTest, type GhosttyTheme } from "../theme";
 import type { Adapter, AgentEvent, SessionCtx, SessionStatus } from "../types";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -94,6 +98,37 @@ assert(themeVars["--ansi-bright-blue"] === "#0000ff", "theme vars should include
 assert(themeCssVars(fakeTheme).includes("--font-mono"), "theme CSS should include resolved font variables");
 const themeMsg = JSON.parse(themeMessageForTest(fakeTheme));
 assert(themeMsg.kind === "theme" && themeMsg.vars["--accent"] === "#0000ff", "theme WS message should carry the resolved variable map");
+const { sources: _sources, ...postTheme } = fakeTheme;
+const cmuxTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux" });
+assert(cmuxTheme.source === "cmux" && cmuxTheme.palette.length === 16, "valid cmux theme POST payload should normalize");
+assert(themeOverrideStateForTest("cmux", cmuxTheme).hasOverride, "cmux theme push should become the authoritative override");
+const ghosttyWins = themeOverrideStateForTest("ghostty", { ...fakeTheme, background: "#010203", source: "show-config:test" });
+assert(!ghosttyWins.hasOverride && ghosttyWins.current.background === "#010203", "later ghostty refresh should supersede a stale cmux override");
+assert(themeOverrideStateForTest("cmux", cmuxTheme).current.source === "cmux", "newer cmux push should win again");
+for (const bad of [
+  { ...postTheme, source: "ghostty" },
+  { ...postTheme, source: "cmux", palette: fakeTheme.palette.slice(0, 15) },
+  { ...postTheme, source: "cmux", extra: true },
+]) {
+  let rejected = false;
+  try {
+    validateCmuxThemePayload(bad);
+  } catch {
+    rejected = true;
+  }
+  assert(rejected, `invalid cmux theme payload should be rejected: ${JSON.stringify(bad)}`);
+}
+assert(resolveThemeNameForTest("theme = light:Paper,dark:Ink\n", "light") === "Paper", "managed light theme pair should resolve by light appearance");
+assert(resolveThemeNameForTest("theme = light:Paper,dark:Ink\n", "dark") === "Ink", "managed dark theme pair should resolve by dark appearance");
+assert(resolveThemeNameForTest("theme = Old\ntheme = New\n", "light") === "New", "managed theme directives should be last-wins");
+const managed = applyManagedThemeOverrideForTest(new Map([["background", "#000000"]]), new Map([["background", "#ffffff"]]));
+assert(managed.get("background") === "#ffffff", "managed override theme should apply after show-config values");
+const mtimesA = new Map([["a", 1], ["b", 2]]);
+const mtimesB = new Map([["a", 1], ["b", 2]]);
+const mtimesC = new Map([["a", 1], ["b", 3]]);
+assert(!themeMtimesChangedForTest(mtimesA, mtimesB), "unchanged mtimes should not trigger a theme resolve");
+assert(themeMtimesChangedForTest(mtimesA, mtimesC), "changed mtimes should trigger a theme resolve");
+assert(themeSourceMtimes(["/definitely/missing/theme-file"]).get("/definitely/missing/theme-file") === 0, "missing watched files should use a stable zero mtime");
 
 const root = join(import.meta.dir, "..", "scratch", "git-output-cap-test");
 await rm(root, { recursive: true, force: true });

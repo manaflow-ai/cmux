@@ -52,12 +52,25 @@ const THEME_DIRS = [
   "/Applications/Ghostty.app/Contents/Resources/ghostty/themes",
 ];
 
+const MANAGED_CONFIGS = [
+  `${homedir()}/Library/Application Support/com.mitchellh.ghostty/config`,
+  `${homedir()}/Library/Application Support/com.cmuxterm.app/config.ghostty`,
+];
+
 let cached: { theme: GhosttyTheme; at: number } | null = null;
 
 export function resolveGhosttyTheme(force = false): GhosttyTheme {
   if (force) cached = null;
   if (cached && Date.now() - cached.at < 3000) return cached.theme;
   const theme = fromShowConfig() ?? fromManualParse();
+  cached = { theme, at: Date.now() };
+  return theme;
+}
+
+export async function resolveGhosttyThemeAsync(force = false): Promise<GhosttyTheme> {
+  if (force) cached = null;
+  if (cached && Date.now() - cached.at < 3000) return cached.theme;
+  const theme = await fromShowConfigAsync() ?? fromManualParse();
   cached = { theme, at: Date.now() };
   return theme;
 }
@@ -72,7 +85,32 @@ function fromShowConfig(): GhosttyTheme | null {
       const bg = normalizeColor(kv.get("background"));
       const fg = normalizeColor(kv.get("foreground"));
       if (!bg || !fg) continue;
-      return finish(bg, fg, kv, `show-config:${bin}`, ghosttySourceFiles());
+      const managed = applyManagedThemeOverrides(kv, macAppearanceSync());
+      const mergedBg = normalizeColor(managed.kv.get("background")) ?? bg;
+      const mergedFg = normalizeColor(managed.kv.get("foreground")) ?? fg;
+      return finish(mergedBg, mergedFg, managed.kv, `show-config:${bin}`, ghosttySourceFiles(managed.sources));
+    } catch {
+      // try the next binary
+    }
+  }
+  return null;
+}
+
+async function fromShowConfigAsync(): Promise<GhosttyTheme | null> {
+  for (const bin of GHOSTTY_BINS) {
+    if (!existsSync(bin)) continue;
+    try {
+      const proc = Bun.spawn([bin, "+show-config"], { stdout: "pipe", stderr: "ignore", env: { ...process.env } });
+      const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      if (code !== 0) continue;
+      const kv = parseKVs(text);
+      const bg = normalizeColor(kv.get("background"));
+      const fg = normalizeColor(kv.get("foreground"));
+      if (!bg || !fg) continue;
+      const managed = applyManagedThemeOverrides(kv, await macAppearanceAsync());
+      const mergedBg = normalizeColor(managed.kv.get("background")) ?? bg;
+      const mergedFg = normalizeColor(managed.kv.get("foreground")) ?? fg;
+      return finish(mergedBg, mergedFg, managed.kv, `show-config:${bin}`, ghosttySourceFiles(managed.sources));
     } catch {
       // try the next binary
     }
@@ -84,39 +122,29 @@ function fromManualParse(): GhosttyTheme {
   let bg: string | null = null;
   let fg: string | null = null;
   let kv = new Map<string, string>();
+  let sources: string[] = [];
   try {
     const text = readFileSync(`${homedir()}/.config/ghostty/config`, "utf8");
     kv = parseKVs(text);
     // Ghostty resolves repeated keys with the last value winning.
-    const themeLine = text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => {
-        const eq = l.indexOf("=");
-        return eq > 0 && l.slice(0, eq).trim() === "theme";
-      })
-      .at(-1)
-      ?.split("=")[1];
-    const themeName = themeLine ? unquote(themeLine.trim()) : null;
+    const themeName = lastThemeName(text, macAppearanceSync());
     if (themeName) {
-      const single = themeName.includes(":")
-        ? Object.fromEntries(themeName.split(",").map((p) => p.split(":").map((s) => s.trim()) as [string, string])).dark
-        : themeName;
-      if (single) {
-        const themeKv = themeKVs(single);
-        if (themeKv) {
-          kv = new Map([...themeKv, ...kv]);
-          bg = normalizeColor(kv.get("background"));
-          fg = normalizeColor(kv.get("foreground"));
-        }
+      const theme = themeKVs(themeName);
+      if (theme) {
+        kv = new Map([...theme, ...kv]);
+        bg = normalizeColor(kv.get("background"));
+        fg = normalizeColor(kv.get("foreground"));
       }
     }
-    bg = normalizeColor(kv.get("background")) ?? bg;
-    fg = normalizeColor(kv.get("foreground")) ?? fg;
   } catch {
     // no ghostty config at all; use defaults
   }
-  return finish(bg ?? "#101014", fg ?? "#e8e8ec", kv, "manual-parse", ghosttySourceFiles());
+  const managed = applyManagedThemeOverrides(kv, macAppearanceSync());
+  kv = managed.kv;
+  sources = managed.sources;
+  bg = normalizeColor(kv.get("background")) ?? bg;
+  fg = normalizeColor(kv.get("foreground")) ?? fg;
+  return finish(bg ?? "#101014", fg ?? "#e8e8ec", kv, "manual-parse", ghosttySourceFiles(sources));
 }
 
 function finish(bg: string, fg: string, kv: Map<string, string>, source: string, sources: string[]): GhosttyTheme {
@@ -195,8 +223,10 @@ export function ghosttyConfigPath(): string {
   return `${homedir()}/.config/ghostty/config`;
 }
 
-function ghosttySourceFiles(): string[] {
+function ghosttySourceFiles(extra: string[] = []): string[] {
   const files = new Set<string>([ghosttyConfigPath()]);
+  for (const file of MANAGED_CONFIGS) files.add(file);
+  for (const file of extra) files.add(file);
   try {
     const text = readFileSync(ghosttyConfigPath(), "utf8");
     for (const raw of text.split("\n")) {
@@ -204,7 +234,7 @@ function ghosttySourceFiles(): string[] {
       if (!line || line.startsWith("#")) continue;
       const eq = line.indexOf("=");
       if (eq < 0 || line.slice(0, eq).trim() !== "theme") continue;
-      const value = unquote(line.slice(eq + 1).trim());
+      const value = resolveThemeValue(unquote(line.slice(eq + 1).trim()), macAppearanceSync());
       for (const name of themeNames(value)) {
         const file = themeFilePath(name);
         if (file) files.add(file);
@@ -223,6 +253,71 @@ function themeNames(value: string): string[] {
     .split(",")
     .map((part) => part.split(":")[1]?.trim())
     .filter((v): v is string => Boolean(v));
+}
+
+function lastThemeName(text: string, appearance: "light" | "dark"): string | null {
+  let value: string | null = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq < 0 || line.slice(0, eq).trim() !== "theme") continue;
+    value = resolveThemeValue(unquote(line.slice(eq + 1).trim()), appearance);
+  }
+  return value;
+}
+
+function resolveThemeValue(value: string, appearance: "light" | "dark"): string {
+  if (!value.includes(":")) return value;
+  const pairs = Object.fromEntries(value.split(",").map((p) => p.split(":").map((s) => s.trim()) as [string, string]));
+  return pairs[appearance] ?? pairs.dark ?? pairs.light ?? value;
+}
+
+function applyManagedThemeOverrides(kv: Map<string, string>, appearance: "light" | "dark"): { kv: Map<string, string>; sources: string[] } {
+  let next = kv;
+  const sources: string[] = [];
+  for (const file of MANAGED_CONFIGS) {
+    sources.push(file);
+    if (!existsSync(file)) continue;
+    try {
+      const name = lastThemeName(readFileSync(file, "utf8"), appearance);
+      if (!name) continue;
+      const theme = themeKVs(name);
+      const themeFile = themeFilePath(name);
+      if (themeFile) sources.push(themeFile);
+      if (theme) next = new Map([...next, ...theme]);
+    } catch {
+      // Ignore malformed managed config files; base Ghostty config remains valid.
+    }
+  }
+  return { kv: next, sources };
+}
+
+function macAppearanceSync(): "light" | "dark" {
+  try {
+    const res = Bun.spawnSync(["defaults", "read", "-g", "AppleInterfaceStyle"], { stdout: "pipe", stderr: "ignore", env: { ...process.env } });
+    return res.exitCode === 0 && /dark/i.test(res.stdout.toString()) ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+async function macAppearanceAsync(): Promise<"light" | "dark"> {
+  try {
+    const proc = Bun.spawn(["defaults", "read", "-g", "AppleInterfaceStyle"], { stdout: "pipe", stderr: "ignore", env: { ...process.env } });
+    const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    return code === 0 && /dark/i.test(text) ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+export function resolveThemeNameForTest(text: string, appearance: "light" | "dark"): string | null {
+  return lastThemeName(text, appearance);
+}
+
+export function applyManagedThemeOverrideForTest(kv: Map<string, string>, themeKv: Map<string, string>): Map<string, string> {
+  return new Map([...kv, ...themeKv]);
 }
 
 function themeFilePath(name: string): string | null {
