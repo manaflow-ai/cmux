@@ -7,11 +7,23 @@ function isExternal(href: string) {
   return href.startsWith("http") || href.startsWith("mailto:");
 }
 
+type FooterLink = {
+  label: string;
+  href: string;
+  proUpgrade?: boolean;
+  defaultLocale?: boolean;
+};
+
+type FooterColumn = {
+  heading: string;
+  links: FooterLink[];
+};
+
 export async function SiteFooter() {
   const t = await getTranslations("footer");
   const year = new Date().getFullYear();
 
-  const columns = [
+  const columns: FooterColumn[] = [
     {
       heading: t("product"),
       links: [
@@ -34,9 +46,9 @@ export async function SiteFooter() {
     {
       heading: t("legal"),
       links: [
-        { label: t("privacy"), href: "/privacy-policy" },
-        { label: t("terms"), href: "/terms-of-service" },
-        { label: t("eula"), href: "/eula" },
+        { label: t("privacy"), href: "/privacy-policy", defaultLocale: true },
+        { label: t("terms"), href: "/terms-of-service", defaultLocale: true },
+        { label: t("eula"), href: "/eula", defaultLocale: true },
       ],
     },
     {
@@ -63,11 +75,12 @@ export async function SiteFooter() {
                 {col.links.map((link) => {
                   const item = (
                     <li key={link.href}>
-                      {isExternal(link.href) ? (
+                      {isExternal(link.href) || link.defaultLocale ? (
                         <a
                           href={link.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          {...(isExternal(link.href)
+                            ? { target: "_blank", rel: "noopener noreferrer" }
+                            : {})}
                           className="text-sm text-muted hover:text-foreground transition-colors"
                         >
                           {link.label}
