@@ -52,8 +52,11 @@ extension AgentLaunchSanitizer {
         guard let executable = argv.first else { return nil }
         let runtimeName = (executable as NSString).lastPathComponent.lowercased()
         guard runtimeName == "node" || runtimeName == "bun",
-              let markerAgentName = cmuxWrapperInjectedAgentName(argv),
               let scriptIndex = javaScriptRuntimeScriptArgumentIndex(argv) else {
+            return nil
+        }
+        let scriptTail = Array(argv.dropFirst(scriptIndex + 1))
+        guard let markerAgentName = cmuxWrapperInjectedAgentNameFromArgumentPrefix(scriptTail) else {
             return nil
         }
         let scriptName = (argv[scriptIndex] as NSString).lastPathComponent
@@ -69,7 +72,7 @@ extension AgentLaunchSanitizer {
         } else {
             return nil
         }
-        return [matchedName] + Array(argv.dropFirst(scriptIndex + 1))
+        return [matchedName] + scriptTail
     }
 
     /// Whether captured argv carries cmux wrapper-injected hook arguments for
@@ -79,7 +82,8 @@ extension AgentLaunchSanitizer {
     /// absolute binary path, so replay routes back through the shim and hooks
     /// are re-injected fresh.
     public static func containsCmuxWrapperInjectedHookArguments(_ argv: [String]) -> Bool {
-        cmuxWrapperInjectedAgentName(argv) != nil
+        guard !argv.isEmpty else { return false }
+        return cmuxWrapperInjectedAgentNameFromArgumentPrefix(Array(argv.dropFirst())) != nil
     }
 
     struct CodexForkCommand {
@@ -160,23 +164,6 @@ private func looksLikeCodexSessionIdentifier(_ value: String) -> Bool {
     }
     let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
     return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
-}
-
-private func containsCmuxInjectedCodexHookConfig(_ args: [String]) -> Bool {
-    var index = 0
-    while index < args.count {
-        let arg = args[index]
-        if isCmuxInjectedCodexHookConfigOption(arg) {
-            return true
-        }
-        if (arg == "-c" || arg == "--config"),
-           index + 1 < args.count,
-           isCmuxInjectedCodexHookConfigValue(args[index + 1]) {
-            return true
-        }
-        index += 1
-    }
-    return false
 }
 
 private func cmuxInjectedCodexHookArgumentPrefixEnd(_ args: [String]) -> Int? {
@@ -273,28 +260,22 @@ private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [
 /// deterministic signal that cmux's PATH shim wrapper for that agent spawned
 /// this process from a bare agent name (vs the user launching a script or
 /// explicit path directly).
-private func cmuxWrapperInjectedAgentName(_ argv: [String]) -> String? {
-    if containsCmuxInjectedCodexHookConfig(argv) { return "codex" }
-    if containsCmuxInjectedClaudeHookSettings(argv) { return "claude" }
+private func cmuxWrapperInjectedAgentNameFromArgumentPrefix(_ args: [String]) -> String? {
+    if cmuxInjectedCodexHookArgumentPrefixEnd(args) != nil { return "codex" }
+    if cmuxInjectedClaudeHookSettingsArgumentPrefixEnd(args) != nil { return "claude" }
     return nil
 }
 
-private func containsCmuxInjectedClaudeHookSettings(_ argv: [String]) -> Bool {
-    var index = 0
-    while index < argv.count {
-        let arg = argv[index]
-        if arg == "--settings", index + 1 < argv.count {
-            if isCmuxInjectedClaudeHookSettingsValue(argv[index + 1]) { return true }
-            index += 2
-            continue
-        }
-        if arg.hasPrefix("--settings="),
-           isCmuxInjectedClaudeHookSettingsValue(String(arg.dropFirst("--settings=".count))) {
-            return true
-        }
-        index += 1
+private func cmuxInjectedClaudeHookSettingsArgumentPrefixEnd(_ args: [String]) -> Int? {
+    guard let first = args.first else { return nil }
+    if first == "--settings", args.count > 1 {
+        return isCmuxInjectedClaudeHookSettingsValue(args[1]) ? 2 : nil
     }
-    return false
+    if first.hasPrefix("--settings="),
+       isCmuxInjectedClaudeHookSettingsValue(String(first.dropFirst("--settings=".count))) {
+        return 1
+    }
+    return nil
 }
 
 /// Mirrors the claude wrapper's injected-settings markers used by

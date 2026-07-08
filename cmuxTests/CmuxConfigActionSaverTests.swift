@@ -384,6 +384,15 @@ struct CmuxConfigActionSaverTests {
                 "/usr/local/bin/codex", "--model", "gpt-5.5",
             ]) == "/usr/local/bin/codex --model gpt-5.5"
         )
+        let explicitPinnedCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "/opt/pinned/bin/codex",
+            "--model",
+            "gpt-5.5",
+            "-c",
+            "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+        ])
+        #expect(explicitPinnedCommand?.hasPrefix("/opt/pinned/bin/codex ") == true)
+        #expect(explicitPinnedCommand?.hasPrefix("codex ") == false)
     }
 
     @Test func commandLineKeepsClaudeDirectBinaryBehavior() {
