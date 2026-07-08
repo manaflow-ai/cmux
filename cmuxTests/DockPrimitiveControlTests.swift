@@ -386,4 +386,44 @@ struct DockPrimitiveControlTests {
         globalStore.applyConfigurationLoadResult(.resolved(globalResolution), generation: globalGeneration, replacingPanels: true)
         #expect(globalStore.trustRequest == nil)
     }
+
+    @Test("Project trust summary shows default browser profile when browser is unavailable")
+    @MainActor
+    func projectTrustSummaryShowsDefaultBrowserProfileWhenBrowserUnavailable() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("dock-\(UUID().uuidString).json", isDirectory: false)
+        let resolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(id: "docs", title: "Docs", variant: .browser(url: "https://docs.cmux.dev", profile: nil))
+            ],
+            sourceURL: configURL,
+            baseDirectory: root.path,
+            isProjectSource: true
+        )
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { false }
+        )
+        defer { store.closeAllPanels() }
+
+        let generation = store.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
+        store.applyConfigurationLoadResult(.resolved(resolution), generation: generation, replacingPanels: true)
+
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let defaultProfileName = BrowserProfileStore.shared.displayName(for: defaultProfileID)
+        let request = try #require(store.trustRequest)
+        #expect(request.controlSummaries.map(\.detail) == [
+            .browser(
+                url: "https://docs.cmux.dev",
+                profileDisplayName: defaultProfileName,
+                profileIsDefault: true,
+                profileID: defaultProfileID.uuidString
+            )
+        ])
+    }
 }

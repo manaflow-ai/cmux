@@ -658,10 +658,11 @@ final class DockSplitStore: BonsplitDelegate {
             activeConfigURL = resolution.sourceURL
             resolvedBaseDirectory = resolution.baseDirectory
             do {
-                let profileIndex = isBrowserPanelAvailable() ? browserProfileIndex() : nil
+                let profileIndex = browserProfileIndex()
                 let resolvedControls = try Self.resolvedControls(
                     for: resolution.controls,
-                    browserProfileIndex: profileIndex
+                    browserProfileIndex: profileIndex,
+                    resolveBrowserProfiles: isBrowserPanelAvailable()
                 )
                 if let request = trustRequestIfNeeded(for: resolution, resolvedControls: resolvedControls) {
                     sourceLabel = String(localized: "dock.source.project", defaultValue: "Project Dock")
@@ -697,14 +698,15 @@ final class DockSplitStore: BonsplitDelegate {
 
     private static func resolvedControls(
         for definitions: [DockControlDefinition],
-        browserProfileIndex: DockBrowserProfileIndex?
+        browserProfileIndex: DockBrowserProfileIndex,
+        resolveBrowserProfiles: Bool
     ) throws -> [ResolvedConfigControl] {
         var resolvedControls: [ResolvedConfigControl] = []
         resolvedControls.reserveCapacity(definitions.count)
         for definition in definitions {
             let resolvedProfile: DockBrowserProfileResolution?
             if case .browser(_, let profile) = definition.variant,
-               let browserProfileIndex {
+               (resolveBrowserProfiles || profile == nil) {
                 resolvedProfile = try browserProfileIndex.resolve(profile)
             } else {
                 resolvedProfile = nil
