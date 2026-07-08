@@ -60,7 +60,8 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
         if scriptAgentName == "codex" || scriptPathIsAgentPackageEntrypoint(argv[scriptIndex], agentName: "codex") {
             let strippedTail = removingCmuxInjectedCodexHookArguments(scriptTail)
             if strippedTail.count != scriptTail.count {
-                return Array(argv.prefix(scriptIndex + 1)) + strippedTail
+                let preservedTail = preservedCodexLaunchArguments(args: scriptTail) ?? []
+                return Array(argv.prefix(scriptIndex + 1)) + preservedTail
             }
         }
         guard let markerAgentName = cmuxWrapperInjectedAgentNameFromArgumentPrefix(scriptTail) else {

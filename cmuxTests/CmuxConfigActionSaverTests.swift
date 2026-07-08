@@ -329,7 +329,7 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
-    @Test func commandLinePreservesNodeCodexRuntimeAndStripsCmuxHooks() {
+    @Test func commandLinePreservesNodeCodexRuntimeAndStripsCmuxHooksAndResume() {
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv()) ==
                 "node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.5 -c model_reasoning_effort=xhigh"
@@ -484,6 +484,8 @@ struct CmuxConfigActionSaverTests {
             "hooks.Notification=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-notification.sh''',timeout=10000}]}]",
             "-c",
             "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "resume",
+            "019dad34-d218-7943-b81a-eddac5c87951",
             "--dangerously-bypass-approvals-and-sandbox",
             "--model",
             "gpt-5.5",

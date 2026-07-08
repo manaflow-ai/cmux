@@ -193,6 +193,11 @@ struct CodexHookInjectionStrippingTests {
                 ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex"] + cmuxCodexHookArgs + ["--model", "gpt-5.5"]
             ) == ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex", "--model", "gpt-5.5"]
         )
+        #expect(
+            runtimeUnwrapper.unwrappedArgv(
+                ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex"] + cmuxCodexHookArgs + ["resume", "019dad34-d218-7943-b81a-eddac5c87951", "--model", "gpt-5.5"]
+            ) == ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex", "--model", "gpt-5.5"]
+        )
     }
 
     @Test("Unwrap skips node options before script")
