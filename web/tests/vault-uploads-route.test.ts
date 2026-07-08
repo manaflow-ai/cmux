@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 import { cloudDb } from "../db/client";
-import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../db/schema";
+import { vaultSessions, vaultSnapshots, vaultUploadGrants, vaultUploadTombstones } from "../db/schema";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -13,8 +13,10 @@ const realBuildObjectKey = storageModule.buildObjectKey;
 let presignFailure: Error | null = null;
 let beforeNextPresignFailure: (() => Promise<void>) | null = null;
 let beforeNextDelete: ((key: string) => Promise<void>) | null = null;
+let presignCalls: { readonly key: string; readonly contentLength: number }[] = [];
 const presignPut = mock(async (...args: unknown[]) => {
   const [key, contentLength] = args as [string, number];
+  presignCalls.push({ key, contentLength });
   if (beforeNextPresignFailure) {
     const run = beforeNextPresignFailure;
     beforeNextPresignFailure = null;
@@ -68,6 +70,7 @@ beforeEach(async () => {
   presignFailure = null;
   beforeNextPresignFailure = null;
   beforeNextDelete = null;
+  presignCalls = [];
   presignPut.mockClear();
   deleteObject.mockClear();
   getUser.mockClear();
@@ -120,8 +123,14 @@ describe("Vault uploads route", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe(previousGrant!.id);
     expect(rows[0].compressedSizeBytes).toBe(123);
+    expect(rows[0].uploadObjectKey).toBe(`${objectKey}.previous-upload`);
     expect(rows[0].createdAt.getTime()).toBe(previousCreatedAt.getTime());
     expect(rows[0].expiresAt.getTime()).toBe(previousExpiresAt.getTime());
+    const tombstones = await db
+      .select({ id: vaultUploadTombstones.id })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.uploadObjectKey, `${objectKey}.previous-upload`));
+    expect(tombstones).toHaveLength(0);
   });
 
   dbTest("does not restore an older grant over a newer successful retry", async () => {
@@ -170,9 +179,14 @@ describe("Vault uploads route", () => {
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(rows).toHaveLength(1);
     expect(rows[0].compressedSizeBytes).toBe(789);
+    const tombstones = await db
+      .select({ uploadObjectKey: vaultUploadTombstones.uploadObjectKey })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.uploadObjectKey, `${objectKey}.previous-upload`));
+    expect(tombstones).toHaveLength(1);
   });
 
-  dbTest("reuses the active staging key when retrying an existing grant", async () => {
+  dbTest("mints a fresh staging key and tombstones the active key when retrying an existing grant", async () => {
     const db = cloudDb();
     const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
     const uploadObjectKey = `${objectKey}.active-upload`;
@@ -192,7 +206,11 @@ describe("Vault uploads route", () => {
 
     expect(response.status).toBe(200);
     expect((await response.json()).items[0].status).toBe("upload");
-    expect(presignPut).toHaveBeenCalledWith(uploadObjectKey, 456);
+    expect(presignPut).toHaveBeenCalledTimes(1);
+    expect(presignCalls).toHaveLength(1);
+    expect(presignCalls[0].key).not.toBe(uploadObjectKey);
+    expect(presignCalls[0].key).toContain("vault/uploads/");
+    expect(presignCalls[0].contentLength).toBe(456);
     const rows = await db
       .select({
         uploadObjectKey: vaultUploadGrants.uploadObjectKey,
@@ -201,11 +219,16 @@ describe("Vault uploads route", () => {
       .from(vaultUploadGrants)
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(rows).toHaveLength(1);
-    expect(rows[0].uploadObjectKey).toBe(uploadObjectKey);
+    expect(rows[0].uploadObjectKey).toBe(presignCalls[0].key);
     expect(rows[0].reservationToken).not.toBe(originalGrant!.reservationToken);
+    const tombstones = await db
+      .select({ uploadObjectKey: vaultUploadTombstones.uploadObjectKey })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.uploadObjectKey, uploadObjectKey));
+    expect(tombstones).toHaveLength(1);
   });
 
-  dbTest("reuses an expired staging key when cleanup has not completed", async () => {
+  dbTest("mints a fresh staging key when expired staging cleanup has not completed", async () => {
     const db = cloudDb();
     const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
     const uploadObjectKey = `${objectKey}.expired-upload`;
@@ -226,13 +249,21 @@ describe("Vault uploads route", () => {
 
     expect(response.status).toBe(200);
     expect((await response.json()).items[0].status).toBe("upload");
-    expect(presignPut).toHaveBeenCalledWith(uploadObjectKey, 456);
+    expect(presignPut).toHaveBeenCalledTimes(1);
+    expect(presignCalls).toHaveLength(1);
+    expect(presignCalls[0].key).not.toBe(uploadObjectKey);
+    expect(presignCalls[0].contentLength).toBe(456);
     const rows = await db
       .select({ uploadObjectKey: vaultUploadGrants.uploadObjectKey })
       .from(vaultUploadGrants)
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(rows).toHaveLength(1);
-    expect(rows[0].uploadObjectKey).toBe(uploadObjectKey);
+    expect(rows[0].uploadObjectKey).toBe(presignCalls[0].key);
+    const tombstones = await db
+      .select({ uploadObjectKey: vaultUploadTombstones.uploadObjectKey })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.uploadObjectKey, uploadObjectKey));
+    expect(tombstones).toHaveLength(1);
   });
 
   dbTest("removes a newly-created upload grant when presign fails", async () => {
@@ -362,6 +393,83 @@ describe("Vault uploads route", () => {
     expect(grants).toHaveLength(0);
   });
 
+  dbTest("deletes expired grants for inactive users during another user's upload", async () => {
+    const db = cloudDb();
+    const inactiveUserId = "inactive-vault-upload-user";
+    const expiredSha = "e".repeat(64);
+    const objectKey = realBuildObjectKey(inactiveUserId, "codex", "inactive-session", expiredSha);
+    const uploadObjectKey = `${objectKey}.staged`;
+    await db.insert(vaultUploadGrants).values({
+      userId: inactiveUserId,
+      objectKey,
+      uploadObjectKey,
+      compressedSizeBytes: 456,
+      createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect(deleteObject).toHaveBeenCalledWith(uploadObjectKey);
+    expect(deleteObject).toHaveBeenCalledWith(objectKey);
+    const grants = await db
+      .select({ id: vaultUploadGrants.id })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(grants).toHaveLength(0);
+  });
+
+  dbTest("deletes expired tombstoned staged uploads without deleting committed final objects", async () => {
+    const db = cloudDb();
+    const expiredSha = "f".repeat(64);
+    const objectKey = realBuildObjectKey(userId, "codex", "session-tombstone-gc", expiredSha);
+    const uploadObjectKey = `${objectKey}.old-staged`;
+    const uploadedAt = new Date("2030-01-01T00:00:00.000Z");
+    const [session] = await db
+      .insert(vaultSessions)
+      .values({
+        userId,
+        agent: "codex",
+        agentSessionId: "session-tombstone-gc",
+        relPath: "sessions/session-tombstone-gc.jsonl.zst",
+        cwd: "/workspace",
+        latestSha256: expiredSha,
+        latestObjectKey: objectKey,
+        sizeBytes: 999,
+        compressedSizeBytes: 456,
+        firstUploadedAt: uploadedAt,
+        lastUploadedAt: uploadedAt,
+        metadata: {},
+      })
+      .returning({ id: vaultSessions.id });
+    await db.insert(vaultSnapshots).values({
+      sessionId: session!.id,
+      sha256: expiredSha,
+      objectKey,
+      sizeBytes: 999,
+      compressedSizeBytes: 456,
+      uploadedAt,
+    });
+    await db.insert(vaultUploadTombstones).values({
+      userId,
+      objectKey,
+      uploadObjectKey,
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect(deleteObject).toHaveBeenCalledWith(uploadObjectKey);
+    expect(deleteObject).not.toHaveBeenCalledWith(objectKey);
+    const tombstones = await db
+      .select({ id: vaultUploadTombstones.id })
+      .from(vaultUploadTombstones)
+      .where(eq(vaultUploadTombstones.uploadObjectKey, uploadObjectKey));
+    expect(tombstones).toHaveLength(0);
+  }, 10_000);
+
   dbTest("does not delete an expired grant final object after it becomes committed", async () => {
     const db = cloudDb();
     const expiredSha = "d".repeat(64);
@@ -415,7 +523,7 @@ describe("Vault uploads route", () => {
       .from(vaultUploadGrants)
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(grants).toHaveLength(0);
-  });
+  }, 10_000);
 });
 
 function uploadRequest(input: { readonly compressedSizeBytes: number }): Request {
@@ -475,7 +583,7 @@ function duplicateUploadRequest(): Request {
 
 async function resetVaultTables(): Promise<void> {
   await cloudDb().execute(sql`
-    truncate vault_snapshots, vault_sessions, vault_upload_grants restart identity cascade
+    truncate vault_snapshots, vault_sessions, vault_upload_grants, vault_upload_tombstones restart identity cascade
   `);
 }
 

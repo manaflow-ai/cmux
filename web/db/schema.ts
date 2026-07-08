@@ -440,6 +440,23 @@ export const vaultUploadGrants = pgTable(
   ],
 );
 
+export const vaultUploadTombstones = pgTable(
+  "vault_upload_tombstones",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    uploadObjectKey: text("upload_object_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("vault_upload_tombstones_user_idx").on(table.userId),
+    index("vault_upload_tombstones_expires_idx").on(table.expiresAt),
+    uniqueIndex("vault_upload_tombstones_upload_object_key_unique").on(table.uploadObjectKey),
+  ],
+);
+
 export const vaultCliAuthRequests = pgTable(
   "vault_cli_auth_requests",
   {

@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { and, eq, lt } from "drizzle-orm";
 import type { Span } from "@opentelemetry/api";
 import { cloudDb } from "../../../../db/client";
-import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../db/schema";
+import {
+  vaultSessions,
+  vaultSnapshots,
+  vaultUploadGrants,
+  vaultUploadTombstones,
+} from "../../../../db/schema";
 import { vaultConfig } from "../../../../services/vault/config";
 import {
   buildObjectKey,
@@ -29,6 +34,8 @@ export const dynamic = "force-dynamic";
 // object is deleted by the opportunistic GC below.
 const UPLOAD_GRANT_TTL_MS = 24 * 60 * 60 * 1000;
 const GRANT_GC_BATCH = 10;
+
+type VaultDb = ReturnType<typeof cloudDb>;
 
 type ExistingUploadGrant = {
   readonly id: string;
@@ -107,9 +114,9 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
   const db = cloudDb();
   const now = new Date();
 
-  const reservedResults = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
-    await gcExpiredGrants(lockedDb, userId, now);
+  await gcExpiredVaultStorage(db, now);
 
+  const reservedResults = await withVaultUserQuotaLock(db, userId, async (lockedDb) => {
     // Per-user storage quota covers committed snapshots plus unexpired upload
     // grants, so minting URLs and never committing still consumes quota (the
     // presigned ContentLength is signed, bounding each upload to its declared
@@ -209,11 +216,26 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
         .from(vaultUploadGrants)
         .where(eq(vaultUploadGrants.objectKey, objectKey))
         .limit(1);
-      const reusePreviousUploadKey = !!previousGrant;
       const grantReservationToken = randomUUID();
-      const uploadObjectKey = reusePreviousUploadKey
-        ? previousGrant.uploadObjectKey
-        : buildUploadObjectKey(objectKey, grantReservationToken);
+      const uploadObjectKey = buildUploadObjectKey(objectKey, grantReservationToken);
+      if (previousGrant) {
+        await lockedDb
+          .insert(vaultUploadTombstones)
+          .values({
+            userId,
+            objectKey,
+            uploadObjectKey: previousGrant.uploadObjectKey,
+            expiresAt: previousGrant.expiresAt,
+          })
+          .onConflictDoUpdate({
+            target: vaultUploadTombstones.uploadObjectKey,
+            set: {
+              userId,
+              objectKey,
+              expiresAt: previousGrant.expiresAt,
+            },
+          });
+      }
       const [grant] = await lockedDb
         .insert(vaultUploadGrants)
         .values({
@@ -267,7 +289,7 @@ async function handlePost(request: Request, userId: string, span: Span): Promise
 }
 
 async function presignReservedUploads(
-  db: ReturnType<typeof cloudDb>,
+  db: VaultDb,
   items: readonly ReservedUploadResult[],
 ): Promise<VaultUploadResponseItem[]> {
   const results: VaultUploadResponseItem[] = [];
@@ -302,7 +324,7 @@ async function presignReservedUploads(
   for (const item of failedReservations.values()) {
     if (successfulObjectKeys.has(item.objectKey)) continue;
     if (item.previousGrant) {
-      await db
+      const restored = await db
         .update(vaultUploadGrants)
         .set({
           compressedSizeBytes: item.previousGrant.compressedSizeBytes,
@@ -316,7 +338,14 @@ async function presignReservedUploads(
           eq(vaultUploadGrants.objectKey, item.objectKey),
           eq(vaultUploadGrants.reservationToken, item.grantReservationToken),
         ))
-        .catch(() => undefined);
+        .returning({ id: vaultUploadGrants.id })
+        .catch(() => []);
+      if (restored.length > 0) {
+        await db
+          .delete(vaultUploadTombstones)
+          .where(eq(vaultUploadTombstones.uploadObjectKey, item.previousGrant.uploadObjectKey))
+          .catch(() => undefined);
+      }
       continue;
     }
     await db
@@ -332,52 +361,154 @@ async function presignReservedUploads(
 }
 
 /**
- * Opportunistically clean up expired grants: delete the storage object when it
- * was uploaded but never committed, then drop the grant row. Runs a small
- * bounded batch per request (same pattern as the CLI auth start GC). If the
- * object deletion fails, the row is kept so a later pass retries.
+ * Opportunistically clean up expired grants and superseded upload keys across
+ * users. Each row is re-read under its owner's quota lock before storage
+ * deletion, so a global sweep cannot delete a newer active reservation.
  */
-async function gcExpiredGrants(
-  db: ReturnType<typeof cloudDb>,
-  userId: string,
+async function gcExpiredVaultStorage(
+  db: VaultDb,
   now: Date,
 ): Promise<void> {
-  const expired = await db
+  const expiredGrants = await db
     .select({
       id: vaultUploadGrants.id,
+      userId: vaultUploadGrants.userId,
+      objectKey: vaultUploadGrants.objectKey,
+      uploadObjectKey: vaultUploadGrants.uploadObjectKey,
+      expiresAt: vaultUploadGrants.expiresAt,
+    })
+    .from(vaultUploadGrants)
+    .where(lt(vaultUploadGrants.expiresAt, now))
+    .limit(GRANT_GC_BATCH);
+  for (const grant of expiredGrants) {
+    await withVaultUserQuotaLock(db, grant.userId, async (lockedDb) => {
+      await cleanupExpiredGrant(lockedDb, grant, now);
+    });
+  }
+
+  const expiredTombstones = await db
+    .select({
+      id: vaultUploadTombstones.id,
+      userId: vaultUploadTombstones.userId,
+      objectKey: vaultUploadTombstones.objectKey,
+      uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+      expiresAt: vaultUploadTombstones.expiresAt,
+    })
+    .from(vaultUploadTombstones)
+    .where(lt(vaultUploadTombstones.expiresAt, now))
+    .limit(GRANT_GC_BATCH);
+  for (const tombstone of expiredTombstones) {
+    await withVaultUserQuotaLock(db, tombstone.userId, async (lockedDb) => {
+      await cleanupExpiredTombstone(lockedDb, tombstone, now);
+    });
+  }
+}
+
+async function cleanupExpiredGrant(
+  db: VaultDb,
+  grant: {
+    readonly id: string;
+    readonly userId: string;
+    readonly objectKey: string;
+    readonly uploadObjectKey: string;
+    readonly expiresAt: Date;
+  },
+  now: Date,
+): Promise<void> {
+  const [currentGrant] = await db
+    .select({
+      id: vaultUploadGrants.id,
+      userId: vaultUploadGrants.userId,
       objectKey: vaultUploadGrants.objectKey,
       uploadObjectKey: vaultUploadGrants.uploadObjectKey,
       expiresAt: vaultUploadGrants.expiresAt,
     })
     .from(vaultUploadGrants)
     .where(and(
-      eq(vaultUploadGrants.userId, userId),
-      lt(vaultUploadGrants.expiresAt, now),
-    ))
-    .limit(GRANT_GC_BATCH);
-  if (expired.length === 0) return;
-
-  for (const grant of expired) {
-    const legacyFinalKeyGrant = grant.uploadObjectKey === grant.objectKey;
-    try {
-      if (!legacyFinalKeyGrant) await deleteObject(grant.uploadObjectKey);
-      const [committed] = await db
-        .select({ objectKey: vaultSnapshots.objectKey })
-        .from(vaultSnapshots)
-        .where(eq(vaultSnapshots.objectKey, grant.objectKey))
-        .limit(1);
-      if (!committed) await deleteObject(grant.objectKey);
-    } catch {
-      continue;
-    }
-    await db.delete(vaultUploadGrants).where(and(
       eq(vaultUploadGrants.id, grant.id),
-      eq(vaultUploadGrants.userId, userId),
+      eq(vaultUploadGrants.userId, grant.userId),
       eq(vaultUploadGrants.objectKey, grant.objectKey),
       eq(vaultUploadGrants.uploadObjectKey, grant.uploadObjectKey),
       eq(vaultUploadGrants.expiresAt, grant.expiresAt),
-    ));
+      lt(vaultUploadGrants.expiresAt, now),
+    ))
+    .limit(1);
+  if (!currentGrant) return;
+
+  try {
+    if (currentGrant.uploadObjectKey !== currentGrant.objectKey) {
+      await deleteObject(currentGrant.uploadObjectKey);
+    }
+    const [committed] = await db
+      .select({ objectKey: vaultSnapshots.objectKey })
+      .from(vaultSnapshots)
+      .where(eq(vaultSnapshots.objectKey, currentGrant.objectKey))
+      .limit(1);
+    if (!committed) await deleteObject(currentGrant.objectKey);
+  } catch {
+    return;
   }
+  await db.delete(vaultUploadGrants).where(and(
+    eq(vaultUploadGrants.id, currentGrant.id),
+    eq(vaultUploadGrants.userId, currentGrant.userId),
+    eq(vaultUploadGrants.objectKey, currentGrant.objectKey),
+    eq(vaultUploadGrants.uploadObjectKey, currentGrant.uploadObjectKey),
+    eq(vaultUploadGrants.expiresAt, currentGrant.expiresAt),
+  ));
+}
+
+async function cleanupExpiredTombstone(
+  db: VaultDb,
+  tombstone: {
+    readonly id: string;
+    readonly userId: string;
+    readonly objectKey: string;
+    readonly uploadObjectKey: string;
+    readonly expiresAt: Date;
+  },
+  now: Date,
+): Promise<void> {
+  const [currentTombstone] = await db
+    .select({
+      id: vaultUploadTombstones.id,
+      userId: vaultUploadTombstones.userId,
+      objectKey: vaultUploadTombstones.objectKey,
+      uploadObjectKey: vaultUploadTombstones.uploadObjectKey,
+      expiresAt: vaultUploadTombstones.expiresAt,
+    })
+    .from(vaultUploadTombstones)
+    .where(and(
+      eq(vaultUploadTombstones.id, tombstone.id),
+      eq(vaultUploadTombstones.userId, tombstone.userId),
+      eq(vaultUploadTombstones.objectKey, tombstone.objectKey),
+      eq(vaultUploadTombstones.uploadObjectKey, tombstone.uploadObjectKey),
+      eq(vaultUploadTombstones.expiresAt, tombstone.expiresAt),
+      lt(vaultUploadTombstones.expiresAt, now),
+    ))
+    .limit(1);
+  if (!currentTombstone) return;
+
+  try {
+    if (currentTombstone.uploadObjectKey === currentTombstone.objectKey) {
+      const [committed] = await db
+        .select({ objectKey: vaultSnapshots.objectKey })
+        .from(vaultSnapshots)
+        .where(eq(vaultSnapshots.objectKey, currentTombstone.objectKey))
+        .limit(1);
+      if (!committed) await deleteObject(currentTombstone.objectKey);
+    } else {
+      await deleteObject(currentTombstone.uploadObjectKey);
+    }
+  } catch {
+    return;
+  }
+  await db.delete(vaultUploadTombstones).where(and(
+    eq(vaultUploadTombstones.id, currentTombstone.id),
+    eq(vaultUploadTombstones.userId, currentTombstone.userId),
+    eq(vaultUploadTombstones.objectKey, currentTombstone.objectKey),
+    eq(vaultUploadTombstones.uploadObjectKey, currentTombstone.uploadObjectKey),
+    eq(vaultUploadTombstones.expiresAt, currentTombstone.expiresAt),
+  ));
 }
 
 function sumBatchRawBytes(items: readonly { sizeBytes: number }[]): number {
