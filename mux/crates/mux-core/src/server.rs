@@ -22,16 +22,20 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use base64::Engine;
+use ghostty_vt::{key_input_from_chord, KeyEncoder};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
 use crate::{
-    assign_short_ids, AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId,
-    SplitDir, SurfaceId, SurfaceKind, WorkspaceId,
+    assign_short_ids, AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Mux,
+    MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SplitDir, SurfaceId, SurfaceKind,
+    SurfaceNotification, WorkspaceId,
 };
 
 pub const PROTOCOL_VERSION: u32 = 6;
@@ -63,6 +67,63 @@ enum Command {
     },
     ReadScreen {
         surface: SurfaceId,
+    },
+    WaitFor {
+        surface: SurfaceId,
+        pattern: String,
+        #[serde(alias = "timeout_ms")]
+        timeout_ms: u64,
+    },
+    Run {
+        #[serde(default)]
+        argv: Option<Vec<String>>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
+        new_workspace: bool,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    SendKey {
+        surface: SurfaceId,
+        keys: Vec<String>,
+    },
+    Copy {
+        surface: SurfaceId,
+        mode: String,
+    },
+    Ids {
+        #[serde(default)]
+        kind: Option<String>,
+    },
+    Notify {
+        title: String,
+        body: String,
+        #[serde(default)]
+        level: Option<String>,
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    ListAgents {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        state: Option<String>,
+    },
+    ReportAgent {
+        surface: SurfaceId,
+        state: String,
+        source: String,
+        #[serde(default)]
+        session: Option<String>,
     },
     /// One-shot VT replay of the surface's current state (base64).
     VtState {
@@ -370,7 +431,12 @@ fn node_json(node: &Node) -> Value {
     }
 }
 
-fn pane_json(state: &State, id: PaneId, short_ids: &HashMap<u64, String>) -> Value {
+fn pane_json(
+    state: &State,
+    id: PaneId,
+    short_ids: &HashMap<u64, String>,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+) -> Value {
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
     };
@@ -389,6 +455,13 @@ fn pane_json(state: &State, id: PaneId, short_ids: &HashMap<u64, String>) -> Val
                 "browser_status": surface.and_then(|s| s.browser_status().map(|status| status.as_str())),
                 "browser_error": surface.and_then(|s| s.browser_status().and_then(|status| status.error())),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
+                "notification": notifications.get(sid).copied().map(|n| {
+                    json!({
+                        "notification": n.notification,
+                        "unread": n.unread,
+                        "level": n.level.as_str(),
+                    })
+                }),
                 "name": surface.and_then(|s| s.name()),
                 "title": surface.map(|s| s.title()).unwrap_or_default(),
                 "size": surface.map(|s| {
@@ -406,6 +479,7 @@ fn screen_json(
     screen: &Screen,
     active: bool,
     short_ids: &HashMap<u64, String>,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
@@ -416,11 +490,14 @@ fn screen_json(
         "active": active,
         "active_pane": screen.active_pane,
         "layout": node_json(&screen.root),
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids)).collect::<Vec<_>>(),
+        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
     })
 }
 
-fn workspaces_json(state: &State) -> Value {
+fn workspaces_json(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+) -> Value {
     let ids = state
         .workspaces
         .iter()
@@ -442,11 +519,45 @@ fn workspaces_json(state: &State) -> Value {
                 "name": ws.name,
                 "active": i == state.active_workspace,
                 "screens": ws.screens.iter().enumerate().map(|(s, screen)| {
-                    screen_json(state, screen, s == ws.active_screen, &short_ids)
+                    screen_json(state, screen, s == ws.active_screen, &short_ids, notifications)
                 }).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
     })
+}
+
+fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
+    let allowed = ["workspace", "screen", "pane", "surface"];
+    if let Some(kind) = kind {
+        if !allowed.contains(&kind) {
+            anyhow::bail!("bad kind {kind}");
+        }
+    }
+    let mut raw = Vec::new();
+    for ws in &state.workspaces {
+        raw.push(("workspace", ws.id));
+        for screen in &ws.screens {
+            raw.push(("screen", screen.id));
+            let mut panes = Vec::new();
+            screen.root.pane_ids(&mut panes);
+            for pane in panes {
+                raw.push(("pane", pane));
+            }
+        }
+    }
+    raw.extend(state.surfaces.keys().copied().map(|id| ("surface", id)));
+    let short_ids = assign_short_ids(raw.iter().map(|(_, id)| *id));
+    Ok(json!({
+        "ids": raw
+            .into_iter()
+            .filter(|(item_kind, _)| kind.is_none_or(|kind| kind == *item_kind))
+            .map(|(kind, id)| json!({
+                "kind": kind,
+                "id": id,
+                "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
+            }))
+            .collect::<Vec<_>>()
+    }))
 }
 
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
@@ -467,6 +578,44 @@ fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
+}
+
+fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
+    match level {
+        "info" => Ok(NotificationLevel::Info),
+        "warning" => Ok(NotificationLevel::Warning),
+        "error" => Ok(NotificationLevel::Error),
+        other => anyhow::bail!("bad level {other}"),
+    }
+}
+
+fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
+    match state {
+        "working" => Ok(AgentState::Working),
+        "blocked" => Ok(AgentState::Blocked),
+        "idle" => Ok(AgentState::Idle),
+        "done" => Ok(AgentState::Done),
+        "unknown" => Ok(AgentState::Unknown),
+        other => anyhow::bail!("bad state {other}"),
+    }
+}
+
+fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
+    match source {
+        "socket" => Ok(AgentSource::Socket),
+        "hook" => Ok(AgentSource::Hook),
+        other => anyhow::bail!("bad source {other}"),
+    }
+}
+
+fn agent_json(record: &AgentRecord) -> Value {
+    json!({
+        "surface": record.surface,
+        "state": record.state.as_str(),
+        "source": record.source.as_str(),
+        "session": record.session,
+        "updated_at_ms": record.updated_at_ms,
+    })
 }
 
 fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
@@ -518,6 +667,38 @@ fn browser_state_json(
     value
 }
 
+fn spawn_attach_notification_stream(
+    mux: Arc<Mux>,
+    surface_id: SurfaceId,
+    writer: LineWriter,
+) -> std::io::Result<()> {
+    let events = mux.subscribe();
+    std::thread::Builder::new()
+        .name("mux-attach-notifications".into())
+        .spawn(move || {
+            while let Ok(event) = events.recv() {
+                let MuxEvent::Notification(notification) = event else {
+                    continue;
+                };
+                if notification.surface != Some(surface_id) {
+                    continue;
+                }
+                let value = json!({
+                    "event": "notification",
+                    "notification": notification.notification,
+                    "title": notification.title,
+                    "body": notification.body,
+                    "level": notification.level.as_str(),
+                    "surface": notification.surface,
+                });
+                if writer.send(&value).is_err() {
+                    break;
+                }
+            }
+        })
+        .map(|_| ())
+}
+
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
@@ -527,7 +708,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             "session": mux.session,
             "pid": std::process::id(),
         })),
-        Command::ListWorkspaces => Ok(mux.with_state(workspaces_json)),
+        Command::ListWorkspaces => {
+            let notifications = mux.surface_notifications();
+            Ok(mux.with_state(|state| workspaces_json(state, &notifications)))
+        }
         Command::Send { surface, text, bytes } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -545,6 +729,153 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             require_pty(&surface)?;
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
+        }
+        Command::WaitFor { surface, pattern, timeout_ms } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
+            let start = Instant::now();
+            let check = || -> anyhow::Result<Option<String>> {
+                let text = surface.try_with_terminal(|t| t.viewport_text())??;
+                Ok(regex.is_match(&text).then_some(text))
+            };
+            if timeout_ms == 0 {
+                if let Some(text) = check()? {
+                    return Ok(json!({
+                        "matched": true,
+                        "text": text,
+                        "elapsed_ms": start.elapsed().as_millis() as u64,
+                    }));
+                }
+                anyhow::bail!("timeout waiting for pattern");
+            }
+            let deadline = start + std::time::Duration::from_millis(timeout_ms);
+            let attach = surface.attach_stream()?;
+            if let Some(text) = check()? {
+                return Ok(json!({
+                    "matched": true,
+                    "text": text,
+                    "elapsed_ms": start.elapsed().as_millis() as u64,
+                }));
+            }
+            loop {
+                let now = Instant::now();
+                if now >= deadline {
+                    anyhow::bail!("timeout waiting for pattern");
+                }
+                let remaining = deadline.saturating_duration_since(now);
+                match attach.stream.recv_timeout(remaining) {
+                    Ok(_) => {
+                        if let Some(text) = check()? {
+                            return Ok(json!({
+                                "matched": true,
+                                "text": text,
+                                "elapsed_ms": start.elapsed().as_millis() as u64,
+                            }));
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        anyhow::bail!("timeout waiting for pattern");
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        anyhow::bail!("timeout waiting for pattern");
+                    }
+                }
+            }
+        }
+        Command::Run { argv, command, cwd, pane, new_workspace, name, cols, rows } => {
+            if argv.is_some() && command.is_some() {
+                anyhow::bail!("argv and command are mutually exclusive");
+            }
+            let argv = match (argv, command) {
+                (Some(argv), None) if !argv.is_empty() => argv,
+                (None, Some(command)) if !command.is_empty() => {
+                    vec![platform::default_shell(), "-lc".to_string(), command]
+                }
+                _ => anyhow::bail!("argv or command is required"),
+            };
+            if new_workspace && pane.is_some() {
+                anyhow::bail!("pane and new_workspace are mutually exclusive");
+            }
+            let placement =
+                mux.run_command_surface(argv, pane, new_workspace, cwd, name, cols.zip(rows))?;
+            Ok(json!({
+                "surface": placement.surface,
+                "pane": placement.pane,
+                "screen": placement.screen,
+                "workspace": placement.workspace,
+            }))
+        }
+        Command::SendKey { surface, keys } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)
+                .map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
+            if keys.is_empty() {
+                anyhow::bail!("bad request: keys must be non-empty");
+            }
+            let mut encoder = KeyEncoder::new()?;
+            let mut encoded = Vec::new();
+            surface.try_with_terminal(|term| {
+                term.scroll_to_bottom();
+                encoder.sync_from_terminal(term);
+                for key in &keys {
+                    let Some(input) = key_input_from_chord(key) else {
+                        return Err(anyhow::anyhow!("unknown key {key}"));
+                    };
+                    encoder.encode(&input, &mut encoded).map_err(anyhow::Error::from)?;
+                }
+                Ok::<(), anyhow::Error>(())
+            })??;
+            surface.write_bytes(&encoded)?;
+            Ok(json!({}))
+        }
+        Command::Copy { surface, mode } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let text = match mode.as_str() {
+                "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+                "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
+                "selection" => {
+                    surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?
+                }
+                other => anyhow::bail!("bad mode {other}"),
+            };
+            Ok(json!({ "text": text, "mode": mode }))
+        }
+        Command::Ids { kind } => mux.with_state(|state| ids_json(state, kind.as_deref())),
+        Command::Notify { title, body, level, surface } => {
+            if title.is_empty() {
+                anyhow::bail!("title is required");
+            }
+            let level = parse_notification_level(level.as_deref().unwrap_or("info"))?;
+            if let Some(surface) = surface {
+                get_surface(mux, surface)?;
+            }
+            let notification = mux.post_notification(title, body, level, surface);
+            Ok(json!({ "notification": notification }))
+        }
+        Command::ListAgents { surface, state } => {
+            if let Some(surface) = surface {
+                get_surface(mux, surface)?;
+            }
+            let state = match state {
+                Some(state) => Some(parse_agent_state(&state)?),
+                None => None,
+            };
+            let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
+            Ok(json!({ "agents": agents }))
+        }
+        Command::ReportAgent { surface, state, source, session } => {
+            get_surface(mux, surface)?;
+            let state = parse_agent_state(&state)?;
+            let source = parse_agent_source(&source)?;
+            let record = mux.report_agent(surface, state, source, session);
+            Ok(json!({
+                "surface": record.surface,
+                "state": record.state.as_str(),
+                "source": record.source.as_str(),
+                "session": record.session,
+            }))
         }
         Command::VtState { surface } => {
             let surface = get_surface(mux, surface)?;
@@ -812,6 +1143,14 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                             json!({"event": "title-changed", "surface": id})
                         }
                         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+                        MuxEvent::Notification(notification) => json!({
+                            "event": "notification",
+                            "notification": notification.notification,
+                            "title": notification.title,
+                            "body": notification.body,
+                            "level": notification.level.as_str(),
+                            "surface": notification.surface,
+                        }),
                         MuxEvent::Status(message) => {
                             json!({"event": "status", "message": message})
                         }
@@ -827,6 +1166,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::AttachSurface { surface: surface_id } => {
             let surface = get_surface(mux, surface_id)?;
+            spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
             if surface.kind() == SurfaceKind::Browser {
                 let (state, frames) = surface.attach_frames()?;
                 writer.send(&browser_state_json(surface_id, &state, true))?;

@@ -1524,8 +1524,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `wait-for` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
@@ -1575,8 +1575,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `run` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead.
 
@@ -1605,6 +1605,7 @@ Errors:
 | --- | --- |
 | `argv or command is required` | Neither is supplied |
 | `argv and command are mutually exclusive` | Both are supplied |
+| `pane and new_workspace are mutually exclusive` | Both placement options are supplied by a raw socket caller |
 | `unknown pane <id>` | Supplied pane does not exist |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
@@ -1631,8 +1632,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `send-key` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Sends named key chords to a surface without requiring callers to hand-encode escape sequences. PTY surfaces use the same Ghostty key encoder as the TUI, synced to the surface terminal modes. Browser surfaces translate supported keys to CDP keyboard input when the browser runtime is local.
 
@@ -1683,8 +1684,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `copy` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Extracts text from a surface. `screen` returns the current plain-text viewport. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
 
@@ -1734,10 +1735,10 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `ids` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
-Returns the session id mapping and establishes the short-id scheme. Every workspace, screen, pane, and surface has a numeric id and a stable short id for the lifetime of the session. Short ids are content-independent, collision-checked per session, and usable anywhere an `IdRef` is accepted.
+Returns the session id mapping. Every workspace, screen, pane, and surface has a numeric id and a stable short id for the lifetime of the session. Short ids are content-independent and collision-checked per session. Accepting short ids anywhere an `IdRef` is accepted remains proposed; implemented command parameters currently accept numeric ids only.
 
 Params:
 
@@ -1751,9 +1752,9 @@ Short id format:
 [a-z0-9]{6}
 ```
 
-Generation rule: the server derives a candidate from a per-session random seed plus numeric id, encodes it base36, and checks for collisions across all live ids. On collision, it rehashes with an incrementing salt. Short ids never depend on names, titles, command text, cwd, or layout position. A short id is not reused while the session is alive.
+Generation rule: implemented short ids are stable six-character base36 ids collision-checked across live ids. The proposed future scheme derives a candidate from a per-session random seed plus numeric id, encodes it base36, and checks for collisions across all live ids. On collision, it rehashes with an incrementing salt. Short ids never depend on names, titles, command text, cwd, or layout position.
 
-Resolution rule: numeric JSON ids resolve first. String ids matching `[0-9]+` are rejected as ambiguous. String ids matching the short-id format resolve by exact short id. Unknown or ambiguous strings error.
+Resolution rule: short-id / `IdRef` string resolution across commands is still proposed and not yet accepted by the implementation. Implemented commands currently deserialize id parameters as numeric JSON ids. Proposed behavior is: numeric JSON ids resolve first; string ids matching `[0-9]+` are rejected as ambiguous; string ids matching the short-id format resolve by exact short id; unknown or ambiguous strings error.
 
 Result:
 
@@ -1790,8 +1791,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `notify` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Posts a notification into the mux notification area. This is a telemetry command and must not change app focus or pane selection.
 
@@ -1841,8 +1842,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `list-agents` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Returns known agent status records. Records may come from detection, explicit reports, or hooks. Explicit hook-authority reports override detection for the same surface until another explicit report changes the state or the surface closes.
 
@@ -1897,8 +1898,8 @@ Example:
 | Field | Value |
 | --- | --- |
 | name | `report-agent` |
-| status | proposed |
-| since | proposed protocol 6 |
+| status | implemented |
+| since | protocol 6 |
 
 Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` have hook authority and override detector-derived state. Reports with `source:"socket"` override detector-derived state but are lower priority than a newer hook report.
 
