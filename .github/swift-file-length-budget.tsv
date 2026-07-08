@@ -179,7 +179,7 @@
 635	cmuxUITests/RightSidebarChromeHeightUITests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 623	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
-620	Sources/Panels/BrowserNavigationDelegate.swift
+623	Sources/Panels/BrowserNavigationDelegate.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
 618	Sources/SettingsNavigation.swift
 617	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift
