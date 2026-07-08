@@ -41,12 +41,14 @@ extension MobileShellComposite {
     /// Reconnect button both call this.
     public func reconnectOrRefresh() async {
         if connectionState == .connected {
+            recordTerminalManualRecovery(action: .pullToRefresh)
             await refreshWorkspaces()
             return
         }
         if workspaceListConnectionStatus == .connected {
             if let macDeviceID = workspaceListConnectedRefreshTargetMacDeviceID(),
                await switchToMac(macDeviceID: macDeviceID) {
+                recordTerminalManualRecovery(action: .pullToRefresh)
                 await refreshWorkspaces()
                 return
             }

@@ -10,6 +10,18 @@ nonisolated private let terminalViewportLog = Logger(
 )
 
 extension MobileShellComposite {
+    public func terminalViewportReportSuperseded(surfaceID: String) {
+        terminalSyncDiagnostics.viewportReportSuperseded(surface: Self.diagnosticSurfaceHandle(surfaceID))
+    }
+
+    public func terminalViewportReportCancelled(surfaceID: String) {
+        terminalSyncDiagnostics.viewportReportCancelled(surface: Self.diagnosticSurfaceHandle(surfaceID))
+    }
+
+    public func terminalViewportEchoStale(surfaceID: String) {
+        terminalSyncDiagnostics.viewportEchoStale(surface: Self.diagnosticSurfaceHandle(surfaceID))
+    }
+
     /// Report this device's natural terminal grid to the Mac and return the
     /// effective grid the Mac computed (the smallest across all attached
     /// devices, capped to the Mac pane). The caller pins its libghostty surface
@@ -72,6 +84,9 @@ extension MobileShellComposite {
             }
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.
+                terminalSyncDiagnostics.viewportReportSuperseded(
+                    surface: Self.diagnosticSurfaceHandle(surfaceID)
+                )
                 return nil
             }
             guard let payload = try? MobileTerminalViewportResponse.decode(data),
@@ -111,7 +126,11 @@ extension MobileShellComposite {
                 MobileDebugLog.anchormux(
                     "terminal.output.viewport_resync surface=\(surfaceID) grid=\(effectiveGrid.columns)x\(effectiveGrid.rows)"
                 )
-                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                requestTerminalReplay(
+                    surfaceID: surfaceID,
+                    replayBarrierToken: replayBarrierToken,
+                    trigger: .viewport
+                )
             } else if prearmedReplayBarrierToken == nil,
                       terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
                       terminalReplayFailureRetryExhausted(surfaceID: surfaceID),
@@ -122,9 +141,20 @@ extension MobileShellComposite {
                 // re-arm recovery and output stays dropped. Re-arm with a
                 // fresh barrier (fresh retry budget), carrying the preserved
                 // barrier's owed work.
-                let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+                let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(
+                    surfaceID: surfaceID,
+                    trigger: .viewport
+                )
                 MobileDebugLog.anchormux("terminal.output.viewport_rearm_exhausted surface=\(surfaceID)")
-                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                terminalSyncDiagnostics.viewportBarrierOutcome(
+                    .rearmExhausted,
+                    surface: Self.diagnosticSurfaceHandle(surfaceID)
+                )
+                requestTerminalReplay(
+                    surfaceID: surfaceID,
+                    replayBarrierToken: replayBarrierToken,
+                    trigger: .viewport
+                )
             } else {
                 finishPrearmedTerminalViewportBarrierWithoutResize(
                     surfaceID: surfaceID,
@@ -136,6 +166,9 @@ extension MobileShellComposite {
         } catch {
             guard viewportReportGenerationsBySurfaceID[surfaceID] == requestGeneration else {
                 // A newer viewport request now owns any pending pre-ACK barrier.
+                terminalSyncDiagnostics.viewportReportSuperseded(
+                    surface: Self.diagnosticSurfaceHandle(surfaceID)
+                )
                 return nil
             }
             if error is CancellationError || Task.isCancelled {
@@ -145,6 +178,10 @@ extension MobileShellComposite {
                 // for the superseding report to carry; finishing here would
                 // clear it (or replay early) before the newest report owns
                 // recovery.
+                terminalSyncDiagnostics.viewportBarrierOutcome(
+                    .cancelledSuperseded,
+                    surface: Self.diagnosticSurfaceHandle(surfaceID)
+                )
                 return nil
             }
             finishPrearmedTerminalViewportBarrierWithoutResize(
@@ -211,7 +248,10 @@ extension MobileShellComposite {
         // mobile.terminal.viewport still service mobile.terminal.replay
         // (cold attach depends on it), so the replacement replay clears the
         // barrier under version skew.
-        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
+        let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(
+            surfaceID: surfaceID,
+            trigger: .viewport
+        )
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] = replayBarrierToken
         return replayBarrierToken
     }
@@ -223,13 +263,26 @@ extension MobileShellComposite {
     /// every resolution path (resize replay, without-resize replay, empty
     /// response retry) then replays authoritative state instead of clearing
     /// the barrier with the replaced work lost.
-    private func beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: String) -> UUID {
+    private func beginTerminalReplayBarrierCarryingReplacedWork(
+        surfaceID: String,
+        trigger: MobileTerminalSyncDiagnostics.ReplayTrigger = .barrier
+    ) -> UUID {
         let owesReplacementReplay = !(terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle ?? true)
             || terminalReplaySurfaceIDsInFlight.contains(surfaceID)
             || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil
-        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID, trigger: trigger)
         if owesReplacementReplay {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            if trigger == .viewport {
+                terminalSyncDiagnostics.renderGridDropped(
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
+                    gate: .viewportBarrier,
+                    droppedFrames: 1,
+                    replayRetryCount: terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0,
+                    barrierFollowUpCount: terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0,
+                    transport: terminalOutputTransport.debugName
+                )
+            }
         }
         return replayBarrierToken
     }
@@ -246,7 +299,7 @@ extension MobileShellComposite {
            hasTerminalOutputSink(surfaceID: surfaceID),
            remoteClient != nil {
             MobileDebugLog.anchormux("terminal.output.viewport_replay_after_\(reason) surface=\(surfaceID)")
-            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: token)
+            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: token, trigger: .viewport)
             return
         }
         clearTerminalReplayBarrierIfCurrent(

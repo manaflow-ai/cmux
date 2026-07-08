@@ -50,6 +50,9 @@ public final class TerminalViewportReportScheduler {
 
     private let send: @MainActor (Report) async -> EffectiveGrid?
     private let apply: @MainActor (Report, EffectiveGrid?) -> Void
+    private let onReportSuperseded: @MainActor () -> Void
+    private let onReportCancelled: @MainActor () -> Void
+    private let onStaleEcho: @MainActor () -> Void
     private var pending: Report?
     private var draining = false
     /// The drain loop, stored so teardown can cancel it explicitly instead of
@@ -71,10 +74,16 @@ public final class TerminalViewportReportScheduler {
     ///     the report retry).
     public init(
         send: @escaping @MainActor (Report) async -> EffectiveGrid?,
-        apply: @escaping @MainActor (Report, EffectiveGrid?) -> Void
+        apply: @escaping @MainActor (Report, EffectiveGrid?) -> Void,
+        onReportSuperseded: @escaping @MainActor () -> Void = {},
+        onReportCancelled: @escaping @MainActor () -> Void = {},
+        onStaleEcho: @escaping @MainActor () -> Void = {}
     ) {
         self.send = send
         self.apply = apply
+        self.onReportSuperseded = onReportSuperseded
+        self.onReportCancelled = onReportCancelled
+        self.onStaleEcho = onStaleEcho
     }
 
     /// Queue `report` as the newest report and start draining if idle. An
@@ -82,8 +91,14 @@ public final class TerminalViewportReportScheduler {
     /// echo would be stale anyway), and a completed in-flight report's echo is
     /// discarded on return because this newer report exists.
     public func submit(_ report: Report) {
+        if pending != nil {
+            onReportSuperseded()
+        }
         pending = report
-        inFlightSend?.cancel()
+        if inFlightSend != nil {
+            onReportCancelled()
+            inFlightSend?.cancel()
+        }
         guard !draining else { return }
         draining = true
         drainTask = Task { @MainActor [weak self] in
@@ -104,6 +119,8 @@ public final class TerminalViewportReportScheduler {
                 // newer report next.
                 if self.pending == nil {
                     self.apply(next, effective)
+                } else {
+                    self.onStaleEcho()
                 }
             }
             self?.draining = false
