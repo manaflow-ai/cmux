@@ -365,6 +365,8 @@
 		B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */; };
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		CE11E0010000000000000001 /* CMUXCLI+VMEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E0010000000000000002 /* CMUXCLI+VMEnv.swift */; };
+		CE11E001000000000000000A /* CMUXCLI+VMEnvOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E001000000000000000B /* CMUXCLI+VMEnvOps.swift */; };
+		CE11E0010000000000000008 /* CMUXCLI+VMEnvRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E0010000000000000009 /* CMUXCLI+VMEnvRunner.swift */; };
 		CE11E0010000000000000003 /* CMUXCLI+VMEnvSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E0010000000000000004 /* CMUXCLI+VMEnvSpec.swift */; };
 		CE11E0010000000000000005 /* CMUXCLI+VMEnvSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E0010000000000000004 /* CMUXCLI+VMEnvSpec.swift */; };
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
@@ -1323,6 +1325,7 @@
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
 		C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */; };
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
+		CE11E001000000000000000C /* VMClientEnvLayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E001000000000000000D /* VMClientEnvLayers.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
@@ -1850,6 +1853,8 @@
 		B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatSupport.swift"; sourceTree = "<group>"; };
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		CE11E0010000000000000002 /* CMUXCLI+VMEnv.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMEnv.swift"; sourceTree = "<group>"; };
+		CE11E001000000000000000B /* CMUXCLI+VMEnvOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMEnvOps.swift"; sourceTree = "<group>"; };
+		CE11E0010000000000000009 /* CMUXCLI+VMEnvRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMEnvRunner.swift"; sourceTree = "<group>"; };
 		CE11E0010000000000000004 /* CMUXCLI+VMEnvSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMEnvSpec.swift"; sourceTree = "<group>"; };
 		C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIErrorOutputRegressionTests.swift; sourceTree = "<group>"; };
 		8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
@@ -2751,6 +2756,7 @@
 		B35750000000000000000001 /* VaultAgentRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentRegistry.swift; sourceTree = "<group>"; };
 		C9A5720AC9A5720AC9A5720A /* VerticalTabsSidebar+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VerticalTabsSidebar+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
+		CE11E001000000000000000D /* VMClientEnvLayers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientEnvLayers.swift; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMDefaultCloudCommandTests.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
@@ -3096,6 +3102,7 @@
 			isa = PBXGroup;
 			children = (
 				9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */,
+				CE11E001000000000000000D /* VMClientEnvLayers.swift */,
 				REE0CA0000000000000000E1 /* AIAccountsClient.swift */,
 				REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */,
 				REE0CA0000000000000000A1 /* RemotesClient.swift */,
@@ -4014,6 +4021,8 @@
 				C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */,
 				CE11E0010000000000000002 /* CMUXCLI+VMEnv.swift */,
 				CE11E0010000000000000004 /* CMUXCLI+VMEnvSpec.swift */,
+				CE11E0010000000000000009 /* CMUXCLI+VMEnvRunner.swift */,
+				CE11E001000000000000000B /* CMUXCLI+VMEnvOps.swift */,
 				B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
 				B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
@@ -5629,6 +5638,7 @@
 				B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
+				CE11E001000000000000000C /* VMClientEnvLayers.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
@@ -5758,6 +5768,8 @@
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				CE11E0010000000000000001 /* CMUXCLI+VMEnv.swift in Sources */,
+				CE11E001000000000000000A /* CMUXCLI+VMEnvOps.swift in Sources */,
+				CE11E0010000000000000008 /* CMUXCLI+VMEnvRunner.swift in Sources */,
 				CE11E0010000000000000003 /* CMUXCLI+VMEnvSpec.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,

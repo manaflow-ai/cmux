@@ -41,7 +41,7 @@ A layer's cache key is a hash chain over the provider, the resolved base image i
 
 - `cmux vm env init [--goal "<text>"]` — scaffold `.cmux/env.yaml`.
 - `cmux vm env build [--spec <path>] [--json] [--no-cache]` — run the spec. Restores the deepest cached layer, executes remaining steps (snapshot + register after each success), then runs `verify`. On failure the VM is left running for inspection and the report names the failing step. `--json` prints a single machine-readable report (see the `cmux-cloud-env` skill for the contract).
-- `cmux vm env up [--detach]` — requires a fully cached spec; restores the final layer into a fresh VM and opens it as a cmux workspace.
+- `cmux vm env up [--spec <path>] [--window <id>] [--detach]` — requires a fully cached spec; restores the final layer into a fresh VM and opens it as a cmux workspace.
 - `cmux vm env layers [--all] [--json]` — list cached layers (defaults to the current spec).
 - `cmux vm env logs <vm-id> [--step <n>]` — tail a step's log inside the VM.
 

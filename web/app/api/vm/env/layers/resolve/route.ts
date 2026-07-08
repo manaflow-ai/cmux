@@ -70,6 +70,7 @@ export async function POST(request: Request): Promise<Response> {
         baseImageVersion: image.imageVersion,
         layer: layer
           ? {
+            provider: layer.provider,
             chainHash: layer.chainHash,
             stepIndex: layer.stepIndex,
             stepName: layer.stepName,

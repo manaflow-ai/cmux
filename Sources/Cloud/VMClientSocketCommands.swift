@@ -254,6 +254,7 @@ extension TerminalController {
 
     private nonisolated static func socketWorkerEnvLayerPayload(_ layer: VMEnvLayer) -> [String: Any] {
         [
+            "provider": layer.provider ?? NSNull(),
             "chain_hash": layer.chainHash,
             "step_index": layer.stepIndex,
             "step_name": layer.stepName ?? NSNull(),

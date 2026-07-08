@@ -74,6 +74,7 @@ export async function POST(request: Request): Promise<Response> {
 
       return jsonResponse({
         id: layer.id,
+        provider: layer.provider,
         chainHash: layer.chainHash,
         stepIndex: layer.stepIndex,
         stepName: layer.stepName,

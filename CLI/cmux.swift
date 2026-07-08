@@ -4141,13 +4141,7 @@ struct CMUXCLI {
                 print("inspect:  cmux vm tools \(vmId)")
 
             case "env":
-                try runVMEnvCommand(
-                    commandArgs: rest,
-                    client: client,
-                    jsonOutput: jsonOutput,
-                    windowId: windowId,
-                    idFormat: idFormat
-                )
+                try runVMEnvCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
 
             case "promote-template":
                 guard let vmId = rest.first else {
@@ -10201,7 +10195,7 @@ struct CMUXCLI {
         cliDebugLog(parts.joined(separator: " "))
     }
 
-    // Internal (not private) so CLI/CMUXCLI+VMEnv.swift can attach after `cmux vm env up`.
+    // Internal (not private) so CLI/CMUXCLI+VMEnvOps.swift can attach after `cmux vm env up`.
     func vmOpenShell(
         id: String,
         workspaceName: String?,

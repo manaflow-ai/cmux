@@ -10,10 +10,10 @@ import Foundation
 /// inside the VM (started detached, polled with short execs) because a single
 /// `vm.exec` cannot outlive the backend's request window.
 extension CMUXCLI {
-    private static let vmEnvDir = "/var/tmp/cmux-env"
-    private static let vmEnvLongOpTimeout: TimeInterval = 16 * 60
-    private static let vmEnvPollIntervalSeconds: UInt32 = 2
-    private static let vmEnvDefaultStepTimeoutMinutes = 30
+    static let vmEnvDir = "/var/tmp/cmux-env"
+    static let vmEnvLongOpTimeout: TimeInterval = 16 * 60
+    static let vmEnvPollIntervalSeconds: UInt32 = 2
+    static let vmEnvDefaultStepTimeoutMinutes = 30
 
     func runVMEnvCommand(
         commandArgs: [String],
@@ -42,7 +42,7 @@ extension CMUXCLI {
                   cmux vm env init [--goal "<text>"]     scaffold .cmux/env.yaml
                   cmux vm env build [--spec <path>] [--json] [--no-cache]
                   cmux vm env up [--spec <path>] [--window <id>] [--detach|-d]
-                  cmux vm env layers [--json]
+                  cmux vm env layers [--all] [--json]
                   cmux vm env logs <vm-id> --step <n>
 
                 A build runs each spec step in a Cloud VM, snapshots after each
@@ -54,14 +54,14 @@ extension CMUXCLI {
 
     // MARK: - Spec loading
 
-    private struct VMEnvLoadedSpec {
+    struct VMEnvLoadedSpec {
         let path: String
         let text: String
         let spec: VMEnvSpec
         let digest: String
     }
 
-    private func vmEnvLoadSpec(args: [String]) throws -> (spec: VMEnvLoadedSpec, remaining: [String]) {
+    func vmEnvLoadSpec(args: [String]) throws -> (spec: VMEnvLoadedSpec, remaining: [String]) {
         let (specOpt, remaining) = parseOption(args, name: "--spec")
         let path: String
         if let specOpt {
@@ -269,6 +269,7 @@ extension CMUXCLI {
                     responseTimeout: Self.vmEnvLongOpTimeout
                 )
                 let snapshotId = (snapshotResponse["snapshot_id"] as? String) ?? (snapshotResponse["id"] as? String)
+                reports[index].status = "ok"
                 if let snapshotId, !snapshotId.isEmpty {
                     reports[index].snapshotId = snapshotId
                     _ = try client.sendV2(
@@ -284,9 +285,12 @@ extension CMUXCLI {
                         ],
                         responseTimeout: 60
                     )
+                    if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, layer cached)") }
+                } else if !jsonOutput {
+                    // Step succeeded but the provider returned no snapshot id, so
+                    // this layer is not cached and the next build re-runs it.
+                    print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms); snapshot returned no id, layer NOT cached")
                 }
-                reports[index].status = "ok"
-                if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, layer cached)") }
             } else {
                 reports[index].status = outcome.status
                 failingStepIndex = index
@@ -372,396 +376,5 @@ extension CMUXCLI {
         if !ok {
             throw CLIError(message: "env build failed at \(failingStepIndex.map { $0 < spec.steps.count ? "step \($0)" : "verify \($0 - spec.steps.count)" } ?? "?"). VM \(vmId) left running for inspection.")
         }
-    }
-
-    // MARK: - In-VM script transport
-
-    /// `vm.exec` with bounded retries. Provider exec blips (Freestyle has
-    /// returned transient 502 `provider_internal` on fresh VMs) are marked
-    /// retryable by the backend; a multi-minute build should ride them out
-    /// instead of aborting.
-    private func vmEnvExec(
-        vmId: String,
-        command: String,
-        timeoutMs: Int,
-        responseTimeout: TimeInterval,
-        client: SocketClient,
-        attempts: Int = 4
-    ) throws -> [String: Any] {
-        var lastError: Error?
-        for attempt in 0..<attempts {
-            do {
-                return try client.sendV2(
-                    method: "vm.exec",
-                    params: ["id": vmId, "command": command, "timeout_ms": timeoutMs],
-                    responseTimeout: responseTimeout
-                )
-            } catch {
-                lastError = error
-                if attempt < attempts - 1 { sleep(3) }
-            }
-        }
-        throw lastError ?? CLIError(message: "vm env: exec failed")
-    }
-
-    private struct VMEnvScriptOutcome {
-        let status: String // ok | failed | timeout | lost
-        let exitCode: Int?
-        let logTail: String?
-    }
-
-    /// Writes the runner plus every needed step/verify script into the VM with
-    /// a single exec. Scripts are base64-encoded so arbitrary step text never
-    /// needs shell quoting.
-    private func vmEnvShipScripts(
-        vmId: String,
-        spec: VMEnvSpec,
-        stepIndices: [Int],
-        client: SocketClient
-    ) throws {
-        var files: [(name: String, content: String)] = [("runner.sh", Self.vmEnvRunnerScript)]
-        for index in stepIndices {
-            files.append(("step-\(index).sh", Self.vmEnvStepScript(run: spec.steps[index].run, env: spec.env)))
-        }
-        for (index, run) in spec.verify.enumerated() {
-            files.append(("verify-\(index).sh", Self.vmEnvStepScript(run: run, env: spec.env)))
-        }
-        var commands = ["set -e", "mkdir -p \(Self.vmEnvDir)", "umask 022"]
-        for file in files {
-            let encoded = Data(file.content.utf8).base64EncodedString()
-            commands.append("printf '%s' '\(encoded)' | base64 -d > \(Self.vmEnvDir)/\(file.name)")
-        }
-        commands.append("chmod 755 \(Self.vmEnvDir)/runner.sh")
-        let response = try vmEnvExec(
-            vmId: vmId,
-            command: commands.joined(separator: "; "),
-            timeoutMs: 60_000,
-            responseTimeout: 90,
-            client: client
-        )
-        let exitCode = (response["exit_code"] as? Int) ?? -1
-        if exitCode != 0 {
-            let stderr = (response["stderr"] as? String) ?? ""
-            throw CLIError(message: "vm env build: failed to stage scripts in VM \(vmId) (exit \(exitCode)): \(stderr)")
-        }
-    }
-
-    /// Starts a staged script detached inside the VM, then polls its status
-    /// file every couple of seconds. Every network call stays short; the step
-    /// itself can run for minutes.
-    private func vmEnvRunScript(
-        vmId: String,
-        scriptId: String,
-        timeoutMinutes: Int,
-        client: SocketClient
-    ) throws -> VMEnvScriptOutcome {
-        let start = try vmEnvExec(
-            vmId: vmId,
-            command: "sh \(Self.vmEnvDir)/runner.sh start \(scriptId)",
-            timeoutMs: 30_000,
-            responseTimeout: 45,
-            client: client
-        )
-        if ((start["exit_code"] as? Int) ?? -1) != 0 {
-            let stderr = (start["stderr"] as? String) ?? ""
-            throw CLIError(message: "vm env build: could not start \(scriptId) in VM \(vmId): \(stderr)")
-        }
-        let deadline = Date().addingTimeInterval(TimeInterval(timeoutMinutes) * 60)
-        var lostPolls = 0
-        while true {
-            sleep(Self.vmEnvPollIntervalSeconds)
-            let poll = try vmEnvExec(
-                vmId: vmId,
-                command: "sh \(Self.vmEnvDir)/runner.sh poll \(scriptId)",
-                timeoutMs: 20_000,
-                responseTimeout: 40,
-                client: client
-            )
-            let stdout = (poll["stdout"] as? String) ?? ""
-            let parsed = Self.vmEnvParsePoll(stdout)
-            switch parsed.state {
-            case "exited":
-                let exitCode = parsed.exitCode ?? -1
-                return VMEnvScriptOutcome(status: exitCode == 0 ? "ok" : "failed", exitCode: exitCode, logTail: parsed.logTail)
-            case "running":
-                lostPolls = 0
-            default:
-                // Status files can be momentarily absent between start and the
-                // first write; only give up after repeated losses.
-                lostPolls += 1
-                if lostPolls >= 5 {
-                    return VMEnvScriptOutcome(status: "lost", exitCode: nil, logTail: parsed.logTail)
-                }
-            }
-            if Date() > deadline {
-                _ = try? vmEnvExec(
-                    vmId: vmId,
-                    command: "sh \(Self.vmEnvDir)/runner.sh kill \(scriptId)",
-                    timeoutMs: 15_000,
-                    responseTimeout: 30,
-                    client: client,
-                    attempts: 2
-                )
-                return VMEnvScriptOutcome(status: "timeout", exitCode: nil, logTail: parsed.logTail)
-            }
-        }
-    }
-
-    static func vmEnvParsePoll(_ stdout: String) -> (state: String, exitCode: Int?, logTail: String?) {
-        var state = "lost"
-        var exitCode: Int?
-        var logTail: String?
-        for line in stdout.components(separatedBy: "\n") {
-            if line.hasPrefix("CMUX_ENV_STATE=") {
-                state = String(line.dropFirst("CMUX_ENV_STATE=".count))
-            } else if line.hasPrefix("CMUX_ENV_EXIT=") {
-                exitCode = Int(line.dropFirst("CMUX_ENV_EXIT=".count))
-            } else if line.hasPrefix("CMUX_ENV_LOG64=") {
-                let encoded = String(line.dropFirst("CMUX_ENV_LOG64=".count))
-                if let data = Data(base64Encoded: encoded), let text = String(data: data, encoding: .utf8) {
-                    logTail = text
-                }
-            }
-        }
-        return (state, exitCode, logTail)
-    }
-
-    /// POSIX-sh runner staged at /var/tmp/cmux-env/runner.sh inside the VM.
-    /// `start` launches a staged script in its own session (so it survives the
-    /// exec that started it and can be killed as a group); `poll` reports a
-    /// machine-parseable status plus a base64 log tail; `kill` terminates the
-    /// session on client-side timeout.
-    static let vmEnvRunnerScript = """
-    #!/bin/sh
-    set -u
-    DIR=/var/tmp/cmux-env
-    cmd=${1:-}
-    id=${2:-}
-    [ -n "$cmd" ] && [ -n "$id" ] || { echo "usage: runner.sh <start|poll|kill> <script-id>" >&2; exit 2; }
-    case "$cmd" in
-    start)
-      [ -f "$DIR/$id.sh" ] || { echo "missing $DIR/$id.sh" >&2; exit 3; }
-      rm -f "$DIR/$id.exit" "$DIR/$id.pid"
-      : > "$DIR/$id.log"
-      setsid sh -c '
-        DIR=$1; id=$2
-        echo $$ > "$DIR/$id.pid"
-        if [ "$(id -u)" = "0" ] && id cmux >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
-          runuser -u cmux -- bash -l "$DIR/$id.sh"
-        elif [ "$(id -u)" = "0" ] && id cmux >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1; then
-          sudo -u cmux -H bash -l "$DIR/$id.sh"
-        else
-          bash -l "$DIR/$id.sh"
-        fi
-        rc=$?
-        echo "$rc" > "$DIR/$id.exit.tmp" && mv "$DIR/$id.exit.tmp" "$DIR/$id.exit"
-      ' sh "$DIR" "$id" >> "$DIR/$id.log" 2>&1 &
-      echo "CMUX_ENV_STARTED=$id"
-      ;;
-    poll)
-      if [ -f "$DIR/$id.exit" ]; then
-        echo "CMUX_ENV_STATE=exited"
-        echo "CMUX_ENV_EXIT=$(cat "$DIR/$id.exit")"
-      elif [ -f "$DIR/$id.pid" ] && kill -0 "$(cat "$DIR/$id.pid")" 2>/dev/null; then
-        echo "CMUX_ENV_STATE=running"
-        echo "CMUX_ENV_EXIT=-"
-      else
-        echo "CMUX_ENV_STATE=lost"
-        echo "CMUX_ENV_EXIT=-"
-      fi
-      echo "CMUX_ENV_LOG64=$(tail -c 8192 "$DIR/$id.log" 2>/dev/null | base64 | tr -d '\\n')"
-      ;;
-    kill)
-      pid=$(cat "$DIR/$id.pid" 2>/dev/null || true)
-      if [ -n "${pid:-}" ]; then
-        kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-      fi
-      echo "CMUX_ENV_KILLED=$id"
-      ;;
-    *)
-      echo "unknown runner command: $cmd" >&2
-      exit 2
-      ;;
-    esac
-    """
-
-    /// Wraps a spec step's `run` text into an executable bash script with the
-    /// spec's env exported. Runs under `bash -l` as user `cmux` so toolchains
-    /// installed by earlier layers (mise, cargo, etc.) are on PATH.
-    static func vmEnvStepScript(run: String, env: [String: String]) -> String {
-        var script = "set -eo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n"
-        for key in env.keys.sorted() {
-            script += "export \(key)=\(vmEnvShellQuote(env[key] ?? ""))\n"
-        }
-        script += "cd \"$HOME\"\n"
-        script += run
-        script += "\n"
-        return script
-    }
-
-    private static func vmEnvShellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    // MARK: - up
-
-    private func runVMEnvUp(
-        args: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        windowId: String?,
-        idFormat: CLIIDFormat
-    ) throws {
-        let (loaded, afterSpec) = try vmEnvLoadSpec(args: args)
-        let (windowOpt, afterWindow) = parseOption(afterSpec, name: "--window")
-        let detach = hasFlag(afterWindow, name: "--detach") || hasFlag(afterWindow, name: "-d")
-        let spec = loaded.spec
-
-        let resolveEmpty = try client.sendV2(
-            method: "vm.env_resolve_layers",
-            params: ["chain_hashes": [String]()],
-            responseTimeout: 60
-        )
-        guard let provider = resolveEmpty["provider"] as? String,
-              let defaultBaseImage = resolveEmpty["base_image_id"] as? String else {
-            throw CLIError(message: "vm env up: backend did not return a provider/base image.")
-        }
-        let baseImageId = (spec.base?.isEmpty == false && spec.base?.lowercased() != "default") ? spec.base! : defaultBaseImage
-        let chainHashes = VMEnvSpecCodec.chainHashes(provider: provider, baseImageId: baseImageId, spec: spec)
-        let resolve = try client.sendV2(
-            method: "vm.env_resolve_layers",
-            params: ["provider": provider, "chain_hashes": chainHashes],
-            responseTimeout: 60
-        )
-        guard let layer = resolve["layer"] as? [String: Any],
-              let stepIndex = layer["step_index"] as? Int,
-              let snapshotId = layer["snapshot_id"] as? String,
-              stepIndex == spec.steps.count - 1 else {
-            throw CLIError(message: """
-                This spec is not fully cached yet (or changed since the last build).
-
-                Run:
-                  cmux vm env build
-                """)
-        }
-
-        let response = try client.sendV2(
-            method: "vm.restore",
-            params: [
-                "snapshot_id": snapshotId,
-                "provider": provider,
-                "idempotency_key": UUID().uuidString.lowercased(),
-            ],
-            responseTimeout: Self.vmEnvLongOpTimeout
-        )
-        guard let vmId = response["id"] as? String, !vmId.isEmpty else {
-            throw CLIError(message: "vm env up: restore returned no VM id")
-        }
-        if jsonOutput {
-            print(jsonString(["ok": true, "vmId": vmId, "snapshotId": snapshotId, "provider": provider]))
-            return
-        }
-        print("Restored environment into VM \(vmId)")
-        if detach {
-            print("Attach: cmux vm shell \(vmId)")
-            return
-        }
-        let workspaceName = spec.name.map { "env:\($0)" } ?? "env:\(String(vmId.prefix(8)))"
-        try vmOpenShell(
-            id: vmId,
-            workspaceName: workspaceName,
-            windowRaw: windowOpt ?? windowId,
-            forceSSH: false,
-            shouldPinWorkspaceToTop: false,
-            client: client,
-            jsonOutput: jsonOutput,
-            idFormat: idFormat
-        )
-    }
-
-    // MARK: - init
-
-    private func runVMEnvInit(args: [String], jsonOutput: Bool) throws {
-        let (goalOpt, _) = parseOption(args, name: "--goal")
-        let path = ".cmux/env.yaml"
-        if FileManager.default.fileExists(atPath: path) {
-            throw CLIError(message: "\(path) already exists. Edit it, then run `cmux vm env build`.")
-        }
-        try FileManager.default.createDirectory(atPath: ".cmux", withIntermediateDirectories: true)
-        let goalComment = goalOpt.map { "# Goal: \($0)\n" } ?? ""
-        let template = """
-        \(goalComment)# cmux Cloud VM environment spec. Each step becomes a cached snapshot layer:
-        # edit a step and only that layer (and later ones) re-run on the next build.
-        version: 1
-        name: my-project
-        steps:
-          - name: system packages
-            run: sudo apt-get update && sudo apt-get install -y build-essential
-          - name: clone
-            run: |
-              git clone https://github.com/OWNER/REPO
-        verify:
-          - run: test -d REPO
-        """
-        try (template + "\n").write(toFile: path, atomically: true, encoding: .utf8)
-        if jsonOutput {
-            print(jsonString(["ok": true, "path": path]))
-        } else {
-            print("Wrote \(path). Edit the steps, then: cmux vm env build")
-        }
-    }
-
-    // MARK: - layers
-
-    private func runVMEnvLayers(args: [String], client: SocketClient, jsonOutput: Bool) throws {
-        var params: [String: Any] = [:]
-        if let found = Self.vmEnvFindSpecUpward(from: FileManager.default.currentDirectoryPath),
-           let data = FileManager.default.contents(atPath: found),
-           let text = String(data: data, encoding: .utf8),
-           !hasFlag(args, name: "--all") {
-            params["spec_digest"] = VMEnvSpecCodec.specDigest(text)
-        }
-        let response = try client.sendV2(method: "vm.env_list_layers", params: params, responseTimeout: 60)
-        if jsonOutput {
-            print(jsonString(response))
-            return
-        }
-        let layers = (response["layers"] as? [[String: Any]]) ?? []
-        if layers.isEmpty {
-            print("No cached env layers. Run `cmux vm env build` (or pass --all to list every spec's layers).")
-            return
-        }
-        for layer in layers {
-            let index = (layer["step_index"] as? Int) ?? -1
-            let name = (layer["step_name"] as? String) ?? "?"
-            let snapshot = (layer["snapshot_id"] as? String) ?? "?"
-            let hash = (layer["chain_hash"] as? String) ?? "?"
-            print("layer \(index)  \(name)  snapshot=\(snapshot)  chain=\(String(hash.prefix(12)))")
-        }
-    }
-
-    // MARK: - logs
-
-    private func runVMEnvLogs(args: [String], client: SocketClient, jsonOutput: Bool) throws {
-        let (stepOpt, remaining) = parseOption(args, name: "--step")
-        guard let vmId = remaining.first else {
-            throw CLIError(message: "Usage: cmux vm env logs <vm-id> [--step <n>]")
-        }
-        let command: String
-        if let stepOpt {
-            command = "tail -c 65536 \(Self.vmEnvDir)/step-\(stepOpt).log 2>/dev/null || echo 'no log for step \(stepOpt)'"
-        } else {
-            command = "ls -la \(Self.vmEnvDir) 2>/dev/null && for f in \(Self.vmEnvDir)/*.log; do echo \"== $f\"; tail -c 4096 \"$f\"; done"
-        }
-        let response = try client.sendV2(
-            method: "vm.exec",
-            params: ["id": vmId, "command": command, "timeout_ms": 20_000],
-            responseTimeout: 40
-        )
-        if jsonOutput {
-            print(jsonString(response))
-            return
-        }
-        print((response["stdout"] as? String) ?? "")
     }
 }

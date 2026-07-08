@@ -1390,6 +1390,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       };
       try {
         const [inserted] = await db.insert(cloudVmEnvLayers).values(values).returning();
+        if (!inserted) throw new Error("insert returned no env layer row");
         return inserted;
       } catch (err) {
         if (pgErrorCode(err) !== "23505") throw err;
