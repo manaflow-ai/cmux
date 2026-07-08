@@ -51,7 +51,7 @@ struct TaskTemplateIconPicker: View {
         Button {
             selection = value
         } label: {
-            taskTemplateIcon(value)
+            TaskTemplateIcon(value: value)
                 .frame(width: 36, height: 36)
                 .background(isSelected ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.12), in: Circle())
                 .overlay(Circle().strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
@@ -61,15 +61,18 @@ struct TaskTemplateIconPicker: View {
     }
 }
 
-@ViewBuilder
-func taskTemplateIcon(_ value: String) -> some View {
-    switch MacAvatarIcon.resolve(custom: value, defaultSymbol: "terminal") {
-    case .symbol(let name):
-        Image(systemName: name)
-            .accessibilityHidden(true)
-    case .emoji(let emoji):
-        Text(emoji)
-            .accessibilityHidden(true)
+struct TaskTemplateIcon: View {
+    let value: String
+
+    var body: some View {
+        switch MacAvatarIcon.resolve(custom: value, defaultSymbol: "terminal") {
+        case .symbol(let name):
+            Image(systemName: name)
+                .accessibilityHidden(true)
+        case .emoji(let emoji):
+            Text(emoji)
+                .accessibilityHidden(true)
+        }
     }
 }
 #endif

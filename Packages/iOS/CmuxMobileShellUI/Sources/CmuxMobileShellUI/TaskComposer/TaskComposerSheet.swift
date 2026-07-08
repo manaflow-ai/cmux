@@ -217,7 +217,7 @@ struct TaskComposerSheet: View {
             )
         } label: {
             HStack(spacing: 6) {
-                taskTemplateIcon(template.icon)
+                TaskTemplateIcon(value: template.icon)
                 Text(template.name)
                     .lineLimit(1)
             }

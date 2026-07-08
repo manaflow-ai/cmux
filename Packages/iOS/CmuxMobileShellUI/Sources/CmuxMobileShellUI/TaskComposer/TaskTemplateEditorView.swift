@@ -23,7 +23,7 @@ struct TaskTemplateEditorView: View {
                             editingTemplate = template
                         } label: {
                             HStack(spacing: 12) {
-                                taskTemplateIcon(template.icon)
+                                TaskTemplateIcon(value: template.icon)
                                     .frame(width: 28, height: 28)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(template.name)
