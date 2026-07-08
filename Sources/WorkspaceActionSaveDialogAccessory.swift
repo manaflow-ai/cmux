@@ -101,7 +101,7 @@ final class WorkspaceActionSaveDialogAccessory {
     }
 
     private static func disclosureScrollView(text: String) -> NSScrollView {
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 408, height: 1))
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 408, height: 48))
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = true
@@ -111,14 +111,31 @@ final class WorkspaceActionSaveDialogAccessory {
             ofSize: NSFont.smallSystemFontSize,
             weight: .regular
         )
-        textView.string = text
         textView.textContainerInset = NSSize(width: 6, height: 6)
         textView.textContainer?.lineBreakMode = .byCharWrapping
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: 408,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
+        // NSText clamps vertical growth to maxSize, which defaults to the
+        // initial frame size. Without lifting it the document view stays at
+        // its initial height inside the scroll view and the disclosure text
+        // never renders — the standard scrollable-text-view setup.
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         textView.autoresizingMask = [.width]
+        textView.string = text
+        if let textContainer = textView.textContainer {
+            textView.layoutManager?.ensureLayout(for: textContainer)
+        }
+        textView.sizeToFit()
 
         let scrollView = NSScrollView()
         scrollView.borderType = .bezelBorder
