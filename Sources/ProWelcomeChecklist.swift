@@ -77,6 +77,7 @@ extension ProUpgradePresenter {
         presentBrowserSplit(url: url, transparentBackground: true)
     }
 
+    @MainActor
     private static func presentDedicatedProWelcomeWorkspace(url: URL) -> Bool {
         guard let appDelegate = AppDelegate.shared else { return false }
         if let workspaceId = ProWelcomeChecklistPresenter.workspaceReuseState.reusableWorkspaceID(
