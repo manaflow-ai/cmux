@@ -14575,6 +14575,14 @@ struct TabItemView: View, Equatable {
     }
 
     private var backgroundColor: Color {
+        // Debug lab "graphite" prototype: the selected card fills with a
+        // neutral elevated graphite instead of the accent color. Dies with
+        // the variant lab once a final design ships.
+        if agentRowsVariantStore.variant == .graphite, isActive {
+            return Color(nsColor: colorScheme == .dark
+                ? NSColor(calibratedWhite: 0.24, alpha: 1.0)
+                : NSColor(calibratedWhite: 0.82, alpha: 1.0))
+        }
         let style = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             isActive: isActive,

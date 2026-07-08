@@ -467,7 +467,10 @@ struct SidebarAgentStatusGraphiteRows: View {
                 ForEach(rows) { row in
                     SidebarAgentGraphiteRow(
                         row: row,
-                        isActiveAgent: row.panelId == activePanelId,
+                        // Only the selected workspace hosts the globally
+                        // focused pane; unselected workspaces remember a
+                        // focus but the "camera" is not on them.
+                        isActiveAgent: isActive && row.panelId == activePanelId,
                         isActive: isActive,
                         activeForegroundColor: activeForegroundColor,
                         fontScale: fontScale,
