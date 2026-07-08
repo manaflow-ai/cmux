@@ -80,6 +80,11 @@ if [[ "$swift_package_section" != *"CMUX_CI_HELPER_XCODE_APP"* ]]; then
   exit 1
 fi
 
+if [[ "$swift_package_section" == *"/Applications/Xcode_16.4.app"* ]]; then
+  echo "FAIL: CI swift-package-tests must scan for a macOS 15 SDK when the helper Xcode override is unset" >&2
+  exit 1
+fi
+
 if [[ "$swift_package_section" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
   echo "FAIL: CI swift-package-tests must build the universal Ghostty CLI helper on the macOS 15 lane" >&2
   exit 1
