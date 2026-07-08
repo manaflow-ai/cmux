@@ -103,6 +103,7 @@ public struct SessionWindowFrameResolver: Sendable {
             return Self.resolvedWindowFrame(
                 frame: frame,
                 displaySnapshot: displaySnapshot,
+                availableDisplays: availableDisplays,
                 targetDisplay: targetDisplay,
                 minWidth: minWidth,
                 minHeight: minHeight
@@ -140,26 +141,19 @@ public struct SessionWindowFrameResolver: Sendable {
     private static func resolvedWindowFrame(
         frame: CGRect,
         displaySnapshot: SessionSourceDisplaySnapshot?,
+        availableDisplays: [SessionDisplayGeometry],
         targetDisplay: SessionDisplayGeometry,
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
         if targetDisplay.visibleFrame.intersects(frame) {
-            // Preserve the user's exact frame when enough of the top of the window
-            // remains reachable on-screen; only clamp when the saved frame would
-            // reopen with an inaccessible titlebar/top strip.
-            if shouldPreserveAccessibleFrame(
-                frame: frame,
-                targetDisplay: targetDisplay
-            ) {
-                return frame
-            }
-            return clampFrame(
-                frame,
-                within: targetDisplay.visibleFrame,
-                minWidth: minWidth,
-                minHeight: minHeight
-            )
+            let fitCore = MainWindowVisibleFrameFitCore()
+            return fitCore.fittedFrame(
+                for: frame,
+                displays: availableDisplays,
+                minimumWidth: minWidth,
+                minimumHeight: minHeight
+            ) ?? frame
         }
 
         if let sourceReference = displaySnapshot?.visibleFrame ?? displaySnapshot?.frame {
@@ -178,38 +172,6 @@ public struct SessionWindowFrameResolver: Sendable {
             minWidth: minWidth,
             minHeight: minHeight
         )
-    }
-
-    private static func shouldPreserveAccessibleFrame(
-        frame: CGRect,
-        targetDisplay: SessionDisplayGeometry,
-        minimumVisibleTopStripWidth: CGFloat = 120,
-        topStripHeight: CGFloat = 64,
-        minimumVisibleTopStripHeight: CGFloat = 24
-    ) -> Bool {
-        let standardizedFrame = frame.standardized
-        guard standardizedFrame.width.isFinite,
-              standardizedFrame.height.isFinite,
-              standardizedFrame.width > 0,
-              standardizedFrame.height > 0,
-              standardizedFrame.intersects(targetDisplay.frame) else {
-            return false
-        }
-
-        let stripHeight = min(topStripHeight, standardizedFrame.height)
-        let topStrip = CGRect(
-            x: standardizedFrame.minX,
-            y: standardizedFrame.maxY - stripHeight,
-            width: standardizedFrame.width,
-            height: stripHeight
-        )
-        let visibleTopStrip = topStrip.intersection(targetDisplay.visibleFrame)
-        guard !visibleTopStrip.isNull else { return false }
-
-        let requiredWidth = min(minimumVisibleTopStripWidth, standardizedFrame.width)
-        let requiredHeight = min(minimumVisibleTopStripHeight, stripHeight)
-        return visibleTopStrip.width >= requiredWidth
-            && visibleTopStrip.height >= requiredHeight
     }
 
     private static func display(

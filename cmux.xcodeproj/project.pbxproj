@@ -535,6 +535,8 @@
 		C0DE58990000000000000004 /* CmuxWebViewKeyDownReentryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */; };
 		7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */; };
 		5E55200000000000000000B3 /* CmuxWindowing in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55200000000000000000B2 /* CmuxWindowing */; };
+		730600040000000000000001 /* CmuxWindowing in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55200000000000000000B2 /* CmuxWindowing */; };
+		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
 		E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A3000000000000000102 /* CmuxWorkspaces */; };
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		CAF5A0000000000000000002 /* CodexAppServerActivityFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAF5A0000000000000000001 /* CodexAppServerActivityFormatter.swift */; };
@@ -803,6 +805,8 @@
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
 		17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */; };
 		A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */; };
+		730600000000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 730600010000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift */; };
+		730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */; };
 		D5E40A01D5E40A01D5E40A01 /* ManagedDefaultSideEffectApplier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E40A01D5E40A01D5E40A04 /* ManagedDefaultSideEffectApplier.swift */; };
 		A9D9000000000000000F0017 /* markdown-viewer in Resources */ = {isa = PBXBuildFile; fileRef = A9D9000000000000000F0016 /* markdown-viewer */; };
 		F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A040000000000000002 /* MarkdownFontFamily.swift */; };
@@ -2434,6 +2438,8 @@
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
 		A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityLifecycleTests.swift; sourceTree = "<group>"; };
+		730600010000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibleFrameFitCoreTests.swift; sourceTree = "<group>"; };
+		730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibleFrameFitRescue.swift; sourceTree = "<group>"; };
 		D5E40A01D5E40A01D5E40A04 /* ManagedDefaultSideEffectApplier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedDefaultSideEffectApplier.swift; sourceTree = "<group>"; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
 		F5168A040000000000000002 /* MarkdownFontFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamily.swift; sourceTree = "<group>"; };
@@ -3352,19 +3358,20 @@
 					B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
 					A5B00006A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 					C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
-				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
-				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
-						CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
-						5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
-						C617000000000000000000A4 /* CmuxGit in Frameworks */,
-						EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
-						E3B7A30000000000000000F4 /* CmuxPanes in Frameworks */,
-						CC0DE10000000000000000A4 /* CmuxRemoteDaemon in Frameworks */,
-						CC0DE20000000000000000A4 /* CmuxRemoteWorkspace in Frameworks */,
+					CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
+					5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
+					CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
+					5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
+					C617000000000000000000A4 /* CmuxGit in Frameworks */,
+					EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
+					E3B7A30000000000000000F4 /* CmuxPanes in Frameworks */,
+					CC0DE10000000000000000A4 /* CmuxRemoteDaemon in Frameworks */,
+					CC0DE20000000000000000A4 /* CmuxRemoteWorkspace in Frameworks */,
 					E3B7A30000000000000000B4 /* CmuxSidebar in Frameworks */,
 					C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 					C5A1FED000000000000000C6 /* CmuxSwiftRender in Frameworks */,
 					C750200000000000000000A4 /* CmuxTerminalCore in Frameworks */,
+					730600040000000000000001 /* CmuxWindowing in Frameworks */,
 					5E2701040000000000000003 /* Sentry in Frameworks */,
 				);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -3862,6 +3869,7 @@
 				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
 				A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */,
 				2F0C06000000000000000001 /* MainWindowVisibilityController.swift */,
+				730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */,
 				A6D1F0000000000000000001 /* ReleasingWindowController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
 				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
@@ -4757,10 +4765,11 @@
 				A5008382 /* CommandPaletteSearchEngineTests.swift */,
 				C0DEC0DE000000000000F101 /* CommandPaletteNucleoFFITests.swift */,
 				C0DEC0DE000000000000F201 /* CommandPaletteNucleoFFILibrarySupport.swift */,
-				C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */,
-				A50019B3 /* SettingsSearchIndexTests.swift */,
-				D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
-				970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
+					C0DEC0DE000000000000F203 /* CommandPaletteNucleoFixtures.swift */,
+					A50019B3 /* SettingsSearchIndexTests.swift */,
+					D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
+					730600010000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift */,
+					970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
 					B1F0C0070000000000000002 /* BrowserDeveloperToolsLifecycleTests.swift */,
 					B1F0C0060000000000000002 /* BrowserDeveloperToolsDockControlNormalizerTests.swift */,
 					B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */,
@@ -5207,21 +5216,25 @@
 			);
 			name = cmuxTests;
 				packageProductDependencies = (
-					5E2701040000000000000001 /* Sentry */,
 					A5B00007A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+					EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
+					CA52A005CA52A005CA52A005 /* CmuxCanvas */,
+					5E2701040000000000000001 /* Sentry */,
 					5E2701040000000000000002 /* CmuxFoundation */,
 					5E27010400000000000000A3 /* CmuxSettings */,
 					5E27010400000000000000A4 /* CmuxWorkspaces */,
 					C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
 					C617000000000000000000A5 /* CmuxGit */,
 					E3B7A30000000000000000F5 /* CmuxPanes */,
-						E3B7A30000000000000000B5 /* CmuxSidebar */,
-						C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
+					E3B7A30000000000000000B5 /* CmuxSidebar */,
+					5E55500000000000000000E2 /* CmuxCommandPalette */,
+					C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
 					C5A1FED000000000000000C5 /* CmuxSwiftRender */,
 					C750200000000000000000A5 /* CmuxTerminalCore */,
 					CC0DE10000000000000000A5 /* CmuxRemoteDaemon */,
 					CC0DE20000000000000000A5 /* CmuxRemoteWorkspace */,
-					5E55200000000000000000B4 /* CmuxWindowing */,
+					5E55200000000000000000B2 /* CmuxWindowing */,
+					CC0DE00000000000000000A2 /* CmuxCore */,
 					A5001262 /* Bonsplit */,
 				);
 			productName = cmuxTests;
@@ -5925,6 +5938,7 @@
 				2F0C05000000000000000024 /* MainWindowRouter.swift in Sources */,
 				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
+				730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */,
 				D5E40A01D5E40A01D5E40A01 /* ManagedDefaultSideEffectApplier.swift in Sources */,
 				F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
@@ -6868,6 +6882,7 @@
 				6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */,
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
 				A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */,
+				730600000000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift in Sources */,
 				D7470002D7470002D7470002 /* MarkdownLinkBoundaryRegressionTests.swift in Sources */,
 				D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
