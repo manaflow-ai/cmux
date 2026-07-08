@@ -58,6 +58,7 @@ interface ClaudeState {
   context: string;
   initialApplied: boolean;
   commands: CommandEntry[];
+  activeTurns: number;
 }
 
 export const claudeAdapter: Adapter = {
@@ -78,6 +79,7 @@ export const claudeAdapter: Adapter = {
       type: "user",
       message: { role: "user", content: [{ type: "text", text: prompt }] },
     };
+    beginTurn(sess);
     proc.stdin.write(JSON.stringify(msg) + "\n");
     proc.stdin.flush();
     sess.setStatus("running");
@@ -144,6 +146,7 @@ function state(sess: SessionCtx): ClaudeState {
       context: stringOption(sess, "context", "200k"),
       initialApplied: false,
       commands: [],
+      activeTurns: 0,
     };
     sess.internal.claude = st;
   }
@@ -200,13 +203,7 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
 
   readLines(proc.stdout, (line) => handleLine(sess, line), () => {
     if (st.proc === proc) {
-      st.proc = undefined;
-      rejectPending(st, "claude process exited");
-      if (sess.status === "running") {
-        sess.emit({ kind: "error", message: "claude process exited mid-turn" });
-        sess.emit({ kind: "done" });
-      }
-      sess.setStatus("idle");
+      handleProcessClose(sess, st, "claude process exited");
     }
   });
   readLines(proc.stderr, (line) => {
@@ -215,14 +212,42 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
   proc.exited.then((code) => {
     if (code !== 0 && st.proc === proc) {
       const err = sess.internal.lastStderr as string | undefined;
-      sess.emit({ kind: "error", message: `claude exited (${code})${err ? ": " + truncate(err) : ""}` });
-      st.proc = undefined;
-      rejectPending(st, `claude exited (${code})`);
-      if (sess.status === "running") sess.emit({ kind: "done" });
-      sess.setStatus("idle");
+      handleProcessClose(sess, st, `claude exited (${code})`, `claude exited (${code})${err ? ": " + truncate(err) : ""}`);
     }
   });
   return proc;
+}
+
+function beginTurn(sess: SessionCtx) {
+  state(sess).activeTurns += 1;
+}
+
+function finishTurn(sess: SessionCtx, stats?: string): number {
+  const st = state(sess);
+  if (st.activeTurns <= 0) return 0;
+  st.activeTurns -= 1;
+  sess.emit({ kind: "done", stats });
+  return st.activeTurns;
+}
+
+function handleProcessClose(sess: SessionCtx, st: ClaudeState, pendingMessage: string, turnError = "claude process exited mid-turn") {
+  const wasActive = st.activeTurns > 0;
+  st.activeTurns = 0;
+  st.proc = undefined;
+  rejectPending(st, pendingMessage);
+  if (wasActive) {
+    sess.emit({ kind: "error", message: turnError });
+    sess.emit({ kind: "done" });
+  }
+  sess.setStatus("idle");
+}
+
+export function claudeHandleLineForTest(sess: SessionCtx, line: string) {
+  handleLine(sess, line);
+}
+
+export function claudeProcessCloseForTest(sess: SessionCtx, turnError?: string) {
+  handleProcessClose(sess, state(sess), "claude process exited", turnError);
 }
 
 function rejectPending(st: ClaudeState, message: string) {
@@ -653,8 +678,7 @@ function handleLine(sess: SessionCtx, line: string) {
       if (ev.is_error) {
         sess.emit({ kind: "error", message: truncate(String(ev.result ?? ev.subtype), 400) });
       }
-      sess.emit({ kind: "done", stats });
-      sess.setStatus("idle");
+      if (finishTurn(sess, stats) === 0) sess.setStatus("idle");
       break;
     }
   }
