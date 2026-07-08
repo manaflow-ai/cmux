@@ -1,9 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const deleteStackUser = mock(async () => {});
+const deleteStackUser = mock(async () => {
+  routeEvents.push("stack-delete");
+  if (stackDeleteError) throw stackDeleteError;
+});
 const getUser = mock(async () => stackUser(stackUserIds.shift()));
 const transaction = mock(async (...args: unknown[]) => {
   const [callback] = args as [(tx: MockTransaction) => Promise<void>];
+  routeEvents.push("transaction");
   await callback(mockTransaction);
 });
 const listUserVms = mock((...args: unknown[]) => {
@@ -29,7 +33,11 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
 });
 
 let deletedTableCount = 0;
+let routeEvents: string[] = [];
+let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
+const originalConsoleError = console.error;
+const consoleError = mock(() => {});
 
 type WorkflowProgram =
   | { readonly kind: "listUserVms"; readonly userId: string }
@@ -66,6 +74,8 @@ mock.module("../services/vms/workflows", () => ({
 const { DELETE } = await import("../app/api/account/route");
 
 beforeEach(() => {
+  console.error = consoleError as typeof console.error;
+  consoleError.mockClear();
   deleteStackUser.mockClear();
   getUser.mockClear();
   transaction.mockClear();
@@ -73,7 +83,13 @@ beforeEach(() => {
   destroyVm.mockClear();
   runVmWorkflow.mockClear();
   deletedTableCount = 0;
+  routeEvents = [];
+  stackDeleteError = null;
   stackUserIds = [];
+});
+
+afterEach(() => {
+  console.error = originalConsoleError;
 });
 
 describe("account deletion route", () => {
@@ -97,6 +113,28 @@ describe("account deletion route", () => {
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(routeEvents).toEqual(["transaction", "stack-delete"]);
+  });
+
+  test("returns a retryable partial-failure response when Stack deletion fails after cmux data deletion", async () => {
+    stackDeleteError = new Error("Bearer access-token leaked by upstream");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_stack_delete_failed_after_data_delete",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(deletedTableCount).toBeGreaterThan(10);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(routeEvents).toEqual(["transaction", "stack-delete"]);
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.stack_user_failed_after_data_delete",
+      "Error: [redacted] leaked by upstream",
+    );
   });
 
   test("rejects a Stack user mismatch before deleting data", async () => {

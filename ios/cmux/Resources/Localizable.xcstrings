@@ -4064,6 +4064,23 @@
         }
       }
     },
+    "mobile.settings.deleteAccountPartialFailureMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your cmux data was deleted, but account sign-in cleanup did not finish. Try Delete Account again to complete deletion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のデータは削除されましたが、アカウントのサインイン情報のクリーンアップは完了しませんでした。削除を完了するには、もう一度「アカウントを削除」をお試しください。"
+          }
+        }
+      }
+    },
     "mobile.settings.deleteAccountMessage": {
       "extractionState": "manual",
       "localizations": {

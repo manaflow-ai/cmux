@@ -1,13 +1,18 @@
 import Foundation
 
-enum AccountDeletionRequestError: Error, Equatable {
+public enum AccountDeletionRequestError: Error, Equatable {
     case invalidAPIBaseURL
     case unauthorized
+    case stackDeleteIncomplete
     case rejected(statusCode: Int)
     case invalidResponse
 }
 
 typealias AccountDeletionRequestLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+nonisolated private struct AccountDeletionErrorResponse: Decodable {
+    let error: String
+}
 
 struct AccountDeletionClient: Sendable {
     private let apiBaseURL: String
@@ -24,9 +29,8 @@ struct AccountDeletionClient: Sendable {
     }
 
     func deleteAccount(accessToken: String, refreshToken: String) async throws {
-        guard let baseURL = URL(string: apiBaseURL),
-              let url = URL(string: "/api/account", relativeTo: baseURL)?.absoluteURL
-        else {
+        let trimmedBaseURL = apiBaseURL.hasSuffix("/") ? String(apiBaseURL.dropLast()) : apiBaseURL
+        guard let url = URL(string: trimmedBaseURL + "/api/account") else {
             throw AccountDeletionRequestError.invalidAPIBaseURL
         }
 
@@ -35,7 +39,7 @@ struct AccountDeletionClient: Sendable {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
 
-        let (_, response) = try await load(request)
+        let (data, response) = try await load(request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AccountDeletionRequestError.invalidResponse
         }
@@ -45,20 +49,28 @@ struct AccountDeletionClient: Sendable {
         case 401:
             throw AccountDeletionRequestError.unauthorized
         default:
+            if Self.errorCode(in: data) == "account_stack_delete_failed_after_data_delete" {
+                throw AccountDeletionRequestError.stackDeleteIncomplete
+            }
             throw AccountDeletionRequestError.rejected(statusCode: httpResponse.statusCode)
         }
+    }
+
+    private static func errorCode(in data: Data) -> String? {
+        try? JSONDecoder().decode(AccountDeletionErrorResponse.self, from: data).error
     }
 }
 
 extension AuthCoordinator {
-    /// Permanently deletes the current Stack account through cmux's backend and
-    /// then clears the local session using the same local-first path as sign-out.
-    public func deleteAccount(teardownTimeout: Duration = .seconds(5)) async throws {
+    /// Permanently deletes the current Stack account through cmux's backend.
+    ///
+    /// Callers clear local shell/auth state through their normal sign-out owner
+    /// after this succeeds so app-level teardown hooks run in the right order.
+    public func deleteAccount() async throws {
         let tokens = try await currentTokens()
         try await AccountDeletionClient(apiBaseURL: apiBaseURL).deleteAccount(
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken
         )
-        await signOut(teardownTimeout: teardownTimeout)
     }
 }

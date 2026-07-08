@@ -33,6 +33,7 @@ struct MobileSettingsView: View {
     @State private var showingSetupHelp = false
     @State private var showingDeleteAccountConfirmation = false
     @State private var showingDeleteAccountFailure = false
+    @State private var deleteAccountFailureKind = DeleteAccountFailureKind.generic
     @State private var deletingAccount = false
     #if DEBUG
     @State private var showingChatDemo = false
@@ -376,10 +377,7 @@ struct MobileSettingsView: View {
             ) {
                 Button(L10n.string("mobile.settings.deleteAccountFailureOK", defaultValue: "OK"), role: .cancel) {}
             } message: {
-                Text(L10n.string(
-                    "mobile.settings.deleteAccountFailedMessage",
-                    defaultValue: "Try again later or contact support."
-                ))
+                Text(deleteAccountFailureKind.localizedMessage)
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
@@ -409,9 +407,18 @@ struct MobileSettingsView: View {
         Task {
             do {
                 try await authManager.deleteAccount()
-                store?.signOut()
+                if let signOut {
+                    signOut()
+                } else {
+                    await authManager.signOut()
+                }
                 dismiss()
             } catch {
+                if case AccountDeletionRequestError.stackDeleteIncomplete = error {
+                    deleteAccountFailureKind = .stackDeleteIncomplete
+                } else {
+                    deleteAccountFailureKind = .generic
+                }
                 showingDeleteAccountFailure = true
             }
             deletingAccount = false
@@ -488,5 +495,25 @@ struct MobileSettingsView: View {
     }
     #endif
 
+}
+
+private enum DeleteAccountFailureKind {
+    case generic
+    case stackDeleteIncomplete
+
+    var localizedMessage: String {
+        switch self {
+        case .generic:
+            return L10n.string(
+                "mobile.settings.deleteAccountFailedMessage",
+                defaultValue: "Try again later or contact support."
+            )
+        case .stackDeleteIncomplete:
+            return L10n.string(
+                "mobile.settings.deleteAccountPartialFailureMessage",
+                defaultValue: "Your cmux data was deleted, but account sign-in cleanup did not finish. Try Delete Account again to complete deletion."
+            )
+        }
+    }
 }
 #endif
