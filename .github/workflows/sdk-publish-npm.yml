@@ -160,4 +160,7 @@ jobs:
 
       - name: Publish package to npm
         working-directory: mux/bindings/typescript
-        run: npm publish --provenance
+        # The npm `cmux` name still serves the cloud-VM CLI on the `latest`
+        # dist-tag (0.8.3). The SDK ships on its own `sdk` tag so installing
+        # bare `cmux` keeps resolving the CLI; use `npm i cmux@sdk` for the SDK.
+        run: npm publish --provenance --tag sdk
