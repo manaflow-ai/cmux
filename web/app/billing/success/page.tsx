@@ -22,9 +22,23 @@ type BillingSuccessMessages = {
   title: string;
   body: string;
   emailLabel: string;
+  whatUnlockedTitle: string;
   openCmux: string;
   manageBilling: string;
   manageSignInMethods: string;
+  features: Record<BillingSuccessFeatureKey, BillingSuccessFeatureMessage>;
+};
+
+type BillingSuccessFeatureKey =
+  | "cloudAgents"
+  | "modelGateway"
+  | "aiAccounts"
+  | "iosApp";
+
+type BillingSuccessFeatureMessage = {
+  title: string;
+  body: string;
+  action: string;
 };
 
 export const dynamic = "force-dynamic";
@@ -79,23 +93,61 @@ export default async function BillingSuccessPage({
   const { locale, messages } = await billingSuccessMessages(requestHeaders);
   const openCmuxHref = new URL("/handler/after-sign-in", request.nextUrl.origin);
   openCmuxHref.searchParams.set("native_app_return_to", nativeCallbackHrefForScheme(scheme));
+  const featureCards: readonly {
+    key: BillingSuccessFeatureKey;
+    href: string;
+  }[] = [
+    { key: "cloudAgents", href: openCmuxHref.toString() },
+    { key: "modelGateway", href: "/dashboard/subrouter" },
+    { key: "aiAccounts", href: "/dashboard/ai-accounts" },
+    { key: "iosApp", href: "/dashboard/testflight" },
+  ];
 
   return (
-    <main className="min-h-screen bg-[#fafafa] px-6 py-16 text-[#171717]">
-      <div className="mx-auto max-w-xl">
-        <p className="mb-3 text-sm font-medium text-[#5f6368]">{messages.emailLabel}</p>
-        <p className="mb-8 break-words text-base">{email}</p>
-        <h1 className="text-3xl font-medium tracking-tight">{messages.title}</h1>
-        <p className="mt-4 text-base leading-7 text-[#4b5563]">
-          {messages.body.replace("{email}", email)}
-        </p>
-        <div className="mt-8 flex flex-wrap gap-3" lang={locale}>
+    <main className="min-h-screen bg-[#fafafa] px-4 py-10 text-[#171717] sm:px-6 sm:py-16">
+      <div className="mx-auto max-w-5xl" lang={locale}>
+        <section className="border-b border-black/10 pb-8">
+          <p className="mb-3 text-sm font-medium text-[#5f6368]">{messages.emailLabel}</p>
+          <p className="mb-8 break-words text-base">{email}</p>
+          <h1 className="text-3xl font-medium tracking-tight">{messages.title}</h1>
+          <p className="mt-4 max-w-2xl text-base leading-7 text-[#4b5563]">
+            {messages.body.replace("{email}", email)}
+          </p>
           <a
-            className="inline-flex rounded-md bg-[#171717] px-4 py-2 text-sm font-medium text-white"
+            className="mt-8 inline-flex rounded-md bg-[#171717] px-4 py-2 text-sm font-medium text-white"
             href={openCmuxHref.toString()}
           >
             {messages.openCmux}
           </a>
+        </section>
+
+        <section className="py-8">
+          <h2 className="text-xl font-medium tracking-tight">{messages.whatUnlockedTitle}</h2>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {featureCards.map((card) => {
+              const feature = messages.features[card.key];
+              return (
+                <article
+                  key={card.key}
+                  className="flex min-h-48 flex-col justify-between rounded-lg border border-black/10 bg-white p-5 shadow-sm"
+                >
+                  <div>
+                    <h3 className="text-base font-medium">{feature.title}</h3>
+                    <p className="mt-3 text-sm leading-6 text-[#4b5563]">{feature.body}</p>
+                  </div>
+                  <a
+                    className="mt-5 inline-flex w-fit rounded-md bg-[#171717] px-3 py-2 text-sm font-medium text-white"
+                    href={card.href}
+                  >
+                    {feature.action}
+                  </a>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="flex flex-wrap gap-3 border-t border-black/10 pt-6">
           <a
             className="inline-flex rounded-md border border-black/15 px-4 py-2 text-sm font-medium text-[#171717]"
             href="/api/billing/portal"

@@ -82,7 +82,12 @@
       },
       "free": {
         "name": "Free",
-        "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。"
+        "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
+        "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
+        "testflightTitle": "cmux iOSアプリを入手",
+        "testflightBody": "iOSベータは、有効なProユーザーとTeamメンバーがTestFlightで利用できます。",
+        "testflightCta": "iOSベータに参加"
       },
       "pro": {
         "name": "cmux Pro",
@@ -2636,9 +2641,32 @@
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
     "emailLabel": "購入メールアドレス",
+    "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",
     "manageBilling": "請求を管理",
-    "manageSignInMethods": "サインイン方法を管理"
+    "manageSignInMethods": "サインイン方法を管理",
+    "features": {
+      "cloudAgents": {
+        "title": "Cloud VM 上のクラウドエージェント",
+        "body": "隔離されたリモートサンドボックスでエージェントを実行できます。",
+        "action": "cmux を開く"
+      },
+      "modelGateway": {
+        "title": "モデルゲートウェイ",
+        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングし、毎月 20 コンピュート時間を利用できます。",
+        "action": "モデルゲートウェイを開く"
+      },
+      "aiAccounts": {
+        "title": "AI アカウントを接続",
+        "body": "プロバイダーアカウントを追加して、cmux が作業をルーティングできるようにします。",
+        "action": "プロバイダーを接続"
+      },
+      "iosApp": {
+        "title": "cmux iOS アプリ",
+        "body": "スマートフォンで cmux を使用できます。",
+        "action": "iOS ベータに参加"
+      }
+    }
   },
   "landing": {
     "bestTerminal": {
