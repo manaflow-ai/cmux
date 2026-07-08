@@ -78,7 +78,7 @@ public final class SleepyModeSettingsStore {
         customInk = defaults.string(forKey: SleepyModeDefaultsKeys.customInk) ?? fallback.customInk
         customLogo = defaults.string(forKey: SleepyModeDefaultsKeys.customLogo) ?? fallback.customLogo
         customBackground = defaults.string(forKey: SleepyModeDefaultsKeys.customBackground) ?? fallback.customBackground
-        // ponytail: default off; behavior flag, no SleepyModeConfig fallback needed.
+        // Behavior flag, default off; no SleepyModeConfig fallback needed.
         keepAwakeWhileAgentsActive = defaults.object(forKey: SleepyModeDefaultsKeys.keepAwakeWhileAgentsActive) as? Bool ?? false
     }
 

@@ -4582,6 +4582,10 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
+        // Amphetamine Mode: an agent going busy/idle is exactly when the Mac's
+        // keep-awake state may need to flip, so reconcile now instead of waiting
+        // for the next poll (issue #7537). Cheap: a no-op when the feature is off.
+        SleepyModeController.shared.reconcilePowerAssertions()
     }
 
     func setAgentLifecycle(

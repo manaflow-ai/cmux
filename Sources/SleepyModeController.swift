@@ -2,6 +2,7 @@ import AppKit
 import CmuxSettingsUI
 import CmuxWorkspaces
 import IOKit.pwr_mgt
+import Observation
 import SwiftUI
 
 /// Owns "Sleepy Mode": a cute full-screen keep-awake screensaver. It holds
@@ -64,6 +65,7 @@ final class SleepyModeController {
 
     private init() {
         startReconcileLoop()
+        observeKeepAwakeSetting()
     }
 
     var isHoldingPowerAssertions: Bool { hasSystemAssertion || hasDisplayAssertion }
@@ -205,10 +207,14 @@ final class SleepyModeController {
     /// no-op when already in the desired state — so it is safe to call on every
     /// timer tick and on every state change.
     func reconcilePowerAssertions() {
+        // Short-circuit the O(workspaces × panels) scan: `anyAgentWorking()` only
+        // affects the decision when the screensaver is off and the setting is on,
+        // so users who never enable the feature pay nothing per tick.
+        let agentWorking = (!isActive && store.keepAwakeWhileAgentsActive) ? Self.anyAgentWorking() : false
         let desired = Self.shouldKeepAwake(
             screensaverActive: isActive,
             keepAwakeSetting: store.keepAwakeWhileAgentsActive,
-            anyAgentWorking: Self.anyAgentWorking()
+            anyAgentWorking: agentWorking
         )
         if desired {
             beginPowerAssertions()
@@ -217,12 +223,28 @@ final class SleepyModeController {
         }
     }
 
+    /// Reconcile the instant the setting is toggled, so enabling the feature
+    /// while an agent is already working takes effect immediately rather than on
+    /// the next poll. Re-arms after each change (the Observation callback fires
+    /// once per tracked mutation).
+    private func observeKeepAwakeSetting() {
+        withObservationTracking {
+            _ = store.keepAwakeWhileAgentsActive
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.reconcilePowerAssertions()
+                self.observeKeepAwakeSetting()
+            }
+        }
+    }
+
     private func startReconcileLoop() {
-        // ponytail: 5s poll reuses the SleepyAgentCensus sampling pattern and
-        // covers every transition (agent busy/idle, toggle flip, workspace
-        // close) uniformly. 5s latency is trivial vs. OS idle-sleep timers
-        // (minutes). Upgrade path: event-driven reconcile at
-        // Workspace.updatePanelShellActivityState if latency ever matters.
+        // Safety-net poll. Primary reconciliation is event-driven — on the
+        // setting toggle (observeKeepAwakeSetting) and on agent activity changes
+        // (Workspace.updatePanelShellActivityState) — but the timer catches
+        // anything those miss (e.g. a workspace closing). 5s latency is trivial
+        // vs. OS idle-sleep timers (minutes).
         reconcileTimer?.invalidate()
         let timer = Timer(timeInterval: reconcileInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
