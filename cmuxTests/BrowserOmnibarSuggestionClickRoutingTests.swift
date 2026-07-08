@@ -26,33 +26,12 @@ import Testing
 
     @Test func offsetOverlayFrameClickRoutesToSuggestionsOverlay() throws {
         let contentRect = NSRect(x: 0, y: 0, width: 800, height: 600)
-        let window = NSWindow(
-            contentRect: contentRect,
-            styleMask: .borderless,
-            backing: .buffered,
-            defer: true
-        )
-        let contentView = NSView(frame: contentRect)
+        let host = makeHostWindow(contentRect: contentRect)
         let container = NSView(frame: contentRect)
-        window.contentView = contentView
-        contentView.addSubview(container)
+        host.contentView.addSubview(container)
 
         let popupFrame = CGRect(x: 0, y: 0, width: 400, height: 60)
-        let configuration = BrowserPortalOmnibarSuggestionsConfiguration(
-            panelId: UUID(),
-            popupFrame: popupFrame,
-            colorScheme: .light,
-            engineName: "TestEngine",
-            items: [
-                OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "alpha")),
-                OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "beta")),
-            ],
-            selectedIndex: 0,
-            isLoadingRemoteSuggestions: false,
-            searchSuggestionsEnabled: true,
-            onCommit: { _ in },
-            onHighlight: { _ in }
-        )
+        let configuration = makeSuggestionsConfiguration(popupFrame: popupFrame)
         let overlay = BrowserPortalOmnibarSuggestionsHostingView(
             rootView: BrowserPortalOmnibarSuggestionsOverlay(configuration: configuration)
         )
@@ -74,33 +53,12 @@ import Testing
 
     private func makeSlotWithSuggestions() throws -> (window: NSWindow, slot: WindowBrowserSlotView) {
         let contentRect = NSRect(x: 0, y: 0, width: 800, height: 600)
-        let window = NSWindow(
-            contentRect: contentRect,
-            styleMask: .borderless,
-            backing: .buffered,
-            defer: true
-        )
-        let contentView = NSView(frame: contentRect)
+        let host = makeHostWindow(contentRect: contentRect)
         let slot = WindowBrowserSlotView(frame: contentRect)
-        window.contentView = contentView
-        contentView.addSubview(slot)
+        host.contentView.addSubview(slot)
 
         slot.setOmnibarSuggestions(
-            BrowserPortalOmnibarSuggestionsConfiguration(
-                panelId: UUID(),
-                popupFrame: CGRect(x: 100, y: 8, width: 400, height: 120),
-                colorScheme: .light,
-                engineName: "TestEngine",
-                items: [
-                    OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "alpha")),
-                    OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "beta")),
-                ],
-                selectedIndex: 0,
-                isLoadingRemoteSuggestions: false,
-                searchSuggestionsEnabled: true,
-                onCommit: { _ in },
-                onHighlight: { _ in }
-            )
+            makeSuggestionsConfiguration(popupFrame: CGRect(x: 100, y: 8, width: 400, height: 120))
         )
         slot.layoutSubtreeIfNeeded()
 
@@ -109,7 +67,39 @@ import Testing
         )
         try #require(overlay.frame == slot.bounds)
 
-        return (window, slot)
+        return (host.window, slot)
+    }
+
+    private func makeHostWindow(contentRect: NSRect) -> (window: NSWindow, contentView: NSView) {
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = NSView(frame: contentRect)
+        window.contentView = contentView
+        return (window, contentView)
+    }
+
+    private func makeSuggestionsConfiguration(
+        popupFrame: CGRect
+    ) -> BrowserPortalOmnibarSuggestionsConfiguration {
+        BrowserPortalOmnibarSuggestionsConfiguration(
+            panelId: UUID(),
+            popupFrame: popupFrame,
+            colorScheme: .light,
+            engineName: "TestEngine",
+            items: [
+                OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "alpha")),
+                OmnibarSuggestion(kind: .search(engineName: "TestEngine", query: "beta")),
+            ],
+            selectedIndex: 0,
+            isLoadingRemoteSuggestions: false,
+            searchSuggestionsEnabled: true,
+            onCommit: { _ in },
+            onHighlight: { _ in }
+        )
     }
 
     private func overlayClaims(_ view: NSView?, in boundary: NSView) -> Bool {
