@@ -247,6 +247,9 @@ extension CMUXCLI {
 
         var failingStepIndex: Int?
         var failureKind: String?
+        // The final step's layer is registered only after verify passes, so
+        // `cmux vm env up` can never boot an environment whose verify failed.
+        var pendingFinalLayer: (chainHash: String, stepIndex: Int, stepName: String, snapshotId: String)?
 
         for index in startIndex..<spec.steps.count {
             let step = spec.steps[index]
@@ -272,20 +275,22 @@ extension CMUXCLI {
                 reports[index].status = "ok"
                 if let snapshotId, !snapshotId.isEmpty {
                     reports[index].snapshotId = snapshotId
-                    _ = try client.sendV2(
-                        method: "vm.env_record_layer",
-                        params: [
-                            "provider": provider,
-                            "base_image_id": baseImageId,
-                            "chain_hash": chainHashes[index],
-                            "step_index": index,
-                            "step_name": step.name,
-                            "spec_digest": loaded.digest,
-                            "snapshot_id": snapshotId,
-                        ],
-                        responseTimeout: 60
-                    )
-                    if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, layer cached)") }
+                    if index == spec.steps.count - 1 {
+                        pendingFinalLayer = (chainHashes[index], index, step.name, snapshotId)
+                        if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, snapshot taken; registered after verify)") }
+                    } else {
+                        try vmEnvRecordLayer(
+                            client: client,
+                            provider: provider,
+                            baseImageId: baseImageId,
+                            chainHash: chainHashes[index],
+                            stepIndex: index,
+                            stepName: step.name,
+                            specDigest: loaded.digest,
+                            snapshotId: snapshotId
+                        )
+                        if !jsonOutput { print("step \(index) [\(step.name)] ok (\(reports[index].durationMs ?? 0)ms, layer cached)") }
+                    }
                 } else if !jsonOutput {
                     // Step succeeded but the provider returned no snapshot id, so
                     // this layer is not cached and the next build re-runs it.
@@ -347,6 +352,34 @@ extension CMUXCLI {
         }
 
         let ok = failingStepIndex == nil
+        if ok {
+            if let pending = pendingFinalLayer {
+                try vmEnvRecordLayer(
+                    client: client,
+                    provider: provider,
+                    baseImageId: baseImageId,
+                    chainHash: pending.chainHash,
+                    stepIndex: pending.stepIndex,
+                    stepName: pending.stepName,
+                    specDigest: loaded.digest,
+                    snapshotId: pending.snapshotId
+                )
+                if !jsonOutput { print("final layer registered") }
+            } else if cachedLayerIndex == spec.steps.count - 1, let restoredSnapshotId {
+                // Fully cached build: refresh the final layer's spec digest so a
+                // verify-only edit is re-verified exactly once and `up` unblocks.
+                try vmEnvRecordLayer(
+                    client: client,
+                    provider: provider,
+                    baseImageId: baseImageId,
+                    chainHash: chainHashes[spec.steps.count - 1],
+                    stepIndex: spec.steps.count - 1,
+                    stepName: spec.steps[spec.steps.count - 1].name,
+                    specDigest: loaded.digest,
+                    snapshotId: restoredSnapshotId
+                )
+            }
+        }
         let report: [String: Any] = [
             "ok": ok,
             "specPath": loaded.path,
@@ -365,7 +398,9 @@ extension CMUXCLI {
             "error": failureKind ?? NSNull(),
             "hint": ok
                 ? "All layers cached. `cmux vm env up` now boots this environment in seconds."
-                : "Fix the failing step in the spec and re-run `cmux vm env build`; cached layers before it will not re-run. Inspect with `cmux vm env logs \(vmId) --step \(failingStepIndex ?? 0)` or `cmux vm exec \(vmId) -- <cmd>`.",
+                : failureKind == "verify_failed"
+                    ? "Verify failed, so the final layer was not registered and `cmux vm env up` will refuse this spec. Fix `verify` (or the steps) and re-run `cmux vm env build`; cached layers will not re-run. Inspect with `cmux vm exec \(vmId) -- <cmd>`."
+                    : "Fix the failing step in the spec and re-run `cmux vm env build`; cached layers before it will not re-run. Inspect with `cmux vm env logs \(vmId) --step \(failingStepIndex ?? 0)` or `cmux vm exec \(vmId) -- <cmd>`.",
         ]
         if jsonOutput {
             print(jsonString(report))
@@ -376,5 +411,30 @@ extension CMUXCLI {
         if !ok {
             throw CLIError(message: "env build failed at \(failingStepIndex.map { $0 < spec.steps.count ? "step \($0)" : "verify \($0 - spec.steps.count)" } ?? "?"). VM \(vmId) left running for inspection.")
         }
+    }
+
+    private func vmEnvRecordLayer(
+        client: SocketClient,
+        provider: String,
+        baseImageId: String,
+        chainHash: String,
+        stepIndex: Int,
+        stepName: String,
+        specDigest: String,
+        snapshotId: String
+    ) throws {
+        _ = try client.sendV2(
+            method: "vm.env_record_layer",
+            params: [
+                "provider": provider,
+                "base_image_id": baseImageId,
+                "chain_hash": chainHash,
+                "step_index": stepIndex,
+                "step_name": stepName,
+                "spec_digest": specDigest,
+                "snapshot_id": snapshotId,
+            ],
+            responseTimeout: 60
+        )
     }
 }

@@ -45,6 +45,18 @@ extension CMUXCLI {
                   cmux vm env build
                 """)
         }
+        // The final layer is registered (with the spec digest of that build)
+        // only after verify passes, so a digest mismatch means this exact spec
+        // text has never had a passing build. `build` on a fully cached spec
+        // just re-runs verify and refreshes the digest.
+        guard (layer["spec_digest"] as? String) == loaded.digest else {
+            throw CLIError(message: """
+                The spec changed since its last passing build (steps may be cached, but `verify` has not passed for this exact spec text).
+
+                Run:
+                  cmux vm env build
+                """)
+        }
 
         let response = try client.sendV2(
             method: "vm.restore",
