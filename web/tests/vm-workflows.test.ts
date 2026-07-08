@@ -891,7 +891,6 @@ describe("VM Effect workflows", () => {
     const leases: RecordedLease[] = [];
     const observedStatuses: ObservedStatusUpdate[] = [];
     const repo = testWorkflowRepo({ vm, usageEvents, leases, observedStatuses });
-    const originalError = providerOperationError("openAttach", "provider attach unavailable");
     const endpoint = testAttachEndpoint();
     let attachCalls = 0;
     let statusCalls = 0;
@@ -1080,7 +1079,6 @@ describe("VM Effect workflows", () => {
     const leases: RecordedLease[] = [];
     const observedStatuses: ObservedStatusUpdate[] = [];
     const repo = testWorkflowRepo({ vm, usageEvents, leases, observedStatuses });
-    const originalError = providerOperationError("openSSH", "provider ssh unavailable");
     const endpoint = testSshEndpoint();
     let sshCalls = 0;
     let statusCalls = 0;
@@ -1128,7 +1126,7 @@ describe("VM Effect workflows", () => {
     });
   });
 
-  test("openSshEndpoint rolls back a paused resume when cleanup fails before minting", async () => {
+  test("openSshEndpoint does not pause a preflight-resumed VM when cleanup fails before minting", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000128",
       userId: "user-workflow-ssh-cleanup-before-resume",
@@ -1197,11 +1195,10 @@ describe("VM Effect workflows", () => {
 
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
-    expect(pauseCalls).toBe(1);
+    expect(pauseCalls).toBe(0);
     expect(openCalls).toBe(0);
     expect(observedStatuses).toEqual([
       { id: vm.id, providerVmId: vm.providerVmId!, status: "running" },
-      { id: vm.id, providerVmId: vm.providerVmId!, status: "paused" },
     ]);
   });
 

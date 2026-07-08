@@ -1042,28 +1042,6 @@ function rollbackPausedResumeReservation(
   }).pipe(Effect.catchAll(() => Effect.void));
 }
 
-function rollbackEndpointPreflightResume(
-  repo: VmRepositoryShape,
-  providers: VmProviderGatewayShape,
-  vm: CloudVmRow,
-  providerVmId: string,
-  resumedForEndpoint: boolean,
-): Effect.Effect<void, never> {
-  if (!resumedForEndpoint) return Effect.void;
-  const pause = providers.pause;
-  if (!pause) return Effect.void;
-  return pause(vm.provider, providerVmId).pipe(
-    Effect.andThen(
-      repo.markProviderObservedStatus({
-        id: vm.id,
-        providerVmId,
-        status: "paused",
-      }).pipe(Effect.catchAll(() => Effect.void)),
-    ),
-    Effect.catchAll(() => Effect.void),
-  );
-}
-
 function recordResumeUsageEvent(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
@@ -1427,12 +1405,11 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    const resumedForEndpoint = yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true }).pipe(
-      Effect.tapError(() =>
-        rollbackEndpointPreflightResume(repo, providers, vm, input.providerVmId, resumedForEndpoint),
-      ),
-    );
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    // Once preflight records the VM as running, that state is externally
+    // visible to concurrent attach/SSH requests. Later cleanup failures must
+    // fail closed without pausing a VM another request may have attached to.
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -1495,12 +1472,8 @@ export function openSshEndpoint(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    const resumedForEndpoint = yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true }).pipe(
-      Effect.tapError(() =>
-        rollbackEndpointPreflightResume(repo, providers, vm, input.providerVmId, resumedForEndpoint),
-      ),
-    );
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
