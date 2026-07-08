@@ -121,6 +121,79 @@ final class BrowserPaneFileDropUploadRegressionTests: XCTestCase {
         }
     }
 
+    // A live hosted web view does not always fill its slot (a docked Web
+    // Inspector splits the slot with WebKit companion views). The registry
+    // fallback hit-tests the whole slot container, so without a geometry check
+    // a file dropped over the non-page area would be misrouted into the page
+    // upload path instead of being refused.
+    func testFileDropOverNonPageAreaOfLiveWebViewIsRefused() throws {
+        try withFileDropDefault(.text) {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { close(window) }
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            let root = try XCTUnwrap(window.contentView)
+
+            let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 260, height: 160))
+            root.addSubview(anchor)
+            let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+            BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+            BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+            let context = BrowserPaneDropContext(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                paneId: PaneID(id: UUID())
+            )
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: context)
+            root.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            root.layoutSubtreeIfNeeded()
+
+            let container = try XCTUnwrap(webView.superview as? WindowBrowserSlotView)
+
+            // Emulate a docked-inspector split: the live web view keeps only one
+            // half of the slot, the companion view owns the other half.
+            webView.autoresizingMask = []
+            webView.frame = NSRect(
+                x: 0,
+                y: 0,
+                width: container.bounds.width,
+                height: container.bounds.height / 2
+            )
+            let pagePoint = NSPoint(x: container.bounds.midX, y: container.bounds.height * 0.25)
+            let nonPagePoint = NSPoint(x: container.bounds.midX, y: container.bounds.height * 0.75)
+
+            // Harness sanity: the precise hosted-webview hit test resolves the
+            // page area and misses the companion area, while the registry still
+            // resolves the whole container.
+            XCTAssertTrue(container.hostedWebViewForFileDrop(at: pagePoint) === webView)
+            XCTAssertNil(container.hostedWebViewForFileDrop(at: nonPagePoint))
+            let nonPageWindowPoint = container.convert(nonPagePoint, to: nil)
+            XCTAssertTrue(
+                BrowserWindowPortalRegistry.webViewAtWindowPoint(nonPageWindowPoint, in: window) === webView
+            )
+
+            let target = try XCTUnwrap(
+                BrowserWindowPortalRegistry.browserPaneDropTargetAtWindowPoint(nonPageWindowPoint, in: window)
+            )
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7632.split.\(UUID().uuidString)"))
+            pasteboard.clearContents()
+            XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/upload.png") as NSURL]))
+            let dragInfo = MockDraggingInfo(window: window, location: nonPageWindowPoint, pasteboard: pasteboard)
+
+            XCTAssertTrue(target.draggingEntered(dragInfo).isEmpty)
+            XCTAssertFalse(target.prepareForDragOperation(dragInfo))
+            XCTAssertFalse(target.performDragOperation(dragInfo))
+            XCTAssertEqual(webView.dragCalls, [])
+        }
+    }
+
     func testShiftInvertedFileDropStillRoutesToPreview() {
         XCTAssertEqual(
             DragOverlayRoutingPolicy.resolvedFileDropBehavior(

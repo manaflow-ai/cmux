@@ -79,6 +79,18 @@ extension BrowserPaneDropTargetView {
               BrowserWindowPortalRegistry.paneDropContext(for: webView) == context else {
             return nil
         }
+
+        // The registry lookup above hit-tests the whole slot container, not the
+        // hosted web view's own frame. When the web view is live in this window it
+        // may not fill the slot (a docked Web Inspector splits the slot with WebKit
+        // companion views), so a primary-path miss means the drop point is over
+        // non-page area: refuse instead of misrouting the drop into the page.
+        // Only a detached web view (discarded / mid-reparent) skips the geometry
+        // check; that transient gap is what this fallback exists for.
+        if webView.window === window {
+            let pointInWebView = webView.convert(windowPoint, from: nil)
+            guard webView.bounds.contains(pointInWebView) else { return nil }
+        }
         return webView
     }
 
