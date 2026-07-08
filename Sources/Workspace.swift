@@ -4619,18 +4619,28 @@ final class Workspace: Identifiable, ObservableObject {
             didClear = true
             recordAgentLifecycleChange(panelId: panelId)
         }
+        if didClear {
+            pruneDynamicAgentRowKeyIfUnused(key)
+        }
         return didClear
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
-        guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
+        guard let removedStates = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        for key in removedStates.keys {
+            pruneDynamicAgentRowKeyIfUnused(key)
+        }
         recordAgentLifecycleChange(panelId: panelId)
     }
 
     func clearAllAgentLifecycleStates() {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
+        let removedKeys = Set(agentLifecycleStatesByPanelId.values.flatMap(\.keys))
         agentLifecycleStatesByPanelId.removeAll()
+        for key in removedKeys {
+            pruneDynamicAgentRowKeyIfUnused(key)
+        }
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }

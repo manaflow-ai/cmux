@@ -108,6 +108,7 @@ extension Workspace {
         if clearAgentLifecycle(key: statusKey) {
             didChange = true
         }
+        pruneDynamicAgentRowKeyIfUnused(statusKey)
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
@@ -143,7 +144,7 @@ extension Workspace {
         // sidebarAgentStatusRows' comparator). Mirror pane close for the
         // workspace-level slot: drop it when this pane was its last owner.
         for statusKey in Set((statusEntriesByPanelId[panelId] ?? [:]).keys)
-        where statusKey != retainedStatusKey && Self.structuredAgentHookStatusKeys.contains(statusKey) {
+        where statusKey != retainedStatusKey && isAgentRowKey(statusKey) {
             if clearPanelStatusEntry(statusKey: statusKey, panelId: panelId) {
                 didChange = true
             }
@@ -155,6 +156,7 @@ extension Workspace {
                statusEntries.removeValue(forKey: statusKey) != nil {
                 didChange = true
             }
+            pruneDynamicAgentRowKeyIfUnused(statusKey)
         }
         return didChange
     }

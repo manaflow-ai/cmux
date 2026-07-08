@@ -152,6 +152,104 @@ struct PerAgentSidebarStatusRowTests {
     }
 
     @Test
+    func testRegisteredDynamicAgentKeyProducesRowWithReporterContentAndClearsRuntime() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let key = "third-party-agent"
+        let entry = SidebarStatusEntry(
+            key: key,
+            value: "Running checks",
+            icon: "text:TP",
+            color: "#34C759",
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+
+        workspace.registerDynamicAgentRowKey(key)
+        workspace.statusEntries[key] = entry
+        workspace.recordAgentPID(key: key, pid: 111, panelId: panelId, refreshPorts: false)
+        workspace.recordPanelStatusEntry(entry, panelId: panelId)
+        workspace.setAgentLifecycle(key: key, panelId: panelId, lifecycle: .running)
+
+        let row = try #require(workspace.sidebarAgentStatusRows().first)
+        #expect(row.statusKey == key)
+        #expect(row.panelId == panelId)
+        #expect(row.value == "Running checks")
+        #expect(row.icon == "text:TP")
+        #expect(row.color == "#34C759")
+        #expect(row.lifecycle == .running)
+        #expect(workspace.dynamicAgentRowKeys.contains(key))
+
+        #expect(workspace.clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: false))
+        #expect(workspace.sidebarAgentStatusRows().isEmpty)
+        #expect(!workspace.dynamicAgentRowKeys.contains(key))
+        #expect(workspace.statusEntries[key] == nil)
+        #expect(workspace.statusEntriesByPanelId[panelId]?[key] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?[key] == nil)
+    }
+
+    @Test
+    func testUnregisteredCustomKeyRemainsMetadataPill() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let key = "unregistered-agent"
+        let entry = SidebarStatusEntry(
+            key: key,
+            value: "metadata only",
+            icon: "text:UA",
+            color: "#8E8E93",
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+
+        workspace.statusEntries[key] = entry
+        workspace.recordPanelStatusEntry(entry, panelId: panelId)
+
+        #expect(workspace.sidebarAgentStatusRows().isEmpty)
+        #expect(workspace.statusEntriesByPanelId[panelId]?[key] == nil)
+        #expect(workspace.sidebarStatusEntriesVisibleForDisplay().contains(entry))
+    }
+
+    @Test
+    func testDynamicKeyRowEligibilityTransfersOnlyWhenRegistered() throws {
+        let source = Workspace()
+        let panelId = try #require(source.focusedPanelId)
+        let key = "third-party-agent"
+        let entry = SidebarStatusEntry(
+            key: key,
+            value: "Running checks",
+            icon: "emoji:🤖",
+            timestamp: Date(timeIntervalSince1970: 100)
+        )
+        source.registerDynamicAgentRowKey(key)
+        source.statusEntries[key] = entry
+        source.recordAgentPID(key: key, pid: 111, panelId: panelId, refreshPorts: false)
+        source.recordPanelStatusEntry(entry, panelId: panelId)
+
+        // A registered dynamic key carries its row eligibility across a pane
+        // transfer.
+        let runtimeState = try #require(source.agentRuntimeState(forPanelId: panelId))
+        #expect(runtimeState.dynamicAgentRowKeys.contains(key))
+        let destination = Workspace()
+        destination.adoptDetachedAgentRuntimeState(runtimeState)
+        #expect(destination.dynamicAgentRowKeys.contains(key))
+        #expect(destination.sidebarAgentStatusRows().first?.statusKey == key)
+
+        // An adopted runtime whose keys were never validated must stay a
+        // metadata pill in the destination, exactly as at the source.
+        let unvalidated = DetachedAgentRuntimeState(
+            panelId: panelId,
+            statusEntries: [key: entry],
+            agentPIDs: [key: 111],
+            agentPIDProcessIdentities: [:],
+            agentPIDKeys: [key],
+            dynamicAgentRowKeys: []
+        )
+        let strictDestination = Workspace()
+        strictDestination.adoptDetachedAgentRuntimeState(unvalidated)
+        #expect(!strictDestination.dynamicAgentRowKeys.contains(key))
+        #expect(strictDestination.sidebarAgentStatusRows().isEmpty)
+    }
+
+    @Test
     func testBareSharedPIDKeyHookSequenceKeepsBothPanesRows() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)

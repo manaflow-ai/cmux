@@ -20,6 +20,8 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     @ObservationIgnored
+    private(set) var dynamicAgentRowKeys: Set<String> = []
+    @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
     @ObservationIgnored
@@ -69,6 +71,12 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setStatusEntriesByPanelId(_ newValue: [UUID: [String: SidebarStatusEntry]]) {
         guard statusEntriesByPanelId != newValue else { return }
         statusEntriesByPanelId = newValue
+        notifyChanged()
+    }
+
+    func setDynamicAgentRowKeys(_ newValue: Set<String>) {
+        guard dynamicAgentRowKeys != newValue else { return }
+        dynamicAgentRowKeys = newValue
         notifyChanged()
     }
 

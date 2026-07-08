@@ -5146,6 +5146,24 @@ struct CMUXCLI {
                 "set_status",
                 commandArgs: commandArgs,
                 client: client,
+                windowOverride: windowId,
+                resolvePanelOption: true,
+                validatePIDOption: true
+            )
+            print(response)
+
+        case "set-agent-lifecycle":
+            let response = try forwardSetAgentLifecycleCommand(
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "clear-agent-pid":
+            let response = try forwardClearAgentPIDCommand(
+                commandArgs: commandArgs,
+                client: client,
                 windowOverride: windowId
             )
             print(response)
@@ -16810,21 +16828,52 @@ struct CMUXCLI {
             return String(localized: "cli.help.setStatus", defaultValue: """
             Usage: cmux set-status <key> <value> [flags]
 
-            Set a sidebar status entry for a workspace. Status entries appear as
-            pills in the sidebar tab row. Use a unique key so different tools
-            (e.g. "claude_code", "build") can manage their own entries.
+            Set a sidebar status entry. Workspace entries appear as pills; a
+            pane-scoped registered agent key appears as that pane's agent row.
 
             Flags:
               --icon <name>          Icon name (e.g. "sparkle", "hammer")
               --color <#hex>         Pill color (e.g. "#ff9500")
               --priority <n>         Sort priority; higher appears first (default: 0)
+              --panel <id|ref|index> Scope this status to a pane/surface
+              --pid <n>              Associate a live agent PID with this key
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
 
             Example:
               cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
+              cmux set-status my-agent "Running checks" --panel surface:1 --pid 12345
               cmux set-status deploy "v1.2.3" --workspace workspace:2
             """)
+        case "set-agent-lifecycle":
+            return """
+            Usage: cmux set-agent-lifecycle <key> <running|idle|needsInput|unknown> [flags]
+
+            Set a pane-scoped agent lifecycle state.
+
+            Flags:
+              --panel <id|ref|index>       Target pane/surface (default: focused surface)
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+
+            Example:
+              cmux set-agent-lifecycle my-agent running --panel surface:1
+            """
+        case "clear-agent-pid":
+            return """
+            Usage: cmux clear-agent-pid <key> [flags]
+
+            Clear a tracked agent PID and optionally its status row state.
+
+            Flags:
+              --panel <id|ref|index>       Target pane/surface
+              --clear-status               Also clear the associated status entry
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --window <id|ref|index>      Window context for workspace refs and indexes
+
+            Example:
+              cmux clear-agent-pid my-agent --panel surface:1 --clear-status
+            """
         case "clear-status":
             return """
             Usage: cmux clear-status <key> [flags]
@@ -17298,7 +17347,9 @@ struct CMUXCLI {
         _ socketCommand: String,
         commandArgs: [String],
         client: SocketClient,
-        windowOverride: String?
+        windowOverride: String?,
+        resolvePanelOption: Bool = false,
+        validatePIDOption: Bool = false
     ) throws -> String {
         func insertArgumentBeforeSeparator(_ value: String, into args: inout [String]) {
             if let separatorIndex = args.firstIndex(of: "--") {
@@ -17308,12 +17359,78 @@ struct CMUXCLI {
             }
         }
 
+        func hasOption(_ name: String, in args: [String]) -> Bool {
+            for arg in args {
+                if arg == "--" { return false }
+                if arg == name || arg.hasPrefix("\(name)=") {
+                    return true
+                }
+            }
+            return false
+        }
+
+        func validatePIDOptions(_ args: [String]) throws {
+            var index = 0
+            while index < args.count {
+                let arg = args[index]
+                if arg == "--" { return }
+                let rawPID: String?
+                if arg == "--pid" {
+                    guard index + 1 < args.count else {
+                        throw CLIError(message: "set-status: --pid requires a positive integer")
+                    }
+                    rawPID = args[index + 1]
+                    index += 2
+                } else if arg.hasPrefix("--pid=") {
+                    rawPID = String(arg.dropFirst("--pid=".count))
+                    index += 1
+                } else {
+                    index += 1
+                    continue
+                }
+                guard let rawPID,
+                      let pid = Int32(rawPID),
+                      pid > 0 else {
+                    throw CLIError(message: "set-status: --pid requires a positive integer")
+                }
+            }
+        }
+
+        func resolvePanelOptionValues(in args: inout [String], workspaceId: String) throws {
+            var index = 0
+            while index < args.count {
+                let arg = args[index]
+                if arg == "--" { return }
+                if arg == "--panel" {
+                    guard index + 1 < args.count else {
+                        throw CLIError(message: "\(socketCommand.replacingOccurrences(of: "_", with: "-")): --panel requires a value")
+                    }
+                    args[index + 1] = try resolveSurfaceId(args[index + 1], workspaceId: workspaceId, client: client)
+                    index += 2
+                    continue
+                }
+                if arg.hasPrefix("--panel=") {
+                    let rawPanel = String(arg.dropFirst("--panel=".count))
+                    let panelId = try resolveSurfaceId(rawPanel, workspaceId: workspaceId, client: client)
+                    args[index] = "--panel=\(panelId)"
+                    index += 1
+                    continue
+                }
+                index += 1
+            }
+        }
+
         var forwardedArgs: [String] = []
         var resolvedExplicitWorkspace = false
+        var targetWorkspaceId: String?
         var index = 0
         var parsingOptions = true
         let rawWindow = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         let windowHandle = try normalizeWindowHandle(rawWindow, client: client)
+
+        if validatePIDOption {
+            try validatePIDOptions(commandArgs)
+        }
 
         while index < commandArgs.count {
             let arg = commandArgs[index]
@@ -17327,6 +17444,7 @@ struct CMUXCLI {
                 let workspaceId = try resolveWorkspaceId(commandArgs[index + 1], client: client, windowHandle: windowHandle)
                 forwardedArgs.append("--tab=\(workspaceId)")
                 resolvedExplicitWorkspace = true
+                targetWorkspaceId = workspaceId
                 index += 2
                 continue
             }
@@ -17335,6 +17453,7 @@ struct CMUXCLI {
                 let workspaceId = try resolveWorkspaceId(rawWorkspace, client: client, windowHandle: windowHandle)
                 forwardedArgs.append("--tab=\(workspaceId)")
                 resolvedExplicitWorkspace = true
+                targetWorkspaceId = workspaceId
                 index += 1
                 continue
             }
@@ -17354,6 +17473,7 @@ struct CMUXCLI {
            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride) {
             let workspaceId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: windowHandle)
             insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
+            targetWorkspaceId = workspaceId
         } else if !resolvedExplicitWorkspace,
                   let windowHandle {
             let workspaceId = try requireCurrentWorkspaceId(
@@ -17362,12 +17482,75 @@ struct CMUXCLI {
                 command: socketCommand
             )
             insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
+            targetWorkspaceId = workspaceId
+        } else if resolvePanelOption,
+                  hasOption("--panel", in: commandArgs) {
+            let workspaceId = try resolveWorkspaceId(nil, client: client, windowHandle: windowHandle)
+            insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
+            targetWorkspaceId = workspaceId
+        }
+
+        if resolvePanelOption,
+           let targetWorkspaceId,
+           hasOption("--panel", in: forwardedArgs) {
+            try resolvePanelOptionValues(in: &forwardedArgs, workspaceId: targetWorkspaceId)
         }
 
         let command = ([socketCommand] + forwardedArgs)
             .map(shellQuote)
             .joined(separator: " ")
         return try sendV1Command(command, client: client)
+    }
+
+    private func forwardSetAgentLifecycleCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> String {
+        let (_, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (_, rem1) = parseOption(rem0, name: "--window")
+        let (_, rem2) = parseOption(rem1, name: "--panel")
+        guard rem2.count == 2 else {
+            throw CLIError(message: "Usage: cmux set-agent-lifecycle <key> <running|idle|needsInput|unknown> [--workspace <id|ref|index>] [--panel <id|ref|index>]")
+        }
+        let lifecycle = rem2[1]
+        let allowed = ["running", "idle", "needsInput", "unknown"]
+        guard allowed.contains(lifecycle) else {
+            throw CLIError(message: "set-agent-lifecycle: invalid lifecycle '\(lifecycle)' (expected running, idle, needsInput, or unknown)")
+        }
+        return try forwardSidebarMetadataCommand(
+            "set_agent_lifecycle",
+            commandArgs: commandArgs,
+            client: client,
+            windowOverride: windowOverride,
+            resolvePanelOption: true
+        )
+    }
+
+    private func forwardClearAgentPIDCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> String {
+        let clearStatus = hasFlag(commandArgs, name: "--clear-status")
+        let argsWithoutClearStatus = commandArgs.filter { $0 != "--clear-status" }
+        let (_, rem0) = parseOption(argsWithoutClearStatus, name: "--workspace")
+        let (_, rem1) = parseOption(rem0, name: "--window")
+        let (_, rem2) = parseOption(rem1, name: "--panel")
+        guard rem2.count == 1 else {
+            throw CLIError(message: "Usage: cmux clear-agent-pid <key> [--workspace <id|ref|index>] [--panel <id|ref|index>] [--clear-status]")
+        }
+        var forwardedArgs = argsWithoutClearStatus
+        if clearStatus {
+            forwardedArgs.append("--clear-status")
+        }
+        return try forwardSidebarMetadataCommand(
+            "clear_agent_pid",
+            commandArgs: forwardedArgs,
+            client: client,
+            windowOverride: windowOverride,
+            resolvePanelOption: true
+        )
     }
 
     private struct RightSidebarCLIArguments {
@@ -35480,7 +35663,9 @@ export default CMUXSessionRestore;
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
           sidebar <validate|reload|select|open> [name]
-          set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
+          set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--panel <id|ref|index>] [--pid <n>] [--icon <name>] [--color <#hex>] [--priority <n>]
+          set-agent-lifecycle <key> <running|idle|needsInput|unknown> [--workspace <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>]
+          clear-agent-pid <key> [--workspace <id|ref|index>] [--panel <id|ref|index>] [--clear-status] [--window <id|ref|index>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
           set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref|index>] [--window <id|ref|index>]

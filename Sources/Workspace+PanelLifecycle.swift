@@ -68,7 +68,8 @@ extension Workspace {
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
             agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
-            agentPIDKeys: pidKeys
+            agentPIDKeys: pidKeys,
+            dynamicAgentRowKeys: dynamicAgentRowKeys.intersection(statusEntriesForPanel.keys)
         )
     }
 
@@ -156,6 +157,7 @@ extension Workspace {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         statusEntriesByPanelId.removeAll()
+        pruneDynamicAgentRowKeys()
         if hadAgentPIDs, refreshPorts {
             refreshTrackedAgentPorts()
         }
@@ -209,7 +211,7 @@ extension Workspace {
     }
 
     func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
-        Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
+        isAgentRowKey(agentStatusKey(forAgentPIDKey: key))
     }
 
     @discardableResult
@@ -243,6 +245,7 @@ extension Workspace {
                clearAgentPID(key: synthesizedKey, panelId: panelId, clearStatus: clearStatus, refreshPorts: refreshPorts) {
                 didChange = true
             }
+            pruneDynamicAgentRowKeyIfUnused(statusKey)
             return didChange
         }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
@@ -271,6 +274,11 @@ extension Workspace {
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
+        }
+        if let statusKeyToClear {
+            pruneDynamicAgentRowKeyIfUnused(statusKeyToClear)
+        } else {
+            pruneDynamicAgentRowKeyIfUnused(agentStatusKey(forAgentPIDKey: key))
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
@@ -303,6 +311,9 @@ extension Workspace {
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
+            if runtimeState.dynamicAgentRowKeys.contains(statusKey) {
+                registerDynamicAgentRowKey(statusKey)
+            }
             statusEntries[statusKey] = statusEntry
             recordPanelStatusEntry(statusEntry, panelId: runtimeState.panelId)
         }
@@ -410,6 +421,9 @@ extension Workspace {
         for statusKey in closedPanelStatusKeys
         where panelsOwningAgentStatusKey(statusKey).isEmpty && !hasAgentRuntime(forStatusKey: statusKey) {
             statusEntries.removeValue(forKey: statusKey)
+        }
+        for statusKey in closedPanelStatusKeys {
+            pruneDynamicAgentRowKeyIfUnused(statusKey)
         }
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)

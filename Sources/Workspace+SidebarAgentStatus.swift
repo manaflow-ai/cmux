@@ -29,6 +29,55 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setStatusEntriesByPanelId(newValue) }
     }
 
+    var dynamicAgentRowKeys: Set<String> {
+        get { sidebarAgentRuntimeObservation.dynamicAgentRowKeys }
+        set { sidebarAgentRuntimeObservation.setDynamicAgentRowKeys(newValue) }
+    }
+
+    func isAgentRowKey(_ key: String) -> Bool {
+        Self.structuredAgentHookStatusKeys.contains(key) || dynamicAgentRowKeys.contains(key)
+    }
+
+    func registerDynamicAgentRowKey(_ key: String) {
+        guard !Self.structuredAgentHookStatusKeys.contains(key),
+              !dynamicAgentRowKeys.contains(key) else {
+            return
+        }
+        dynamicAgentRowKeys.insert(key)
+    }
+
+    @discardableResult
+    func pruneDynamicAgentRowKeyIfUnused(_ key: String) -> Bool {
+        guard dynamicAgentRowKeys.contains(key),
+              !hasRuntimeStateForDynamicAgentRowKey(key) else {
+            return false
+        }
+        dynamicAgentRowKeys.remove(key)
+        return true
+    }
+
+    func pruneDynamicAgentRowKeys() {
+        for key in Array(dynamicAgentRowKeys) {
+            _ = pruneDynamicAgentRowKeyIfUnused(key)
+        }
+    }
+
+    private func hasRuntimeStateForDynamicAgentRowKey(_ statusKey: String) -> Bool {
+        if statusEntries[statusKey] != nil {
+            return true
+        }
+        if hasAgentRuntime(forStatusKey: statusKey) {
+            return true
+        }
+        if statusEntriesByPanelId.values.contains(where: { $0[statusKey] != nil }) {
+            return true
+        }
+        if agentLifecycleStatesByPanelId.values.contains(where: { $0[statusKey] != nil }) {
+            return true
+        }
+        return false
+    }
+
     /// Records the panel-scoped copy of a structured agent status report, so
     /// each agent pane keeps its own row even when several agents of the same
     /// type share the workspace (the workspace-level `statusEntries` slot is
@@ -36,7 +85,7 @@ extension Workspace {
     /// (ignoring the timestamp) so agent heartbeats with no visible change do
     /// not invalidate the sidebar snapshot.
     func recordPanelStatusEntry(_ entry: SidebarStatusEntry, panelId: UUID) {
-        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else { return }
+        guard isAgentRowKey(entry.key) else { return }
         guard TerminalController.shouldReplaceStatusEntry(
             current: statusEntriesByPanelId[panelId]?[entry.key],
             key: entry.key,
@@ -61,6 +110,7 @@ extension Workspace {
         } else {
             statusEntriesByPanelId[panelId] = entries
         }
+        pruneDynamicAgentRowKeyIfUnused(statusKey)
         return true
     }
 
@@ -102,7 +152,7 @@ extension Workspace {
         _ entry: SidebarStatusEntry,
         visibleStructuredStatusKeys: Set<String>
     ) -> Bool {
-        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
+        guard isAgentRowKey(entry.key) else {
             return true
         }
         return visibleStructuredStatusKeys.contains(entry.key)
@@ -113,7 +163,7 @@ extension Workspace {
         for (key, panelId) in agentPIDPanelIdsByKey
         where panels[panelId] != nil {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+            guard isAgentRowKey(statusKey),
                   statusEntries[statusKey] != nil else {
                 continue
             }
@@ -131,7 +181,7 @@ extension Workspace {
 
         for key in agentPIDs.keys where agentPIDPanelIdsByKey[key] == nil {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+            guard isAgentRowKey(statusKey),
                   statusEntries[statusKey] != nil else {
                 continue
             }
@@ -156,11 +206,11 @@ extension Workspace {
         var statusKeysByPanel: [UUID: Set<String>] = [:]
         for (key, panelId) in agentPIDPanelIdsByKey where panels[panelId] != nil {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey) else { continue }
+            guard isAgentRowKey(statusKey) else { continue }
             statusKeysByPanel[panelId, default: []].insert(statusKey)
         }
         for (panelId, entries) in statusEntriesByPanelId where panels[panelId] != nil {
-            for statusKey in entries.keys where Self.structuredAgentHookStatusKeys.contains(statusKey) {
+            for statusKey in entries.keys where isAgentRowKey(statusKey) {
                 statusKeysByPanel[panelId, default: []].insert(statusKey)
             }
         }

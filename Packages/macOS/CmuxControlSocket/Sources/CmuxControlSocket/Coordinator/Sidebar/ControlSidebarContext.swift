@@ -59,7 +59,8 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        dynamicAgentRowKey: Bool
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.

@@ -26,7 +26,8 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        dynamicAgentRowKey: Bool
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarScheduleMutation(target: target) { _, tab in
@@ -43,6 +44,9 @@ extension TerminalController: ControlSidebarContext {
                 format: appFormat,
                 timestamp: Date()
             )
+            if dynamicAgentRowKey {
+                tab.registerDynamicAgentRowKey(key)
+            }
             if Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -182,6 +186,9 @@ extension TerminalController: ControlSidebarContext {
         controlSidebarScheduleMutation(target: target) { _, tab in
             if let panelId = panelID, !tab.panels.keys.contains(panelId) {
                 return
+            }
+            if panelID != nil {
+                tab.registerDynamicAgentRowKey(key)
             }
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }
