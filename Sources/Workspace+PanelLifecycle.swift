@@ -82,6 +82,12 @@ extension Workspace {
         return String(key[..<dotIndex])
     }
 
+    private func panelHasAgentRuntime(forStatusKey statusKey: String, panelId: UUID) -> Bool {
+        (agentPIDKeysByPanelId[panelId] ?? []).contains {
+            agentStatusKey(forAgentPIDKey: $0) == statusKey
+        }
+    }
+
     private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
         for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
@@ -281,7 +287,13 @@ extension Workspace {
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
                 didChange = true
             }
-            if let statusKeyToClear, clearPanelStatusEntry(statusKey: statusKeyToClear, panelId: lifecyclePanelId) {
+            // A panel can hold several PID keys for the same base status key
+            // (e.g. two sessions of one agent type); only drop the panel's
+            // status entry once no remaining key on the panel owns it, so a
+            // stale session's cleanup cannot erase a live session's row.
+            if let statusKeyToClear,
+               !panelHasAgentRuntime(forStatusKey: statusKeyToClear, panelId: lifecyclePanelId),
+               clearPanelStatusEntry(statusKey: statusKeyToClear, panelId: lifecyclePanelId) {
                 didChange = true
             }
         }
