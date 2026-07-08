@@ -836,7 +836,7 @@
       "managingTitle": "ការគ្រប់គ្រងក្រុម",
       "managingIntro": "នៅពេលក្រុមមានរួចហើយ ម៉ឺនុយបរិបទនៃក្បាលក្រុម និងប៊ូតុង + នៅលើក្បាលក្រុម អនុញ្ញាតឱ្យអ្នកគ្រប់គ្រងក្រុម និងបន្ថែម workspace ទៅក្នុងវា។ ពុំមានមួយណាបង្កើតក្រុមថ្មីឡើយ។",
       "headerMenuTitle": "ពីម៉ឺនុយបរិបទក្បាលក្រុម",
-      "headerMenuDesc": "ចុចស្ដាំលើបឋមកថាក្រុមដែលមានស្រាប់ ដើម្បីបាន Rename Group…, Pin Group / Unpin Group, Edit Group Config… (ដែលបើក ~/.config/cmux/cmux.json), Open Workspace Groups Docs, Ungroup Workspaces និង Delete Group។ Ungroup Workspaces រក្សា workspace ទុក ហើយគ្រាន់តែដកធុងផ្ទុកក្រុមចេញ។ Delete Group បិទ workspace បឋមកថាក្រុម និង workspace ទាំងអស់នៅក្នុងក្រុម; ប្រសិនបើក្រុមមាន workspace កូន វានឹងសុំការបញ្ជាក់ជាមុន។",
+      "headerMenuDesc": "ចុចស្ដាំលើបឋមកថាក្រុមដែលមានស្រាប់ ដើម្បីបាន Rename Group…, Pin Group / Unpin Group, Edit Group Config… (ដែលបើក ~/.config/cmux/cmux.json), Open Workspace Groups Docs, Ungroup Workspaces និង Delete Group។ Ungroup Workspaces រក្សា workspace ទុក ហើយគ្រាន់តែដកធុងផ្ទុកក្រុមចេញ។ Delete Group សុំការបញ្ជាក់ បន្ទាប់មកបិទ workspace បឋមកថាក្រុម និង workspace ទាំងអស់នៅក្នុងក្រុម។",
       "plusButtonTitle": "ពីប៊ូតុង + នៅលើក្បាលក្រុម",
       "plusButtonDesc": "សូមដាក់កណ្ដុរលើបឋមកថាក្រុម ដើម្បីបង្ហាញប៊ូតុង + នៅខាងចុង។ ចុចវាដើម្បីបង្កើត workspace ថ្មីក្នុងក្រុមនៅថត working directory នៃ anchor។ ចុចស្ដាំលើវាសម្រាប់ New Workspace in Group, Edit Group Config… និង Open Workspace Groups Docs។",
       "plusButtonNote": "ការចុច {shortcut} ខណៈពេលដែលកន្លែងធ្វើការសកម្មគឺជាយុថ្កាក្រុម ឬសមាជិកក៏បង្កើតកន្លែងធ្វើការថ្មីនៅខាងក្នុងក្រុមនោះដែរ។ ការដាក់លំនាំដើមគឺ After current៖ ពីសមាជិកក្រុមធម្មតា កន្លែងធ្វើការថ្មីធ្លាក់នៅពេលក្រោយសមាជិកសកម្ម ហើយពីយុថ្កា ឬក្បាល វាធ្លាក់នៅកំពូលនៃក្រុម។",
