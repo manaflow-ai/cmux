@@ -73,13 +73,9 @@ enum TerminalForegroundCommandCapture {
     /// Turns a captured argv into a re-runnable one-liner. argv[0] is preserved
     /// verbatim for ordinary commands (it is the form the user invoked — bare
     /// name, `./gradlew`, or an absolute path — and panes replay from their
-    /// saved cwd). node/bun-hosted known agents with strong wrapper identity
-    /// markers unwrap to the bare agent name first so replay resolves through
-    /// cmux's per-surface PATH shim — but only
-    /// when the argv carries an identity-proving cmux wrapper marker; Codex hook
-    /// config alone is user-controllable and is not enough to rewrite an
-    /// executable path. Known
-    /// agent argv then goes through the shared provider-aware
+    /// saved cwd). node/bun-hosted package-manager agents keep their captured
+    /// runtime/script path while their agent tail is cleaned. Known agent argv
+    /// then goes through the shared provider-aware
     /// `AgentLaunchSanitizer` so stale session/resume artifacts never replay,
     /// and every token including the executable is shell-quoted so nothing
     /// replays as shell syntax.
@@ -104,11 +100,10 @@ enum TerminalForegroundCommandCapture {
                 // starts a fresh session.
                 sanitizedArgv = [executable]
             }
-            // A strong wrapper marker (checked on the pre-sanitization argv —
-            // the sanitizer may strip it) proves the user launched the agent by
-            // bare name and the shim resolved it to this absolute binary. Save
-            // the bare name so replay routes back through the per-surface PATH
-            // shim; marker-less argv keeps its executable verbatim.
+            // A future strong wrapper marker may prove the user launched by
+            // bare name and the shim resolved it to this absolute binary. Hook
+            // config argv is user-controllable, so marker-less argv keeps its
+            // executable verbatim.
             if !sanitizedArgv.isEmpty,
                runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(argv) {
                 sanitizedArgv[0] = executableName

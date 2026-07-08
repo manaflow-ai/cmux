@@ -1,7 +1,7 @@
 import Foundation
 
-func preservedCodexLaunchArguments(args: [String]) -> [String]? {
-    let args = removingCmuxInjectedCodexHookArguments(args)
+func preservedCodexLaunchArguments(args: [String], stripCmuxHooks: Bool = true) -> [String]? {
+    let args = stripCmuxHooks ? removingCmuxInjectedCodexHookArguments(args) : args
     if let forkCommand = codexForkCommand(in: args) {
         return CodexForkLaunchCapture(
             args: args,
@@ -10,7 +10,69 @@ func preservedCodexLaunchArguments(args: [String]) -> [String]? {
             preserveOptions: AgentLaunchSanitizer.preserveOptions
         ).arguments()
     }
-    return AgentLaunchSanitizer.preservedArguments(kind: "codex", args: args)
+    return AgentLaunchSanitizer.preserveOptions(args, policy: AgentLaunchSanitizer.codexPolicy)
+}
+
+func preservedCodexForkArguments(
+    args: [String],
+    preservePromptTags: Bool,
+    stripCmuxHooks: Bool = true
+) -> [String]? {
+    func dropForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
+        var result: [String] = []
+        var index = 0
+        var skippedSession = false
+
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" { break }
+            if index == forkCommand.forkIndex { index += 1; continue }
+            if index == forkCommand.sessionIndex { skippedSession = true; index += 1; continue }
+            if !arg.hasPrefix("-") || arg == "-" {
+                if skippedSession && preservePromptTags { result.append(arg) }
+                index += 1
+                continue
+            }
+
+            let width = AgentLaunchSanitizer.optionWidth(args, index: index, policy: AgentLaunchSanitizer.codexPolicy)
+            let end = min(args.count, index + width)
+            if AgentLaunchSanitizer.codexPolicy.variadicOptions.contains(arg),
+               forkCommand.forkIndex > index,
+               forkCommand.forkIndex < end {
+                if forkCommand.forkIndex > index + 1 {
+                    result.append(contentsOf: args[index..<forkCommand.forkIndex])
+                }
+                index = forkCommand.forkIndex
+                continue
+            }
+            if AgentLaunchSanitizer.codexPolicy.variadicOptions.contains(arg),
+               forkCommand.sessionIndex > index,
+               forkCommand.sessionIndex < end {
+                if forkCommand.sessionIndex > index + 1 {
+                    result.append(contentsOf: args[index..<forkCommand.sessionIndex])
+                }
+                index = forkCommand.sessionIndex
+                continue
+            }
+            result.append(contentsOf: args[index..<end])
+            index += width
+        }
+
+        return result
+    }
+
+    var tail = stripCmuxHooks ? removingCmuxInjectedCodexHookArguments(args) : args
+    var preservePositionals = false
+    if let forkCommand = codexForkCommand(in: tail) {
+        tail = dropForkPositionals(tail, forkCommand: forkCommand)
+        preservePositionals = preservePromptTags
+    }
+    var policy = AgentLaunchSanitizer.codexPolicy
+    policy.preservePositionals = preservePositionals
+    if preservePositionals {
+        policy.nonRestorableCommands = []
+    }
+    return AgentLaunchSanitizer.preserveOptions(tail, policy: policy)
 }
 
 func removingCmuxInjectedCodexHookArguments(_ args: [String]) -> [String] {
@@ -195,66 +257,9 @@ private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [
 ]
 
 /// The agent whose cmux wrapper injected identity-proving hook arguments into
-/// captured argv, or nil when no safe marker is present. Codex hook configs are
-/// normal user-controllable CLI arguments, so they are intentionally not used as
+/// captured argv, or nil when no safe marker is present. Hook config in argv is
+/// normal user-controllable CLI input, so it is intentionally not used as
 /// executable identity proof here.
-func cmuxWrapperInjectedAgentNameFromArgumentPrefix(_ args: [String]) -> String? {
-    if cmuxInjectedClaudeHookSettingsArgumentPrefixEnd(args) != nil { return "claude" }
+func cmuxWrapperInjectedAgentNameFromArgumentPrefix(_: [String]) -> String? {
     return nil
-}
-
-private func cmuxInjectedClaudeHookSettingsArgumentPrefixEnd(_ args: [String]) -> Int? {
-    var index = 0
-    if index + 1 < args.count,
-       args[index] == "--session-id",
-       !args[index + 1].hasPrefix("-") {
-        index += 2
-    } else if index < args.count,
-              args[index].hasPrefix("--session-id=") {
-        index += 1
-    }
-    guard index < args.count else { return nil }
-
-    let first = args[index]
-    if first == "--settings", index + 1 < args.count {
-        return isCmuxInjectedClaudeHookSettingsValue(args[index + 1]) ? index + 2 : nil
-    }
-    if first.hasPrefix("--settings="),
-       isCmuxInjectedClaudeHookSettingsValue(String(first.dropFirst("--settings=".count))) {
-        return index + 1
-    }
-    return nil
-}
-
-/// Matches only the live cmux Claude wrapper's injected settings shape. This is
-/// used as executable-identity proof, so unlike the resume sanitizer's legacy
-/// stripping path it must not accept arbitrary user JSON that merely mentions
-/// `hooks claude` or `claude-hook`.
-private func isCmuxInjectedClaudeHookSettingsValue(_ value: String) -> Bool {
-    guard let data = value.data(using: .utf8),
-          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          object["preferredNotifChannel"] as? String == "notifications_disabled",
-          let hooks = object["hooks"] else {
-        return false
-    }
-    return containsCmuxClaudeWrapperHookCommand(hooks)
-}
-
-private func containsCmuxClaudeWrapperHookCommand(_ value: Any) -> Bool {
-    switch value {
-    case let string as String:
-        return isCmuxClaudeWrapperHookCommand(string)
-    case let array as [Any]:
-        return array.contains { containsCmuxClaudeWrapperHookCommand($0) }
-    case let dictionary as [String: Any]:
-        return dictionary.values.contains { containsCmuxClaudeWrapperHookCommand($0) }
-    default:
-        return false
-    }
-}
-
-private func isCmuxClaudeWrapperHookCommand(_ command: String) -> Bool {
-    let normalized = command.replacingOccurrences(of: "\\", with: "/")
-    return normalized.contains("CMUX_CLAUDE_HOOK_CMUX_BIN") &&
-        normalized.contains(" hooks claude ")
 }

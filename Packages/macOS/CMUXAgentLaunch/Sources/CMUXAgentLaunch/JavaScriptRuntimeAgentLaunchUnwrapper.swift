@@ -13,32 +13,21 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
 
     /// Rewrites or sanitizes node/bun-hosted known agent argv.
     ///
-    /// Captured foreground argv may look like `node .../claude.js <flags>` when
-    /// cmux launched the agent through a JavaScript runtime wrapper. Returning a
-    /// bare executable name such as `claude` deliberately routes replay through
-    /// the per-surface PATH shim and cmux wrapper, so hooks are re-injected fresh
-    /// instead of persisting the runtime script path.
+    /// Captured foreground argv may look like `node .../claude.js <flags>`.
+    /// Known package-manager agent entrypoints keep the captured runtime and
+    /// script path, but their agent tail is sanitized so stale resume/session
+    /// artifacts are not saved back into workspace layouts.
     ///
     /// A basename match alone is not enough: a user's own script named like an
     /// agent (`node ./tools/claude.js`, or a project-local pinned
     /// `node_modules` install launched directly) must never be rewritten into
-    /// whatever the bare name resolves to on PATH. Argv without an agent marker
-    /// that is specific enough to prove cmux's wrapper launched the process keeps
-    /// its original form.
+    /// whatever the bare name resolves to on PATH. Package entrypoints can be
+    /// sanitized because replay still uses the captured runtime and script path.
     ///
-    /// The marker also identifies which wrapper injected it, so when the
-    /// script basename is not itself an agent name (Claude Code's real npm
-    /// entrypoint is `.../@anthropic-ai/claude-code/cli.js`), the agent name
-    /// derived from the marker is used — but only when the script also lives
-    /// inside that agent's own npm package directory, so hook-looking argv
-    /// contents on an unrelated script can never rewrite it into an agent.
-    /// If the script basename already identifies an agent, it must agree with
-    /// the marker; mismatched marker/script identity fails closed.
-    ///
-    /// Codex hook config is weaker: it is normal user-controllable argv, so it
-    /// can strip cmux's hook prefix from a node/bun-hosted Codex command, but it
-    /// keeps the captured runtime and script path instead of rewriting identity
-    /// to bare `codex`.
+    /// A future non-user-controllable wrapper marker may still rewrite to a bare
+    /// agent name. User-controllable hook/config argv is not such a marker, so
+    /// it is preserved when replay keeps an absolute executable or runtime
+    /// script path.
     public func unwrappedArgv(_ argv: [String]) -> [String]? {
         guard let executable = argv.first else { return nil }
         let runtimeName = (executable as NSString).lastPathComponent.lowercased()
@@ -57,11 +46,20 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
         } else {
             scriptAgentName = nil
         }
-        if scriptAgentName == "codex" || scriptPathIsAgentPackageEntrypoint(argv[scriptIndex], agentName: "codex") {
-            let strippedTail = removingCmuxInjectedCodexHookArguments(scriptTail)
-            if strippedTail.count != scriptTail.count {
-                let preservedTail = preservedCodexLaunchArguments(args: scriptTail) ?? []
+        let packageAgentName = agentPackageName(forScriptPath: argv[scriptIndex])
+        if let packageAgentName {
+            switch packageAgentName {
+            case "codex":
+                let preservedTail = preservedCodexLaunchArguments(args: scriptTail, stripCmuxHooks: false) ?? []
                 return Array(argv.prefix(scriptIndex + 1)) + preservedTail
+            case "claude":
+                let preservedTail = AgentLaunchSanitizer.preservedClaudeLaunchArguments(
+                    args: scriptTail,
+                    stripCmuxHookSettings: false
+                ) ?? []
+                return Array(argv.prefix(scriptIndex + 1)) + preservedTail
+            default:
+                break
             }
         }
         guard let markerAgentName = cmuxWrapperInjectedAgentNameFromArgumentPrefix(scriptTail) else {
@@ -72,7 +70,7 @@ public struct JavaScriptRuntimeAgentLaunchUnwrapper {
             guard scriptAgentName == markerAgentName else { return nil }
             matchedName = scriptAgentName
         } else if isKnownAgentExecutableName(markerAgentName),
-                  scriptPathIsAgentPackageEntrypoint(argv[scriptIndex], agentName: markerAgentName) {
+                  packageAgentName == markerAgentName {
             matchedName = markerAgentName
         } else {
             return nil
@@ -101,9 +99,10 @@ private let cmuxWrapperAgentPackageDirectories: [String: String] = [
     "claude": "node_modules/@anthropic-ai/claude-code/",
 ]
 
-private func scriptPathIsAgentPackageEntrypoint(_ path: String, agentName: String) -> Bool {
-    guard let packageDirectory = cmuxWrapperAgentPackageDirectories[agentName] else { return false }
-    return path.contains(packageDirectory)
+private func agentPackageName(forScriptPath path: String) -> String? {
+    cmuxWrapperAgentPackageDirectories.first { _, packageDirectory in
+        path.contains(packageDirectory)
+    }?.key
 }
 
 private func javaScriptRuntimeScriptArgumentIndex(_ argv: [String]) -> Int? {

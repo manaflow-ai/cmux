@@ -329,46 +329,38 @@ struct CmuxConfigActionSaverTests {
         )
     }
 
-    @Test func commandLinePreservesNodeCodexRuntimeAndStripsCmuxHooksAndResume() {
-        #expect(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv()) ==
-                "node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex --dangerously-bypass-approvals-and-sandbox --model gpt-5.5 -c model_reasoning_effort=xhigh"
-        )
+    @Test func commandLinePreservesNodeCodexRuntimeHooksAndStripsResume() {
+        let command = TerminalForegroundCommandCapture.commandLine(fromArgv: nodeWrappedCodexHookArgv())
+        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@openai/codex/bin/codex --enable hooks ") == true)
+        #expect(command?.contains("cmux-codex-hook-stop.sh") == true)
+        #expect(command?.contains("019dad34-d218-7943-b81a-eddac5c87951") == false)
     }
 
-    @Test func commandLineUnwrapsNodeClaudeCliEntrypointAndStripsCmuxSettings() {
+    @Test func commandLinePreservesNodeClaudeRuntimeAndSettings() {
         // Claude Code's real npm entrypoint is cli.js: the basename never
-        // matches "claude", so the cmux-injected settings marker identifies
-        // the agent, and the shared sanitizer strips the injected hooks while
-        // keeping the user's own settings keys.
+        // matches "claude", so package-path sanitization preserves the captured
+        // runtime and settings while avoiding a PATH rewrite.
         let mergedHookSettings = #"{"env":{"USER_FLAG":"1"},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}]}}"#
-        #expect(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: [
-                "node",
-                "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
-                "--settings",
-                mergedHookSettings,
-                "--model",
-                "claude-fable-5",
-            ]) == #"claude --settings '{"env":{"USER_FLAG":"1"}}' --model claude-fable-5"#
-        )
+        let command = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "node", "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+            "--settings", mergedHookSettings, "--model", "claude-fable-5",
+        ])
+        #expect(command?.hasPrefix("node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js --settings ") == true)
+        #expect(command?.contains("hooks claude session-start") == true)
+        #expect(command?.hasPrefix("claude --settings") == false)
     }
 
     @Test func commandLineKeepsNativeCodexExecutableWhenOnlyHooksLookInjected() {
         // Codex hook config is normal user-controllable argv, so it is not proof
         // that cmux's PATH shim launched the captured absolute executable.
-        #expect(
-            TerminalForegroundCommandCapture.commandLine(fromArgv: [
-                "/usr/local/bin/codex",
-                "--enable",
-                "hooks",
-                "--dangerously-bypass-hook-trust",
-                "-c",
-                "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
-                "--model",
-                "gpt-5.5",
-            ]) == "/usr/local/bin/codex --model gpt-5.5"
-        )
+        let nativeCommand = TerminalForegroundCommandCapture.commandLine(fromArgv: [
+            "/usr/local/bin/codex", "--enable", "hooks", "--dangerously-bypass-hook-trust",
+            "-c", "hooks.Stop=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-stop.sh''',timeout=10000}]}]",
+            "--model", "gpt-5.5",
+        ])
+        #expect(nativeCommand?.hasPrefix("/usr/local/bin/codex ") == true)
+        #expect(nativeCommand?.contains("cmux-codex-hook-stop.sh") == true)
+        #expect(nativeCommand?.hasPrefix("codex ") == false)
         // Without the marker the user's own absolute-path launch is preserved.
         #expect(
             TerminalForegroundCommandCapture.commandLine(fromArgv: [

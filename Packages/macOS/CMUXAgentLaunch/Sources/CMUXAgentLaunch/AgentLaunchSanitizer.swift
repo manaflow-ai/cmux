@@ -66,8 +66,17 @@ public enum AgentLaunchSanitizer {
         }
 
         switch fallbackKind {
+        case "claude":
+            guard let preserved = preservedClaudeLaunchArguments(
+                args: tail,
+                stripCmuxHookSettings: executable == "claude"
+            ) else { return nil }
+            return [executable] + preserved
         case "codex":
-            guard let preserved = preservedCodexLaunchArguments(args: tail) else { return nil }
+            guard let preserved = preservedCodexLaunchArguments(
+                args: tail,
+                stripCmuxHooks: executable == "codex"
+            ) else { return nil }
             let replayExecutable = codexReplayExecutable(capturedExecutable: executable, launchTail: tail)
             return [replayExecutable] + preserved
         case "rovodev":
@@ -79,68 +88,23 @@ public enum AgentLaunchSanitizer {
         }
     }
 
+    static func preservedClaudeLaunchArguments(
+        args: [String],
+        stripCmuxHookSettings: Bool = true
+    ) -> [String]? {
+        var policy = claudePolicy
+        policy.skipClaudeHookSettings = stripCmuxHookSettings
+        return preserveOptions(args, policy: policy)
+    }
+
     public static func preservedArguments(kind: String, args: [String]) -> [String]? {
-        func preserveCodexFork(_ preservePromptTags: Bool) -> [String]? {
-            func dropForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
-                var result: [String] = []
-                var index = 0
-                var skippedSession = false
-
-                while index < args.count {
-                    let arg = args[index]
-                    if arg == "--" { break }
-                    if index == forkCommand.forkIndex { index += 1; continue }
-                    if index == forkCommand.sessionIndex { skippedSession = true; index += 1; continue }
-                    if !arg.hasPrefix("-") || arg == "-" {
-                        if skippedSession && preservePromptTags { result.append(arg) }
-                        index += 1
-                        continue
-                    }
-
-                    let width = optionWidth(args, index: index, policy: codexPolicy)
-                    let end = min(args.count, index + width)
-                    if codexPolicy.variadicOptions.contains(arg),
-                       forkCommand.forkIndex > index,
-                       forkCommand.forkIndex < end {
-                        if forkCommand.forkIndex > index + 1 {
-                            result.append(contentsOf: args[index..<forkCommand.forkIndex])
-                        }
-                        index = forkCommand.forkIndex
-                        continue
-                    }
-                    if codexPolicy.variadicOptions.contains(arg),
-                       forkCommand.sessionIndex > index,
-                       forkCommand.sessionIndex < end {
-                        if forkCommand.sessionIndex > index + 1 {
-                            result.append(contentsOf: args[index..<forkCommand.sessionIndex])
-                        }
-                        index = forkCommand.sessionIndex
-                        continue
-                    }
-                    result.append(contentsOf: args[index..<end])
-                    index += width
-                }
-
-                return result
-            }
-
-            var tail = removingCmuxInjectedCodexHookArguments(args); var preservePositionals = false
-            if let forkCommand = codexForkCommand(in: tail) {
-                tail = dropForkPositionals(tail, forkCommand: forkCommand); preservePositionals = preservePromptTags
-            }
-            var policy = codexPolicy; policy.preservePositionals = preservePositionals
-            if preservePositionals {
-                policy.nonRestorableCommands = []
-            }
-            return preserveOptions(tail, policy: policy)
-        }
         switch kind {
         case "claude":
-            return preserveOptions(args, policy: claudePolicy)
+            return preservedClaudeLaunchArguments(args: args)
         case "codex":
-            return preserveOptions(removingCmuxInjectedCodexHookArguments(args), policy: codexPolicy)
-        case "codex-fork-replay": return preserveCodexFork(true)
-        case "codex-fork-restore": return preserveCodexFork(false)
+            return preservedCodexLaunchArguments(args: args)
+        case "codex-fork-replay": return preservedCodexForkArguments(args: args, preservePromptTags: true)
+        case "codex-fork-restore": return preservedCodexForkArguments(args: args, preservePromptTags: false)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":

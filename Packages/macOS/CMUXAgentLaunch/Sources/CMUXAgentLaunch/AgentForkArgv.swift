@@ -78,7 +78,11 @@ public struct AgentForkArgv: Sendable, Equatable {
             return ["claude", "--resume", sessionId, "--fork-session"] + preserved
         case "codex":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-replay", args: parts.tail) else {
+            guard let preserved = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: true,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else {
                 return nil
             }
             let replayExecutable = codexReplayExecutable(
