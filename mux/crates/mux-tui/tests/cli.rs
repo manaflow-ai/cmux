@@ -65,6 +65,16 @@ fn cli_verbs_cover_command_output_errors_and_streams() {
     assert_eq!(value.get("app").and_then(|v| v.as_str()), Some("cmux-mux"));
     assert!(value.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0) >= 5);
 
+    let ping_json = cli(&server, &["--json", "ping"]);
+    assert_success(&ping_json);
+    let ping: serde_json::Value = serde_json::from_slice(&ping_json.stdout).unwrap();
+    assert_eq!(ping.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(ping.get("protocol").and_then(|v| v.as_u64()), Some(6));
+
+    let title = cli(&server, &["set-window-title", "--title", "hello"]);
+    assert_success(&title);
+    assert!(title.stdout.is_empty(), "set-window-title should be quiet on success");
+
     let workspace = cli(&server, &["new-workspace", "--name", "cli-test"]);
     assert_success(&workspace);
     let surface = String::from_utf8(workspace.stdout).unwrap().trim().parse::<u64>().unwrap();
