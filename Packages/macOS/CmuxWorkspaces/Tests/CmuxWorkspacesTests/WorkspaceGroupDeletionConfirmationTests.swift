@@ -19,11 +19,12 @@ struct WorkspaceGroupDeletionConfirmationTests {
     @Test
     func confirmationUsesLiveMembershipAfterAllMembersAreDetached() throws {
         let (model, host, groups) = makeWorld()
-        _ = host
         let first = CoordinatorStubTab()
         let second = CoordinatorStubTab()
         model.tabs = [first, second]
         let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [first.id, second.id]))
+        let group = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let anchorId = group.anchorWorkspaceId
         let staleMemberCount = model.tabs.filter { $0.groupId == groupId }.count
         #expect(staleMemberCount > 1)
 
@@ -42,6 +43,7 @@ struct WorkspaceGroupDeletionConfirmationTests {
 
         #expect(closed == 0)
         #expect(!model.workspaceGroups.contains { $0.id == groupId })
+        #expect(host.orderChanges.last == [anchorId])
     }
 
     @Test
