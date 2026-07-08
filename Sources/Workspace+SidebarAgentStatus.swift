@@ -245,4 +245,59 @@ extension Workspace {
         }
         return lhs.key > rhs.key
     }
+
+    // MARK: - Session persistence
+
+    /// Panel-scoped structured status reports for the session snapshot, so a
+    /// restored pane keeps its own sidebar row (and stays click-navigable)
+    /// instead of degrading to the ambiguous workspace-level slot.
+    func panelScopedAgentStatusSnapshots(panelId: UUID) -> [SessionStatusEntrySnapshot]? {
+        let entries = (statusEntriesByPanelId[panelId] ?? [:]).values
+            .filter { Self.structuredAgentHookStatusKeys.contains($0.key) }
+            .sorted { $0.key < $1.key }
+            .map {
+                SessionStatusEntrySnapshot(
+                    key: $0.key,
+                    value: $0.value,
+                    icon: $0.icon,
+                    color: $0.color,
+                    timestamp: $0.timestamp.timeIntervalSince1970
+                )
+            }
+        return entries.isEmpty ? nil : entries
+    }
+
+    func panelScopedAgentLifecycleSnapshots(panelId: UUID) -> [String: String]? {
+        let lifecycles = (agentLifecycleStatesByPanelId[panelId] ?? [:])
+            .filter { Self.structuredAgentHookStatusKeys.contains($0.key) }
+            .mapValues { $0.rawValue }
+        return lifecycles.isEmpty ? nil : lifecycles
+    }
+
+    /// Seeds the restored pane's panel-scoped agent status from its session
+    /// snapshot. A captured `.running` lifecycle is demoted to `.unknown`: the
+    /// resumed agent sits at its prompt until the user acts, so restoring
+    /// "Running" would be a lie that sticks until the next hook fires.
+    func restorePanelScopedAgentStatus(terminal: SessionTerminalPanelSnapshot?, panelId: UUID) {
+        guard let terminal else { return }
+        for snapshot in terminal.agentStatusEntries ?? [] {
+            guard Self.structuredAgentHookStatusKeys.contains(snapshot.key) else { continue }
+            recordPanelStatusEntry(
+                SidebarStatusEntry(
+                    key: snapshot.key,
+                    value: snapshot.value,
+                    icon: snapshot.icon,
+                    color: snapshot.color,
+                    timestamp: Date(timeIntervalSince1970: snapshot.timestamp)
+                ),
+                panelId: panelId
+            )
+        }
+        for (key, rawValue) in terminal.agentLifecyclesByStatusKey ?? [:] {
+            guard Self.structuredAgentHookStatusKeys.contains(key),
+                  let captured = AgentHibernationLifecycleState(rawValue: rawValue) else { continue }
+            let lifecycle: AgentHibernationLifecycleState = captured == .running ? .unknown : captured
+            setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+        }
+    }
 }

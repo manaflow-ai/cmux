@@ -1398,6 +1398,11 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// Panel-scoped structured agent status reports (one per status key), so
+    /// per-agent sidebar rows keep their pane binding across restart.
+    var agentStatusEntries: [SessionStatusEntrySnapshot]?
+    /// Last known agent lifecycle raw value per structured status key.
+    var agentLifecyclesByStatusKey: [String: String]?
 
     init(
         workingDirectory: String? = nil,
@@ -1409,7 +1414,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        agentStatusEntries: [SessionStatusEntrySnapshot]? = nil,
+        agentLifecyclesByStatusKey: [String: String]? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.scrollback = scrollback
@@ -1421,6 +1428,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.agentStatusEntries = agentStatusEntries
+        self.agentLifecyclesByStatusKey = agentLifecyclesByStatusKey
     }
 }
 

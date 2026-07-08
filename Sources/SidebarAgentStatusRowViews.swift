@@ -116,7 +116,17 @@ private struct SidebarAgentStatusEntryRow: View {
     @ViewBuilder
     private func rowContent(underlined: Bool) -> some View {
         HStack(spacing: 4) {
-            if let icon = iconView {
+            if let brandAssetName {
+                Image(brandAssetName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 11 * fontScale, height: 11 * fontScale)
+                if let stateColor {
+                    Circle()
+                        .fill(stateColor)
+                        .frame(width: 5 * fontScale, height: 5 * fontScale)
+                }
+            } else if let icon = iconView {
                 icon
                     .foregroundColor(foregroundColor.opacity(0.95))
             }
@@ -198,6 +208,31 @@ private struct SidebarAgentStatusEntryRow: View {
             .split(separator: "_")
             .map { $0.prefix(1).uppercased() + $0.dropFirst() }
             .joined(separator: " ")
+    }
+
+    /// Brand marks for the structured agent status keys that have assets in
+    /// `Assets.xcassets/AgentIcons`; keys without a mark keep the reported or
+    /// lifecycle-derived SF symbol.
+    static let brandAssetsByStatusKey: [String: String] = [
+        "antigravity": "AgentIcons/Antigravity",
+        "claude_code": "AgentIcons/Claude",
+        "codex": "AgentIcons/Codex",
+        "grok": "AgentIcons/Grok",
+        "hermes-agent": "AgentIcons/HermesAgent",
+        "opencode": "AgentIcons/OpenCode",
+        "pi": "AgentIcons/Pi",
+        "rovodev": "AgentIcons/RovoDev",
+    ]
+
+    private var brandAssetName: String? {
+        Self.brandAssetsByStatusKey[row.statusKey]
+    }
+
+    /// Lifecycle/report state shown as a dot next to the brand mark, which
+    /// replaces the state-colored SF symbol when a brand asset exists.
+    private var stateColor: Color? {
+        guard let raw = effectiveColorHex else { return nil }
+        return Color(hex: raw)
     }
 
     private var effectiveIcon: String? {

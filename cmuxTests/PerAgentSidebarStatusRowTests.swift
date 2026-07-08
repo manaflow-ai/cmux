@@ -421,4 +421,38 @@ struct PerAgentSidebarStatusRowTests {
         #expect(runningOnly.accentColorHex == "#4C8DFF")
         #expect(SidebarAgentStatusRowsSummary(rows: [row(lifecycle: .idle)]).accentColorHex == nil)
     }
+
+    @Test
+    func testRestoredPanelSnapshotSeedsRowWithPaneBinding() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let terminal = SessionTerminalPanelSnapshot(
+            agentStatusEntries: [
+                SessionStatusEntrySnapshot(
+                    key: "claude_code",
+                    value: "Claude is waiting for your input",
+                    icon: "exclamationmark.bubble.fill",
+                    color: "#FF9F0A",
+                    timestamp: 1_000
+                )
+            ],
+            agentLifecyclesByStatusKey: ["claude_code": "running"]
+        )
+        workspace.restorePanelScopedAgentStatus(terminal: terminal, panelId: panelId)
+
+        let row = try #require(workspace.sidebarAgentStatusRows().first)
+        // The restored row is bound to the live pane, so clicking it can
+        // focus that pane immediately after relaunch.
+        #expect(row.panelId == panelId)
+        #expect(row.value == "Claude is waiting for your input")
+        // Captured "running" must not survive restore: the resumed agent sits
+        // at its prompt, so a restored Running pill would stick until the
+        // next hook fires.
+        #expect(row.lifecycle == .unknown)
+
+        // The seeded state round-trips back out into the next snapshot.
+        #expect(workspace.panelScopedAgentStatusSnapshots(panelId: panelId)?.first?.key == "claude_code")
+        #expect(workspace.panelScopedAgentLifecycleSnapshots(panelId: panelId)?["claude_code"] == "unknown")
+    }
 }

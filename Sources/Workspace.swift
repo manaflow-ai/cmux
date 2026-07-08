@@ -557,7 +557,9 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                agentStatusEntries: panelScopedAgentStatusSnapshots(panelId: panelId),
+                agentLifecyclesByStatusKey: panelScopedAgentLifecycleSnapshots(panelId: panelId)
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1496,6 +1498,7 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            restorePanelScopedAgentStatus(terminal: snapshot.terminal, panelId: terminalPanel.id)
             // A terminal whose startup command cds itself (agent resume, tmux
             // attach, agent-hook) is spawned without a working directory, so its
             // shell starts in the default directory and shell integration reports
