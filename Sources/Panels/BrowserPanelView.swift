@@ -283,8 +283,7 @@ struct BrowserPanelView: View {
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
         hasVisibleOmnibarSuggestions &&
-            panel.shouldRenderWebView &&
-            !panel.shouldUseLocalInlineDeveloperToolsHosting()
+            panel.shouldRenderWebView
     }
 
     private var shouldRenderOmnibarSuggestionsInSwiftUI: Bool {
@@ -653,13 +652,6 @@ struct BrowserPanelView: View {
             reason: effectiveVisibility ? "view.visible" : "view.hidden"
         )
         if visibleInUI {
-            panel.cancelPendingDeveloperToolsVisibilityLossCheck()
-            return
-        }
-        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
-            // Workspace switches keep the attached inspector alive off-screen.
-            // Treating that hide as a manual X-close can clear the restore intent
-            // before the original local-inline host becomes visible again.
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
         }
@@ -1336,10 +1328,7 @@ struct BrowserPanelView: View {
         // Canvas-hosted panes force inline hosting: window-portal positioning
         // visibly trails the pane during canvas pans (out-of-process WebKit
         // compositing), and portal content cannot scale with magnification.
-        let useLocalInlineDeveloperToolsHosting =
-            (panel.shouldUseLocalInlineDeveloperToolsHosting() &&
-             isCurrentPaneOwner) ||
-            canvasInlineBrowserHosting
+        let useLocalInlineDeveloperToolsHosting = canvasInlineBrowserHosting
 
         return Group {
             if panel.shouldRenderWebView {
@@ -3292,6 +3281,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var recordedHostedInspectorSideDockWidth: CGFloat?
         private var lastHostedInspectorManualSideDockAllowed: Bool?
+        private var lastHostedInspectorDetachedFromHostWindow: Bool?
         private var lastHostedInspectorLayoutBoundsSize: NSSize?
 #if DEBUG
         private var lastLoggedHostedInspectorFrames: (page: NSRect, inspector: NSRect)?
@@ -3343,14 +3333,19 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func updateHostedInspectorDockControlAvailabilityIfNeeded(reason: String) {
             guard let hostedInspectorFrontendWebView else {
                 lastHostedInspectorManualSideDockAllowed = nil
+                lastHostedInspectorDetachedFromHostWindow = nil
                 return
             }
 
             let sideDockAllowed = shouldAllowHostedInspectorManualSideDock()
-            guard lastHostedInspectorManualSideDockAllowed != sideDockAllowed else { return }
-            lastHostedInspectorManualSideDockAllowed = sideDockAllowed
+            let detachedFromHostWindow =
+                hostedInspectorFrontendWebView.window != nil &&
+                hostedInspectorFrontendWebView.window !== window
+            guard lastHostedInspectorManualSideDockAllowed != sideDockAllowed ||
+                lastHostedInspectorDetachedFromHostWindow != detachedFromHostWindow else {
+                return
+            }
 
-            let sideDockAllowedLiteral = sideDockAllowed ? "true" : "false"
 #if DEBUG
             let recordedWidthDesc = recordedHostedInspectorSideDockWidth.map {
                 String(format: "%.1f", $0)
@@ -3358,67 +3353,28 @@ struct WebViewRepresentable: NSViewRepresentable {
             cmuxDebugLog(
                 "browser.panel.hostedInspector stage=\(reason).dockControls " +
                 "host=\(Self.debugObjectID(self)) allowSideDock=\(sideDockAllowed ? 1 : 0) " +
+                "detachedFromHostWindow=\(detachedFromHostWindow ? 1 : 0) " +
                 "recordedWidth=\(recordedWidthDesc) bounds=\(Self.debugRect(bounds))"
             )
 #endif
             hostedInspectorFrontendWebView.evaluateJavaScript(
-                """
-                (() => {
-                    if (typeof WI === "undefined")
-                        return null;
-                    const allowSideDock = \(sideDockAllowedLiteral);
-                    if (!WI.__cmuxOriginalUpdateDockNavigationItems && typeof WI._updateDockNavigationItems === "function")
-                        WI.__cmuxOriginalUpdateDockNavigationItems = WI._updateDockNavigationItems;
-                    if (!WI.__cmuxOriginalDockLeft && typeof WI._dockLeft === "function")
-                        WI.__cmuxOriginalDockLeft = WI._dockLeft;
-                    if (!WI.__cmuxOriginalDockRight && typeof WI._dockRight === "function")
-                        WI.__cmuxOriginalDockRight = WI._dockRight;
-                    if (!WI.__cmuxOriginalTogglePreviousDockConfiguration && typeof WI._togglePreviousDockConfiguration === "function")
-                        WI.__cmuxOriginalTogglePreviousDockConfiguration = WI._togglePreviousDockConfiguration;
-                    function callOriginal(fn, event) {
-                        return typeof fn === "function" ? fn.call(WI, event) : null;
+                HostedInspectorDockControlScript(
+                    allowSideDock: sideDockAllowed,
+                    detachedFromHostWindow: detachedFromHostWindow
+                ).source,
+                completionHandler: { [weak self, weak hostedInspectorFrontendWebView] result, error in
+                    guard let self,
+                          self.hostedInspectorFrontendWebView === hostedInspectorFrontendWebView else {
+                        return
                     }
-                    function updateButton(button, hidden) {
-                        if (!button)
-                            return;
-                        button.hidden = hidden;
-                        if (button.element) {
-                            button.element.style.display = hidden ? "none" : "";
-                            button.element.style.pointerEvents = hidden ? "none" : "";
-                        }
+                    guard error == nil, result != nil, !(result is NSNull) else {
+                        self.lastHostedInspectorManualSideDockAllowed = nil
+                        self.lastHostedInspectorDetachedFromHostWindow = nil
+                        return
                     }
-                    function enforceDockControls() {
-                        const disallowSideDock = !WI.__cmuxAllowSideDock;
-                        updateButton(WI._dockLeftTabBarButton, disallowSideDock || WI.dockConfiguration === WI.DockConfiguration.Left);
-                        updateButton(WI._dockRightTabBarButton, disallowSideDock || WI.dockConfiguration === WI.DockConfiguration.Right);
-                    }
-                    WI.__cmuxAllowSideDock = allowSideDock;
-                    WI._dockLeft = function(event) {
-                        if (!WI.__cmuxAllowSideDock)
-                            return callOriginal(WI._dockBottom, event);
-                        return callOriginal(WI.__cmuxOriginalDockLeft, event);
-                    };
-                    WI._dockRight = function(event) {
-                        if (!WI.__cmuxAllowSideDock)
-                            return callOriginal(WI._dockBottom, event);
-                        return callOriginal(WI.__cmuxOriginalDockRight, event);
-                    };
-                    WI._togglePreviousDockConfiguration = function(event) {
-                        const previousSideDock = WI._previousDockConfiguration === WI.DockConfiguration.Left || WI._previousDockConfiguration === WI.DockConfiguration.Right;
-                        if (!WI.__cmuxAllowSideDock && previousSideDock)
-                            return callOriginal(WI._dockBottom, event);
-                        return callOriginal(WI.__cmuxOriginalTogglePreviousDockConfiguration, event);
-                    };
-                    WI._updateDockNavigationItems = function(...args) {
-                        if (typeof WI.__cmuxOriginalUpdateDockNavigationItems === "function")
-                            WI.__cmuxOriginalUpdateDockNavigationItems.apply(WI, args);
-                        enforceDockControls();
-                    };
-                    WI._updateDockNavigationItems();
-                    return WI.__cmuxAllowSideDock;
-                })();
-                """,
-                completionHandler: nil
+                    self.lastHostedInspectorManualSideDockAllowed = sideDockAllowed
+                    self.lastHostedInspectorDetachedFromHostWindow = detachedFromHostWindow
+                }
             )
         }
 
@@ -3447,6 +3403,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         func setHostedInspectorFrontendWebView(_ webView: WKWebView?) {
             hostedInspectorFrontendWebView = webView
             lastHostedInspectorManualSideDockAllowed = nil
+            lastHostedInspectorDetachedFromHostWindow = nil
             updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "setHostedInspectorFrontendWebView")
         }
 
@@ -3729,6 +3686,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
             hostedInspectorFrontendWebView = nil
+            lastHostedInspectorManualSideDockAllowed = nil
+            lastHostedInspectorDetachedFromHostWindow = nil
         }
 
         func clearStaleHostedInspectorOwnershipState() {
@@ -3736,6 +3695,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             hostedInspectorDockConfigurationSyncWorkItem = nil
             hostedInspectorFrontendWebView = nil
             lastHostedInspectorManualSideDockAllowed = nil
+            lastHostedInspectorDetachedFromHostWindow = nil
         }
 
         func releaseHostedWebViewConstraints() {
@@ -4842,8 +4802,6 @@ struct WebViewRepresentable: NSViewRepresentable {
     ) -> [NSView] {
         var relatedSubviews: [NSView] = []
         var seen = Set<ObjectIdentifier>()
-        let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView()
-
         func append(_ candidate: NSView?) {
             guard let candidate, candidate !== sourceSuperview else { return }
             let id = ObjectIdentifier(candidate)
@@ -4851,30 +4809,25 @@ struct WebViewRepresentable: NSViewRepresentable {
             relatedSubviews.append(candidate)
         }
 
-        func containsInspectorFrontend(_ candidate: NSView) -> Bool {
-            guard let inspectorFrontend else { return false }
-            return candidate === inspectorFrontend || inspectorFrontend.isDescendant(of: candidate)
-        }
-
-        if let directChild = directTransferChild(of: sourceSuperview, containing: primaryWebView),
-           !containsInspectorFrontend(directChild) {
-            append(directChild)
+        if let directChild = directTransferChild(of: sourceSuperview, containing: primaryWebView) {
+            if let inspectorFrontendWebView = primaryWebView.cmuxInspectorFrontendWebView(),
+               inspectorFrontendWebView === directChild || inspectorFrontendWebView.isDescendant(of: directChild) {
+                append(primaryWebView)
+            } else {
+                append(directChild)
+            }
         } else {
             append(primaryWebView)
         }
 
+        let inspectorFrontendWebView = primaryWebView.cmuxInspectorFrontendWebView()
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
-            let className = String(describing: type(of: view))
-            if containsInspectorFrontend(view) {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.localHost.reparent.skipInspectorFrontend " +
-                    "view=\(Self.objectID(view)) class=\(className)"
-                )
-#endif
+            if let inspectorFrontendWebView,
+               inspectorFrontendWebView === view || inspectorFrontendWebView.isDescendant(of: view) {
                 continue
             }
+            let className = String(describing: type(of: view))
             if className.isCmuxWebInspectorClassName || view.isCmuxWebInspectorObject {
                 continue
             }
@@ -5051,19 +5004,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 #endif
 
-        let preferredAttachedWidthState = panel.preferredAttachedDeveloperToolsWidthState()
-        host.setPreferredHostedInspectorWidth(
-            width: preferredAttachedWidthState.width,
-            widthFraction: preferredAttachedWidthState.widthFraction
-        )
-        host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
-        host.onPreferredHostedInspectorWidthChanged = { [weak browserPanel = panel] width, _ in
-            guard let browserPanel else { return }
-            browserPanel.recordPreferredAttachedDeveloperToolsWidth(
-                width,
-                containerBounds: slotView.bounds
-            )
-        }
+        host.setPreferredHostedInspectorWidth(width: nil, widthFraction: nil)
+        host.setHostedInspectorFrontendWebView(nil)
+        host.onPreferredHostedInspectorWidthChanged = nil
         slotView.onHostedInspectorLayout = { [weak host] _ in
             host?.scheduleHostedInspectorDividerReapply(reason: "slot.layout")
             host?.scheduleHostedInspectorDockConfigurationSync(reason: "slot.layout")
@@ -5113,7 +5056,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         : "localInline.reconcile.existingHost"
                 )
             }
-            host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
+            host.setHostedInspectorFrontendWebView(nil)
             let didRevealDeveloperToolsAfterAttach =
                 !wasDeveloperToolsVisible && panel.isDeveloperToolsVisible()
             webView.needsLayout = true
@@ -5147,7 +5090,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 cmuxDebugLog(
                     "browser.localInline.frames host=\(host.bounds) slot=\(slotFrame) " +
                     "web=\(webView.frame) webSuper=\(String(describing: type(of: webView.superview))) " +
-                    "inspector=\(webView.cmuxInspectorFrontendWebView() != nil ? 1 : 0) " +
+                    "inspector=0 " +
                     "companions=\(companions)"
                 )
 #endif
@@ -5160,7 +5103,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         reason: "localInline.reconcile.async"
                     )
                 }
-                host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
+                host.setHostedInspectorFrontendWebView(nil)
                 host.refreshHostedWebKitPresentation(
                     reason: didAttachWebViewToLocalHost
                         ? "localInline.update.async"
@@ -5192,22 +5135,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
-        if panel.shouldUseLocalInlineDeveloperToolsHosting() {
-            host.clearStaleHostedInspectorOwnershipState()
-            host.releaseHostedWebViewConstraints()
-            let hostId = ObjectIdentifier(host)
-            if panel.releasePortalHostIfOwned(
-                hostId: hostId,
-                reason: "windowPortalSuppressedForLocalInlineHosting"
-            ) {
-                BrowserWindowPortalRegistry.discard(
-                    webView: webView,
-                    source: "viewStateChanged.windowPortalSuppressedForLocalInlineHosting",
-                    preserveCurrentSuperview: true
-                )
-            }
-            return false
-        }
         host.prepareForWindowPortalHosting()
         host.setLocalInlineSlotHidden(true)
         host.releaseHostedWebViewConstraints()
