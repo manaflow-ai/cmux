@@ -1,3 +1,6 @@
+import AppKit
+import Bonsplit
+import Combine
 import Foundation
 import Testing
 
@@ -6,6 +9,20 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class DurableDeepLinkDockTestPanel: Panel, ObservableObject {
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .terminal
+    let displayTitle = "Docked duplicate identity"
+    let displayIcon: String? = "terminal.fill"
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+}
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5486:
 /// a copied `cmux://` deep link must keep resolving to the same logical
@@ -118,12 +135,13 @@ struct CmuxDurableDeepLinkRestoreTests {
         let workspace = try #require(manager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
         let panel = try #require(workspace.newTerminalSurface(inPane: pane, focus: true))
-        _ = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let surfaceId = try #require(workspace.surfaceIdFromPanelId(panel.id)?.uuid)
+        #expect(surfaceId != panel.id)
 
         let link = try #require(
             WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
                 workspace: workspace,
-                panelId: panel.id
+                surfaceId: surfaceId
             )
         )
 
@@ -140,6 +158,48 @@ struct CmuxDurableDeepLinkRestoreTests {
         )
         let resolution = try resolver.resolve(parsedTarget(link))
         #expect(resolution == .surface(workspaceId: workspace.id, panelId: panel.id))
+    }
+
+    @Test func closedPanelRestoreWithLiveDockIdentityMintsFreshStableSurfaceId() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let pane = try #require(workspace.paneId(forPanelId: panelId))
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let dockPanel = DurableDeepLinkDockTestPanel()
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        dock.panels[dockPanel.id] = dockPanel
+        let dockTabId = try #require(
+            dock.bonsplitController.createTab(
+                title: dockPanel.displayTitle,
+                icon: dockPanel.displayIcon,
+                kind: "terminal",
+                isDirty: dockPanel.isDirty,
+                inPane: dockPane
+            )
+        )
+        dock.surfaceIdToPanelId[dockTabId] = dockPanel.id
+
+        var snapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
+        )
+        snapshot.stableSurfaceId = dockPanel.stableSurfaceId
+        snapshot.customTitle = "Restored dock duplicate"
+        let entry = ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: pane.id,
+            tabIndex: 0,
+            snapshot: snapshot
+        )
+
+        #expect(manager.restoreClosedPanel(entry))
+
+        let restoredPanelId = try #require(
+            workspace.panelCustomTitles.first(where: { $0.value == "Restored dock duplicate" })?.key
+        )
+        let restoredPanel = try #require(workspace.panels[restoredPanelId])
+        #expect(restoredPanel.stableSurfaceId != dockPanel.stableSurfaceId)
     }
 
     @Test func duplicateReopenWithLiveIdentitiesMintsFreshOnes() throws {
