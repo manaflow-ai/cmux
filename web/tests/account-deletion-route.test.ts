@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const calls: string[] = [];
 let cleanupError: Error | null = null;
+let postHogPreflightError: Error | null = null;
+const assertPostHogDeletionConfigured = mock(() => {
+  calls.push("posthog-preflight");
+  if (postHogPreflightError) throw postHogPreflightError;
+});
+const deletePostHogPersonData = mock(async () => {
+  calls.push("posthog-delete");
+});
 const deleteCmuxAccountData = mock(async () => {
   calls.push("cleanup");
   if (cleanupError) throw cleanupError;
@@ -31,11 +39,19 @@ mock.module("../services/account/deletion", () => ({
   deleteCmuxAccountData,
 }));
 
+mock.module("../services/analytics/posthogDeletion", () => ({
+  assertPostHogDeletionConfigured,
+  deletePostHogPersonData,
+}));
+
 const route = await import("../app/api/account/deletion/route");
 
 beforeEach(() => {
   calls.length = 0;
   cleanupError = null;
+  postHogPreflightError = null;
+  assertPostHogDeletionConfigured.mockClear();
+  deletePostHogPersonData.mockClear();
   deleteCmuxAccountData.mockClear();
   deleteUser.mockClear();
   getUser.mockClear();
@@ -51,11 +67,13 @@ describe("account deletion route", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(getUser).not.toHaveBeenCalled();
+    expect(assertPostHogDeletionConfigured).not.toHaveBeenCalled();
     expect(deleteCmuxAccountData).not.toHaveBeenCalled();
+    expect(deletePostHogPersonData).not.toHaveBeenCalled();
     expect(deleteUser).not.toHaveBeenCalled();
   });
 
-  test("deletes cmux-owned data before deleting the Stack user for the native token pair", async () => {
+  test("blocks writes before the final cmux and PostHog cleanup pass", async () => {
     const response = await route.DELETE(
       new Request("https://cmux.test/api/account/deletion", {
         method: "DELETE",
@@ -75,8 +93,29 @@ describe("account deletion route", () => {
       userId: "user-1",
       teamIds: ["team-selected", "team-1"],
     });
+    expect(deleteCmuxAccountData).toHaveBeenCalledTimes(2);
     expect(deleteUser).toHaveBeenCalledTimes(1);
-    expect(calls).toEqual(["cleanup", "delete"]);
+    expect(deletePostHogPersonData).toHaveBeenCalledWith("user-1");
+    expect(calls).toEqual(["posthog-preflight", "cleanup", "delete", "cleanup", "posthog-delete"]);
+  });
+
+  test("does not delete the Stack user when PostHog deletion is not configured", async () => {
+    postHogPreflightError = new Error("PostHog account deletion is not configured");
+
+    await expect(route.DELETE(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-1",
+          "x-stack-refresh-token": "refresh-1",
+        },
+      }),
+    )).rejects.toThrow("PostHog account deletion is not configured");
+
+    expect(calls).toEqual(["posthog-preflight"]);
+    expect(deleteCmuxAccountData).not.toHaveBeenCalled();
+    expect(deletePostHogPersonData).not.toHaveBeenCalled();
+    expect(deleteUser).not.toHaveBeenCalled();
   });
 
   test("does not delete the Stack user when cmux-owned cleanup fails", async () => {
@@ -92,7 +131,8 @@ describe("account deletion route", () => {
       }),
     )).rejects.toThrow("cleanup failed");
 
-    expect(calls).toEqual(["cleanup"]);
+    expect(calls).toEqual(["posthog-preflight", "cleanup"]);
+    expect(deletePostHogPersonData).not.toHaveBeenCalled();
     expect(deleteUser).not.toHaveBeenCalled();
   });
 
@@ -111,7 +151,9 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(assertPostHogDeletionConfigured).not.toHaveBeenCalled();
     expect(deleteCmuxAccountData).not.toHaveBeenCalled();
+    expect(deletePostHogPersonData).not.toHaveBeenCalled();
     expect(deleteUser).not.toHaveBeenCalled();
   });
 });

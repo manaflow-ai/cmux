@@ -2,6 +2,10 @@ import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized } from "../../../../services/vms/auth";
 import { deleteCmuxAccountData } from "../../../../services/account/deletion";
+import {
+  assertPostHogDeletionConfigured,
+  deletePostHogPersonData,
+} from "../../../../services/analytics/posthogDeletion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,11 +19,16 @@ export async function DELETE(request: Request): Promise<Response> {
   const user = await getStackServerApp().getUser({ tokenStore });
   if (!user) return unauthorized();
 
-  await deleteCmuxAccountData({
+  assertPostHogDeletionConfigured();
+
+  const cleanupInput = {
     userId: user.id,
     teamIds: await stackTeamIds(user),
-  });
+  };
+  await deleteCmuxAccountData(cleanupInput);
   await user.delete();
+  await deleteCmuxAccountData(cleanupInput);
+  await deletePostHogPersonData(user.id);
   return jsonResponse({ ok: true });
 }
 

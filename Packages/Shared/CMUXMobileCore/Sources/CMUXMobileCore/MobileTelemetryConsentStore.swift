@@ -1,6 +1,6 @@
 public import Foundation
 
-/// Shared persistence for the iOS product-analytics opt-out.
+/// Shared persistence for the iOS product-analytics opt-in.
 ///
 /// The store lives in `CMUXMobileCore` so the Settings UI and analytics emitter
 /// use the same key and default without making the UI depend on the concrete
@@ -9,8 +9,8 @@ public struct MobileTelemetryConsentStore: Sendable {
     /// Defaults key read by Settings and by `CmuxMobileAnalytics`.
     public static let defaultsKey = "sendAnonymousTelemetry"
 
-    /// Product analytics are enabled until the user opts out.
-    public static let defaultIsEnabled = true
+    /// Product analytics stay off until the user explicitly opts in.
+    public static let defaultIsEnabled = false
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults

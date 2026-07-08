@@ -11,19 +11,19 @@ import Testing
         return defaults
     }
 
-    @Test func defaultsToEnabledWithoutWriting() throws {
+    @Test func defaultsToDisabledWithoutWriting() throws {
         let defaults = try makeDefaults("default")
         let store = MobileTelemetryConsentStore(defaults: defaults)
-        #expect(store.isEnabled)
+        #expect(!store.isEnabled)
         #expect(defaults.object(forKey: MobileTelemetryConsentStore.defaultsKey) == nil)
     }
 
-    @Test func persistsOptOutAndOptIn() throws {
+    @Test func persistsOptInAndOptOut() throws {
         let defaults = try makeDefaults("persist")
         let store = MobileTelemetryConsentStore(defaults: defaults)
-        store.setEnabled(false)
-        #expect(!MobileTelemetryConsentStore(defaults: defaults).isEnabled)
         store.setEnabled(true)
         #expect(MobileTelemetryConsentStore(defaults: defaults).isEnabled)
+        store.setEnabled(false)
+        #expect(!MobileTelemetryConsentStore(defaults: defaults).isEnabled)
     }
 }
