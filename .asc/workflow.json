@@ -21,7 +21,7 @@
         },
         {
           "name": "stage",
-          "run": "ios/scripts/validate-app-store-release.sh --app \"$APP_ID\" --version \"$VERSION\" --build-number \"$BUILD_NUMBER\" --copy-metadata-from \"$COPY_METADATA_FROM\" --stage-dry-run ${STRICT_VALIDATE:+--strict}"
+          "run": "set -- --app \"$APP_ID\" --version \"$VERSION\"; if [ -n \"${BUILD_NUMBER:-}\" ]; then set -- \"$@\" --build-number \"$BUILD_NUMBER\"; fi; if [ -n \"${COPY_METADATA_FROM:-}\" ]; then set -- \"$@\" --copy-metadata-from \"$COPY_METADATA_FROM\"; fi; set -- \"$@\" --stage-dry-run; if [ -n \"${STRICT_VALIDATE:-}\" ]; then set -- \"$@\" --strict; fi; ios/scripts/validate-app-store-release.sh \"$@\""
         }
       ]
     },
@@ -33,7 +33,7 @@
         },
         {
           "name": "submit_dry_run",
-          "run": "ios/scripts/validate-app-store-release.sh --app \"$APP_ID\" --version \"$VERSION\" --build-number \"$BUILD_NUMBER\" --submit-dry-run ${STRICT_VALIDATE:+--strict}"
+          "run": "set -- --app \"$APP_ID\" --version \"$VERSION\"; if [ -n \"${BUILD_NUMBER:-}\" ]; then set -- \"$@\" --build-number \"$BUILD_NUMBER\"; fi; set -- \"$@\" --submit-dry-run; if [ -n \"${STRICT_VALIDATE:-}\" ]; then set -- \"$@\" --strict; fi; ios/scripts/validate-app-store-release.sh \"$@\""
         }
       ]
     }

@@ -52,6 +52,34 @@ verify_ipa_aps_environment_production() {
   return 0
 }
 
+verify_app_store_ipa_has_no_external_purchase_links() {
+  local ipa="$1"
+  local workdir app matches
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify App Store review links: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify App Store review links: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#founders-edition|founders-edition' "$app" 2>/dev/null || true)"
+  if [[ -n "$matches" ]]; then
+    echo "error: App Store IPA contains an external Founders Edition purchase/enrollment link; refusing to upload" >&2
+    printf '%s\n' "$matches" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  rm -rf "$workdir"
+  return 0
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -854,6 +882,13 @@ else
 fi
 
 echo "IPA_PATH=$IPA_PATH"
+
+if [[ "$LANE" == "appstore" ]]; then
+  if ! verify_app_store_ipa_has_no_external_purchase_links "$IPA_PATH"; then
+    exit 1
+  fi
+  echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
+fi
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then
   exit 0
