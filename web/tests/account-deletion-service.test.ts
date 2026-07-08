@@ -39,7 +39,6 @@ describe("account deletion cleanup", () => {
 
     await deleteCmuxAccountData({
       userId: "user-1",
-      teamIds: [],
     }, fakeRuntime());
 
     expect(calls.slice(0, 4)).toEqual([
@@ -73,7 +72,6 @@ describe("account deletion cleanup", () => {
 
     await expect(deleteCmuxAccountData({
       userId: "user-1",
-      teamIds: [],
     }, fakeRuntime())).rejects.toThrow("Cloud VM account deletion cleanup did not settle");
 
     expect(runVmWorkflow).toHaveBeenCalledTimes(3);

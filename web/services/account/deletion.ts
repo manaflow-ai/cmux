@@ -66,7 +66,6 @@ type StackJsonObject = { [key: string]: StackJson };
 
 export type AccountDeletionInput = {
   readonly userId: string;
-  readonly teamIds: readonly string[];
 };
 
 export type StackAccountDeletionMetadataUser = {

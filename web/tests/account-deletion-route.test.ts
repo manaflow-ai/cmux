@@ -30,11 +30,9 @@ const getUser = mock(async () => stackUser());
 function stackUser() {
   return {
     id: "user-1",
-    selectedTeam: { id: "team-selected" },
     get clientReadOnlyMetadata() {
       return stackUserMetadata;
     },
-    listTeams: async () => [{ id: "team-1" }, { id: "team-selected" }],
     update: async ({ clientReadOnlyMetadata }: { clientReadOnlyMetadata: Record<string, unknown> }) => {
       stackUserMetadata = clientReadOnlyMetadata;
     },
@@ -112,7 +110,6 @@ describe("account deletion route", () => {
     });
     expect(deleteCmuxAccountData).toHaveBeenCalledWith({
       userId: "user-1",
-      teamIds: ["team-selected", "team-1"],
     });
     expect(deleteCmuxAccountData).toHaveBeenCalledTimes(1);
     expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(true);

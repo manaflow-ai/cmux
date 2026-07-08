@@ -25,11 +25,7 @@ export async function DELETE(request: Request): Promise<Response> {
   assertPostHogDeletionConfigured();
   await markStackUserDeletionInProgress(user);
 
-  const cleanupInput = {
-    userId: user.id,
-    teamIds: await stackTeamIds(user),
-  };
-  await deleteCmuxAccountData(cleanupInput);
+  await deleteCmuxAccountData({ userId: user.id });
   await deletePostHogPersonData(user.id);
   await user.delete();
   return jsonResponse({ ok: true });
@@ -46,29 +42,4 @@ function nativeTokenStore(request: Request): { accessToken: string; refreshToken
   const refreshToken = refreshHeader.trim();
   if (!accessToken || !refreshToken) return null;
   return { accessToken, refreshToken };
-}
-
-type StackAccountDeletionUser = {
-  readonly id: string;
-  readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
-};
-
-async function stackTeamIds(user: StackAccountDeletionUser): Promise<readonly string[]> {
-  const ids = new Set<string>();
-  const selectedTeamId = teamId(user.selectedTeam);
-  if (selectedTeamId) ids.add(selectedTeamId);
-  if (typeof user.listTeams === "function") {
-    for (const team of await user.listTeams()) {
-      const id = teamId(team);
-      if (id) ids.add(id);
-    }
-  }
-  return [...ids];
-}
-
-function teamId(team: unknown): string | null {
-  if (!team || typeof team !== "object") return null;
-  const id = (team as { id?: unknown }).id;
-  return typeof id === "string" && id.length > 0 ? id : null;
 }
