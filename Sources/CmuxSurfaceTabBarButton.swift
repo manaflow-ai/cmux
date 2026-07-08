@@ -47,7 +47,6 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
         .actionReference(CmuxSurfaceTabBarBuiltInAction.findPane.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.vaultPane.configID),
         .actionReference(CmuxSurfaceTabBarBuiltInAction.rightSidebarNotes.configID),
-        .actionReference(CmuxSurfaceTabBarBuiltInAction.newNote.configID),
     ]
 
     static let defaults: [CmuxSurfaceTabBarButton] = [

@@ -506,12 +506,11 @@ struct CmuxConfigDecodingTests {
                 CmuxSurfaceTabBarBuiltInAction.findPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.rightSidebarNotes.configID,
-                CmuxSurfaceTabBarBuiltInAction.newNote.configID,
             ])
         }
     }
 
-    @Test func testDefaultSurfaceTabBarMoreMenuIncludesNewNoteWhenSidebarBetaDisabled() throws {
+    @Test func testDefaultSurfaceTabBarMoreMenuOmitsUnavailableNotesWhenSidebarBetaDisabled() throws {
         try withSavedRightSidebarBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
@@ -537,7 +536,6 @@ struct CmuxConfigDecodingTests {
                 CmuxSurfaceTabBarBuiltInAction.filesPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.findPane.configID,
                 CmuxSurfaceTabBarBuiltInAction.vaultPane.configID,
-                CmuxSurfaceTabBarBuiltInAction.newNote.configID,
             ])
         }
     }
