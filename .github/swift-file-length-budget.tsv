@@ -1,11 +1,11 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-36231	CLI/cmux.swift
+36238	CLI/cmux.swift
 18185	Sources/AppDelegate.swift
 16648	Sources/ContentView.swift
 15134	Sources/TerminalController.swift
-13973	Sources/Workspace.swift
+13975	Sources/Workspace.swift
 12501	Sources/GhosttyTerminalView.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11641	Sources/Panels/BrowserPanel.swift
@@ -23,7 +23,7 @@
 5573	cmuxTests/BrowserConfigTests.swift
 4759	Sources/cmuxApp.swift
 4650	Sources/Panels/FilePreviewPanel.swift
-4385	cmuxTests/WindowAndDragTests.swift
+4401	cmuxTests/WindowAndDragTests.swift
 4367	cmuxTests/BrowserPanelTests.swift
 4036	Sources/BrowserWindowPortal.swift
 4007	cmuxTests/TabManagerUnitTests.swift
@@ -32,10 +32,10 @@
 3673	cmuxTests/TabManagerSessionSnapshotTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3124	Sources/Update/UpdateTitlebarAccessory.swift
-3084	Sources/CmuxConfig.swift
+3150	Sources/CmuxConfig.swift
 2899	Sources/SessionIndexView.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
-2751	cmuxTests/CmuxConfigTests.swift
+2787	cmuxTests/CmuxConfigTests.swift
 2620	Sources/KeyboardShortcutSettings.swift
 2563	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift

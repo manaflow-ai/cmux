@@ -3002,6 +3002,13 @@ struct CMUXCLI {
            let defaults = UserDefaults(suiteName: bundleId) {
             candidates.append(defaults)
         }
+        // A CLI launched from PATH or automation has no CMUX_BUNDLE_ID and is
+        // not inside the .app bundle; without the release app's suite it would
+        // fall through to the CLI's own empty `.standard` domain and report
+        // app-enabled beta modes as unavailable (mirrors browserSettingsDomain).
+        if let defaults = UserDefaults(suiteName: defaultBrowserSettingsDomain) {
+            candidates.append(defaults)
+        }
         candidates.append(.standard)
         return candidates
     }
