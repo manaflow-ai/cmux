@@ -53,6 +53,33 @@ if (ordered !== "I'll inspect the files first.|src/turns.ts") {
   throw new Error(`intermediate assistant/tool order was not preserved: ${ordered}`);
 }
 
+const lateFiles = { kind: "files" as const, files: [{ path: "src/turns.ts", adds: 2, dels: 1, status: "modified" }] };
+const assistantThenFiles = groupTurns([
+  { kind: "user", text: "late files" },
+  { kind: "assistant", text: "Final answer stays visible.", open: false },
+  lateFiles,
+  { kind: "footer", text: "3s" },
+], "idle");
+if (assistantThenFiles[0].assistant?.text !== "Final answer stays visible.") {
+  throw new Error("late files before footer demoted the final assistant");
+}
+if (assistantThenFiles[0].activity.at(-1)?.kind !== "files") {
+  throw new Error("late files before footer were not attached as activity");
+}
+
+const footerThenFiles = groupTurns([
+  { kind: "user", text: "replay order" },
+  { kind: "assistant", text: "Replay answer stays visible.", open: false },
+  { kind: "footer", text: "4s" },
+  lateFiles,
+], "idle");
+if (footerThenFiles[0].assistant?.text !== "Replay answer stays visible.") {
+  throw new Error("files after footer demoted the final assistant");
+}
+if (!footerThenFiles[0].footer || footerThenFiles[0].activity.at(-1)?.kind !== "files") {
+  throw new Error("footer-then-files replay order was not preserved");
+}
+
 const heights = new Map<number, number>([[0, 100], [1, 100], [2, 100], [3, 100]]);
 const range = virtualRange(10, heights, 250, 300, 100, 1);
 if (range.start > 2 || range.end < 5 || range.total !== 1000) {

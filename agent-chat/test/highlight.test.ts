@@ -1,6 +1,9 @@
-import { highlightCode, htmlCacheSizeForTest } from "../src/ChatMarkdown";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { cacheHtmlForTest, clearHtmlCacheForTest, highlightCode, htmlCacheBytesForTest, MarkdownCodeBlock } from "../src/ChatMarkdown";
 import { DEFAULT_ANSI_PALETTE, resolveGhosttyTheme } from "../theme";
 
+clearHtmlCacheForTest();
 const html = await highlightCode("const answer: number = 42;\nconsole.log(answer);\n", "ts");
 if (!html.includes("<span") || !html.includes("style=")) {
   throw new Error(`expected token spans with styles, got: ${html}`);
@@ -30,11 +33,20 @@ if (theme.palette.length !== 16 || theme.palette.some((c) => !/^#[0-9a-f]{6}$/i.
 }
 if (DEFAULT_ANSI_PALETTE.length !== 16) throw new Error("default ANSI palette must contain 16 colors");
 
-for (let i = 0; i < 430; i++) {
-  await highlightCode(`const value_${i}: number = ${i};\n`, "ts");
+const streamingMarkup = renderToStaticMarkup(React.createElement(MarkdownCodeBlock, {
+  code: "const answer: number = 42;\nconsole.log(answer);\n",
+  lang: "ts",
+  streaming: true,
+}));
+if (streamingMarkup.includes("<span style=") || !streamingMarkup.includes("<pre><code>")) {
+  throw new Error(`streaming code blocks should render plain uncached code, got: ${streamingMarkup}`);
 }
-if (htmlCacheSizeForTest() > 400) {
-  throw new Error(`highlight cache exceeded LRU cap: ${htmlCacheSizeForTest()}`);
+
+for (let i = 0; i < 20; i++) {
+  cacheHtmlForTest(`synthetic-${i}`, "x".repeat(80_000));
+}
+if (htmlCacheBytesForTest() > 900_000) {
+  throw new Error(`highlight cache exceeded byte cap: ${htmlCacheBytesForTest()}`);
 }
 
 console.log("highlight assertions passed");

@@ -3,7 +3,9 @@ import {
   buildBundles,
   cssAsset,
   cssFontFamily,
+  gitFilesFromOutput,
   gitOutputWithCodes,
+  gitOutputWithCodesResult,
   resetAssetCachesForTest,
   resolveFileDiffPath,
 } from "../server";
@@ -14,16 +16,22 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-delete process.env.CMUX_AGENT_UI_DEV;
-resetAssetCachesForTest();
-const [firstBundles, secondBundles] = await Promise.all([buildBundles(), buildBundles()]);
-assert(firstBundles === secondBundles, "buildBundles should return the cached bundle map by default");
-assert(assetCacheStatsForTest().bundleBuildCount === 1, "buildBundles should build once by default");
+const priorDev = process.env.CMUX_AGENT_UI_DEV;
+try {
+  delete process.env.CMUX_AGENT_UI_DEV;
+  resetAssetCachesForTest();
+  const [firstBundles, secondBundles] = await Promise.all([buildBundles(), buildBundles()]);
+  assert(firstBundles === secondBundles, "buildBundles should return the cached bundle map by default");
+  assert(assetCacheStatsForTest().bundleBuildCount === 1, "buildBundles should build once by default");
 
-const firstCss = await cssAsset();
-const secondCss = await cssAsset();
-assert(firstCss === secondCss, "cssAsset should return the cached stylesheet by default");
-assert(assetCacheStatsForTest().cssReadCount === 1, "cssAsset should read once by default");
+  const firstCss = await cssAsset();
+  const secondCss = await cssAsset();
+  assert(firstCss === secondCss, "cssAsset should return the cached stylesheet by default");
+  assert(assetCacheStatsForTest().cssReadCount === 1, "cssAsset should read once by default");
+} finally {
+  if (priorDev === undefined) delete process.env.CMUX_AGENT_UI_DEV;
+  else process.env.CMUX_AGENT_UI_DEV = priorDev;
+}
 
 const cwd = "/tmp/agent-chat-path-test";
 assert(resolveFileDiffPath(cwd, "src/../file.ts") === "file.ts", "normal in-cwd paths should normalize");
@@ -56,8 +64,13 @@ await writeFile(join(root, "big.txt"), "start\n");
 await run(["git", "add", "big.txt"]);
 await run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "-m", "init"]);
 await writeFile(join(root, "big.txt"), Array.from({ length: 4000 }, (_, i) => `line ${i} ${"x".repeat(80)}`).join("\n") + "\n");
+const cappedResult = await gitOutputWithCodesResult(root, ["diff", "--no-ext-diff", "HEAD", "--", "big.txt"], 4096, [0]);
+assert(cappedResult.truncated, "large git output should carry truncation metadata");
+assert(!cappedResult.text.includes("[truncated]"), "low-level git output should not append a display marker");
+assert(new TextEncoder().encode(cappedResult.text).byteLength <= 4096, `large git output should stay within the cap, got ${cappedResult.text.length} chars`);
 const capped = await gitOutputWithCodes(root, ["diff", "--no-ext-diff", "HEAD", "--", "big.txt"], 4096, [0]);
-assert(capped.includes("[truncated]"), "large git output should be marked truncated");
-assert(new TextEncoder().encode(capped).byteLength < 4600, `large git output should stay near the cap, got ${capped.length} chars`);
+assert(!capped.includes("[truncated]"), "string git output should not append a display marker");
+const files = gitFilesFromOutput({ text: "src/a.ts\nsrc/b.ts\npartial-or-marker", truncated: true });
+assert(files.join("|") === "src/a.ts|src/b.ts", `truncated git files should drop torn final entries: ${files.join("|")}`);
 
 console.log("server utility assertions passed");

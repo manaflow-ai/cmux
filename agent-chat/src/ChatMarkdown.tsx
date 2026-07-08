@@ -10,28 +10,51 @@ const langs = ["ts", "tsx", "js", "json", "bash", "shell", "python", "swift", "r
 const themeName = "agent-css-variables";
 let highlighterPromise: Promise<HighlighterCore> | null = null;
 let reportedHighlighterFailure = false;
-const htmlCache = new Map<string, string>();
-const HTML_CACHE_LIMIT = 400;
+const htmlCache = new Map<string, { html: string; bytes: number }>();
+const HTML_CACHE_MAX_BYTES = 900_000;
+let htmlCacheBytes = 0;
+
+function cacheEntryBytes(key: string, html: string) {
+  return new TextEncoder().encode(key).byteLength + new TextEncoder().encode(html).byteLength;
+}
 
 function cachedHtml(key: string): string | null {
   const hit = htmlCache.get(key);
   if (hit === undefined) return null;
   htmlCache.delete(key);
   htmlCache.set(key, hit);
-  return hit;
+  return hit.html;
 }
 
 function cacheHtml(key: string, html: string) {
-  htmlCache.set(key, html);
-  while (htmlCache.size > HTML_CACHE_LIMIT) {
+  const existing = htmlCache.get(key);
+  if (existing) htmlCacheBytes -= existing.bytes;
+  const bytes = cacheEntryBytes(key, html);
+  htmlCache.set(key, { html, bytes });
+  htmlCacheBytes += bytes;
+  while (htmlCacheBytes > HTML_CACHE_MAX_BYTES) {
     const oldest = htmlCache.keys().next().value;
     if (oldest === undefined) break;
+    htmlCacheBytes -= htmlCache.get(oldest)?.bytes ?? 0;
     htmlCache.delete(oldest);
   }
 }
 
 export function htmlCacheSizeForTest(): number {
   return htmlCache.size;
+}
+
+export function htmlCacheBytesForTest(): number {
+  return htmlCacheBytes;
+}
+
+export function clearHtmlCacheForTest() {
+  htmlCache.clear();
+  htmlCacheBytes = 0;
+}
+
+export function cacheHtmlForTest(key: string, html: string) {
+  cacheHtml(key, html);
 }
 
 function normalizeLang(registration: unknown): LanguageRegistration[] {
@@ -123,11 +146,15 @@ function languageOf(className: unknown): string {
   return langs.includes(raw) ? raw : "text";
 }
 
-export function MarkdownCodeBlock({ code, lang = "text" }: { code: string; lang?: string }) {
-  const [html, setHtml] = useState<string | null>(() => cachedHtml(`${lang}\0${code}`));
+export function MarkdownCodeBlock({ code, lang = "text", streaming = false }: { code: string; lang?: string; streaming?: boolean }) {
+  const [html, setHtml] = useState<string | null>(() => streaming ? null : cachedHtml(`${lang}\0${code}`));
   useEffect(() => {
     let cancelled = false;
     const key = `${lang}\0${code}`;
+    if (streaming) {
+      setHtml(null);
+      return () => { cancelled = true; };
+    }
     const cached = cachedHtml(key);
     if (cached) {
       setHtml(cached);
@@ -143,7 +170,7 @@ export function MarkdownCodeBlock({ code, lang = "text" }: { code: string; lang?
         if (!cancelled) setHtml(null);
       });
     return () => { cancelled = true; };
-  }, [code, lang]);
+  }, [code, lang, streaming]);
   const copy = () => navigator.clipboard?.writeText(code).catch(() => {});
   return (
     <div className="markdown-code selectable">
@@ -164,7 +191,8 @@ const schema = {
   },
 };
 
-const components: Components = {
+function markdownComponents(streaming: boolean): Components {
+  return {
   a({ href, children }) {
     const safeHref = defaultUrlTransform(href ?? "");
     return <a href={safeHref} target="_blank" rel="noopener noreferrer">{children}</a>;
@@ -174,7 +202,7 @@ const components: Components = {
     const props = child && typeof child === "object" && "props" in child ? (child as { props?: { children?: ReactNode; className?: unknown } }).props : undefined;
     const code = textOf(props?.children).replace(/\n$/, "");
     const lang = languageOf(props?.className);
-    return <MarkdownCodeBlock code={code} lang={lang} />;
+    return <MarkdownCodeBlock code={code} lang={lang} streaming={streaming} />;
   },
   code({ children, className }) {
     if (className) return <code className={className}>{children}</code>;
@@ -183,9 +211,11 @@ const components: Components = {
   table({ children }) {
     return <div className="markdown-table-wrap"><table>{children}</table></div>;
   },
-};
+  };
+}
 
-export const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string; streaming?: boolean }) {
+export const ChatMarkdown = memo(function ChatMarkdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  const components = useMemo(() => markdownComponents(streaming), [streaming]);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkBreaks]}

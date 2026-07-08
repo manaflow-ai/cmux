@@ -159,6 +159,11 @@ export interface SessionState {
 }
 
 const routedSessionId = (location.pathname.match(/^\/s\/([\w-]+)/) || [])[1] || null;
+export const composerDraftKey = "agentui.draft";
+
+export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: string) {
+  storage.setItem(composerDraftKey, prompt);
+}
 
 export function useSession(): SessionState {
   const [ready, setReady] = useState(false);
@@ -322,18 +327,21 @@ export function useSession(): SessionState {
               const message = String(msg.message ?? "");
               const pending = pendingStartRef.current;
               if (pending && (!msg.requestId || msg.requestId === pending.requestId)) {
-                pendingStartRef.current = { ...pending, failed: true };
-                setSession((s) => s ? { ...s, status: "exited" } : {
-                  id: `pending-${pending.requestId}`,
-                  provider: pending.provider,
-                  cwd: pending.cwd,
-                  title: pending.prompt.length > 64 ? pending.prompt.slice(0, 64) + "…" : pending.prompt,
-                  status: "exited",
-                });
-                setBlocks((bs) => [...closeStreaming(bs), {
-                  kind: "error",
-                  text: `${message}\n\nType a revised prompt below and press Enter to retry.`,
-                }]);
+                pendingStartRef.current = null;
+                restoreComposerDraft(sessionStorage, pending.prompt);
+                history.replaceState(null, "", "/");
+                document.title = "cmux agent";
+                sessionIdRef.current = null;
+                optimisticUsersRef.current = [];
+                setSession(null);
+                setBlocks([]);
+                setOptions([]);
+                setActions({});
+                setCommands([]);
+                pendingFileDiffKeysRef.current = {};
+                setFileDiffs({});
+                setLastError(message);
+                setPhase("composer");
               } else {
                 setLastError(message);
               }

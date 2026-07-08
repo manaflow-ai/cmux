@@ -60,6 +60,7 @@ const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
 const MAX_SESSION_EVENTS = 5_000;
 const GIT_TIMEOUT_MS = 10_000;
+const DONE_FILES_TIMEOUT_MS = 2_000;
 const GEMINI_MODELS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
@@ -211,6 +212,11 @@ function createSession(
       emitSessionEvent(sess, evt);
     },
     setStatus(status: SessionStatus) {
+      const pendingDone = sess.internal.pendingDoneEmit as Promise<void> | undefined;
+      if (status === "idle" && pendingDone) {
+        pendingDone.finally(() => sess.setStatus(status));
+        return;
+      }
       if (sess.status === status) return;
       sess.status = status;
       const payload = JSON.stringify({ kind: "session-status", sessionId: id, status });
@@ -238,19 +244,15 @@ function emitSessionEvent(sess: Session, evt: AgentEvent) {
 }
 
 function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
-  let sent = false;
-  const sendDone = () => {
-    if (sent) return;
-    sent = true;
+  const pending = (async () => {
+    await emitFilesChanged(sess, DONE_FILES_TIMEOUT_MS)
+      .catch((err) => console.error("[agent-chat] files-changed failed", err));
     emitSessionEvent(sess, evt);
-  };
-  const timer = setTimeout(sendDone, 750);
-  emitFilesChanged(sess)
-    .catch((err) => console.error("[agent-chat] files-changed failed", err))
-    .finally(() => {
-      clearTimeout(timer);
-      sendDone();
-    });
+  })();
+  sess.internal.pendingDoneEmit = pending;
+  pending.finally(() => {
+    if (sess.internal.pendingDoneEmit === pending) delete sess.internal.pendingDoneEmit;
+  });
 }
 
 function sendPrompt(sess: Session, prompt: string) {
@@ -524,13 +526,19 @@ function limitFiles(files: string[]): string[] {
     .slice(0, FILES_LIMIT);
 }
 
-async function gitFiles(cwd: string): Promise<string[]> {
-  const out = await gitOutput(cwd, ["ls-files", "--cached", "--others", "--exclude-standard"], 500_000);
-  return out.split(/\r?\n/);
+export async function gitFiles(cwd: string): Promise<string[]> {
+  const out = await gitOutputWithCodesResult(cwd, ["ls-files", "--cached", "--others", "--exclude-standard"], 500_000);
+  return gitFilesFromOutput(out);
 }
 
-async function gitOutput(cwd: string, args: string[], maxBytes = 120_000): Promise<string> {
-  return gitOutputWithCodes(cwd, args, maxBytes, [0]);
+export function gitFilesFromOutput(out: { text: string; truncated: boolean }): string[] {
+  const lines = out.text.split(/\r?\n/);
+  if (out.truncated) lines.pop();
+  return lines;
+}
+
+async function gitOutput(cwd: string, args: string[], maxBytes = 120_000, timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
+  return gitOutputWithCodes(cwd, args, maxBytes, [0], timeoutMs);
 }
 
 async function drainStream(stream: ReadableStream<Uint8Array>) {
@@ -579,10 +587,10 @@ async function readStreamCapped(stream: ReadableStream<Uint8Array>, maxBytes: nu
     offset += chunk.byteLength;
   }
   const text = new TextDecoder().decode(out);
-  return { text: truncated ? text + "\n[truncated]" : text, truncated };
+  return { text, truncated };
 }
 
-export async function gitOutputWithCodes(cwd: string, args: string[], maxBytes = 120_000, okCodes: number[] = [0]): Promise<string> {
+export async function gitOutputWithCodesResult(cwd: string, args: string[], maxBytes = 120_000, okCodes: number[] = [0], timeoutMs = GIT_TIMEOUT_MS): Promise<{ text: string; truncated: boolean }> {
   const proc = Bun.spawn(["git", "-C", cwd, ...args], {
     stdout: "pipe",
     stderr: "pipe",
@@ -592,7 +600,7 @@ export async function gitOutputWithCodes(cwd: string, args: string[], maxBytes =
   const timer = setTimeout(() => {
     timedOut = true;
     proc.kill();
-  }, GIT_TIMEOUT_MS);
+  }, timeoutMs);
   const stderrDrain = drainStream(proc.stderr);
   let out: { text: string; truncated: boolean };
   try {
@@ -611,12 +619,16 @@ export async function gitOutputWithCodes(cwd: string, args: string[], maxBytes =
   await stderrDrain;
   if (timedOut) throw new Error("git command timed out");
   if (!out.truncated && !okCodes.includes(code)) throw new Error("git command failed");
-  return out.text;
+  return out;
 }
 
-async function isGitRepo(cwd: string): Promise<boolean> {
+export async function gitOutputWithCodes(cwd: string, args: string[], maxBytes = 120_000, okCodes: number[] = [0], timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
+  return (await gitOutputWithCodesResult(cwd, args, maxBytes, okCodes, timeoutMs)).text;
+}
+
+async function isGitRepo(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<boolean> {
   try {
-    return (await gitOutput(cwd, ["rev-parse", "--is-inside-work-tree"], 1_000)).trim() === "true";
+    return (await gitOutput(cwd, ["rev-parse", "--is-inside-work-tree"], 1_000, timeoutMs)).trim() === "true";
   } catch {
     return false;
   }
@@ -633,10 +645,10 @@ function statusPath(line: string): { path: string; status: string } | null {
   return { path, status };
 }
 
-async function changedFiles(cwd: string): Promise<ChangedFile[]> {
-  if (!(await isGitRepo(cwd))) return [];
-  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000).catch(() => "");
-  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000).catch(() => "");
+async function changedFiles(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<ChangedFile[]> {
+  if (!(await isGitRepo(cwd, timeoutMs))) return [];
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000, timeoutMs).catch(() => "");
+  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000, timeoutMs).catch(() => "");
   const stats = new Map<string, { adds: number; dels: number }>();
   for (const line of numstat.split(/\r?\n/)) {
     const [adds, dels, ...rest] = line.split("\t");
@@ -654,8 +666,8 @@ async function changedFiles(cwd: string): Promise<ChangedFile[]> {
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function emitFilesChanged(sess: Session) {
-  const files = await changedFiles(sess.cwd);
+async function emitFilesChanged(sess: Session, timeoutMs = GIT_TIMEOUT_MS) {
+  const files = await changedFiles(sess.cwd, timeoutMs);
   if (!files.length) return;
   const key = JSON.stringify(files);
   if (sess.internal.lastFilesChangedKey === key) return;
@@ -679,11 +691,13 @@ async function fileDiff(cwd: string, path: string): Promise<string> {
     .then(() => true)
     .catch(() => false);
   const diff = tracked
-    ? await gitOutput(cwd, ["diff", "--no-ext-diff", "HEAD", "--", safePath], 80_000).catch(() => "")
-    : await gitOutputWithCodes(cwd, ["diff", "--no-ext-diff", "--no-index", "--", "/dev/null", safePath], 80_000, [0, 1])
-      .catch(() => `diff unavailable for ${safePath}\n`);
-  if (!diff.trim()) return `empty diff for ${safePath}\n`;
-  return diff.split(/\r?\n/).slice(0, 400).join("\n");
+    ? await gitOutputWithCodesResult(cwd, ["diff", "--no-ext-diff", "HEAD", "--", safePath], 80_000).catch(() => ({ text: "", truncated: false }))
+    : await gitOutputWithCodesResult(cwd, ["diff", "--no-ext-diff", "--no-index", "--", "/dev/null", safePath], 80_000, [0, 1])
+      .catch(() => ({ text: `diff unavailable for ${safePath}\n`, truncated: false }));
+  let text = diff.text;
+  if (diff.truncated) text += "\n[truncated]\n";
+  if (!text.trim()) return `empty diff for ${safePath}\n`;
+  return text.split(/\r?\n/).slice(0, 400).join("\n");
 }
 
 async function walkFiles(root: string): Promise<string[]> {

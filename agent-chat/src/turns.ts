@@ -12,10 +12,13 @@ export interface TurnGroup {
 export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
   const groups: TurnGroup[] = [];
   let current: TurnGroup | null = null;
-  const flushAssistantToActivity = () => {
+  let pendingAssistantIndex: number | null = null;
+  const demoteAssistantToActivity = () => {
     if (current?.assistant) {
-      current.activity.push(current.assistant);
+      const index = pendingAssistantIndex === null ? current.activity.length : Math.min(pendingAssistantIndex, current.activity.length);
+      current.activity.splice(index, 0, current.assistant);
       current.assistant = undefined;
+      pendingAssistantIndex = null;
     }
   };
   const push = () => {
@@ -25,16 +28,20 @@ export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
     if (block.kind === "user") {
       push();
       current = { id: `turn-${groups.length}-${block.text.slice(0, 24)}`, user: block, activity: [], done: false };
+      pendingAssistantIndex = null;
       continue;
     }
-    if (!current) current = { id: `turn-${groups.length}-prelude`, activity: [], done: false };
+    if (!current) {
+      current = { id: `turn-${groups.length}-prelude`, activity: [], done: false };
+      pendingAssistantIndex = null;
+    }
     if (block.kind === "assistant") {
-      flushAssistantToActivity();
+      demoteAssistantToActivity();
       current.assistant = block;
+      pendingAssistantIndex = current.activity.length;
     } else if (block.kind === "footer") {
       current.footer = block;
     } else {
-      flushAssistantToActivity();
       current.activity.push(block);
     }
   }

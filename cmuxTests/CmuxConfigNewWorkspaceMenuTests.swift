@@ -111,6 +111,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
             context: context,
             cmuxConfigStore: store
         ))
+        #expect(!store.newWorkspaceContextMenuIsConfigured)
         #expect(store.newWorkspaceMenuSectionOrder == .cloudFirst)
         let cloudOpenTitle = String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")
         let cloudOpenIndex = try #require(menu.items.firstIndex { item in
@@ -168,6 +169,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
         """)
         defer { try? FileManager.default.removeItem(at: root) }
 
+        #expect(store.newWorkspaceContextMenuIsConfigured)
         let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
         #expect(ids.contains(CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
         #expect(!ids.contains(CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
@@ -186,6 +188,7 @@ struct CmuxConfigNewWorkspaceMenuTests {
         """)
         defer { try? FileManager.default.removeItem(at: root) }
 
+        #expect(store.newWorkspaceContextMenuIsConfigured)
         let ids = try withNewWorkspaceContextMenu(store: store) { contextMenuActionIDs($0) }
         #expect(ids.filter { $0 == CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID }.count == 1)
     }

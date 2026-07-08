@@ -1717,6 +1717,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceCommandName: String?
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    @Published private(set) var newWorkspaceContextMenuIsConfigured = false
     @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
     @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
@@ -2136,11 +2137,6 @@ final class CmuxConfigStore: ObservableObject {
                 entry.result.config.map { (path: entry.path, config: $0) }
             }
         )
-        let resolvedAgentChat = CmuxAgentChatConfiguration.resolved(
-            local: localConfig?.agentChat, global: globalConfig?.agentChat,
-            localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath
-        )
-
         loadedCommands = commands
         loadedActions = resolvedActions
         commandSourcePaths = sourcePaths
@@ -2149,8 +2145,12 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
+        newWorkspaceContextMenuIsConfigured = configuredNewWorkspaceContextMenu != nil
         newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
-        agentChat = resolvedAgentChat
+        agentChat = CmuxAgentChatConfiguration.resolved(
+            local: localConfig?.agentChat, global: globalConfig?.agentChat,
+            localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath
+        )
         let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(
             localConfig: localConfig,
             globalConfig: globalConfig,

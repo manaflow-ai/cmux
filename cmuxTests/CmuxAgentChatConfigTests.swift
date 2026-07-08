@@ -26,7 +26,7 @@ import Testing
         #expect(config.agentChat?.url == "http://127.0.0.1:8777/chat")
         #expect(config.agentChat?.startCommand == "cmux-chat --port 8777")
         let resolved = CmuxAgentChatConfiguration.resolved(local: config.agentChat, global: nil)
-        #expect(resolved.healthURL.absoluteString == "http://127.0.0.1:8777/chat/healthz")
+        #expect(resolved.healthURL.absoluteString == "http://127.0.0.1:8777/healthz")
     }
 
     @Test func decodeAgentChatRejectsBlankAndNonHTTPURL() {

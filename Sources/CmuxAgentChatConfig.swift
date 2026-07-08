@@ -102,8 +102,7 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
 
     var healthURL: URL {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let basePath = components?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
-        components?.path = basePath.isEmpty ? "/healthz" : "/\(basePath)/healthz"
+        components?.path = "/healthz"
         components?.query = nil
         components?.fragment = nil
         return components?.url ?? url.appendingPathComponent("healthz")

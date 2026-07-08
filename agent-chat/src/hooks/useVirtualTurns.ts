@@ -37,13 +37,15 @@ export function useVirtualTurns(count: number, enabled = true) {
   const measureCacheKey = useRef({ count, enabled });
   const [version, setVersion] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 900 });
-  if (measureCacheKey.current.count !== count || measureCacheKey.current.enabled !== enabled) {
+  useLayoutEffect(() => {
+    if (measureCacheKey.current.count === count && measureCacheKey.current.enabled === enabled) return;
     for (const obs of observers.current.values()) obs.disconnect();
     observers.current.clear();
     measureCallbacks.current.clear();
     heights.current.clear();
     measureCacheKey.current = { count, enabled };
-  }
+    setVersion((v) => v + 1);
+  }, [count, enabled]);
   useLayoutEffect(() => {
     if (!enabled) return;
     const root = rootRef.current;

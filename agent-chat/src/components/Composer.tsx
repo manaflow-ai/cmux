@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { OptionValue } from "../session";
+import { composerDraftKey, type OptionValue } from "../session";
 import { useCtx } from "../context";
 import { readStoredProviderOptions, updateStoredProviderOption } from "../options-store";
 import { ArrowUp } from "./icons";
@@ -45,8 +45,8 @@ export function Composer() {
   const [cwd, setCwd] = useState(() => localStorage.getItem("agentui.cwd") || "");
   const [committedCwd, setCommittedCwd] = useState(() => localStorage.getItem("agentui.cwd") || "");
   const [prompt, setPrompt] = useState(() => {
-    const draft = sessionStorage.getItem("agentui.draft") || "";
-    sessionStorage.removeItem("agentui.draft");
+    const draft = sessionStorage.getItem(composerDraftKey) || "";
+    sessionStorage.removeItem(composerDraftKey);
     return draft;
   });
   const [startOptionsByProvider, setStartOptionsByProvider] = useState<Record<string, Record<string, OptionValue>>>(() => ({
@@ -133,7 +133,10 @@ export function Composer() {
             placeholder="Describe a task or ask a question…"
             value={prompt}
             autoFocus
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              if (lastError) clearError();
+            }}
             onSelect={commandMenu.onSelect}
             onKeyUp={commandMenu.onSelect}
             onClick={commandMenu.onSelect}
@@ -142,7 +145,6 @@ export function Composer() {
               if (isCtrlJ(e)) { e.preventDefault(); insertNewlineAtCaret(prompt, setPrompt, taRef); return; }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
             }}
-            onFocus={clearError}
           />
           {commandMenu.menu}
         </div>
