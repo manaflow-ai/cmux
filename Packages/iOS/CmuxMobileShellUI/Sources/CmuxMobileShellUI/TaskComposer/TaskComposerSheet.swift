@@ -17,6 +17,7 @@ struct TaskComposerSheet: View {
     @State private var directory: String
     @State private var didEditDirectory = false
     @State private var isSubmitting = false
+    @State private var submitTask: Task<Void, Never>?
     @State private var failureText: String?
     @State private var isEditorPresented = false
 
@@ -79,7 +80,11 @@ struct TaskComposerSheet: View {
 
                 Section {
                     Button {
-                        Task { await submit() }
+                        guard submitTask == nil else { return }
+                        submitTask = Task {
+                            await submit()
+                            submitTask = nil
+                        }
                     } label: {
                         HStack {
                             Spacer()
@@ -108,6 +113,7 @@ struct TaskComposerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
+                        submitTask?.cancel()
                         dismiss()
                     }
                 }
@@ -123,6 +129,12 @@ struct TaskComposerSheet: View {
             }
             .onAppear {
                 isPromptFocused = true
+            }
+            .onDisappear {
+                // Drag-to-dismiss and Cancel both end the submit flow: a create
+                // the user backed out of must not apply its result or persist
+                // last-used defaults after the sheet is gone.
+                submitTask?.cancel()
             }
         }
         .presentationDetents([.medium, .large])
@@ -239,7 +251,7 @@ struct TaskComposerSheet: View {
     }
 
     private func submit() async {
-        guard let selectedTemplate else { return }
+        guard !isSubmitting, let selectedTemplate else { return }
         isSubmitting = true
         failureText = nil
         let composition = composer.compose(template: selectedTemplate, prompt: prompt)
@@ -252,6 +264,9 @@ struct TaskComposerSheet: View {
         )
         let result = await store.submitTaskComposer(macDeviceID: selectedMacDeviceID, spec: spec)
         isSubmitting = false
+        // The user dismissed the sheet mid-flight: drop the result instead of
+        // persisting last-used defaults or re-dismissing a gone sheet.
+        guard !Task.isCancelled else { return }
         switch result {
         case .success:
             store.taskTemplateStore?.setLastTemplateID(selectedTemplate.id)

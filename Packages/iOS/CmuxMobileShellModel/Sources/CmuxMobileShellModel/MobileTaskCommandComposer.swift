@@ -8,7 +8,7 @@ public struct MobileTaskCommandComposer: Sendable {
     /// Returns a shell single-quoted representation of `value`.
     /// - Parameter value: Raw value to quote for shell interpretation.
     /// - Returns: A single-quoted shell token.
-    public func shellQuoted(_ value: String) -> String {
+    func shellQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 

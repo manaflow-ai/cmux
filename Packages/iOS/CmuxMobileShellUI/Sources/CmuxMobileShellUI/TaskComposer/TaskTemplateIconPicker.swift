@@ -4,7 +4,15 @@ import SwiftUI
 
 struct TaskTemplateIconPicker: View {
     @Binding var selection: String
-    @State private var emojiInput = ""
+    @State private var emojiInput: String
+
+    init(selection: Binding<String>) {
+        self._selection = selection
+        // Show an existing custom-emoji icon in the emoji field so reopening
+        // the editor reflects the current selection.
+        let current = selection.wrappedValue
+        self._emojiInput = State(initialValue: Self.symbols.contains(current) ? "" : current)
+    }
 
     private static let symbols = [
         "brain.head.profile",

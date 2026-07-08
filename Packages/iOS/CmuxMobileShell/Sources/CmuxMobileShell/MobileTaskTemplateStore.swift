@@ -1,10 +1,9 @@
 public import CmuxMobileShellModel
 public import Foundation
-public import Observation
 
-/// `UserDefaults`-backed mobile task template store.
+/// `UserDefaults`-backed mobile task template store. Not `@Observable`: it has
+/// no tracked stored state; views re-read via `listTemplates()` after mutations.
 @MainActor
-@Observable
 public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStoring {
     // UserDefaults is Apple-documented thread-safe; this main-actor store reads
     // and writes synchronously through an injected defaults instance.
