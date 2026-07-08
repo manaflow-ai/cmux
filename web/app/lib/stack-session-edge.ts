@@ -3,6 +3,9 @@ import type { NextRequest } from "next/server";
 const STACK_ACCESS_COOKIE_NAMES = ["hexclave-access", "stack-access"] as const;
 const STACK_COOKIE_PREFIXES = ["__Host-", "__Secure-", ""] as const;
 const STACK_USER_API_URL = "https://api.stack-auth.com/api/v1/users/me";
+// The verify call sits on the sign-in page request path; fail closed quickly
+// (render the sign-in form) instead of stalling the page on a slow Stack API.
+const STACK_USER_VERIFY_TIMEOUT_MS = 3000;
 
 type CookieStoreLike = {
   getAll: () => { name: string; value: string }[];
@@ -49,6 +52,7 @@ export async function verifyStackSessionUser(
         "x-stack-publishable-client-key": publishableClientKey,
         "x-stack-access-token": accessToken,
       },
+      signal: AbortSignal.timeout(STACK_USER_VERIFY_TIMEOUT_MS),
     });
     if (!response.ok) return null;
 

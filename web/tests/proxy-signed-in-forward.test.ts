@@ -141,6 +141,24 @@ describe("proxy signed-in forwarding", () => {
     expect(fetchCalls).toBe(1);
   });
 
+  test("does not redirect restricted users reported by Stack verification", async () => {
+    const restrictedVerifyFetch: StackSessionVerifyFetch = async () => {
+      fetchCalls += 1;
+      return Response.json({ is_anonymous: false, is_restricted: true });
+    };
+
+    const response = await buildMiddleware(restrictedVerifyFetch)(
+      handlerRequest(
+        "/handler/sign-in",
+        nativeAfterSignInTarget(),
+        accessCookie(stackJwt({ is_anonymous: false, exp: futureExp() })),
+      ),
+    );
+
+    expectNoRedirect(response);
+    expect(fetchCalls).toBe(1);
+  });
+
   test("does not verify or redirect foreign-host after_auth_return_to targets", async () => {
     const response = await middlewareWithOkFetch(
       handlerRequest(
