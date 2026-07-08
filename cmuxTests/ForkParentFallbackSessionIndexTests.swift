@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @Suite
-struct ClaudeForkFallbackSessionIndexTests {
+struct ForkParentFallbackSessionIndexTests {
     @Test func unpromptedForkPaneUsesParentSessionFallbackWithoutStealingParentPane() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
