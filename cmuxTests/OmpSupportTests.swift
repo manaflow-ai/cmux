@@ -9,6 +9,24 @@ import Testing
 
 @Suite("OMP support")
 struct OmpSupportTests {
+    @Test func ompIsAllowedForAgentHibernationLifecycle() {
+        #expect(AgentHibernationLifecycleStatusKeys.isAllowed("omp"))
+    }
+
+    @Test func textBoxDetectsOmpAsPiAlias() {
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "agentPIDKey:omp"))
+        #expect(TextBoxAgentDetection.supportsAgentPrefixes(context: "restoredAgent:omp"))
+        #expect(TextBoxAgentDetection.boundedLaunchCommandContext(from: "omp --model anthropic/claude-sonnet-4-5") == "pi")
+    }
+
+    @Test func ompRegistriesUsePiIconAsset() throws {
+        let taskManagerDefinition = try #require(
+            CmuxTaskManagerCodingAgentDefinition.builtIns.first { $0.id == "omp" }
+        )
+        #expect(taskManagerDefinition.assetName == "AgentIcons/Pi")
+        #expect(CmuxVaultAgentRegistration.builtInOmp.iconAssetName == "AgentIcons/Pi")
+    }
+
     @Test func directProcessDetectionUsesExplicitSessionSelectorsBeforeLatestFallback() throws {
         struct Selector {
             let name: String
