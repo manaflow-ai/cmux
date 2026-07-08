@@ -14,6 +14,10 @@ struct CmuxAgentChatConfigDefinition: Codable, Sendable, Hashable {
         self.startCommand = startCommand
     }
 
+    var hasServerFields: Bool {
+        url != nil || startCommand != nil
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let decodedURL = try Self.trimmedString(forKey: .url, in: container) {
@@ -125,7 +129,7 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
     ) -> CmuxAgentChatConfiguration {
         let definition: CmuxAgentChatConfigDefinition?
         let source: CmuxAgentChatConfigurationSource
-        if let local {
+        if let local, local.hasServerFields {
             definition = local
             source = localSourcePath.map { .local(path: $0) } ?? .defaults
         } else if let global {

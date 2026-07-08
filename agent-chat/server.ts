@@ -59,6 +59,7 @@ const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
 const MAX_SESSION_EVENTS = 5_000;
+const GIT_TIMEOUT_MS = 10_000;
 const GEMINI_MODELS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
@@ -203,18 +204,11 @@ function createSession(
     sockets: new Set(),
     createdAt: Date.now(),
     emit(evt: AgentEvent) {
-      sess.events.push(evt);
-      // Long agent streams accumulate thousands of retained events in this
-      // long-lived process; cap the replayable transcript per session.
-      if (sess.events.length > MAX_SESSION_EVENTS) {
-        sess.events.splice(0, sess.events.length - MAX_SESSION_EVENTS);
-        if (sess.events[0]?.kind !== "status" || !sess.events[0].text.startsWith("(transcript truncated")) {
-          sess.events.unshift({ kind: "status", text: "(transcript truncated: older events dropped)" });
-        }
+      if (evt.kind === "done") {
+        emitDoneAfterFiles(sess, evt);
+        return;
       }
-      const payload = JSON.stringify({ kind: "event", sessionId: id, evt });
-      for (const ws of sess.sockets) ws.send(payload);
-      if (evt.kind === "done") emitFilesChanged(sess).catch(() => {});
+      emitSessionEvent(sess, evt);
     },
     setStatus(status: SessionStatus) {
       if (sess.status === status) return;
@@ -229,10 +223,41 @@ function createSession(
   return sess;
 }
 
+function emitSessionEvent(sess: Session, evt: AgentEvent) {
+  sess.events.push(evt);
+  // Long agent streams accumulate thousands of retained events in this
+  // long-lived process; cap the replayable transcript per session.
+  if (sess.events.length > MAX_SESSION_EVENTS) {
+    sess.events.splice(0, sess.events.length - MAX_SESSION_EVENTS);
+    if (sess.events[0]?.kind !== "status" || !sess.events[0].text.startsWith("(transcript truncated")) {
+      sess.events.unshift({ kind: "status", text: "(transcript truncated: older events dropped)" });
+    }
+  }
+  const payload = JSON.stringify({ kind: "event", sessionId: sess.id, evt });
+  for (const ws of sess.sockets) ws.send(payload);
+}
+
+function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
+  let sent = false;
+  const sendDone = () => {
+    if (sent) return;
+    sent = true;
+    emitSessionEvent(sess, evt);
+  };
+  const timer = setTimeout(sendDone, 750);
+  emitFilesChanged(sess)
+    .catch((err) => console.error("[agent-chat] files-changed failed", err))
+    .finally(() => {
+      clearTimeout(timer);
+      sendDone();
+    });
+}
+
 function sendPrompt(sess: Session, prompt: string) {
   sess.emit({ kind: "user", text: prompt });
   Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
-    sess.emit({ kind: "error", message: String(err) });
+    console.error("[agent-chat] send failed", err);
+    sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
     // The UI treats "done" as the turn boundary; without it a failed send
     // leaves an open streaming block with no footer.
     sess.emit({ kind: "done" });
@@ -242,7 +267,8 @@ function sendPrompt(sess: Session, prompt: string) {
 
 function refreshSession(sess: Session) {
   Promise.resolve(sess.adapter.refreshOptions?.(sess)).catch((err) => {
-    sess.emit({ kind: "error", message: String(err) });
+    console.error("[agent-chat] refresh-options failed", err);
+    sess.emit({ kind: "error", message: safeErrorMessage("list-options", err) });
   });
 }
 
@@ -499,13 +525,7 @@ function limitFiles(files: string[]): string[] {
 }
 
 async function gitFiles(cwd: string): Promise<string[]> {
-  const proc = Bun.spawn(["git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard"], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env },
-  });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  if (code !== 0) throw new Error("not a git repo");
+  const out = await gitOutput(cwd, ["ls-files", "--cached", "--others", "--exclude-standard"], 500_000);
   return out.split(/\r?\n/);
 }
 
@@ -513,16 +533,85 @@ async function gitOutput(cwd: string, args: string[], maxBytes = 120_000): Promi
   return gitOutputWithCodes(cwd, args, maxBytes, [0]);
 }
 
-async function gitOutputWithCodes(cwd: string, args: string[], maxBytes = 120_000, okCodes: number[] = [0]): Promise<string> {
+async function drainStream(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) return;
+    }
+  } catch {
+    // Process termination can close the pipe under us.
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function readStreamCapped(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<{ text: string; truncated: boolean }> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let truncated = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      const remaining = Math.max(0, maxBytes - size);
+      if (remaining > 0) {
+        const chunk = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+        chunks.push(chunk);
+        size += chunk.byteLength;
+      }
+      if (value.byteLength > remaining || remaining === 0) {
+        truncated = true;
+        await reader.cancel().catch(() => {});
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const out = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(out);
+  return { text: truncated ? text + "\n[truncated]" : text, truncated };
+}
+
+export async function gitOutputWithCodes(cwd: string, args: string[], maxBytes = 120_000, okCodes: number[] = [0]): Promise<string> {
   const proc = Bun.spawn(["git", "-C", cwd, ...args], {
     stdout: "pipe",
     stderr: "pipe",
     env: { ...process.env },
   });
-  const out = await new Response(proc.stdout).text();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+  }, GIT_TIMEOUT_MS);
+  const stderrDrain = drainStream(proc.stderr);
+  let out: { text: string; truncated: boolean };
+  try {
+    out = await readStreamCapped(proc.stdout, maxBytes);
+  } catch (err) {
+    proc.kill();
+    clearTimeout(timer);
+    await proc.exited.catch(() => {});
+    await stderrDrain;
+    if (timedOut) throw new Error("git command timed out");
+    throw err;
+  }
+  if (out.truncated) proc.kill();
   const code = await proc.exited;
-  if (!okCodes.includes(code)) throw new Error("git command failed");
-  return out.length > maxBytes ? out.slice(0, maxBytes) + "\n[truncated]" : out;
+  clearTimeout(timer);
+  await stderrDrain;
+  if (timedOut) throw new Error("git command timed out");
+  if (!out.truncated && !okCodes.includes(code)) throw new Error("git command failed");
+  return out.text;
 }
 
 async function isGitRepo(cwd: string): Promise<boolean> {
@@ -673,7 +762,7 @@ const DEFAULT_MONO = `"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mo
 function quoteCssFontFamily(value: string): string | null {
   const clean = value
     .replace(/[\u0000-\u001f\u007f]/g, "")
-    .replace(/[;{}]/g, "")
+    .replace(/[;{}<>]/g, "")
     .trim()
     .replace(/^["']|["']$/g, "")
     .trim();
@@ -756,6 +845,8 @@ interface StaticAsset {
 // default; rebuilt on request only when CMUX_AGENT_UI_DEV=1 (dev iteration).
 let assetCache: Map<string, StaticAsset> | null = null;
 let cssAssetCache: StaticAsset | null = null;
+let assetBuildPromise: Promise<Map<string, StaticAsset>> | null = null;
+let cssAssetPromise: Promise<StaticAsset> | null = null;
 let bundleBuildCount = 0;
 let cssReadCount = 0;
 
@@ -784,6 +875,14 @@ function bundleSizeLine(assets: Map<string, StaticAsset>): string {
 
 export async function buildBundles(): Promise<Map<string, StaticAsset>> {
   if (assetCache && process.env.CMUX_AGENT_UI_DEV !== "1") return assetCache;
+  if (assetBuildPromise && process.env.CMUX_AGENT_UI_DEV !== "1") return assetBuildPromise;
+  assetBuildPromise = buildBundlesFresh().finally(() => {
+    assetBuildPromise = null;
+  });
+  return assetBuildPromise;
+}
+
+async function buildBundlesFresh(): Promise<Map<string, StaticAsset>> {
   bundleBuildCount += 1;
   const out = await Bun.build({
     entrypoints: [`${ROOT}/src/main.tsx`, `${ROOT}/src/gallery-main.tsx`],
@@ -811,6 +910,14 @@ export async function buildBundles(): Promise<Map<string, StaticAsset>> {
 
 export async function cssAsset(): Promise<StaticAsset> {
   if (cssAssetCache && process.env.CMUX_AGENT_UI_DEV !== "1") return cssAssetCache;
+  if (cssAssetPromise && process.env.CMUX_AGENT_UI_DEV !== "1") return cssAssetPromise;
+  cssAssetPromise = cssAssetFresh().finally(() => {
+    cssAssetPromise = null;
+  });
+  return cssAssetPromise;
+}
+
+async function cssAssetFresh(): Promise<StaticAsset> {
   cssReadCount += 1;
   const bytes = await Bun.file(`${ROOT}/public/app.css`).arrayBuffer();
   cssAssetCache = makeAsset("/app.css", bytes, "text/css; charset=utf-8");
@@ -820,6 +927,8 @@ export async function cssAsset(): Promise<StaticAsset> {
 export function resetAssetCachesForTest() {
   assetCache = null;
   cssAssetCache = null;
+  assetBuildPromise = null;
+  cssAssetPromise = null;
   bundleBuildCount = 0;
   cssReadCount = 0;
 }
@@ -963,7 +1072,41 @@ function startServer() {
 }
 
 function sendWsError(ws: Bun.ServerWebSocket<WsData>, op: string, err: unknown) {
-  ws.send(JSON.stringify({ kind: "error", op, message: String(err) }));
+  sendWsErrorDetails(ws, op, err);
+}
+
+function safeReason(err: unknown): string {
+  const text = String(err instanceof Error ? err.message : err).toLowerCase();
+  if (text.includes("working directory") || text.includes("enoent")) return "working directory is unavailable";
+  if (text.includes("unknown provider")) return "unknown provider";
+  if (text.includes("no session")) return "no session is available";
+  if (text.includes("invalid path")) return "invalid path";
+  if (text.includes("not a git")) return "not a git repository";
+  if (text.includes("timed out") || text.includes("timeout")) return "request timed out";
+  if (text.includes("permission") || text.includes("auth") || text.includes("forbidden")) return "permission or authentication failed";
+  if (text.includes("support")) return "operation is not supported";
+  return "unexpected error";
+}
+
+function safeErrorMessage(op: string, err: unknown, context: { provider?: string } = {}): string {
+  const reason = safeReason(err);
+  if (op === "start") return `Failed to start ${context.provider ?? "agent"}: ${reason}`;
+  if (op === "fork") return `Failed to fork chat: ${reason}`;
+  if (op === "get-file-diff") return `Failed to load diff: ${reason}`;
+  if (op === "send") return `Failed to send message: ${reason}`;
+  if (op === "set-option") return `Failed to update option: ${reason}`;
+  return `Request failed: ${reason}`;
+}
+
+function sendWsErrorDetails(
+  ws: Bun.ServerWebSocket<WsData>,
+  op: string,
+  err: unknown,
+  details: { provider?: string; requestId?: string; sessionId?: string; path?: string } = {},
+) {
+  console.error(`[agent-chat] ${op || "request"} failed`, err);
+  const { provider, ...publicDetails } = details;
+  ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
 }
 
 function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
@@ -984,7 +1127,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         refreshSession(sess);
         sendPrompt(sess, prompt);
       }).catch((err) => {
-        ws.send(JSON.stringify({ kind: "error", op: "start", requestId, message: String(err) }));
+        sendWsErrorDetails(ws, "start", err, { provider, requestId });
       });
       break;
     }
@@ -1029,21 +1172,22 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const value = msg.value;
       if (!sess || !id || (typeof value !== "string" && typeof value !== "boolean")) return;
       Promise.resolve(sess.adapter.setOption(sess, id, value)).catch((err) => {
-        sess.emit({ kind: "error", message: String(err) });
+        console.error("[agent-chat] set-option failed", err);
+        sess.emit({ kind: "error", message: safeErrorMessage("set-option", err) });
       });
       break;
     }
     case "fork": {
       const sess = sessions.get(String(msg.sessionId));
       if (!sess) {
-        sendWsError(ws, "fork", `no session: ${msg.sessionId}`);
+        sendWsErrorDetails(ws, "fork", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
       Promise.resolve(forkSession(sess))
         .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork) })))
         .catch((err) => {
-          sess.emit({ kind: "error", message: String(err) });
-          sendWsError(ws, "fork", err);
+          sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
+          sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
         });
       break;
     }
@@ -1082,10 +1226,17 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     case "get-file-diff": {
       const sess = sessions.get(String(msg.sessionId));
       const path = String(msg.path ?? "");
-      if (!sess || !path) return;
+      if (!path) {
+        sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path });
+        return;
+      }
+      if (!sess) {
+        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
+        return;
+      }
       Promise.resolve(fileDiff(sess.cwd, path))
         .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path, diff })))
-        .catch((err) => sendWsError(ws, "get-file-diff", err));
+        .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path }));
       break;
     }
     case "delete": {

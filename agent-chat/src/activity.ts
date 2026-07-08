@@ -23,5 +23,5 @@ export function activityTailKey(blocks: Block[]): string {
   if (tail.kind === "footer" || tail.kind === "status" || tail.kind === "error" || tail.kind === "user") {
     return `${prefix}${tail.kind}`;
   }
-  return "unknown";
+  return `${prefix}unknown`;
 }

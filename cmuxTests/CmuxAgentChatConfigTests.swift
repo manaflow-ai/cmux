@@ -73,6 +73,33 @@ final class CmuxAgentChatConfigTests: XCTestCase {
         XCTAssertFalse(resolved.startCommandRequiresTrust)
     }
 
+    func testResolveLocalSidecarOnlyFieldsUseGlobalServerConfig() throws {
+        let localPath = "/repo/cmux.json"
+        let globalPath = "/Users/me/.config/cmux/cmux.json"
+        let localConfig = try decode("""
+        {
+          "agentChat": {
+            "fontSize": 14,
+            "keymap": "vim"
+          }
+        }
+        """)
+        let resolved = CmuxAgentChatConfiguration.resolved(
+            local: localConfig.agentChat,
+            global: CmuxAgentChatConfigDefinition(
+                url: "http://127.0.0.1:9000",
+                startCommand: "cmux-chat --port 9000"
+            ),
+            localSourcePath: localPath,
+            globalSourcePath: globalPath
+        )
+
+        XCTAssertEqual(resolved.url.absoluteString, "http://127.0.0.1:9000")
+        XCTAssertEqual(resolved.startCommand, "cmux-chat --port 9000")
+        XCTAssertEqual(resolved.source, .global(path: globalPath))
+        XCTAssertFalse(resolved.startCommandRequiresTrust)
+    }
+
     func testResolveLocalStartCommandOnlyUsesDefaultURL() {
         let localPath = "/repo/cmux.json"
         let resolved = CmuxAgentChatConfiguration.resolved(

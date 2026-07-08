@@ -165,7 +165,10 @@ extension AppDelegate {
         ) else {
             return false
         }
-        _ = Self.launchDetachedAgentChatStartCommand(startCommand)
+        _ = Self.launchDetachedAgentChatStartCommand(
+            startCommand,
+            currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat)
+        )
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(10))
         while !Task.isCancelled, clock.now < deadline {
@@ -251,7 +254,22 @@ extension AppDelegate {
         }
     }
 
-    nonisolated private static func launchDetachedAgentChatStartCommand(_ command: String) -> Bool {
+    nonisolated private static func agentChatStartCommandDirectoryURL(
+        for agentChat: CmuxAgentChatConfiguration
+    ) -> URL {
+        if case .local(let sourcePath) = agentChat.source {
+            return URL(
+                fileURLWithPath: canonicalAgentChatPath(CmuxButtonIcon.projectRoot(forConfigPath: sourcePath)),
+                isDirectory: true
+            )
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+    }
+
+    nonisolated private static func launchDetachedAgentChatStartCommand(
+        _ command: String,
+        currentDirectoryURL: URL
+    ) -> Bool {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return false }
         let environment = ProcessInfo.processInfo.environment
@@ -263,7 +281,7 @@ extension AppDelegate {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = ["-lc", trimmedCommand]
-        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

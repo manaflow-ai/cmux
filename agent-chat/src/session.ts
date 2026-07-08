@@ -169,8 +169,10 @@ export function useSession(): SessionState {
     cwd: string;
     prompt: string;
     options?: Record<string, OptionValue>;
+    queuedReplies: string[];
     failed?: boolean;
   } | null>(null);
+  const optimisticUsersRef = useRef<string[]>([]);
 
   const sendRaw = useCallback((obj: unknown) => {
     const ws = wsRef.current;
@@ -207,11 +209,16 @@ export function useSession(): SessionState {
             history.replaceState(null, "", "/s/" + msg.session.id);
             document.title = msg.session.title || "cmux agent";
             if (msg.requestId && pendingStartRef.current?.requestId === msg.requestId) {
+              const queuedReplies = pendingStartRef.current.queuedReplies;
               pendingStartRef.current = null;
               setSession({ ...msg.session, status: "running" });
+              for (const prompt of queuedReplies) {
+                sendRaw({ op: "send", sessionId: msg.session.id, prompt });
+              }
             } else {
               setSession(msg.session);
               setBlocks([]);
+              optimisticUsersRef.current = [];
             }
             setOptions([]);
             setActions({});
@@ -223,6 +230,7 @@ export function useSession(): SessionState {
             document.title = msg.session.title || "cmux agent";
             setSession(msg.session);
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
+            optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
             setActions(latestActions(msg.events as AgentEvent[]));
             setCommands(latestCommands(msg.events as AgentEvent[]));
@@ -236,6 +244,7 @@ export function useSession(): SessionState {
             setActions({});
             setCommands([]);
             setPhase("composer");
+            optimisticUsersRef.current = [];
             break;
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
@@ -245,6 +254,10 @@ export function useSession(): SessionState {
           case "event":
             if (msg.sessionId === sessionIdRef.current) {
               const evt = msg.evt as AgentEvent;
+              if (evt.kind === "user" && optimisticUsersRef.current[0] === evt.text) {
+                optimisticUsersRef.current.shift();
+                break;
+              }
               setBlocks((bs) => foldEvent(bs, evt));
               if (evt.kind === "options") setOptions(evt.options);
               if (evt.kind === "options") setActions(evt.actions ?? {});
@@ -279,7 +292,6 @@ export function useSession(): SessionState {
               const pending = pendingStartRef.current;
               if (pending && (!msg.requestId || msg.requestId === pending.requestId)) {
                 pendingStartRef.current = { ...pending, failed: true };
-                const providerLabel = providers.find((p) => p.id === pending.provider)?.label ?? pending.provider;
                 setSession((s) => s ? { ...s, status: "exited" } : {
                   id: `pending-${pending.requestId}`,
                   provider: pending.provider,
@@ -289,13 +301,16 @@ export function useSession(): SessionState {
                 });
                 setBlocks((bs) => [...closeStreaming(bs), {
                   kind: "error",
-                  text: `Couldn't start ${providerLabel}: ${message}\n\nType a revised prompt below and press Enter to retry.`,
+                  text: `${message}\n\nType a revised prompt below and press Enter to retry.`,
                 }]);
               } else {
                 setLastError(message);
               }
             }
             if (msg.op === "fork") setForkPending(false);
+            if (msg.op === "get-file-diff" && typeof msg.path === "string" && msg.path) {
+              setFileDiffs((m) => ({ ...m, [String(msg.path)]: String(msg.message ?? "Failed to load diff") }));
+            }
             break;
         }
       };
@@ -311,7 +326,8 @@ export function useSession(): SessionState {
     if (current && !current.failed && current.key === key) return false;
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     if (!sendRaw({ op: "start", requestId, ...opts })) return false;
-    pendingStartRef.current = { requestId, key, ...opts };
+    pendingStartRef.current = { requestId, key, queuedReplies: [], ...opts };
+    optimisticUsersRef.current = [opts.prompt];
     sessionIdRef.current = null;
     history.replaceState(null, "", "/");
     document.title = opts.prompt.length > 64 ? opts.prompt.slice(0, 64) + "…" : opts.prompt;
@@ -345,6 +361,12 @@ export function useSession(): SessionState {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
       start({ provider: pending.provider, cwd: pending.cwd, prompt: text, options: pending.options });
+      return;
+    }
+    if (!sessionIdRef.current && pending && !pending.failed) {
+      pending.queuedReplies.push(text);
+      optimisticUsersRef.current.push(text);
+      setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
       return;
     }
     if (sessionIdRef.current) {

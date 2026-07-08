@@ -193,6 +193,9 @@ extension AppDelegate {
         context: MainWindowContext,
         cmuxConfigStore: CmuxConfigStore
     ) -> [NSMenuItem] {
+        // Agent chat opens a browser surface; hide it when browser surfaces
+        // are disabled, matching the command palette's browserDisabled gate.
+        guard BrowserAvailabilitySettings.isEnabled() else { return [] }
         let action = cmuxConfigStore.resolvedAction(id: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID)
             ?? .builtIn(.newAgentChat)
         let item = NSMenuItem(

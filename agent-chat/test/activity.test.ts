@@ -22,4 +22,10 @@ if (activityTailKey(reasoningA) !== activityTailKey(reasoningB)) {
   throw new Error("reasoning activity key should not reset on every text delta");
 }
 
+const unknownOne = activityTailKey([{ kind: "files", files: [] }]);
+const unknownTwo = activityTailKey([{ kind: "files", files: [] }, { kind: "files", files: [] }]);
+if (!unknownOne.startsWith("1:") || !unknownTwo.startsWith("2:") || unknownOne === unknownTwo) {
+  throw new Error(`unknown activity keys should include block count prefix, got ${unknownOne} / ${unknownTwo}`);
+}
+
 console.log("activity indicator state: OK");
