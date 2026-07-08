@@ -201,7 +201,9 @@ public struct MobileBrowserView: UIViewRepresentable {
         }
 
         private func captureInteractionState(from webView: WKWebView) {
-            state.saveInteractionState(webView.interactionState as? Data)
+            // `interactionState` is documented as an opaque value; hold it
+            // as-is (no cast) and only ever hand it back to WebKit.
+            state.saveInteractionState(webView.interactionState)
         }
 
         // MARK: - WKNavigationDelegate
@@ -247,7 +249,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             preferences: WKWebpagePreferences,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
         ) {
-            preferences.preferredContentMode = state.prefersDesktopSite ? .desktop : .recommended
+            preferences.preferredContentMode = state.contentModePreference.webKitContentMode
             decisionHandler(.allow, preferences)
         }
 
@@ -268,6 +270,17 @@ public struct MobileBrowserView: UIViewRepresentable {
                 webView.load(navigationAction.request)
             }
             return nil
+        }
+    }
+}
+
+extension BrowserSurfaceState.ContentModePreference {
+    /// The WebKit content mode this preference requests for page loads.
+    var webKitContentMode: WKWebpagePreferences.ContentMode {
+        switch self {
+        case .recommended: .recommended
+        case .mobile: .mobile
+        case .desktop: .desktop
         }
     }
 }

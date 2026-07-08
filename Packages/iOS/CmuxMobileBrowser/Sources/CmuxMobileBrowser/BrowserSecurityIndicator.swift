@@ -1,31 +1,34 @@
 public import Foundation
 
-/// Computes the address-bar security indicator for a browser URL.
-public struct BrowserSecurityIndicator {
-    /// The visual security state shown next to the address.
-    public enum State: Equatable, Sendable {
-        /// An HTTPS page.
-        case secure
-        /// A public HTTP page.
-        case insecure
-        /// No indicator should be shown.
-        case none
-    }
+/// The address-bar security indicator for a browser URL.
+public enum BrowserSecurityIndicator: Equatable, Sendable {
+    /// An HTTPS page.
+    case secure
+    /// A public HTTP page.
+    case insecure
+    /// No indicator should be shown.
+    case none
 
-    private init() {}
-
-    /// Return the security indicator state for a URL.
+    /// Classify the security indicator for a URL.
     ///
     /// - Parameter url: The committed browser URL, or `nil` before navigation.
-    /// - Returns: The indicator state for the address bar.
-    public static func state(for url: URL?) -> State {
-        guard let url, let scheme = url.scheme?.lowercased() else { return .none }
-        if scheme == "https" { return .secure }
-        guard scheme == "http" else { return .none }
-        guard let host = url.host(percentEncoded: false), !isLocalOrPrivateHost(host) else {
-            return .none
+    public init(url: URL?) {
+        guard let url, let scheme = url.scheme?.lowercased() else {
+            self = .none
+            return
         }
-        return .insecure
+        if scheme == "https" {
+            self = .secure
+            return
+        }
+        guard scheme == "http",
+              let host = url.host(percentEncoded: false),
+              !Self.isLocalOrPrivateHost(host)
+        else {
+            self = .none
+            return
+        }
+        self = .insecure
     }
 
     private static func isLocalOrPrivateHost(_ host: String) -> Bool {

@@ -31,6 +31,7 @@ import Testing
         #expect(state.canGoForward == false)
         #expect(state.isAddressEditing == false)
         #expect(state.savedInteractionState == nil)
+        #expect(state.contentModePreference == .recommended)
         #expect(state.prefersDesktopSite == false)
     }
 
@@ -56,19 +57,19 @@ import Testing
         #expect(state.consumeLoadRequest() == url)
     }
 
-    @Test func saveInteractionStateKeepsLatestNonNilData() {
+    @Test func saveInteractionStateKeepsLatestNonNilSnapshot() {
         let state = makeState()
         let first = Data([1, 2, 3])
         let second = Data([4, 5, 6])
 
         state.saveInteractionState(first)
-        #expect(state.savedInteractionState == first)
+        #expect(state.savedInteractionState as? Data == first)
 
         state.saveInteractionState(nil)
-        #expect(state.savedInteractionState == first)
+        #expect(state.savedInteractionState as? Data == first)
 
         state.saveInteractionState(second)
-        #expect(state.savedInteractionState == second)
+        #expect(state.savedInteractionState as? Data == second)
     }
 
     @Test func loadClearsSavedInteractionState() {
@@ -132,8 +133,9 @@ import Testing
         #expect(state.consumeCommand() == .goForward)
     }
 
-    @Test func desktopSitePreferenceDefaultsToMobileRecommendedMode() {
+    @Test func contentModeDefaultsToRecommended() {
         let state = makeState()
+        #expect(state.contentModePreference == .recommended)
         #expect(state.prefersDesktopSite == false)
     }
 
@@ -143,7 +145,24 @@ import Testing
 
         state.togglePrefersDesktopSite()
 
+        #expect(state.contentModePreference == .desktop)
         #expect(state.prefersDesktopSite)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func toggleBackForcesMobileNotRecommended() {
+        // On iPads the recommended mode is desktop, so "Request Mobile Site"
+        // must force .mobile rather than fall back to the device default.
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.togglePrefersDesktopSite()
+        #expect(state.consumeCommand() == .reload)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .mobile)
+        #expect(state.prefersDesktopSite == false)
         #expect(state.consumeCommand() == .reload)
     }
 
@@ -157,11 +176,11 @@ import Testing
         #expect(state.consumeLoadRequest()?.absoluteString == "https://example.com")
     }
 
-    @Test func settingSameDesktopPreferenceIsNoOp() {
+    @Test func settingSameContentModePreferenceIsNoOp() {
         let state = makeState(initialURL: URL(string: "https://example.com")!)
         _ = state.consumeLoadRequest()
 
-        state.setPrefersDesktopSite(false)
+        state.setContentModePreference(.recommended)
 
         #expect(state.prefersDesktopSite == false)
         #expect(state.consumeCommand() == nil)
