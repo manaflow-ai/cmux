@@ -83,8 +83,19 @@ export const accountDeletionTombstones = pgTable(
   "account_deletion_tombstones",
   {
     userIdHash: text("user_id_hash").primaryKey(),
+    userId: text("user_id"),
+    status: text("status").$type<"pending" | "in_progress" | "completed" | "failed">().notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
   },
+  (table) => [
+    index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
+    index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
 );
 
 export const cloudVmLeases = pgTable(

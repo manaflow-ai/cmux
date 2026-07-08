@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
   accountDeletionTombstones,
@@ -30,10 +30,12 @@ import {
 } from "../billing/pro";
 import { isStripeBillingConfigured, stripe } from "../billing/stripe";
 import { destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
+import { isVmNotFoundError } from "../vms/errors";
 import { deleteObject } from "../vault/storage";
 import { accountDeletionAdvisoryLockKey, accountDeletionUserHash } from "./deletionLock";
 
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
+const ACCOUNT_DELETION_JOB_STALE_MS = 15 * 60 * 1000;
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
 
 type AccountDeletionWorkflow = unknown;
@@ -68,6 +70,19 @@ export type AccountDeletionInput = {
   readonly userId: string;
 };
 
+export type AccountDeletionStatus = "pending" | "in_progress" | "completed" | "failed";
+
+export type AccountDeletionRequest = {
+  readonly userIdHash: string;
+  readonly status: AccountDeletionStatus;
+};
+
+export type AccountDeletionJob = {
+  readonly userId: string;
+  readonly userIdHash: string;
+  readonly status: AccountDeletionStatus;
+};
+
 export type StackAccountDeletionMetadataUser = {
   readonly clientReadOnlyMetadata?: unknown;
   update(options: { clientReadOnlyMetadata: StackJsonObject }): Promise<void>;
@@ -89,12 +104,180 @@ export async function markStackUserDeletionInProgress(
   await user.update({ clientReadOnlyMetadata: metadata });
 }
 
+export async function enqueueAccountDeletion(
+  input: AccountDeletionInput,
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<AccountDeletionRequest> {
+  const db = runtime.cloudDb();
+  const userIdHash = accountDeletionUserHash(input.userId);
+
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+    const [existing] = await tx
+      .select({
+        userIdHash: accountDeletionTombstones.userIdHash,
+        status: accountDeletionTombstones.status,
+      })
+      .from(accountDeletionTombstones)
+      .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+      .limit(1);
+    if (existing && existing.status !== "failed") return existing;
+
+    const now = new Date();
+    if (existing) {
+      const [updated] = await tx
+        .update(accountDeletionTombstones)
+        .set({
+          userId: input.userId,
+          status: "pending",
+          updatedAt: now,
+          errorMessage: null,
+        })
+        .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+        .returning({
+          userIdHash: accountDeletionTombstones.userIdHash,
+          status: accountDeletionTombstones.status,
+        });
+      if (!updated) throw new Error("Account deletion request update returned no row");
+      return updated;
+    }
+
+    const [created] = await tx
+      .insert(accountDeletionTombstones)
+      .values({
+        userIdHash,
+        userId: input.userId,
+        status: "pending",
+        updatedAt: now,
+      })
+      .returning({
+        userIdHash: accountDeletionTombstones.userIdHash,
+        status: accountDeletionTombstones.status,
+      });
+    if (!created) throw new Error("Account deletion request insert returned no row");
+    return created;
+  });
+}
+
+export async function claimAccountDeletionProcessing(
+  input: AccountDeletionInput,
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<boolean> {
+  const db = runtime.cloudDb();
+  const userIdHash = accountDeletionUserHash(input.userId);
+  const staleBefore = new Date(Date.now() - ACCOUNT_DELETION_JOB_STALE_MS);
+
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+    const [existing] = await tx
+      .select({
+        status: accountDeletionTombstones.status,
+        updatedAt: accountDeletionTombstones.updatedAt,
+      })
+      .from(accountDeletionTombstones)
+      .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+      .limit(1);
+    if (!existing || existing.status === "completed") return false;
+    if (existing.status === "in_progress" && existing.updatedAt > staleBefore) return false;
+
+    const now = new Date();
+    const [claimed] = await tx
+      .update(accountDeletionTombstones)
+      .set({
+        userId: input.userId,
+        status: "in_progress",
+        attemptCount: sql`${accountDeletionTombstones.attemptCount} + 1`,
+        updatedAt: now,
+        startedAt: now,
+        errorMessage: null,
+      })
+      .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+      .returning({ userIdHash: accountDeletionTombstones.userIdHash });
+    return !!claimed;
+  });
+}
+
+export async function listPendingAccountDeletionJobs(
+  input: { readonly limit?: number } = {},
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<readonly AccountDeletionJob[]> {
+  const db = runtime.cloudDb();
+  const limit = Math.max(1, Math.min(input.limit ?? 5, 25));
+  const staleBefore = new Date(Date.now() - ACCOUNT_DELETION_JOB_STALE_MS);
+  const rows = await db
+    .select({
+      userId: accountDeletionTombstones.userId,
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+    })
+    .from(accountDeletionTombstones)
+    .where(and(
+      isNotNull(accountDeletionTombstones.userId),
+      or(
+        eq(accountDeletionTombstones.status, "pending"),
+        eq(accountDeletionTombstones.status, "failed"),
+        and(
+          eq(accountDeletionTombstones.status, "in_progress"),
+          lt(accountDeletionTombstones.updatedAt, staleBefore),
+        ),
+      ),
+    ))
+    .orderBy(asc(accountDeletionTombstones.updatedAt))
+    .limit(limit);
+
+  return rows.flatMap((row) =>
+    row.userId
+      ? [{ userId: row.userId, userIdHash: row.userIdHash, status: row.status }]
+      : []
+  );
+}
+
+export async function markAccountDeletionCompleted(
+  input: AccountDeletionInput,
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+    await tx
+      .update(accountDeletionTombstones)
+      .set({
+        userId: null,
+        status: "completed",
+        updatedAt: now,
+        completedAt: now,
+        errorMessage: null,
+      })
+      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)));
+  });
+}
+
+export async function markAccountDeletionFailed(
+  input: AccountDeletionInput & { readonly error: unknown },
+  runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.userId)}, 0))`);
+    await tx
+      .update(accountDeletionTombstones)
+      .set({
+        userId: input.userId,
+        status: "failed",
+        updatedAt: now,
+        errorMessage: accountDeletionErrorMessage(input.error),
+      })
+      .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(input.userId)));
+  });
+}
+
 export async function deleteCmuxAccountData(
   input: AccountDeletionInput,
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
 ): Promise<void> {
   const anonymizedUserId = deletedAccountId(input.userId);
-  await markAccountDeletionStarted(input.userId, runtime);
   await claimProviderlessAccountVms(input.userId, runtime);
   await destroyProviderBackedAccountVms(input.userId, runtime);
 
@@ -171,20 +354,6 @@ export async function deleteCmuxAccountData(
   });
 }
 
-async function markAccountDeletionStarted(
-  userId: string,
-  runtime: AccountDeletionRuntime,
-): Promise<void> {
-  const db = runtime.cloudDb();
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
-    await tx
-      .insert(accountDeletionTombstones)
-      .values({ userIdHash: accountDeletionUserHash(userId) })
-      .onConflictDoNothing();
-  });
-}
-
 async function claimProviderlessAccountVms(
   userId: string,
   runtime: AccountDeletionRuntime,
@@ -213,10 +382,15 @@ async function destroyProviderBackedAccountVms(
     if (activeVms.length === 0) return;
     for (const vm of activeVms) {
       if (!vm.providerVmId) continue;
-      await runtime.runVmWorkflow(runtime.destroyAccountOwnedVm({
-        userId,
-        providerVmId: vm.providerVmId,
-      }));
+      try {
+        await runtime.runVmWorkflow(runtime.destroyAccountOwnedVm({
+          userId,
+          providerVmId: vm.providerVmId,
+        }));
+      } catch (error) {
+        if (isVmNotFoundError(error)) continue;
+        throw error;
+      }
     }
   }
 
@@ -317,6 +491,12 @@ async function cancelStripeAccountBilling(
 
 function deletedAccountId(userId: string): string {
   return `deleted_${accountDeletionUserHash(userId).slice(0, 24)}`;
+}
+
+function accountDeletionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message.slice(0, 500);
+  if (typeof error === "string") return error.slice(0, 500);
+  return "Account deletion failed";
 }
 
 function stackJsonObject(value: unknown): StackJsonObject {

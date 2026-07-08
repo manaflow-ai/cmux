@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
-import { accountDeletionTombstones, cloudVmLeases, cloudVmSessions } from "../db/schema";
+import { cloudVmLeases, cloudVmSessions } from "../db/schema";
 import { deleteCmuxAccountData } from "../services/account/deletion";
 
 const calls: string[] = [];
 let providerBackedVmBatches: Array<Array<{ providerVmId: string | null }>> = [];
+let workflowErrorsByProviderId = new Map<string, unknown>();
 
 type DestroyAccountOwnedVmInput = { userId: string; providerVmId: string };
 type DestroyAccountOwnedVmWorkflow = {
@@ -18,6 +19,11 @@ const destroyAccountOwnedVm = mock((input: unknown): DestroyAccountOwnedVmWorkfl
 }));
 const runVmWorkflow = mock(async (workflow: unknown) => {
   const vmWorkflow = workflow as DestroyAccountOwnedVmWorkflow;
+  const workflowError = workflowErrorsByProviderId.get(vmWorkflow.input.providerVmId);
+  if (workflowError) {
+    calls.push(`destroy-error:${vmWorkflow.input.userId}:${vmWorkflow.input.providerVmId}`);
+    throw workflowError;
+  }
   calls.push(`destroy:${vmWorkflow.input.userId}:${vmWorkflow.input.providerVmId}`);
 });
 const deleteObject = mock(async () => {});
@@ -25,6 +31,7 @@ const deleteObject = mock(async () => {});
 beforeEach(() => {
   calls.length = 0;
   providerBackedVmBatches = [];
+  workflowErrorsByProviderId = new Map();
   destroyAccountOwnedVm.mockClear();
   runVmWorkflow.mockClear();
   deleteObject.mockClear();
@@ -41,17 +48,15 @@ describe("account deletion cleanup", () => {
       userId: "user-1",
     }, fakeRuntime());
 
-    expect(calls.slice(0, 4)).toEqual([
-      "transaction",
-      "lock-account-deletion",
-      "insert-account-deletion-tombstone",
-      "claim-providerless-vms",
-    ]);
-    expect(calls.slice(3, 7)).toEqual([
+    expect(calls.slice(0, 3)).toEqual([
       "claim-providerless-vms",
       "select-provider-backed-vms",
       "destroy:user-1:provider-vm-1",
+    ]);
+    expect(calls.slice(2, 5)).toEqual([
+      "destroy:user-1:provider-vm-1",
       "select-provider-backed-vms",
+      "transaction",
     ]);
     expect(destroyAccountOwnedVm).toHaveBeenCalledWith({
       userId: "user-1",
@@ -60,6 +65,46 @@ describe("account deletion cleanup", () => {
     expect(runVmWorkflow).toHaveBeenCalledTimes(1);
     expect(calls).toContain("delete-cloud-vm-sessions");
     expect(calls).toContain("delete-cloud-vm-leases");
+  });
+
+  test("rechecks when a provider-backed VM disappears during account deletion", async () => {
+    providerBackedVmBatches = [
+      [{ providerVmId: "provider-vm-1" }],
+      [],
+    ];
+    workflowErrorsByProviderId.set(
+      "provider-vm-1",
+      Object.assign(new Error("not found"), { _tag: "VmNotFoundError" }),
+    );
+
+    await deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime());
+
+    expect(calls.slice(0, 4)).toEqual([
+      "claim-providerless-vms",
+      "select-provider-backed-vms",
+      "destroy-error:user-1:provider-vm-1",
+      "select-provider-backed-vms",
+    ]);
+    expect(runVmWorkflow).toHaveBeenCalledTimes(1);
+    expect(calls).toContain("delete-cloud-vm-sessions");
+  });
+
+  test("fails closed when provider-backed VM destruction fails", async () => {
+    providerBackedVmBatches = [
+      [{ providerVmId: "provider-vm-1" }],
+      [],
+    ];
+    workflowErrorsByProviderId.set("provider-vm-1", new Error("provider destroy failed"));
+
+    await expect(deleteCmuxAccountData({
+      userId: "user-1",
+    }, fakeRuntime())).rejects.toThrow("provider destroy failed");
+
+    expect(runVmWorkflow).toHaveBeenCalledTimes(1);
+    expect(calls).toContain("destroy-error:user-1:provider-vm-1");
+    expect(calls).not.toContain("delete-cloud-vm-sessions");
   });
 
   test("fails closed when provider-backed VMs keep appearing", async () => {
@@ -112,14 +157,6 @@ function fakeRuntime() {
 
 function fakeTransaction() {
   return {
-    execute: async () => {
-      calls.push("lock-account-deletion");
-      return [];
-    },
-    insert: (table: unknown) => {
-      if (table === accountDeletionTombstones) return insertBuilder("insert-account-deletion-tombstone");
-      return insertBuilder();
-    },
     update: () => updateBuilder(),
     delete: (table: unknown) => {
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
@@ -127,17 +164,6 @@ function fakeTransaction() {
       return writeBuilder();
     },
   };
-}
-
-function insertBuilder(label?: string) {
-  const builder = {
-    values: () => builder,
-    onConflictDoNothing: async () => {
-      if (label) calls.push(label);
-      return [];
-    },
-  };
-  return builder;
 }
 
 function selectBuilder(rows: () => unknown[]) {

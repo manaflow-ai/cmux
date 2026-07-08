@@ -4,15 +4,13 @@ const accountDeletionModule = await import("../services/account/deletion");
 const realIsStackAccountDeletionInProgress = accountDeletionModule.isStackAccountDeletionInProgress;
 const realMarkStackUserDeletionInProgress = accountDeletionModule.markStackUserDeletionInProgress;
 const calls: string[] = [];
+const scheduledCallbacks: Array<() => Promise<void>> = [];
 let stackUserMetadata: unknown = {};
-let cleanupError: Error | null = null;
 let postHogPreflightError: Error | null = null;
+let enqueueStatus: "pending" | "in_progress" | "completed" | "failed" = "pending";
 const assertPostHogDeletionConfigured = mock(() => {
   calls.push("posthog-preflight");
   if (postHogPreflightError) throw postHogPreflightError;
-});
-const deletePostHogPersonData = mock(async () => {
-  calls.push("posthog-delete");
 });
 type NativeTokenStore = { accessToken: string; refreshToken: string };
 const markStackUserDeletionInProgress = mock(async (user) => {
@@ -21,9 +19,14 @@ const markStackUserDeletionInProgress = mock(async (user) => {
     user as Parameters<typeof realMarkStackUserDeletionInProgress>[0],
   );
 });
-const deleteCmuxAccountData = mock(async () => {
-  calls.push("cleanup");
-  if (cleanupError) throw cleanupError;
+const enqueueAccountDeletion = mock(async (_input?: unknown) => {
+  calls.push("enqueue");
+  return { userIdHash: "hash-user-1", status: enqueueStatus };
+});
+const processAccountDeletionForUser = mock(async (_input?: unknown) => {
+  const input = _input as { userId: string };
+  calls.push(`process:${input.userId}`);
+  return "processed" as const;
 });
 const deleteUser = mock(async () => {});
 const getUser = mock(async (_options?: unknown) => stackUser());
@@ -53,20 +56,27 @@ function deleteAccount(request: Request): Promise<Response> {
       (await getUser({ tokenStore })) as ReturnType<typeof stackUser> | null,
     assertPostHogDeletionConfigured,
     markStackUserDeletionInProgress,
-    deleteCmuxAccountData,
-    deletePostHogPersonData,
+    enqueueAccountDeletion: async (input) =>
+      await enqueueAccountDeletion(input) as Awaited<ReturnType<typeof accountDeletionModule.enqueueAccountDeletion>>,
+    processAccountDeletionForUser: async (input) =>
+      await processAccountDeletionForUser(input) as "processed" | "skipped",
+    scheduleAfterResponse: (callback) => {
+      calls.push("schedule");
+      scheduledCallbacks.push(callback);
+    },
   });
 }
 
 beforeEach(() => {
   calls.length = 0;
+  scheduledCallbacks.length = 0;
   stackUserMetadata = {};
-  cleanupError = null;
   postHogPreflightError = null;
+  enqueueStatus = "pending";
   assertPostHogDeletionConfigured.mockClear();
-  deletePostHogPersonData.mockClear();
   markStackUserDeletionInProgress.mockClear();
-  deleteCmuxAccountData.mockClear();
+  enqueueAccountDeletion.mockClear();
+  processAccountDeletionForUser.mockClear();
   deleteUser.mockClear();
   getUser.mockClear();
   getUser.mockResolvedValue(stackUser());
@@ -83,12 +93,52 @@ describe("account deletion route", () => {
     expect(getUser).not.toHaveBeenCalled();
     expect(assertPostHogDeletionConfigured).not.toHaveBeenCalled();
     expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
-    expect(deleteCmuxAccountData).not.toHaveBeenCalled();
-    expect(deletePostHogPersonData).not.toHaveBeenCalled();
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
     expect(deleteUser).not.toHaveBeenCalled();
   });
 
-  test("marks deletion in progress before cmux and PostHog cleanup", async () => {
+  test("marks deletion in progress, enqueues cleanup, and returns before background deletion", async () => {
+    const response = await deleteAccount(
+      new Request("https://cmux.test/api/account/deletion", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-1",
+          "x-stack-refresh-token": "refresh-1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true, status: "pending" });
+    expect(getUser).toHaveBeenCalledWith({
+      tokenStore: { accessToken: "access-1", refreshToken: "refresh-1" },
+    });
+    expect(enqueueAccountDeletion).toHaveBeenCalledWith({
+      userId: "user-1",
+    });
+    expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(true);
+    expect(deleteUser).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(calls).toEqual(["posthog-preflight", "mark-deleting", "enqueue", "schedule"]);
+    expect(scheduledCallbacks).toHaveLength(1);
+
+    await scheduledCallbacks[0]();
+
+    expect(processAccountDeletionForUser).toHaveBeenCalledWith({ userId: "user-1" });
+    expect(calls).toEqual([
+      "posthog-preflight",
+      "mark-deleting",
+      "enqueue",
+      "schedule",
+      "process:user-1",
+    ]);
+  });
+
+  test("returns completed deletion without scheduling duplicate cleanup", async () => {
+    enqueueStatus = "completed";
+
     const response = await deleteAccount(
       new Request("https://cmux.test/api/account/deletion", {
         method: "DELETE",
@@ -100,18 +150,10 @@ describe("account deletion route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
-    expect(getUser).toHaveBeenCalledWith({
-      tokenStore: { accessToken: "access-1", refreshToken: "refresh-1" },
-    });
-    expect(deleteCmuxAccountData).toHaveBeenCalledWith({
-      userId: "user-1",
-    });
-    expect(deleteCmuxAccountData).toHaveBeenCalledTimes(1);
-    expect(realIsStackAccountDeletionInProgress(stackUserMetadata)).toBe(true);
-    expect(deleteUser).toHaveBeenCalledTimes(1);
-    expect(deletePostHogPersonData).toHaveBeenCalledWith("user-1");
-    expect(calls).toEqual(["posthog-preflight", "mark-deleting", "cleanup", "posthog-delete", "delete"]);
+    expect(await response.json()).toEqual({ ok: true, status: "completed" });
+    expect(enqueueAccountDeletion).toHaveBeenCalledWith({ userId: "user-1" });
+    expect(scheduledCallbacks).toHaveLength(0);
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
   });
 
   test("does not delete the Stack user when PostHog deletion is not configured", async () => {
@@ -129,26 +171,9 @@ describe("account deletion route", () => {
 
     expect(calls).toEqual(["posthog-preflight"]);
     expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
-    expect(deleteCmuxAccountData).not.toHaveBeenCalled();
-    expect(deletePostHogPersonData).not.toHaveBeenCalled();
-    expect(deleteUser).not.toHaveBeenCalled();
-  });
-
-  test("does not delete the Stack user when cmux-owned cleanup fails", async () => {
-    cleanupError = new Error("cleanup failed");
-
-    await expect(deleteAccount(
-      new Request("https://cmux.test/api/account/deletion", {
-        method: "DELETE",
-        headers: {
-          authorization: "Bearer access-1",
-          "x-stack-refresh-token": "refresh-1",
-        },
-      }),
-    )).rejects.toThrow("cleanup failed");
-
-    expect(calls).toEqual(["posthog-preflight", "mark-deleting", "cleanup"]);
-    expect(deletePostHogPersonData).not.toHaveBeenCalled();
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
     expect(deleteUser).not.toHaveBeenCalled();
   });
 
@@ -169,8 +194,9 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(assertPostHogDeletionConfigured).not.toHaveBeenCalled();
     expect(markStackUserDeletionInProgress).not.toHaveBeenCalled();
-    expect(deleteCmuxAccountData).not.toHaveBeenCalled();
-    expect(deletePostHogPersonData).not.toHaveBeenCalled();
+    expect(enqueueAccountDeletion).not.toHaveBeenCalled();
+    expect(processAccountDeletionForUser).not.toHaveBeenCalled();
+    expect(scheduledCallbacks).toHaveLength(0);
     expect(deleteUser).not.toHaveBeenCalled();
   });
 });

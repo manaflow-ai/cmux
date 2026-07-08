@@ -1,15 +1,16 @@
+import { after } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized } from "../../../../services/vms/auth";
 import {
-  deleteCmuxAccountData,
+  enqueueAccountDeletion,
   markStackUserDeletionInProgress,
   type StackAccountDeletionMetadataUser,
 } from "../../../../services/account/deletion";
 import {
   assertPostHogDeletionConfigured,
-  deletePostHogPersonData,
 } from "../../../../services/analytics/posthogDeletion";
+import { processAccountDeletionForUser } from "../../../../services/account/deletionProcessor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,8 +30,9 @@ export type AccountDeletionRouteDependencies = {
   readonly getUser: (tokenStore: NativeTokenStore) => Promise<StackAccountDeletionRouteUser | null>;
   readonly assertPostHogDeletionConfigured: typeof assertPostHogDeletionConfigured;
   readonly markStackUserDeletionInProgress: typeof markStackUserDeletionInProgress;
-  readonly deleteCmuxAccountData: typeof deleteCmuxAccountData;
-  readonly deletePostHogPersonData: typeof deletePostHogPersonData;
+  readonly enqueueAccountDeletion: typeof enqueueAccountDeletion;
+  readonly processAccountDeletionForUser: typeof processAccountDeletionForUser;
+  readonly scheduleAfterResponse: (callback: () => Promise<void>) => void;
 };
 
 const accountDeletionRouteDependencies: AccountDeletionRouteDependencies = {
@@ -38,8 +40,9 @@ const accountDeletionRouteDependencies: AccountDeletionRouteDependencies = {
   getUser: async (tokenStore) => await getStackServerApp().getUser({ tokenStore }),
   assertPostHogDeletionConfigured,
   markStackUserDeletionInProgress,
-  deleteCmuxAccountData,
-  deletePostHogPersonData,
+  enqueueAccountDeletion,
+  processAccountDeletionForUser,
+  scheduleAfterResponse: after,
 };
 
 export async function deleteAccountWithDependencies(
@@ -57,10 +60,21 @@ export async function deleteAccountWithDependencies(
   dependencies.assertPostHogDeletionConfigured();
   await dependencies.markStackUserDeletionInProgress(user);
 
-  await dependencies.deleteCmuxAccountData({ userId: user.id });
-  await dependencies.deletePostHogPersonData(user.id);
-  await user.delete();
-  return jsonResponse({ ok: true });
+  const deletion = await dependencies.enqueueAccountDeletion({ userId: user.id });
+  if (deletion.status !== "completed") {
+    dependencies.scheduleAfterResponse(async () => {
+      try {
+        await dependencies.processAccountDeletionForUser({ userId: user.id });
+      } catch (error) {
+        console.error("[account-deletion] background job failed", {
+          userIdHash: deletion.userIdHash,
+          error,
+        });
+      }
+    });
+  }
+
+  return jsonResponse({ ok: true, status: deletion.status }, deletion.status === "completed" ? 200 : 202);
 }
 
 function nativeTokenStore(request: Request): NativeTokenStore | null {
