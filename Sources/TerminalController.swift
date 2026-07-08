@@ -2379,7 +2379,7 @@ class TerminalController {
             "vm.ssh_info",
             "aiAccounts.list",
             "aiAccounts.upload",
-            "aiAccounts.remove",
+            "aiAccounts.remove", "billing.status", "billing.checkout", "billing.portal",
             "window.list",
             "window.current",
             "window.focus",

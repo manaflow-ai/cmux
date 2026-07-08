@@ -26,6 +26,14 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "aiAccounts.remove") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func billingPrefixedMethodsRunOnTheSocketWorker() {
+        // `cmux billing` verbs make blocking authenticated web API calls, so
+        // they must run on the worker while the app keeps Stack tokens local.
+        #expect(ControlCommandExecutionPolicy(forMethod: "billing.status") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "billing.checkout") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "billing.portal") == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",

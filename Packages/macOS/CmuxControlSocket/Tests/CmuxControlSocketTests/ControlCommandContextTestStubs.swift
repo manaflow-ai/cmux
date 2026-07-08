@@ -42,6 +42,20 @@ extension ControlFeedContext {
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] { [] }
 }
 
+extension ControlBillingContext {
+    func controlBillingStatus() -> ControlCallResult {
+        .ok(.object(["ok": .bool(false), "error": .string("unavailable")]))
+    }
+
+    func controlBillingCheckout(plan: String) -> ControlCallResult {
+        .ok(.object(["ok": .bool(false), "error": .string("unavailable")]))
+    }
+
+    func controlBillingPortal() -> ControlCallResult {
+        .ok(.object(["ok": .bool(false), "error": .string("unavailable")]))
+    }
+}
+
 extension ControlPaneContext {
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? { nil }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
