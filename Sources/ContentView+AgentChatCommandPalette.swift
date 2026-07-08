@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPalette
 
 extension ContentView {
     func commandPaletteConfigActionID(for commandId: String) -> String? {

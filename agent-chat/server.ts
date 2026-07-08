@@ -16,7 +16,7 @@ import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -136,7 +136,6 @@ function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Prom
   }
 }
 const keyConfig = await readKeyConfig();
-const uiConfig = await readUiConfig();
 
 function sessionSummary(s: Session) {
   return {
@@ -424,9 +423,18 @@ interface UiConfig {
   };
 }
 
-async function readUiConfig(): Promise<UiConfig> {
+let uiConfigCache: { value: UiConfig; at: number } | null = null;
+
+function resolveUiConfig(): UiConfig {
+  if (uiConfigCache && Date.now() - uiConfigCache.at < 3000) return uiConfigCache.value;
+  const value = readUiConfig();
+  uiConfigCache = { value, at: Date.now() };
+  return value;
+}
+
+function readUiConfig(): UiConfig {
   try {
-    const text = await Bun.file(resolve(homedir(), ".config/cmux/cmux.json")).text();
+    const text = readFileSync(resolve(homedir(), ".config/cmux/cmux.json"), "utf8");
     const parsed = JSON.parse(text);
     const fonts = parsed?.agentChat?.fonts ?? {};
     const num = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
@@ -562,10 +570,19 @@ async function emitFilesChanged(sess: Session) {
   sess.emit({ kind: "files-changed", files });
 }
 
+export function resolveFileDiffPath(cwd: string, path: string): string {
+  if (path.includes("\0") || path.startsWith("../") || path === "..") throw new Error("invalid path");
+  const root = resolve(cwd);
+  const target = resolve(root, path);
+  const rel = relative(root, target);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error("invalid path");
+  return rel.replaceAll("\\", "/");
+}
+
 async function fileDiff(cwd: string, path: string): Promise<string> {
   if (!(await isGitRepo(cwd))) throw new Error("not a git repository");
-  if (path.includes("\0") || path.startsWith("../") || path === "..") throw new Error("invalid path");
-  const diff = await gitOutput(cwd, ["diff", "--no-ext-diff", "HEAD", "--", path], 80_000).catch(() => "");
+  const safePath = resolveFileDiffPath(cwd, path);
+  const diff = await gitOutput(cwd, ["diff", "--no-ext-diff", "HEAD", "--", safePath], 80_000).catch(() => "");
   return diff.split(/\r?\n/).slice(0, 400).join("\n");
 }
 
@@ -642,14 +659,25 @@ const ANSI_NAMES = [
 const DEFAULT_SANS = `-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
 const DEFAULT_MONO = `"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace`;
 
-function cssFontFamily(value: string | undefined | null, fallback: string): string {
+function quoteCssFontFamily(value: string): string | null {
+  const clean = value
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[;{}]/g, "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  if (!clean) return null;
+  return `"${clean.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+export function cssFontFamily(value: string | undefined | null, fallback: string): string {
   if (!value) return fallback;
-  if (value.includes(",") || /^["']/.test(value)) return `${value}, ${fallback}`;
-  return `${JSON.stringify(value)}, ${fallback}`;
+  const families = value.split(",").map(quoteCssFontFamily).filter(Boolean);
+  return families.length ? `${families.join(", ")}, ${fallback}` : fallback;
 }
 
 function fontVars(theme: GhosttyTheme): string {
-  const fonts = uiConfig.fonts;
+  const fonts = resolveUiConfig().fonts;
   const baseSize = fonts.baseSize ?? 14;
   const codeSize = fonts.codeSize ?? theme.fontSize ?? 12.5;
   const codeLineHeight = fonts.codeLineHeight ?? 1.5;
@@ -713,10 +741,12 @@ interface StaticAsset {
   type: string;
 }
 
-// Bundle the frontend entries with Bun. Built once at startup and cached;
-// rebuilt on request only when CMUX_AGENT_UI_CACHE != "1" (dev).
+// Bundle the frontend entries with Bun. Built once at startup and cached by
+// default; rebuilt on request only when CMUX_AGENT_UI_DEV=1 (dev iteration).
 let assetCache: Map<string, StaticAsset> | null = null;
 let cssAssetCache: StaticAsset | null = null;
+let bundleBuildCount = 0;
+let cssReadCount = 0;
 
 function arrayBufferOf(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -741,8 +771,9 @@ function bundleSizeLine(assets: Map<string, StaticAsset>): string {
   return `bundle ready: ${part("app.js", app)}; ${part("gallery.js", gallery)}`;
 }
 
-async function buildBundles(): Promise<Map<string, StaticAsset>> {
-  if (assetCache && process.env.CMUX_AGENT_UI_CACHE === "1") return assetCache;
+export async function buildBundles(): Promise<Map<string, StaticAsset>> {
+  if (assetCache && process.env.CMUX_AGENT_UI_DEV !== "1") return assetCache;
+  bundleBuildCount += 1;
   const out = await Bun.build({
     entrypoints: [`${ROOT}/src/main.tsx`, `${ROOT}/src/gallery-main.tsx`],
     target: "browser",
@@ -767,11 +798,23 @@ async function buildBundles(): Promise<Map<string, StaticAsset>> {
   return assets;
 }
 
-async function cssAsset(): Promise<StaticAsset> {
-  if (cssAssetCache && process.env.CMUX_AGENT_UI_CACHE === "1") return cssAssetCache;
+export async function cssAsset(): Promise<StaticAsset> {
+  if (cssAssetCache && process.env.CMUX_AGENT_UI_DEV !== "1") return cssAssetCache;
+  cssReadCount += 1;
   const bytes = await Bun.file(`${ROOT}/public/app.css`).arrayBuffer();
   cssAssetCache = makeAsset("/app.css", bytes, "text/css; charset=utf-8");
   return cssAssetCache;
+}
+
+export function resetAssetCachesForTest() {
+  assetCache = null;
+  cssAssetCache = null;
+  bundleBuildCount = 0;
+  cssReadCount = 0;
+}
+
+export function assetCacheStatsForTest() {
+  return { bundleBuildCount, cssReadCount };
 }
 
 function acceptsGzip(req: Request): boolean {
@@ -798,10 +841,11 @@ function assetResponse(req: Request, asset: StaticAsset): Response {
   });
 }
 
-const server = Bun.serve<WsData>({
-  port: PORT,
-  hostname: "127.0.0.1",
-  async fetch(req, srv) {
+function startServer() {
+  const server = Bun.serve<WsData>({
+    port: PORT,
+    hostname: "127.0.0.1",
+    async fetch(req, srv) {
     const url = new URL(req.url);
     if (!hasTrustedHost(req)) return new Response("forbidden", { status: 403 });
     if (url.pathname === "/ws") {
@@ -854,9 +898,9 @@ const server = Bun.serve<WsData>({
       return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
     }
     return new Response(renderPage(url), { headers: { "content-type": "text/html; charset=utf-8" } });
-  },
-  websocket: {
-    open(ws) {
+    },
+    websocket: {
+      open(ws) {
       allSockets.add(ws);
       ws.send(JSON.stringify({
         kind: "hello",
@@ -869,13 +913,13 @@ const server = Bun.serve<WsData>({
         kind: "sessions",
         sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
       }));
-    },
-    close(ws) {
+      },
+      close(ws) {
       allSockets.delete(ws);
       const sid = ws.data.subscribed;
       if (sid) sessions.get(sid)?.sockets.delete(ws);
-    },
-    message(ws, raw) {
+      },
+      message(ws, raw) {
       let msg: any;
       try {
         msg = JSON.parse(String(raw));
@@ -887,9 +931,25 @@ const server = Bun.serve<WsData>({
       } catch (err) {
         sendWsError(ws, String(msg.op ?? ""), err);
       }
+      },
     },
-  },
-});
+  });
+
+  // Warm the bundle so the first page load doesn't pay the build cost, and so
+  // a build error surfaces at startup rather than as a blank page.
+  buildBundles().then(
+    () => {},
+    (err) => console.error(String(err)),
+  );
+
+  for (const p of PROVIDERS) {
+    refreshCatalog(p.id, process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD).catch((err) => {
+      console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
+    });
+  }
+
+  console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
+}
 
 function sendWsError(ws: Bun.ServerWebSocket<WsData>, op: string, err: unknown) {
   ws.send(JSON.stringify({ kind: "error", op, message: String(err) }));
@@ -1040,17 +1100,4 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-// Warm the bundle so the first page load doesn't pay the build cost, and so a
-// build error surfaces at startup rather than as a blank page.
-buildBundles().then(
-  () => {},
-  (err) => console.error(String(err)),
-);
-
-for (const p of PROVIDERS) {
-  refreshCatalog(p.id, process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD).catch((err) => {
-    console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
-  });
-}
-
-console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
+if (import.meta.main) startServer();

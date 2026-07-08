@@ -53,50 +53,49 @@ final class CmuxAgentChatConfigTests: XCTestCase {
         """))
     }
 
-    @MainActor
-    func testStoreResolvesAgentChatDefaultsAndLocalOverridesGlobal() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-agent-chat-config-\(UUID().uuidString)",
-            isDirectory: true
+    func testResolveLocalURLOnlyDoesNotInheritGlobalStartCommand() {
+        let resolved = CmuxAgentChatConfiguration.resolved(
+            local: CmuxAgentChatConfigDefinition(url: "http://127.0.0.1:9010"),
+            global: CmuxAgentChatConfigDefinition(
+                url: "http://127.0.0.1:9000",
+                startCommand: "cmux-chat --port 9000"
+            )
         )
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
 
-        let missingGlobal = root.appendingPathComponent("missing-global.json")
-        let defaultsStore = CmuxConfigStore(
-            globalConfigPath: missingGlobal.path,
-            localConfigPath: nil,
-            startFileWatchers: false
+        XCTAssertEqual(resolved.url.absoluteString, "http://127.0.0.1:9010")
+        XCTAssertNil(resolved.startCommand)
+    }
+
+    func testResolveLocalStartCommandOnlyUsesDefaultURL() {
+        let resolved = CmuxAgentChatConfiguration.resolved(
+            local: CmuxAgentChatConfigDefinition(startCommand: "cmux-chat --port 9010"),
+            global: CmuxAgentChatConfigDefinition(
+                url: "http://127.0.0.1:9000",
+                startCommand: "cmux-chat --port 9000"
+            )
         )
-        defaultsStore.loadAll()
-        XCTAssertEqual(defaultsStore.agentChat.url.absoluteString, CmuxAgentChatConfiguration.defaultURLString)
-        XCTAssertNil(defaultsStore.agentChat.startCommand)
 
-        let globalConfigURL = root.appendingPathComponent("global-cmux.json")
-        try """
-        {
-          "agentChat": {
-            "url": "http://127.0.0.1:9000",
-            "startCommand": "cmux-chat --port 9000"
-          }
-        }
-        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
-        let localConfigURL = root.appendingPathComponent("cmux.json")
-        try """
-        {
-          "agentChat": {
-            "url": "http://127.0.0.1:9010"
-          }
-        }
-        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+        XCTAssertEqual(resolved.url.absoluteString, CmuxAgentChatConfiguration.defaultURLString)
+        XCTAssertEqual(resolved.startCommand, "cmux-chat --port 9010")
+    }
 
-        let store = CmuxConfigStore(
-            globalConfigPath: globalConfigURL.path,
-            localConfigPath: localConfigURL.path,
-            startFileWatchers: false
+    func testResolveNoLocalUsesGlobalBlock() {
+        let resolved = CmuxAgentChatConfiguration.resolved(
+            local: nil,
+            global: CmuxAgentChatConfigDefinition(
+                url: "http://127.0.0.1:9000",
+                startCommand: "cmux-chat --port 9000"
+            )
         )
-        store.loadAll()
-        XCTAssertEqual(store.agentChat.url.absoluteString, "http://127.0.0.1:9010")
-        XCTAssertEqual(store.agentChat.startCommand, "cmux-chat --port 9000")
+
+        XCTAssertEqual(resolved.url.absoluteString, "http://127.0.0.1:9000")
+        XCTAssertEqual(resolved.startCommand, "cmux-chat --port 9000")
+    }
+
+    func testResolveNeitherUsesDefaultBlock() {
+        let resolved = CmuxAgentChatConfiguration.resolved(local: nil, global: nil)
+
+        XCTAssertEqual(resolved.url.absoluteString, CmuxAgentChatConfiguration.defaultURLString)
+        XCTAssertNil(resolved.startCommand)
     }
 }

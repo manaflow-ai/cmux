@@ -83,10 +83,11 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
         local: CmuxAgentChatConfigDefinition?,
         global: CmuxAgentChatConfigDefinition?
     ) -> CmuxAgentChatConfiguration {
-        let rawURL = local?.url ?? global?.url ?? Self.defaultURLString
+        let definition = local ?? global
+        let rawURL = definition?.url ?? Self.defaultURLString
         return CmuxAgentChatConfiguration(
             url: URL(string: rawURL) ?? Self.default.url,
-            startCommand: local?.startCommand ?? global?.startCommand
+            startCommand: definition?.startCommand
         )
     }
 }
