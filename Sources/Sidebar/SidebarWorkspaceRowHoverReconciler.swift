@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SidebarWorkspaceRowHoverReconciler: NSViewRepresentable {
+    let trackedPointerHovering: Bool
     let onPointerHoverChanged: (Bool) -> Void
 
     func makeNSView(context: Context) -> SidebarWorkspaceRowHoverReconcilerView {
@@ -11,6 +12,6 @@ struct SidebarWorkspaceRowHoverReconciler: NSViewRepresentable {
 
     func updateNSView(_ nsView: SidebarWorkspaceRowHoverReconcilerView, context: Context) {
         nsView.onPointerHoverChanged = onPointerHoverChanged
-        nsView.reconcileCurrentPointerLocation()
+        nsView.reconcileCurrentPointerLocation(repairing: trackedPointerHovering)
     }
 }

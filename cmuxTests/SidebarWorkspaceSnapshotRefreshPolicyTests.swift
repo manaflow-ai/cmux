@@ -428,7 +428,7 @@ import Testing
         #expect(!state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
         view.onPointerHoverChanged = { state.setPointerHovering($0) }
 
-        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14), repairing: state.trackedPointerHovering)
 
         #expect(
             state.shouldShowCloseButton(

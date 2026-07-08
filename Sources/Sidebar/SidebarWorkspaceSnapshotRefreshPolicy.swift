@@ -93,6 +93,10 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     private var contextMenuTrackingObserverInstalled = false
     private var deferredPointerHoveringWhileContextMenu: Bool?
 
+    var trackedPointerHovering: Bool {
+        deferredPointerHoveringWhileContextMenu ?? isPointerHovering
+    }
+
     mutating func setPointerHovering(_ hovering: Bool) {
         if contextMenuVisible {
             if hovering || contextMenuTrackingObserverInstalled {
