@@ -103,6 +103,7 @@ extension DockSplitStore {
         let panel = BrowserPanel(
             workspaceId: workspaceId,
             profileID: preferredProfileID,
+            browserProfileStore: browserProfileStore(),
             initialURL: url,
             initialRequest: initialRequest,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,

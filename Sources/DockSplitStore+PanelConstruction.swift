@@ -119,13 +119,13 @@ extension DockSplitStore {
     }
 
     func browserProfileIndex() -> DockBrowserProfileIndex {
-        let store = BrowserProfileStore.shared
+        let store = browserProfileStore()
         var index = DockBrowserProfileIndex(
             defaultProfileID: store.builtInDefaultProfileID,
             defaultProfileDisplayName: store.displayName(for: store.builtInDefaultProfileID)
         )
-        for profile in BrowserProfileStore.shared.profiles {
-            index.addProfile(id: profile.id, displayName: profile.displayName, slug: profile.slug)
+        for profile in store.profiles {
+            index.addProfile(id: profile.id, displayName: profile.displayName)
         }
         return index
     }

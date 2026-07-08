@@ -28,14 +28,13 @@ final class DockSplitStore: BonsplitDelegate {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
-    /// Host views currently showing this Dock. Normally at most one (the owning
-    /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
-    /// and new host, so visibility is the union rather than a single flag.
+    /// Host views currently showing this Dock; visibility is their union.
     private var visibleUIHostIds: Set<UUID> = []
 
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    private let browserProfileStoreProvider: () -> BrowserProfileStore
     // Internal so cross-container transfers can move live panels without tearing them down.
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -51,7 +50,6 @@ final class DockSplitStore: BonsplitDelegate {
     private var activeConfigURL: URL?
     private var rootDirectoryOverride: String?
     private var resolvedBaseDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
-    /// Last loaded resolved config identity.
     private var lastLoadedConfigIdentity: DockConfigIdentity?
     @ObservationIgnored var hasAppliedConfigurationSeed = false
     /// True while a programmatic split (config seed, `newSplit`, cross-container
@@ -80,13 +78,15 @@ final class DockSplitStore: BonsplitDelegate {
         scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
-        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() }
+        browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        browserProfileStoreProvider: @escaping () -> BrowserProfileStore = { .shared }
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.browserProfileStoreProvider = browserProfileStoreProvider
         self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
@@ -128,6 +128,7 @@ final class DockSplitStore: BonsplitDelegate {
     func currentRemoteBrowserSettings() -> DockRemoteBrowserSettings { remoteBrowserSettingsProvider() }
 
     func isBrowserPanelAvailable() -> Bool { browserAvailabilityProvider() }
+    func browserProfileStore() -> BrowserProfileStore { browserProfileStoreProvider() }
 
     func panel(for tabId: TabID) -> (any Panel)? {
         guard let panelId = surfaceIdToPanelId[tabId] else { return nil }

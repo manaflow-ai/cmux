@@ -29,6 +29,13 @@ struct DockPrimitiveControlTests {
         return url
     }
 
+    private func makeBrowserProfileDefaults() throws -> (UserDefaults, String) {
+        let suiteName = "DockPrimitiveControlTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
+    }
+
     @MainActor
     private func panel(in store: DockSplitStore, titled title: String) throws -> any Panel {
         for tabId in store.bonsplitController.allTabIds {
@@ -168,20 +175,23 @@ struct DockPrimitiveControlTests {
         _ = try #require(try panel(in: store, titled: "Shell") as? TerminalPanel)
     }
 
-    @Test("Browser profile references use stable IDs and fail closed on ambiguous names")
+    @Test("Browser profile references use stable IDs and fail closed on names")
     @MainActor
     func browserProfileReferencesUseStableIDsAndFailClosed() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
+        let (defaults, suiteName) = try makeBrowserProfileDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let profileStore = BrowserProfileStore(defaults: defaults)
 
         let profileName = "Dock Profile \(UUID().uuidString)"
-        let profile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
-        defer { _ = BrowserProfileStore.shared.deleteProfile(id: profile.id) }
+        let profile = try #require(profileStore.createProfile(named: profileName))
 
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { root.path },
-            browserAvailabilityProvider: { true }
+            browserAvailabilityProvider: { true },
+            browserProfileStoreProvider: { profileStore }
         )
         defer { store.closeAllPanels() }
 
@@ -204,22 +214,15 @@ struct DockPrimitiveControlTests {
         let browserPanel = try #require(try panel(in: store, titled: "Docs") as? BrowserPanel)
         #expect(browserPanel.profileID == profile.id)
 
-        let duplicateName = "Dock Duplicate \(UUID().uuidString)"
-        let firstDuplicate = try #require(BrowserProfileStore.shared.createProfile(named: duplicateName))
-        let secondDuplicate = try #require(BrowserProfileStore.shared.createProfile(named: duplicateName))
-        defer {
-            _ = BrowserProfileStore.shared.deleteProfile(id: firstDuplicate.id)
-            _ = BrowserProfileStore.shared.deleteProfile(id: secondDuplicate.id)
-        }
-
-        let ambiguousStore = DockSplitStore(
+        let nameReferenceStore = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { root.path },
-            browserAvailabilityProvider: { true }
+            browserAvailabilityProvider: { true },
+            browserProfileStoreProvider: { profileStore }
         )
-        defer { ambiguousStore.closeAllPanels() }
+        defer { nameReferenceStore.closeAllPanels() }
 
-        let ambiguousResolution = DockConfigResolution(
+        let nameReferenceResolution = DockConfigResolution(
             controls: [
                 DockControlDefinition(
                     id: "before",
@@ -227,9 +230,9 @@ struct DockPrimitiveControlTests {
                     variant: .command("echo should-not-start")
                 ),
                 DockControlDefinition(
-                    id: "ambiguous",
-                    title: "Ambiguous",
-                    variant: .browser(url: "https://docs.cmux.dev", profile: duplicateName)
+                    id: "named",
+                    title: "Named",
+                    variant: .browser(url: "https://docs.cmux.dev", profile: profileName)
                 )
             ],
             sourceURL: nil,
@@ -237,19 +240,19 @@ struct DockPrimitiveControlTests {
             isProjectSource: false
         )
 
-        let ambiguousGeneration = ambiguousStore.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
-        ambiguousStore.applyConfigurationLoadResult(
-            .resolved(ambiguousResolution),
-            generation: ambiguousGeneration,
+        let nameReferenceGeneration = nameReferenceStore.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
+        nameReferenceStore.applyConfigurationLoadResult(
+            .resolved(nameReferenceResolution),
+            generation: nameReferenceGeneration,
             replacingPanels: true
         )
 
-        #expect(ambiguousStore.panels.isEmpty)
-        #expect(ambiguousStore.errorMessage?.contains("matches multiple") == true)
+        #expect(nameReferenceStore.panels.isEmpty)
+        #expect(nameReferenceStore.errorMessage?.contains("does not match") == true)
     }
 
-    @Test("UUID-shaped browser profile names fall back to name lookup")
-    func uuidShapedBrowserProfileNamesFallBackToNameLookup() throws {
+    @Test("UUID-shaped browser profile names do not shadow stable IDs")
+    func uuidShapedBrowserProfileNamesDoNotShadowStableIDs() throws {
         let defaultID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
         let profileID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000002"))
         let uuidShapedName = "00000000-0000-0000-0000-000000000003"
@@ -258,10 +261,13 @@ struct DockPrimitiveControlTests {
             defaultProfileID: defaultID,
             defaultProfileDisplayName: "Default"
         )
-        index.addProfile(id: defaultID, displayName: "Default", slug: "default")
-        index.addProfile(id: profileID, displayName: uuidShapedName, slug: "uuid-shaped")
+        index.addProfile(id: defaultID, displayName: "Default")
+        index.addProfile(id: profileID, displayName: uuidShapedName)
 
-        let resolution = try index.resolve(uuidShapedName)
+        #expect(throws: (any Error).self) {
+            _ = try index.resolve(uuidShapedName)
+        }
+        let resolution = try index.resolve(profileID.uuidString)
 
         #expect(resolution.id == profileID)
         #expect(resolution.displayName == uuidShapedName)
@@ -277,14 +283,17 @@ struct DockPrimitiveControlTests {
         let configURL = root.appendingPathComponent(".cmux", isDirectory: true)
             .appendingPathComponent("dock-\(UUID().uuidString).json", isDirectory: false)
         let profileName = "Dock Trust \(UUID().uuidString)"
+        let (defaults, suiteName) = try makeBrowserProfileDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let profileStore = BrowserProfileStore(defaults: defaults)
 
-        func trustRequest() throws -> DockTrustRequest {
+        func trustRequest(profileID: UUID) throws -> DockTrustRequest {
             let resolution = DockConfigResolution(
                 controls: [
                     DockControlDefinition(
                         id: "docs",
                         title: "Docs",
-                        variant: .browser(url: "https://docs.cmux.dev", profile: profileName)
+                        variant: .browser(url: "https://docs.cmux.dev", profile: profileID.uuidString)
                     )
                 ],
                 sourceURL: configURL,
@@ -294,7 +303,8 @@ struct DockPrimitiveControlTests {
             let store = DockSplitStore(
                 workspaceId: UUID(),
                 baseDirectoryProvider: { root.path },
-                browserAvailabilityProvider: { true }
+                browserAvailabilityProvider: { true },
+                browserProfileStoreProvider: { profileStore }
             )
             defer { store.closeAllPanels() }
             let generation = store.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
@@ -302,10 +312,9 @@ struct DockPrimitiveControlTests {
             return try #require(store.trustRequest)
         }
 
-        let firstProfile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
+        let firstProfile = try #require(profileStore.createProfile(named: profileName))
         let firstProfileID = firstProfile.id
-        defer { _ = BrowserProfileStore.shared.deleteProfile(id: firstProfileID) }
-        let firstRequest = try trustRequest()
+        let firstRequest = try trustRequest(profileID: firstProfileID)
         let firstFingerprint = firstRequest.descriptor.fingerprint
         #expect(firstRequest.controlSummaries.map(\.detail) == [
             .browser(
@@ -316,11 +325,9 @@ struct DockPrimitiveControlTests {
             )
         ])
 
-        _ = BrowserProfileStore.shared.deleteProfile(id: firstProfileID)
-        let secondProfile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
+        let secondProfile = try #require(profileStore.createProfile(named: "\(profileName) Replacement"))
         let secondProfileID = secondProfile.id
-        defer { _ = BrowserProfileStore.shared.deleteProfile(id: secondProfileID) }
-        let secondFingerprint = try trustRequest().descriptor.fingerprint
+        let secondFingerprint = try trustRequest(profileID: secondProfileID).descriptor.fingerprint
 
         #expect(firstProfileID != secondProfileID)
         #expect(firstFingerprint != secondFingerprint)
