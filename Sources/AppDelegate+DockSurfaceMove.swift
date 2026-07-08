@@ -348,7 +348,7 @@ extension AppDelegate {
     private func preserveEmptySourceWorkspaceAfterSurfaceMove(sourceWorkspace: Workspace) {
         guard sourceWorkspace.panels.isEmpty else { return }
         sourceWorkspace.detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
-        _ = sourceWorkspace.createReplacementTerminalPanel()
+        _ = sourceWorkspace.createReplacementTerminalPanel(reassertAppKitFocus: false)
         sourceWorkspace.scheduleTerminalGeometryReconcile()
     }
 }

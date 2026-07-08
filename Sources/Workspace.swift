@@ -10276,7 +10276,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
-    func createReplacementTerminalPanel() -> TerminalPanel {
+    func createReplacementTerminalPanel(reassertAppKitFocus: Bool = true) -> TerminalPanel {
         var replacementConfig = inheritedTerminalConfig(
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
@@ -10319,6 +10319,12 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         ) {
             bindSurface(newTabId, toPanelId: newPanel.id)
+            if reassertAppKitFocus, let replacementPane = bonsplitController.allPaneIds.first {
+                bonsplitController.focusPane(replacementPane)
+                bonsplitController.selectTab(newTabId)
+                applyTabSelection(tabId: newTabId, inPane: replacementPane, reassertAppKitFocus: reassertAppKitFocus)
+                scheduleFocusReconcile()
+            }
         }
 
         return newPanel
@@ -12554,15 +12560,8 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             dlog("replacement.remoteDisconnect.fire target=\(pendingRemoteDisconnectReplacement?.target ?? "nil")")
             #endif
-            let replacement = createReplacementTerminalPanel()
-            if let replacementTabId = surfaceIdFromPanelId(replacement.id),
-               let replacementPane = bonsplitController.allPaneIds.first {
-                bonsplitController.focusPane(replacementPane)
-                bonsplitController.selectTab(replacementTabId)
-                applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
-            }
+            _ = createReplacementTerminalPanel()
             scheduleTerminalGeometryReconcile()
-            scheduleFocusReconcile()
             return
         }
 
