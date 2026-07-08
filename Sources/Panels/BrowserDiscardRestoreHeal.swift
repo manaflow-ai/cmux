@@ -113,6 +113,7 @@ extension BrowserPanel {
             isNavigationBlockedPendingConsent: isNavigationBlockedPendingConsent,
             hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
             userStoppedLoad: userStoppedLoadSinceWebViewReplacement,
+            isShowingErrorPage: navigationDelegate?.activeErrorPageDisplayURL != nil,
             intentURL: intentURL
         ) else {
             return false
@@ -178,6 +179,7 @@ extension BrowserPanel {
         isNavigationBlockedPendingConsent: Bool,
         hasRecoverableWebContentTermination: Bool,
         userStoppedLoad: Bool,
+        isShowingErrorPage: Bool,
         intentURL: URL?
     ) -> Bool {
         guard shouldRenderWebView else { return false }
@@ -193,6 +195,9 @@ extension BrowserPanel {
         // A load the user explicitly stopped before first commit must stay
         // stopped; healing on reveal would silently undo the Stop.
         guard !userStoppedLoad else { return false }
+        // The browser's own error page commits as about:blank; it is content
+        // awaiting the user's Reload, not a blank shell to heal over.
+        guard !isShowingErrorPage else { return false }
         guard let intentURL else { return false }
         return !isAboutBlankURL(intentURL)
     }
