@@ -2069,18 +2069,18 @@ final class UpdateViewModelPresentationTests: XCTestCase {
     }
 
     private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
-        let enclosure: [String: Any] = [
-            "url": "https://example.com/cmux.zip",
-            "length": "1024",
-            "sparkle:version": displayVersion,
-            "sparkle:shortVersionString": displayVersion,
-        ]
-        let dict: [String: Any] = [
-            "title": "cmux \(displayVersion)",
-            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
-            "enclosure": enclosure,
-        ]
-        return SUAppcastItem(dictionary: dict)
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        archiver.encode(displayVersion, forKey: "displayVersionString")
+        archiver.encode(URL(string: "https://example.com/cmux.zip"), forKey: "fileURL")
+        archiver.encode("application", forKey: "SUAppcastItemInstallationType")
+        archiver.encode(displayVersion, forKey: "versionString")
+        archiver.encode([String: String](), forKey: "propertiesDictionary")
+        archiver.encode(0, forKey: "SUAppcastItemSigningValidationStatus")
+        archiver.finishEncoding()
+        guard let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: archiver.encodedData) else { return nil }
+        unarchiver.requiresSecureCoding = true
+        defer { unarchiver.finishDecoding() }
+        return SUAppcastItem(coder: unarchiver)
     }
 }
 

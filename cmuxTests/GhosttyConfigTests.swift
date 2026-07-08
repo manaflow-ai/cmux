@@ -674,7 +674,7 @@ final class GhosttyConfigTests: XCTestCase {
             encoding: .utf8
         )
 
-        let config = GhosttyConfig()
+        var config = GhosttyConfig()
         config.loadTheme(
             themeFile.path,
             environment: [:],
@@ -731,7 +731,7 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testParseBackgroundOpacityReadsConfigValue() {
-        var config = GhosttyConfig()
+        let config = GhosttyConfig()
         config.parse("background-opacity = 0.42")
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
     }
@@ -4626,7 +4626,7 @@ final class SidebarBackgroundConfigTests: XCTestCase {
 
         defaults.set("#AAAAAA", forKey: testKey)
 
-        var config = GhosttyConfig()
+        let config = GhosttyConfig()
         config.applySidebarAppearanceToUserDefaults()
 
         XCTAssertEqual(defaults.string(forKey: testKey), "#AAAAAA",
