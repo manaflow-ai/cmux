@@ -29,6 +29,7 @@ struct GlobalArgs {
 #[derive(Default)]
 struct FlagMap {
     values: BTreeMap<String, String>,
+    positionals: Vec<String>,
 }
 
 struct VerbSpec {
@@ -66,6 +67,56 @@ const VERBS: &[VerbSpec] = &[
         allowed: &["surface"],
         build: build_surface,
         print: print_read_screen,
+        stream: false,
+    },
+    VerbSpec {
+        name: "wait-for",
+        allowed: &["surface", "pattern", "timeout-ms"],
+        build: build_wait_for,
+        print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "run",
+        allowed: &["pane", "new-workspace", "cwd", "name", "command"],
+        build: build_run,
+        print: print_surface,
+        stream: false,
+    },
+    VerbSpec {
+        name: "send-key",
+        allowed: &["surface"],
+        build: build_send_key,
+        print: print_empty,
+        stream: false,
+    },
+    VerbSpec {
+        name: "copy",
+        allowed: &["surface", "mode"],
+        build: build_copy,
+        print: print_read_screen,
+        stream: false,
+    },
+    VerbSpec { name: "ids", allowed: &["kind"], build: build_ids, print: print_ids, stream: false },
+    VerbSpec {
+        name: "notify",
+        allowed: &["title", "body", "level", "surface"],
+        build: build_notify,
+        print: print_notification,
+        stream: false,
+    },
+    VerbSpec {
+        name: "list-agents",
+        allowed: &["surface", "state"],
+        build: build_list_agents,
+        print: print_agents,
+        stream: false,
+    },
+    VerbSpec {
+        name: "report-agent",
+        allowed: &["surface", "state", "source", "session"],
+        build: build_report_agent,
+        print: print_empty,
         stream: false,
     },
     VerbSpec {
@@ -319,12 +370,30 @@ fn parse(args: &[String]) -> Result<Parsed, UsageError> {
                 i += 2;
             }
             "--session" => {
-                global.session = Some(value_after(args, i, "--session")?);
-                i += 2;
+                if verb.is_some_and(|spec| spec.allowed.contains(&"session")) {
+                    let value = value_after(args, i, "--session")?;
+                    if flags.values.insert("session".to_string(), value).is_some() {
+                        return Err(UsageError(format!("duplicate flag {arg:?}")));
+                    }
+                    i += 2;
+                } else {
+                    global.session = Some(value_after(args, i, "--session")?);
+                    i += 2;
+                }
             }
             _ if verb.is_none() && verb_by_name(arg).is_some() => {
                 verb = verb_by_name(arg);
                 i += 1;
+            }
+            "--" => {
+                let Some(spec) = verb else {
+                    return Err(UsageError("missing verb before --".to_string()));
+                };
+                if spec.name != "run" {
+                    return Err(UsageError(format!("unexpected argument {arg:?}")));
+                }
+                flags.positionals.extend(args[i + 1..].iter().cloned());
+                break;
             }
             _ if arg.starts_with("--") => {
                 let Some(spec) = verb else {
@@ -334,6 +403,13 @@ fn parse(args: &[String]) -> Result<Parsed, UsageError> {
                 if !spec.allowed.contains(&name) {
                     return Err(UsageError(format!("unknown flag {arg:?} for {}", spec.name)));
                 }
+                if spec.name == "run" && name == "new-workspace" {
+                    if flags.values.insert(name.to_string(), "true".to_string()).is_some() {
+                        return Err(UsageError(format!("duplicate flag {arg:?}")));
+                    }
+                    i += 1;
+                    continue;
+                }
                 let value = value_after(args, i, arg)?;
                 if flags.values.insert(name.to_string(), value).is_some() {
                     return Err(UsageError(format!("duplicate flag {arg:?}")));
@@ -341,7 +417,13 @@ fn parse(args: &[String]) -> Result<Parsed, UsageError> {
                 i += 2;
             }
             _ if verb.is_some() => {
-                return Err(UsageError(format!("unexpected argument {arg:?}")));
+                let spec = verb.unwrap();
+                if spec.name == "send-key" {
+                    flags.positionals.push(arg.to_string());
+                    i += 1;
+                } else {
+                    return Err(UsageError(format!("unexpected argument {arg:?}")));
+                }
             }
             _ => return Err(UsageError(format!("unknown argument {arg:?}"))),
         }
@@ -569,6 +651,113 @@ fn build_send(flags: &FlagMap) -> Result<Value, UsageError> {
             .map_err(|err| UsageError(format!("failed to read stdin: {err}")))?;
         value["text"] = json!(text);
     }
+    Ok(value)
+}
+
+fn build_wait_for(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({
+        "surface": flags.required_u64("surface")?,
+        "pattern": flags.required("pattern")?,
+        "timeout_ms": flags.required_u64("timeout-ms")?,
+    }))
+}
+
+fn build_run(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    flags.insert_optional_u64(&mut value, "pane")?;
+    flags.insert_optional_string(&mut value, "cwd");
+    flags.insert_optional_string(&mut value, "name");
+    if flags.optional("new-workspace").is_some() {
+        value["new_workspace"] = json!(true);
+    }
+    match (flags.optional("command"), flags.positionals.is_empty()) {
+        (Some(command), true) => value["command"] = json!(command),
+        (Some(_), false) => {
+            return Err(UsageError("--command and argv are mutually exclusive".to_string()));
+        }
+        (None, false) => value["argv"] = json!(flags.positionals),
+        (None, true) => return Err(UsageError("argv or --command is required".to_string())),
+    }
+    Ok(value)
+}
+
+fn build_send_key(flags: &FlagMap) -> Result<Value, UsageError> {
+    if flags.positionals.is_empty() {
+        return Err(UsageError("at least one key is required".to_string()));
+    }
+    Ok(json!({
+        "surface": flags.required_u64("surface")?,
+        "keys": flags.positionals,
+    }))
+}
+
+fn build_copy(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mode = flags.required("mode")?;
+    if !matches!(mode.as_str(), "screen" | "selection" | "scrollback") {
+        return Err(UsageError("--mode must be screen, selection, or scrollback".to_string()));
+    }
+    Ok(json!({ "surface": flags.required_u64("surface")?, "mode": mode }))
+}
+
+fn build_ids(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    if let Some(kind) = flags.optional("kind") {
+        if !matches!(kind.as_str(), "workspace" | "screen" | "pane" | "surface") {
+            return Err(UsageError(
+                "--kind must be workspace, screen, pane, or surface".to_string(),
+            ));
+        }
+        value["kind"] = json!(kind);
+    }
+    Ok(value)
+}
+
+fn build_notify(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({
+        "title": flags.required("title")?,
+        "body": flags.required("body")?,
+    });
+    if let Some(level) = flags.optional("level") {
+        if !matches!(level.as_str(), "info" | "warning" | "error") {
+            return Err(UsageError("--level must be info, warning, or error".to_string()));
+        }
+        value["level"] = json!(level);
+    }
+    flags.insert_optional_u64(&mut value, "surface")?;
+    Ok(value)
+}
+
+fn build_list_agents(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    flags.insert_optional_u64(&mut value, "surface")?;
+    if let Some(state) = flags.optional("state") {
+        if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "unknown") {
+            return Err(UsageError(
+                "--state must be working, blocked, idle, done, or unknown".to_string(),
+            ));
+        }
+        value["state"] = json!(state);
+    }
+    Ok(value)
+}
+
+fn build_report_agent(flags: &FlagMap) -> Result<Value, UsageError> {
+    let state = flags.required("state")?;
+    if !matches!(state.as_str(), "working" | "blocked" | "idle" | "done" | "unknown") {
+        return Err(UsageError(
+            "--state must be working, blocked, idle, done, or unknown".to_string(),
+        ));
+    }
+    let source = flags.required("source")?;
+    if !matches!(source.as_str(), "socket" | "hook") {
+        return Err(UsageError("--source must be socket or hook".to_string()));
+    }
+    let mut value = json!({
+        "surface": flags.required_u64("surface")?,
+        "state": state,
+        "source": source,
+    });
+    flags.insert_optional_string(&mut value, "session");
     Ok(value)
 }
 
@@ -810,6 +999,39 @@ fn print_vt_state(data: &Value, out: &mut dyn Write) -> io::Result<()> {
 
 fn print_surface(data: &Value, out: &mut dyn Write) -> io::Result<()> {
     writeln!(out, "{}", data.get("surface").and_then(Value::as_u64).unwrap_or(0))
+}
+
+fn print_notification(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    writeln!(out, "{}", data.get("notification").and_then(Value::as_u64).unwrap_or(0))
+}
+
+fn print_ids(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let Some(ids) = data.get("ids").and_then(Value::as_array) else { return Ok(()) };
+    for item in ids {
+        writeln!(
+            out,
+            "{} {} {}",
+            item.get("kind").and_then(Value::as_str).unwrap_or(""),
+            item.get("id").and_then(Value::as_u64).unwrap_or(0),
+            item.get("short_id").and_then(Value::as_str).unwrap_or("")
+        )?;
+    }
+    Ok(())
+}
+
+fn print_agents(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let Some(agents) = data.get("agents").and_then(Value::as_array) else { return Ok(()) };
+    for agent in agents {
+        writeln!(
+            out,
+            "{} {} {} {}",
+            agent.get("surface").and_then(Value::as_u64).unwrap_or(0),
+            agent.get("state").and_then(Value::as_str).unwrap_or(""),
+            agent.get("source").and_then(Value::as_str).unwrap_or(""),
+            agent.get("session").and_then(Value::as_str).unwrap_or("-")
+        )?;
+    }
+    Ok(())
 }
 
 fn print_tree(data: &Value, out: &mut dyn Write) -> io::Result<()> {

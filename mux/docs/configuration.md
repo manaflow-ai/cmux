@@ -19,6 +19,9 @@ Selection colors are resolved in this order: explicit `mux.json`, Ghostty config
 | `theme.tab_active_bg` | color or null | `null` | Overrides the focused and unfocused active-tab chip backgrounds |
 | `theme.border_active` | color | `110` | Focused pane border |
 | `theme.border_inactive` | color | `238` | Unfocused pane border |
+| `theme.notification_info` | color | `110` | Info notification attention dot and border |
+| `theme.notification_warning` | color | `179` | Warning notification attention dot and border |
+| `theme.notification_error` | color | `167` | Error notification attention dot and border |
 
 ## Tabs
 
@@ -114,7 +117,10 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "tab_bg": 236,
     "tab_active_bg": null,
     "border_active": "#87afd7",
-    "border_inactive": "#444444"
+    "border_inactive": "#444444",
+    "notification_info": "#87afd7",
+    "notification_warning": "#d7af5f",
+    "notification_error": "#d75f5f"
   },
   "tabs": {
     "min_width": 9,

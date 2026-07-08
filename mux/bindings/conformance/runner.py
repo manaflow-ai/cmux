@@ -216,6 +216,14 @@ def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
         "move-tab": client.move_tab,
         "move-workspace": client.move_workspace,
         "scroll-surface": client.scroll_surface,
+        "wait-for": lambda **kw: client._request("wait-for", **kw),
+        "run": lambda **kw: client._request("run", **kw),
+        "send-key": lambda **kw: client._request("send-key", **kw),
+        "copy": lambda **kw: client._request("copy", **kw),
+        "ids": lambda **kw: client._request("ids", **kw),
+        "notify": lambda **kw: client._request("notify", **kw),
+        "list-agents": lambda **kw: client._request("list-agents", **kw),
+        "report-agent": lambda **kw: client._request("report-agent", **kw),
     }
     if cmd not in mapping:
         raise FixtureFailure(f"unsupported fixture command {cmd}")
