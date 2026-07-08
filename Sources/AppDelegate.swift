@@ -17230,7 +17230,12 @@ private extension NSWindow {
             }
             return false
         }
-        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView) { return true }
+        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+            event,
+            terminalView: firstResponderGhosttyView,
+            webView: firstResponderWebView,
+            browserWebKitKeyDownReentry: browserWebKitKeyDownReentry
+        ) { return true }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(

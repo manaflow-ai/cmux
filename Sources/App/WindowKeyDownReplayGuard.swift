@@ -47,24 +47,47 @@ extension NSWindow {
     func cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
         _ event: NSEvent,
         terminalView: GhosttyNSView?,
-        webView: CmuxWebView?
+        webView: CmuxWebView?,
+        browserWebKitKeyDownReentry: Bool
     ) -> Bool {
         guard event.cmuxIsUndoRedoCommandEquivalent,
               !cmuxFirstResponderPreservesLocalUndoRedo else {
             return false
         }
         if let terminalView {
-            _ = terminalView.performKeyEquivalentAfterMenuMiss(with: event)
+            if terminalView.performKeyEquivalentAfterMenuMiss(with: event) {
 #if DEBUG
-            cmuxDebugLog("  -> undo/redo routed to terminal before AppKit menu")
+                cmuxDebugLog("  -> undo/redo routed to terminal before AppKit menu")
 #endif
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(event, to: terminalView, reason: "terminal undo/redo") {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo keyDown fallback routed to terminal")
+#endif
+                return true
+            }
             return true
         }
         if let webView {
-            _ = webView.performKeyEquivalent(with: event)
+            if browserWebKitKeyDownReentry {
 #if DEBUG
-            cmuxDebugLog("  -> undo/redo routed to browser before AppKit menu")
+                cmuxDebugLog("  -> undo/redo browser reentry suppressed before AppKit menu")
 #endif
+                return true
+            }
+            if webView.performKeyEquivalent(with: event) {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo routed to browser before AppKit menu")
+#endif
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(event, to: webView, reason: "browser undo/redo") {
+#if DEBUG
+                cmuxDebugLog("  -> undo/redo keyDown fallback routed to browser")
+#endif
+                return true
+            }
             return true
         }
         return false

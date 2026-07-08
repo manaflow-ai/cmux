@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Carbon.HIToolbox
 import WebKit
 import ObjectiveC.runtime
 
@@ -117,6 +118,68 @@ final class CmuxWebViewKeyDownReentryTests: XCTestCase {
             }
 
             XCTAssertFalse(handled)
+            XCTAssertTrue(keyDownEvents().isEmpty)
+        }
+    }
+
+    @MainActor
+    func testBrowserUndoRedoFallsBackToBrowserKeyDownWhenWebKitDeclines() {
+        withHookedBrowserKeyDownWindow { window, keyDownEvents in
+            installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+            var performKeyEquivalentEvents: [NSEvent] = []
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+                guard currentWebView.window === window else { return nil }
+                performKeyEquivalentEvents.append(event)
+                return false
+            }
+            defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+            guard let event = makeKeyDownEvent(
+                key: "z",
+                modifiers: [.command],
+                keyCode: UInt16(kVK_ANSI_Z),
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Undo event")
+                return
+            }
+
+            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertEqual(performKeyEquivalentEvents.map(\.keyCode), [UInt16(kVK_ANSI_Z)])
+            XCTAssertEqual(keyDownEvents().map(\.keyCode), [UInt16(kVK_ANSI_Z)])
+        }
+    }
+
+    @MainActor
+    func testBrowserUndoRedoDoesNotRouteDuringWebKitKeyDownReentry() {
+        withHookedBrowserKeyDownWindow { window, keyDownEvents in
+            installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+            var performKeyEquivalentEvents: [NSEvent] = []
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+                guard currentWebView.window === window else { return nil }
+                performKeyEquivalentEvents.append(event)
+                return false
+            }
+            defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+            guard let event = makeKeyDownEvent(
+                key: "z",
+                modifiers: [.command],
+                keyCode: UInt16(kVK_ANSI_Z),
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Undo event")
+                return
+            }
+
+            let handled = cmuxWithBrowserWebKitKeyDownDispatch {
+                window.performKeyEquivalent(with: event)
+            }
+
+            XCTAssertTrue(handled)
+            XCTAssertTrue(performKeyEquivalentEvents.isEmpty)
             XCTAssertTrue(keyDownEvents().isEmpty)
         }
     }

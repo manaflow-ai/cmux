@@ -44,10 +44,16 @@ struct WindowKeyDownReplayGuardTests {
 
     private final class TerminalCommandEquivalentProbeView: GhosttyNSView {
         private(set) var afterMenuMissEvents: [NSEvent] = []
+        private(set) var keyDownEvents: [NSEvent] = []
+        var performAfterMenuMissResult = true
 
         override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
             afterMenuMissEvents.append(event)
-            return true
+            return performAfterMenuMissResult
+        }
+
+        override func keyDown(with event: NSEvent) {
+            keyDownEvents.append(event)
         }
     }
 
@@ -324,5 +330,32 @@ struct WindowKeyDownReplayGuardTests {
         #expect(window.performKeyEquivalent(with: event))
         #expect(textView.undoCallCount == 1)
         #expect(terminal.afterMenuMissEvents.isEmpty)
+    }
+
+    @Test
+    func terminalDeclinedUndoCommandFallsBackToTerminalKeyDownWithoutLocalUndo() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let previousMenu = installResponderChainUndoMenu()
+        defer { NSApp.mainMenu = previousMenu }
+
+        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        terminal.performAfterMenuMissResult = false
+        #expect(window.makeFirstResponder(terminal))
+
+        guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Undo key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(terminal.afterMenuMissEvents.map { $0.charactersIgnoringModifiers } == ["z"])
+        #expect(terminal.keyDownEvents.map { $0.charactersIgnoringModifiers } == ["z"])
+        #expect(textView.undoCallCount == 0)
     }
 }
