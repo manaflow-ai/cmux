@@ -118,6 +118,89 @@ extension TerminalController {
         }
     }
 
+    func controlSidebarResolvePanelScopedMutationTab(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Workspace? {
+        let preferredTab = controlSidebarResolveMutationTab(target)
+        guard let panelID else { return preferredTab }
+        if let preferredTab, preferredTab.panels[panelID] != nil {
+            return preferredTab
+        }
+
+        guard case .workspace(let tabID) = target,
+              let relocated = AppDelegate.shared?.workspaceContainingPanel(
+                  panelId: panelID,
+                  preferredWorkspaceId: tabID
+              )?.workspace,
+              relocated.allowsPanelScopedMutationFallback(fromWorkspaceId: tabID, panelId: panelID) else {
+            return nil
+        }
+        return relocated
+    }
+
+    /// The panel-provenance-aware twin of `controlSidebarScheduleMutation`:
+    /// resolves the target at drain time via
+    /// `controlSidebarResolvePanelScopedMutationTab`, so a mutation scoped to
+    /// a panel that moved workspaces follows the panel instead of silently
+    /// no-oping. `nonisolated` with a `@MainActor` mutation closure for the
+    /// same worker-lane reasons as `controlSidebarScheduleMutation`.
+    nonisolated func controlSidebarSchedulePanelScopedMutation(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?,
+        mutation: @escaping @MainActor (TerminalController, Workspace) -> Void
+    ) {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let tab = self.controlSidebarResolvePanelScopedMutationTab(target: target, panelID: panelID) else {
+                return
+            }
+            mutation(self, tab)
+        }
+    }
+
+    func controlSidebarResolvePanelScopedReportTab(tabArg: String?, panelID: UUID?) -> Workspace? {
+        let preferredTab = controlSidebarResolveTabForReport(tabArg: tabArg)
+        guard let panelID,
+              let tabID = tabArg.flatMap(controlSidebarWorkspaceIDArg) else {
+            return preferredTab
+        }
+        if let preferredTab, preferredTab.panels[panelID] != nil {
+            return preferredTab
+        }
+        return controlSidebarResolvePanelScopedMutationTab(target: .workspace(tabID), panelID: panelID)
+    }
+
+    func controlSidebarResolveScopedPanel(
+        scope: ControlSidebarPanelScope
+    ) -> (tabManager: TabManager, tab: Workspace)? {
+        guard let tab = controlSidebarResolvePanelScopedMutationTab(
+            target: .workspace(scope.workspaceID),
+            panelID: scope.panelID
+        ) else {
+            return nil
+        }
+        let resolvedManager = controlSidebarTabManager(for: tab)
+        guard let tabManager = resolvedManager else { return nil }
+        return (tabManager, tab)
+    }
+
+    func controlSidebarTabManager(for tab: Workspace) -> TabManager? {
+        AppDelegate.shared?.tabManagerFor(tabId: tab.id) ?? {
+            guard let tabManager = self.tabManager,
+                  tabManager.tabs.contains(where: { $0.id == tab.id }) else {
+                return nil
+            }
+            return tabManager
+        }()
+    }
+
+    private func controlSidebarWorkspaceIDArg(_ raw: String) -> UUID? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return UUID(uuidString: trimmed)
+    }
+
     /// The enqueue halves of the deleted file-private
     /// `schedulePanelMetadataMutation(args:options:missingPanelUsage:mutation:)`
     /// (the parse-level head moved into the coordinator's
@@ -132,7 +215,7 @@ extension TerminalController {
         if let scope = target.scope {
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self,
-                      let tab = self.controlSidebarTabForMutation(id: scope.workspaceID) else {
+                      let (_, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                     return
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
@@ -147,7 +230,10 @@ extension TerminalController {
         let surfaceIdFromOptions = target.panelID
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
             guard let self,
-                  let tab = self.controlSidebarResolveTabForReport(tabArg: tabArg) else {
+                  let tab = self.controlSidebarResolvePanelScopedReportTab(
+                      tabArg: tabArg,
+                      panelID: surfaceIdFromOptions
+                  ) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
@@ -165,9 +251,9 @@ extension TerminalController {
                 surfaceId: scope.panelID,
                 kind: .directory
             )
-        ) {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+        ) { [weak self] in
+            guard let self,
+                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
@@ -239,7 +325,11 @@ extension TerminalController {
         requireLiveSurface: Bool,
         write: (Workspace, UUID) -> Void
     ) -> ControlSidebarPanelWriteResolution {
-        guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
+        let preferredTab = controlSidebarResolveTabForReport(tabArg: tabArg)
+        let fallbackPanelID = panelArg.flatMap(controlSidebarWorkspaceIDArg)
+        guard var tab = preferredTab ?? fallbackPanelID.flatMap({
+            controlSidebarResolvePanelScopedReportTab(tabArg: tabArg, panelID: $0)
+        }) else {
             return .tabNotFound
         }
 
@@ -264,9 +354,18 @@ extension TerminalController {
             surfaceId = focused
         }
 
+        if tab.panels[surfaceId] == nil,
+           let fallbackTab = controlSidebarResolvePanelScopedReportTab(tabArg: tabArg, panelID: surfaceId),
+           fallbackTab.id != tab.id {
+            tab = fallbackTab
+            if prune {
+                let fallbackSurfaceIds = Set(fallbackTab.panels.keys)
+                fallbackTab.pruneSurfaceMetadata(validSurfaceIds: fallbackSurfaceIds)
+            }
+        }
+
         if requireLiveSurface {
-            let validSurfaceIds = Set(tab.panels.keys)
-            guard validSurfaceIds.contains(surfaceId) else {
+            guard Set(tab.panels.keys).contains(surfaceId) else {
                 return .panelNotFound(surfaceId)
             }
         }

@@ -2172,6 +2172,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+    var panelScopedMutationSourceWorkspaceIdsByPanelId: [UUID: Set<UUID>] = [:]
     /// Optional human-friendly sidebar label per panel, reported via
     /// `report_pwd <label> --path=<real-path>`. Display-only: the File
     /// Explorer, Finder root, and git probing always use `panelDirectories`.
@@ -5094,6 +5095,9 @@ final class Workspace: Identifiable, ObservableObject {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        panelScopedMutationSourceWorkspaceIdsByPanelId = panelScopedMutationSourceWorkspaceIdsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         panelDirectoryDisplayLabels = panelDirectoryDisplayLabels.filter { validSurfaceIds.contains($0.key) }
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
@@ -9595,6 +9599,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             panelCustomTitleSources.removeValue(forKey: detached.panelId)
+            panelScopedMutationSourceWorkspaceIdsByPanelId.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
@@ -9616,6 +9621,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         bindSurface(newTabId, toPanelId: detached.panelId)
         panels[detached.panelId] = detached.panel
+        setPanelScopedMutationSourceWorkspaceIds(
+            detached.panelScopedMutationSourceWorkspaceIds,
+            forPanelId: detached.panelId
+        )
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
@@ -12470,6 +12479,7 @@ extension Workspace: BonsplitDelegate {
             let panelDirectory = panelDirectories[panelId]
             splitLayout.storeDetachedTransfer(DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
+                panelScopedMutationSourceWorkspaceIds: panelScopedMutationSourceWorkspaceIds(forPanelId: panelId).union([id]),
                 panelId: panelId,
                 panel: panel,
                 title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),

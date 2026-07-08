@@ -18,6 +18,7 @@ extension Workspace {
 
     struct DetachedSurfaceTransfer {
         let sourceWorkspaceId: UUID
+        let panelScopedMutationSourceWorkspaceIds: Set<UUID>
         let panelId: UUID
         let panel: any Panel
         let title: String
@@ -48,6 +49,7 @@ extension Workspace {
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
                 sourceWorkspaceId: sourceWorkspaceId,
+                panelScopedMutationSourceWorkspaceIds: panelScopedMutationSourceWorkspaceIds,
                 panelId: panelId,
                 panel: panel,
                 title: title,
@@ -76,5 +78,22 @@ extension Workspace {
                 remoteCleanupConfiguration: configuration
             )
         }
+    }
+
+    func panelScopedMutationSourceWorkspaceIds(forPanelId panelId: UUID) -> Set<UUID> {
+        panelScopedMutationSourceWorkspaceIdsByPanelId[panelId] ?? []
+    }
+
+    func setPanelScopedMutationSourceWorkspaceIds(_ sourceWorkspaceIds: Set<UUID>, forPanelId panelId: UUID) {
+        let filtered = sourceWorkspaceIds.filter { $0 != id }
+        if filtered.isEmpty {
+            panelScopedMutationSourceWorkspaceIdsByPanelId.removeValue(forKey: panelId)
+        } else {
+            panelScopedMutationSourceWorkspaceIdsByPanelId[panelId] = filtered
+        }
+    }
+
+    func allowsPanelScopedMutationFallback(fromWorkspaceId workspaceId: UUID, panelId: UUID) -> Bool {
+        panelScopedMutationSourceWorkspaceIdsByPanelId[panelId]?.contains(workspaceId) == true
     }
 }

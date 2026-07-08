@@ -1,0 +1,371 @@
+import Bonsplit
+import CmuxWorkspaces
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite(.serialized)
+struct MovedPanelSidebarStatusRoutingTests {
+    @Test func panelScopedMutationsRouteMovedSurfaceToCurrentWorkspace() throws {
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let currentTab = moved.destination.id.uuidString
+            let panel = moved.panelID.uuidString
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status current_owner Ready --tab=\(currentTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["current_owner"] == nil)
+            #expect(moved.destination.statusEntries["current_owner"]?.value == "Ready")
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status codex Running --icon=bolt.fill --color=#4C8DFF --tab=\(staleTab) --panel=\(panel) --pid=111"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["codex"] == nil)
+            #expect(moved.destination.statusEntries["codex"]?.value == "Running")
+            #expect(moved.destination.agentPIDs["codex"].map(Int.init) == 111)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_meta build compiling --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["build"] == nil)
+            #expect(moved.destination.statusEntries["build"]?.value == "compiling")
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_pid codex.session 222 --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.agentPIDs["codex.session"] == nil)
+            #expect(moved.destination.agentPIDs["codex.session"].map(Int.init) == 222)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_lifecycle codex running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.agentLifecycleStatesByPanelId[moved.panelID]?["codex"] == nil)
+            #expect(moved.destination.agentLifecycleStatesByPanelId[moved.panelID]?["codex"] == .running)
+
+            let customAgentRoot = try makeCustomAgentConfigRoot(agentID: "local-agent")
+            defer { try? FileManager.default.removeItem(at: customAgentRoot) }
+            moved.destination.panelDirectories[moved.panelID] = customAgentRoot.path
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_lifecycle local-agent idle --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.agentLifecycleStatesByPanelId[moved.panelID]?["local-agent"] == nil)
+            #expect(moved.destination.agentLifecycleStatesByPanelId[moved.panelID]?["local-agent"] == .idle)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_agent_pid codex.session --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.agentPIDs["codex.session"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_status build --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["build"] == nil)
+        }
+    }
+
+    @Test func panelScopedMutationsDoNotFallbackForImplicitOrNonWorkspaceTargets() throws {
+        try withMovedPanelTestContext { moved in
+            let unrelated = moved.manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+            let panel = moved.panelID.uuidString
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status selected Running --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["selected"] == nil)
+            #expect(moved.destination.statusEntries["selected"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status indexed Running --tab=0 --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["indexed"] == nil)
+            #expect(moved.destination.statusEntries["indexed"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status unrelated Running --tab=\(unrelated.id.uuidString) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["unrelated"] == nil)
+            #expect(moved.destination.statusEntries["unrelated"] == nil)
+            #expect(unrelated.statusEntries["unrelated"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status unknown Running --tab=\(UUID().uuidString) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["unknown"] == nil)
+            #expect(moved.destination.statusEntries["unknown"] == nil)
+        }
+    }
+
+    @Test func panelScopedMutationsRouteMovedSurfaceAfterSourceWorkspaceCloses() throws {
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let panel = moved.panelID.uuidString
+            moved.manager.closeWorkspace(moved.source, recordHistory: false)
+            #expect(!moved.manager.tabs.contains { $0.id == moved.source.id })
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status closed-source Running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["closed-source"]?.value == "Running")
+        }
+    }
+
+    @Test func panelScopedStatusClearDoesNotRemoveSameKeyOwnedByAnotherPanel() throws {
+        try withMovedPanelTestContext { moved in
+            let otherPanelID = try #require(moved.destination.panels.keys.first { $0 != moved.panelID })
+            let staleTab = moved.source.id.uuidString
+            let movedPanel = moved.panelID.uuidString
+            let otherPanel = otherPanelID.uuidString
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status build Other --tab=\(moved.destination.id.uuidString) --panel=\(otherPanel) --pid=333"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["build"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["build"].map(Int.init) == 333)
+            #expect(moved.destination.agentPIDPanelIdsByKey["build"] == otherPanelID)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status opencode Other --tab=\(moved.destination.id.uuidString) --panel=\(otherPanel)"
+                ) == "OK"
+            )
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_pid opencode.session 444 --tab=\(moved.destination.id.uuidString) --panel=\(otherPanel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["opencode"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["opencode.session"].map(Int.init) == 444)
+            #expect(moved.destination.agentPIDPanelIdsByKey["opencode.session"] == otherPanelID)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_status build --tab=\(staleTab) --panel=\(movedPanel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["build"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["build"].map(Int.init) == 333)
+            #expect(moved.destination.agentPIDPanelIdsByKey["build"] == otherPanelID)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_status opencode --tab=\(staleTab) --panel=\(movedPanel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["opencode"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["opencode.session"].map(Int.init) == 444)
+            #expect(moved.destination.agentPIDPanelIdsByKey["opencode.session"] == otherPanelID)
+        }
+    }
+
+    @Test func panelScopedShellMetadataRoutesMovedSurfaceToCurrentWorkspace() throws {
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let panel = moved.panelID.uuidString
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_pwd Project --path=/tmp/cmux-moved-panel --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelDirectories[moved.panelID] == nil)
+            #expect(moved.destination.panelDirectories[moved.panelID] == "/tmp/cmux-moved-panel")
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_tty ttys123 --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.surfaceTTYNames[moved.panelID] == nil)
+            #expect(moved.destination.surfaceTTYNames[moved.panelID] == "ttys123")
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_shell_state running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelShellActivityStates[moved.panelID] == nil)
+            #expect(moved.destination.panelShellActivityStates[moved.panelID] == .commandRunning)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_ports 3010 3011 --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.surfaceListeningPorts[moved.panelID] == nil)
+            #expect(moved.destination.surfaceListeningPorts[moved.panelID] == [3010, 3011])
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_ports --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.surfaceListeningPorts[moved.panelID] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_pr 123 https://github.com/manaflow-ai/cmux/pull/123 --label=PR --state=open --branch=feature/moved-panel --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelPullRequests[moved.panelID] == nil)
+            #expect(moved.destination.panelPullRequests[moved.panelID]?.number == 123)
+        }
+    }
+
+    @Test func panelScopedShellStateDedupeUsesCurrentOwnerAfterMove() throws {
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let panel = moved.panelID.uuidString
+            _ = TerminalController.shared.socketFastPathState.shouldPublishShellActivity(
+                workspaceId: moved.source.id,
+                panelId: moved.panelID,
+                state: PanelShellActivityState.commandRunning.rawValue
+            )
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_shell_state running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelShellActivityStates[moved.panelID] == nil)
+            #expect(moved.destination.panelShellActivityStates[moved.panelID] == .commandRunning)
+        }
+    }
+
+    private struct MovedPanelTestContext {
+        let manager: TabManager
+        let source: Workspace
+        let destination: Workspace
+        let panelID: UUID
+    }
+
+    private func withMovedPanelTestContext(
+        _ body: (_ moved: MovedPanelTestContext) throws -> Void
+    ) throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let moved = try makeMovedTerminalSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+        TerminalController.shared.setActiveTabManager(manager)
+
+        try body(
+            MovedPanelTestContext(
+                manager: manager,
+                source: moved.source,
+                destination: moved.destination,
+                panelID: moved.panelID
+            )
+        )
+    }
+
+    private func makeMovedTerminalSurface(
+        in manager: TabManager
+    ) throws -> (source: Workspace, destination: Workspace, panelID: UUID) {
+        let source = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        let destination = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let sourcePanelID = try #require(source.focusedTerminalPanel?.id)
+        let panel = try #require(
+            source.newTerminalSplit(
+                from: sourcePanelID,
+                orientation: .horizontal,
+                initialCommand: nil
+            )
+        )
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+        let destinationPaneID = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(destination.attachDetachedSurface(detached, inPane: destinationPaneID, focus: false) == panel.id)
+        return (source, destination, panel.id)
+    }
+
+    private func makeCustomAgentConfigRoot(agentID: String) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-moved-panel-agent-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = root.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try """
+        {
+          "vault": {
+            "agents": [
+              {
+                "id": "\(agentID)",
+                "name": "Local Agent",
+                "detect": { "processName": "\(agentID)" },
+                "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+                "resumeCommand": "\(agentID) --session {{sessionId}}",
+                "cwd": "preserve"
+              }
+            ]
+          }
+        }
+        """.write(to: configDirectory.appendingPathComponent("cmux.json"), atomically: true, encoding: .utf8)
+        return root
+    }
+}

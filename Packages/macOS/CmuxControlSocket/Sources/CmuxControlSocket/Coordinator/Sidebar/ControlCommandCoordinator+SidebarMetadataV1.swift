@@ -22,6 +22,7 @@ extension ControlCommandCoordinator {
     /// (zero main hops, exactly the legacy deferred-mutation semantics).
     nonisolated func sidebarUpsertMetadata(
         _ args: String,
+        usage: String,
         missingError: String,
         context: (any ControlCommandContext)?
     ) -> String {
@@ -66,7 +67,7 @@ extension ControlCommandCoordinator {
         }
         let panelResolution = sidebarParseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: usage
         )
         if let error = panelResolution.error {
             return error
@@ -111,37 +112,49 @@ extension ControlCommandCoordinator {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let panelResolution = sidebarParseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
 
-        context?.controlSidebarScheduleStatusClear(target: target, key: key)
+        context?.controlSidebarScheduleStatusClear(
+            target: target,
+            key: key,
+            panelID: panelResolution.panelId
+        )
         return "OK"
     }
 
     /// `set_status` — upsert a status entry.
     nonisolated func sidebarSetStatus(_ args: String, context: (any ControlCommandContext)?) -> String {
-        sidebarUpsertMetadata(
+        let usage = "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+        return sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
+            usage: usage,
+            missingError: "ERROR: Missing status key or value — usage: \(usage)",
             context: context
         )
     }
 
     /// `report_meta` — upsert a metadata entry.
     nonisolated func sidebarReportMeta(_ args: String, context: (any ControlCommandContext)?) -> String {
-        sidebarUpsertMetadata(
+        let usage = "report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+        return sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
+            usage: usage,
+            missingError: "ERROR: Missing metadata key or value — usage: \(usage)",
             context: context
         )
     }
 
     /// `clear_status` — remove a status entry.
     nonisolated func sidebarClearStatus(_ args: String, context: (any ControlCommandContext)?) -> String {
-        sidebarClearMetadata(args, usage: "clear_status <key> [--tab=X]", context: context)
+        sidebarClearMetadata(args, usage: "clear_status <key> [--tab=X] [--panel=ID]", context: context)
     }
 
     /// `clear_meta` — remove a metadata entry.
     nonisolated func sidebarClearMeta(_ args: String, context: (any ControlCommandContext)?) -> String {
-        sidebarClearMetadata(args, usage: "clear_meta <key> [--tab=X]", context: context)
+        sidebarClearMetadata(args, usage: "clear_meta <key> [--tab=X] [--panel=ID]", context: context)
     }
 
     /// The shared `list_status`/`list_meta` body: one main hop returns the

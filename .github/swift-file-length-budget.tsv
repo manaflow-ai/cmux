@@ -5,7 +5,7 @@
 18229	Sources/AppDelegate.swift
 16443	Sources/ContentView.swift
 15163	Sources/TerminalController.swift
-13232	Sources/Workspace.swift
+13242	Sources/Workspace.swift
 12511	Sources/GhosttyTerminalView.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11669	Sources/Panels/BrowserPanel.swift
@@ -217,7 +217,7 @@
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 553	Sources/RightSidebarPanelView.swift
 550	Sources/CloudVMActionLauncher.swift
-549	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Sidebar/ControlCommandCoordinator+SidebarMetadataV1.swift
+562	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Sidebar/ControlCommandCoordinator+SidebarMetadataV1.swift
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 546	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AutomationSection.swift
@@ -260,3 +260,4 @@
 503	Sources/TerminalNotificationQueue.swift
 502	Sources/CmuxEventPublishing.swift
 500	Sources/KeyboardShortcutRecorder.swift
+500	Sources/Workspace+PanelLifecycle.swift

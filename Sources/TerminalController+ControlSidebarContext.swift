@@ -29,10 +29,7 @@ extension TerminalController: ControlSidebarContext {
         pid: Int32?
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -65,10 +62,14 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
-    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {
-        controlSidebarScheduleMutation(target: target) { _, tab in
+    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String, panelID: UUID?) {
+        controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
+            if let panelID,
+               tab.hasAgentRuntime(forStatusKey: key, ownedByDifferentPanelThan: panelID) {
+                return
+            }
             _ = tab.statusEntries.removeValue(forKey: key)
-            tab.clearAgentPID(key: key)
+            tab.clearAgentPID(key: key, panelId: panelID)
         }
     }
 
@@ -78,10 +79,7 @@ extension TerminalController: ControlSidebarContext {
         pid: Int32,
         panelID: UUID?
     ) {
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
             let didReplaceAgentRuntime = tab.recordAgentPID(
                 key: key,
                 pid: pid,
@@ -120,7 +118,7 @@ extension TerminalController: ControlSidebarContext {
             return false
         }
         let snapshot: (tabResolved: Bool, workingDirectory: String?) = v2MainSync {
-            guard let tab = self.controlSidebarResolveMutationTab(target) else {
+            guard let tab = self.controlSidebarResolvePanelScopedMutationTab(target: target, panelID: panelID) else {
                 return (false, nil)
             }
             return (true, self.controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelID))
@@ -160,10 +158,7 @@ extension TerminalController: ControlSidebarContext {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }
     }
@@ -185,10 +180,7 @@ extension TerminalController: ControlSidebarContext {
         panelID: UUID?,
         clearStatus: Bool
     ) {
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
             tab.clearAgentPID(
                 key: key,
                 panelId: panelID,
