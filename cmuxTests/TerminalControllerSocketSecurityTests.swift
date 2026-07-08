@@ -113,6 +113,32 @@ private func XCTFail(
     Issue.record(Comment(rawValue: message()), sourceLocation: sourceLocation)
 }
 
+private final class ClaudeHookRelayRequestCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private let feedSeen = DispatchSemaphore(value: 0)
+    private var requests: [[String: Any]] = []
+
+    func append(_ request: [String: Any]) {
+        lock.lock()
+        requests.append(request)
+        lock.unlock()
+    }
+
+    func signalFeedSeen() {
+        feedSeen.signal()
+    }
+
+    func waitForFeed(timeout: TimeInterval) -> DispatchTimeoutResult {
+        feedSeen.wait(timeout: .now() + timeout)
+    }
+
+    func lastRequest(method: String) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests.last { $0["method"] as? String == method }
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 final class TerminalControllerSocketSecurityTests {
@@ -233,6 +259,42 @@ final class TerminalControllerSocketSecurityTests {
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("csec-\(name.prefix(4))-\(shortID).sock")
             .path
+    }
+
+    private nonisolated func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket(AF_UNIX)")
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+        let utf8 = Array(path.utf8)
+        guard utf8.count < maxPathLength else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+        withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+            let pathBuffer = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: CChar.self)
+            pathBuffer.initialize(repeating: 0, count: maxPathLength)
+            for index in 0..<utf8.count {
+                pathBuffer[index] = CChar(bitPattern: utf8[index])
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0, Darwin.listen(fd, 8) == 0 else {
+            let error = posixError("bind/listen(\(path))")
+            Darwin.close(fd)
+            throw error
+        }
+        return fd
     }
 
     private func addTeardownBlock(_ block: @escaping () -> Void) {
@@ -1353,6 +1415,66 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
     }
 
+    @Test func testClaudeHookRelayInvokesSharedHookCoreWithExplicitContextAndPayload() throws {
+        let socketPath = makeSocketPath("claude-hook-relay")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let capture = ClaudeHookRelayRequestCapture()
+        startDetachedJSONSocketServer(listenerFD: listenerFD, connectionCount: 4) { request in
+            capture.append(request)
+            let id = request["id"] as? String ?? "missing"
+            switch request["method"] as? String {
+            case "surface.list":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "surfaces": [[
+                        "id": "surface-1",
+                        "workspace_id": "workspace-1",
+                    ]]
+                ])
+            case "feed.push":
+                capture.signalFeedSeen()
+                return Self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": request["method"] as? String ?? ""]
+                )
+            }
+        }
+
+        let result = TerminalController.shared.runClaudeHookRelay(
+            commandArgs: [
+                "cron-create-guard",
+                "--workspace",
+                "workspace-1",
+                "--surface",
+                "surface-1",
+            ],
+            payload: #"{"hook_event_name":"PreToolUse","session_id":"remote-session","tool_name":"CronCreate","tool_input":{"command":"echo ok"}}"#,
+            socketPath: socketPath
+        )
+
+        guard case .ok = result else {
+            Issue.record("Expected ok result")
+            return
+        }
+        XCTAssertEqual(capture.waitForFeed(timeout: 5), .success)
+
+        let feedRequest = capture.lastRequest(method: "feed.push")
+        let feedParams = try XCTUnwrap(feedRequest?["params"] as? [String: Any])
+        XCTAssertEqual(feedParams["source"] as? String, "claude")
+        XCTAssertEqual(feedParams["subcommand"] as? String, "cron-create-guard")
+        XCTAssertEqual(feedParams["workspace_id"] as? String, "workspace-1")
+        let event = try XCTUnwrap(feedParams["event"] as? [String: Any])
+        XCTAssertEqual(event["session_id"] as? String, "remote-session")
+        XCTAssertEqual(event["hook_event_name"] as? String, "PreToolUse")
+        XCTAssertEqual(event["tool_name"] as? String, "CronCreate")
+    }
+
     @Test func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()
@@ -1557,6 +1679,89 @@ final class TerminalControllerSocketSecurityTests {
             responses.append(try readLine(from: fd))
         }
         return responses
+    }
+
+    private nonisolated func startDetachedJSONSocketServer(
+        listenerFD: Int32,
+        connectionCount: Int,
+        handler: @escaping @Sendable ([String: Any]) -> String
+    ) {
+        for _ in 0..<max(1, connectionCount) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                guard clientFD >= 0 else { return }
+                defer { Darwin.close(clientFD) }
+
+                while true {
+                    guard let line = try? Self.readLineFromSocket(clientFD),
+                          !line.isEmpty else {
+                        return
+                    }
+                    guard let data = line.data(using: .utf8),
+                          let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        try? Self.writeLineToSocket(#"{"ok":false,"error":{"code":"invalid_json"}}"#, to: clientFD)
+                        continue
+                    }
+                    try? Self.writeLineToSocket(handler(request), to: clientFD)
+                }
+            }
+        }
+    }
+
+    private nonisolated static func writeLineToSocket(_ line: String, to fd: Int32) throws {
+        let payload = Array((line + "\n").utf8)
+        var offset = 0
+        while offset < payload.count {
+            let wrote = payload.withUnsafeBytes { raw in
+                Darwin.write(fd, raw.baseAddress!.advanced(by: offset), payload.count - offset)
+            }
+            guard wrote >= 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            offset += wrote
+        }
+    }
+
+    private nonisolated static func readLineFromSocket(_ fd: Int32) throws -> String {
+        var buffer = [UInt8](repeating: 0, count: 1)
+        var data = Data()
+
+        while true {
+            let count = Darwin.read(fd, &buffer, 1)
+            guard count >= 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            if count == 0 { break }
+            if buffer[0] == 0x0A { break }
+            data.append(buffer[0])
+        }
+
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: NSCocoaErrorDomain, code: 0)
+        }
+        return line
+    }
+
+    private nonisolated static func v2Response(
+        id: String,
+        ok: Bool,
+        result: [String: Any]? = nil,
+        error: [String: Any]? = nil
+    ) -> String {
+        var object: [String: Any] = [
+            "id": id,
+            "ok": ok,
+        ]
+        if let result { object["result"] = result }
+        if let error { object["error"] = error }
+        let data = try? JSONSerialization.data(withJSONObject: object)
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? #"{"ok":false}"#
     }
 
     private func makeV2RequestLine(method: String, params: [String: Any]) throws -> String {

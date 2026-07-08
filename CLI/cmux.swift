@@ -24020,6 +24020,35 @@ struct CMUXCLI {
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        try runClaudeHookCore(
+            subcommand: subcommand,
+            hookArgs: hookArgs,
+            rawInput: rawInput,
+            client: client,
+            telemetry: telemetry,
+            socketPassword: socketPassword,
+            workspaceArg: workspaceArg,
+            surfaceArg: surfaceArg,
+            hookWorkspaceFlagIsExplicit: hookWsFlag != nil,
+            hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil,
+            preferCallerTTYRouting: preferCallerTTYRouting
+        )
+    }
+
+    func runClaudeHookCore(
+        subcommand: String,
+        hookArgs: [String],
+        rawInput: String,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String? = nil,
+        workspaceArg: String?,
+        surfaceArg: String?,
+        hookWorkspaceFlagIsExplicit: Bool,
+        hookSurfaceFlagIsExplicit: Bool,
+        preferCallerTTYRouting: Bool
+    ) throws {
         var callerTTYBindingCache: CallerTerminalBinding?
         var didResolveCallerTTYBinding = false
         func callerTTYBinding() -> CallerTerminalBinding? {
@@ -24051,7 +24080,6 @@ struct CMUXCLI {
             return callerTTYBindingCache
         }
         let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
         telemetry.breadcrumb(
@@ -24059,8 +24087,8 @@ struct CMUXCLI {
             data: [
                 "subcommand": subcommand,
                 "has_session_id": parsedInput.sessionId != nil,
-                "has_workspace_flag": hookWsFlag != nil,
-                "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
+                "has_workspace_flag": hookWorkspaceFlagIsExplicit,
+                "has_surface_flag": hookSurfaceFlagIsExplicit
             ]
         )
 
@@ -24100,7 +24128,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: nil,
                 fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
+                fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                 workspaceId: workspaceId,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
@@ -24236,7 +24264,7 @@ struct CMUXCLI {
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
+                    fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                     workspaceId: workspaceId,
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
@@ -24379,7 +24407,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
+                fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                 workspaceId: workspaceId,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
@@ -24494,7 +24522,7 @@ struct CMUXCLI {
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
+                    fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                     workspaceId: workspaceId,
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
@@ -24544,7 +24572,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
+                fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                 workspaceId: workspaceId,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client
@@ -24671,7 +24699,7 @@ struct CMUXCLI {
             }
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
-        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
+        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlagIsExplicit, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -24709,7 +24737,7 @@ struct CMUXCLI {
                    let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
                        preferred: nil,
                        fallback: surfaceArg,
-                       fallbackIsExplicit: hookSurfaceFlag != nil,
+                       fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                        workspaceId: forkWorkspaceId,
                        callerTerminalBinding: callerTTYBindingProvider,
                        client: client
@@ -24740,7 +24768,7 @@ struct CMUXCLI {
                 return try? resolvePreferredSurfaceIdForClaudeHook(
                     preferred: mappedSession?.surfaceId,
                     fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
+                    fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                     workspaceId: fallbackWorkspaceId,
                     callerTerminalBinding: callerTTYBindingProvider,
                     client: client
@@ -24821,7 +24849,7 @@ struct CMUXCLI {
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
+                fallbackIsExplicit: hookSurfaceFlagIsExplicit,
                 workspaceId: workspaceId,
                 callerTerminalBinding: callerTTYBindingProvider,
                 client: client

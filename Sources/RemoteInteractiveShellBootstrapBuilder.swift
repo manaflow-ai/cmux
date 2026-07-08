@@ -7,7 +7,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
-        bundledFishIntegration: String? = nil
+        bundledFishIntegration: String? = nil,
+        bundledClaudeWrapper: String? = bundledResourceFile(relativePath: "bin/cmux-claude-wrapper")
     ) -> String {
         let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let commonShellExportLines = commonShellLines(
@@ -32,6 +33,15 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_shell_dir=\"\(shellStateDir)\"",
             "mkdir -p \"$cmux_shell_dir\"",
         ]
+        if let bundledClaudeWrapper {
+            outerLines += [
+                "mkdir -p \"$cmux_shell_dir/bin\"",
+                "cat > \"$cmux_shell_dir/bin/cmux-claude-wrapper\" <<'CMUXCMUXCLAUDEWRAPPER'",
+                bundledClaudeWrapper,
+                "CMUXCMUXCLAUDEWRAPPER",
+                "chmod 700 \"$cmux_shell_dir/bin/cmux-claude-wrapper\" >/dev/null 2>&1 || true",
+            ]
+        }
         if let bundledZshIntegration {
             outerLines += [
                 "cat > \"$cmux_shell_dir/cmux-zsh-integration.zsh\" <<'CMUXCMUXZSH'",
@@ -157,10 +167,20 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bundleResourceURL: URL? = Bundle.main.resourceURL,
         fileManager: FileManager = .default
     ) -> String? {
+        bundledResourceFile(
+            relativePath: "shell-integration/\(fileName)",
+            bundleResourceURL: bundleResourceURL,
+            fileManager: fileManager
+        )
+    }
+
+    static func bundledResourceFile(
+        relativePath: String,
+        bundleResourceURL: URL? = Bundle.main.resourceURL,
+        fileManager: FileManager = .default
+    ) -> String? {
         guard let bundleResourceURL else { return nil }
-        let url = bundleResourceURL
-            .appendingPathComponent("shell-integration", isDirectory: true)
-            .appendingPathComponent(fileName, isDirectory: false)
+        let url = bundleResourceURL.appendingPathComponent(relativePath, isDirectory: false)
         guard fileManager.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
               let contents = String(data: data, encoding: .utf8) else {

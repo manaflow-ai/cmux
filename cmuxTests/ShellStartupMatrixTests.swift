@@ -293,6 +293,47 @@ struct ShellStartupMatrixTests {
         let process: ProcessRunResult
     }
 
+    @Test
+    func remoteBootstrapInstallsClaudeWrapperUnderShellBundleBin() throws {
+        let wrapper = "#!/usr/bin/env bash\nprintf wrapper-ok\n"
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64123,
+            shellFeatures: "",
+            bundledBashIntegration: "cmux_bash_marker=1",
+            bundledClaudeWrapper: wrapper
+        )
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-wrapper-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        let shell = bin.appendingPathComponent("sh", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: shell, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shell.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "SHELL=\(shell.path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+        expectFalse(result.timedOut, result.stderr)
+        expectEqual(result.status, 0, result.stderr)
+
+        let deployed = home.appendingPathComponent(".cmux/relay/64123.shell/bin/cmux-claude-wrapper")
+        expectTrue(fileManager.isExecutableFile(atPath: deployed.path), deployed.path)
+        expectEqual(try String(contentsOf: deployed, encoding: .utf8), wrapper)
+    }
+
     private func runGeneratedBootstrap(
         shellName: String,
         fakeCmuxDelay: TimeInterval? = nil,

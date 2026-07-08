@@ -172,6 +172,9 @@ doneFlags:
 	if cmdName == "rpc" {
 		return runRPC(socketPath, cmdArgs, jsonOutput, refreshAddr)
 	}
+	if cmdName == "hooks" {
+		return runHooksRelay(socketPath, cmdArgs, jsonOutput, refreshAddr)
+	}
 
 	// Commands with specialDispatch=true in cli_overrides.go have dedicated
 	// handler functions for client-side logic the generic path cannot express.
@@ -484,6 +487,68 @@ func runRPC(socketPath string, args []string, jsonOutput bool, refreshAddr func(
 	}
 	fmt.Println(resp)
 	return 0
+}
+
+// runHooksRelay forwards remote agent hook payloads over the relay. The remote
+// daemon never decides whether a notification should fire; it only preserves the
+// hook event, caller context, and raw Claude JSON so the Mac app can run the
+// same hook path as local Claude Code.
+func runHooksRelay(socketPath string, args []string, jsonOutput bool, refreshAddr func() string) int {
+	if len(args) < 2 || args[0] != "claude" {
+		fmt.Fprintln(os.Stderr, "cmux hooks: usage: cmux hooks claude <event>")
+		return 2
+	}
+	event := strings.TrimSpace(args[1])
+	if event == "" {
+		fmt.Fprintln(os.Stderr, "cmux hooks claude: requires an event")
+		return 2
+	}
+	if len(args) > 2 {
+		fmt.Fprintln(os.Stderr, "cmux hooks claude: too many arguments")
+		return 2
+	}
+
+	payloadBytes, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux hooks claude: failed to read hook payload: %v\n", err)
+		return 1
+	}
+
+	params := map[string]any{
+		"event":   event,
+		"payload": string(payloadBytes),
+	}
+	if workspaceID := strings.TrimSpace(os.Getenv("CMUX_WORKSPACE_ID")); workspaceID != "" {
+		params["workspace_id"] = workspaceID
+	}
+	if surfaceID := strings.TrimSpace(os.Getenv("CMUX_SURFACE_ID")); surfaceID != "" {
+		params["surface_id"] = surfaceID
+	}
+
+	resp, err := socketRoundTripV2(socketPath, "claude.hook", params, refreshAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		fmt.Println(resp)
+	} else {
+		fmt.Println(defaultHooksRelayOutput(resp))
+	}
+	return 0
+}
+
+func defaultHooksRelayOutput(resp string) string {
+	var result map[string]any
+	if err := json.Unmarshal([]byte(resp), &result); err == nil {
+		if stdout, ok := result["stdout"].(string); ok {
+			trimmed := strings.TrimRight(stdout, "\n")
+			if trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return defaultRelayOutput(resp)
 }
 
 // workspaceGroupFlagKeys lists the flags each "workspace group" subcommand

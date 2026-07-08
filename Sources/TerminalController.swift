@@ -1294,6 +1294,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "claude.hook":
+            return v2Result(id: request.id, v2ClaudeHook(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -2432,6 +2434,7 @@ class TerminalController {
             "feed.permission.reply",
             "feed.question.reply",
             "feed.exit_plan.reply",
+            "claude.hook",
             "feed.jump",
             "feed.list",
             "surface.list",

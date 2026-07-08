@@ -1228,6 +1228,7 @@
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
+		C76270010000000000000002 /* TerminalController+ClaudeHookRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = C76270010000000000000001 /* TerminalController+ClaudeHookRelay.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
 		C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */; };
 		CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */; };
@@ -2703,6 +2704,7 @@
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
+		C76270010000000000000001 /* TerminalController+ClaudeHookRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ClaudeHookRelay.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlAppFocusContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserPanelContext.swift"; sourceTree = "<group>"; };
 		CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlCanvasContext.swift"; sourceTree = "<group>"; };
@@ -3587,6 +3589,7 @@
 				C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */,
 				C0DE00000000000000000C31 /* TerminalControllerControlCommandContext.swift */,
 				C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */,
+				C76270010000000000000001 /* TerminalController+ClaudeHookRelay.swift */,
 				C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */,
 				C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */,
 				C0DE1A040000000000000002 /* TerminalController+ControlLayoutContext.swift */,
@@ -5698,6 +5701,7 @@
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
+					C76270010000000000000002 /* TerminalController+ClaudeHookRelay.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,
@@ -5716,11 +5720,11 @@
 				C0DE00000000000000000C64 /* TerminalController+ControlSurfaceContext.swift in Sources */,
 				C0DE00000000000000000C66 /* TerminalController+ControlSurfaceContext2.swift in Sources */,
 				C0DE00000000000000000C68 /* TerminalController+ControlSurfaceContext3.swift in Sources */,
-				C0DE00000000000000000C6A /* TerminalController+ControlSurfaceContext4.swift in Sources */,
-				C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */,
-				C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */,
-				C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
-				C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */,
+					C0DE00000000000000000C6A /* TerminalController+ControlSurfaceContext4.swift in Sources */,
+					C0DE00000000000000000C86 /* TerminalController+ControlSurfaceDock.swift in Sources */,
+					C0DE00000000000000000C7A /* TerminalController+ControlSystemContext.swift in Sources */,
+					C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
+					C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */,
 				C0DE00000000000000000C54 /* TerminalController+ControlWorkspaceGroupContext.swift in Sources */,
 				C57B00040000000000000001 /* TerminalController+CustomSidebarCommands.swift in Sources */,
 				C0DEBEEF0000000000000002 /* TerminalController+DebugMethodNames.swift in Sources */,
