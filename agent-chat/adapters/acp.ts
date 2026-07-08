@@ -21,20 +21,28 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       options: fallbackOptions,
     },
     async send(sess, prompt) {
+      // ACP has no mid-turn steer and most agents reject overlapping
+      // session/prompt calls, so serialize sends: a prompt sent while a turn
+      // is in flight runs after that turn resolves.
       sess.setStatus("running");
-      try {
-        const st = await ensureAcp(sess, def);
-        await applyInitialOptions(sess, st, def);
-        const res = await st.request("session/prompt", {
-          sessionId: st.acpSessionId,
-          prompt: [{ type: "text", text: prompt }],
-        });
-        sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined });
-      } catch (err) {
-        sess.emit({ kind: "error", message: truncate(String(err), 400) });
-        sess.emit({ kind: "done" });
-      }
-      sess.setStatus("idle");
+      const prev = (sess.internal.acpTurn as Promise<void> | undefined) ?? Promise.resolve();
+      const turn = prev.then(async () => {
+        try {
+          const st = await ensureAcp(sess, def);
+          await applyInitialOptions(sess, st, def);
+          const res = await st.request("session/prompt", {
+            sessionId: st.acpSessionId,
+            prompt: [{ type: "text", text: prompt }],
+          });
+          sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined });
+        } catch (err) {
+          sess.emit({ kind: "error", message: truncate(String(err), 400) });
+          sess.emit({ kind: "done" });
+        }
+        if (sess.internal.acpTurn === turn) sess.setStatus("idle");
+      });
+      sess.internal.acpTurn = turn;
+      await turn;
     },
     stop(sess) {
       const st = sess.internal.acp as AcpState | undefined;
@@ -189,6 +197,14 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
   });
   readLines(proc.stderr, () => {});
 
+  // An agent that starts but never answers initialize/session/new would leave
+  // the session stuck in "running" with nothing to cancel; killing the process
+  // closes stdout, which rejects the pending startup requests.
+  let startupTimedOut = false;
+  const startupTimer = setTimeout(() => {
+    startupTimedOut = true;
+    proc.kill();
+  }, 30_000);
   try {
     await request("initialize", {
       protocolVersion: 1,
@@ -203,7 +219,9 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
     return st;
   } catch (err) {
     proc.kill();
-    throw err;
+    throw startupTimedOut ? new Error(`${def.id} did not finish ACP startup within 30s`) : err;
+  } finally {
+    clearTimeout(startupTimer);
   }
 }
 
@@ -431,7 +449,11 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
     const options: any[] = msg.params?.options ?? [];
     const allow = options.find((o) => o.kind === "allow_always")
       ?? options.find((o) => o.kind === "allow_once");
-    const reject = options.find((o) => o.kind?.startsWith("reject")) ?? options[0];
+    // Never fall back to an arbitrary option when denying: if the agent only
+    // offered allow options, picking options[0] would approve the tool even
+    // though auto-approve is off. "cancelled" is the spec's no-selection
+    // outcome.
+    const reject = options.find((o) => o.kind?.startsWith("reject"));
     const choice = st.autoApprove && allow ? allow : reject;
     if (choice !== allow) {
       const tc = msg.params?.toolCall;
@@ -440,7 +462,11 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
     writeMsg({
       jsonrpc: "2.0",
       id: msg.id,
-      result: { outcome: { outcome: "selected", optionId: choice?.optionId } },
+      result: {
+        outcome: choice
+          ? { outcome: "selected", optionId: choice.optionId }
+          : { outcome: "cancelled" },
+      },
     });
     return;
   }
