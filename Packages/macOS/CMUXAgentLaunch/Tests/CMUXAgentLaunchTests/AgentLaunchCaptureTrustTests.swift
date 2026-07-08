@@ -106,6 +106,26 @@ struct AgentLaunchCaptureTrustTests {
         )
         #expect(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "tsx",
+                arguments: ["tsx", "packages/session/bin/campfire.ts"],
+                kind: "campfire"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "deno",
+                arguments: ["deno", "run", "-A", "/Users/alice/campfire/packages/session/bin/campfire.ts"],
+                kind: "campfire"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "ts-node",
+                arguments: ["ts-node", "/Users/alice/campfire/packages/session/bin/campfire.ts"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "acme-agent",
                 arguments: ["/Users/alice/bin/acme-agent", "--session", "native-session"],
                 kind: "acme-agent"

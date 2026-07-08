@@ -119,14 +119,20 @@ public enum AgentLaunchCaptureTrust {
         if let executableBase {
             descriptors.insert(executableBase)
         }
-        if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-            if arguments.dropFirst().contains(where: { argument in
-                let lowered = argument.lowercased()
-                return processBasename(argument) == "claude"
-                    || lowered.contains("/.claude/")
-                    || lowered.contains("/claude/versions/")
-            }) {
-                descriptors.insert("claude")
+        // Hosts that can run a Campfire script entrypoint; mirrors
+        // CampfireLaunchArgumentNormalizer's supported runtime set.
+        let scriptHostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
+        let hostBases = Set([nameBase, executableBase].compactMap { $0 })
+        if !hostBases.isDisjoint(with: scriptHostBases) {
+            if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
+                if arguments.dropFirst().contains(where: { argument in
+                    let lowered = argument.lowercased()
+                    return processBasename(argument) == "claude"
+                        || lowered.contains("/.claude/")
+                        || lowered.contains("/claude/versions/")
+                }) {
+                    descriptors.insert("claude")
+                }
             }
             if arguments.dropFirst().contains(where: { argument in
                 let lowered = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
