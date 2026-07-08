@@ -140,7 +140,6 @@ extension AppDelegate {
         } ?? false
         let visibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
             .trustedTopologySignature(of: displays.available)
-        let hasTrustedVisibleFrameFitTopology = visibleFrameFitTopologySignature != nil
         let visibleFrameFitTopologyChanged = visibleFrameFitTopologySignature.map {
             didObserveUnknownVisibleFrameFitTopology || $0 != lastVisibleFrameFitTopologySignature
         } ?? false
@@ -158,14 +157,10 @@ extension AppDelegate {
             }
             lastAppliedConfigurationSignature = signature
             didObserveUnknownDisplayConfiguration = false
-            if hasTrustedVisibleFrameFitTopology {
-                screenChangeReconcileRetryBudget = 0
-                if isScreenChangeCaptureSuppressed {
-                    screenChangeCaptureSuppressionSignature = signature
-                    screenChangeCaptureSuppressionSignatureGeneration = displayReconfigurationGeneration
-                }
-            } else {
-                requeueScreenChangeReconcileIfPossible()
+            screenChangeReconcileRetryBudget = 0
+            if isScreenChangeCaptureSuppressed {
+                screenChangeCaptureSuppressionSignature = signature
+                screenChangeCaptureSuppressionSignatureGeneration = displayReconfigurationGeneration
             }
         } else {
             didObserveUnknownDisplayConfiguration = true
@@ -174,8 +169,10 @@ extension AppDelegate {
         if let visibleFrameFitTopologySignature {
             lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
             didObserveUnknownVisibleFrameFitTopology = false
+            visibleFrameFitTopologyRetryBudget = 0
         } else {
             didObserveUnknownVisibleFrameFitTopology = true
+            requeueVisibleFrameFitTopologyIfPossible()
         }
 
         // Reachability safety net: any window still stranded is clamped back.
@@ -400,6 +397,7 @@ extension AppDelegate {
         screenChangeCaptureSuppressionSignature = nil
         screenChangeCaptureSuppressionSignatureGeneration = nil
         screenChangeReconcileRetryBudget = Self.screenChangeReconcileRetryLimit
+        visibleFrameFitTopologyRetryBudget = Self.screenChangeReconcileRetryLimit
     }
 
     func shouldReleaseScreenChangeCaptureSuppression(for signature: String) -> Bool {
@@ -413,6 +411,12 @@ extension AppDelegate {
             return
         }
         screenChangeReconcileRetryBudget -= 1
+        scheduleScreenChangeReconcileWhenIdle()
+    }
+
+    func requeueVisibleFrameFitTopologyIfPossible() {
+        guard visibleFrameFitTopologyRetryBudget > 0 else { return }
+        visibleFrameFitTopologyRetryBudget -= 1
         scheduleScreenChangeReconcileWhenIdle()
     }
 }

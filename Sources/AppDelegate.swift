@@ -1108,6 +1108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var lastVisibleFrameFitTopologySignature: [MainWindowVisibleFrameTopologySignatureEntry]?
     var didObserveUnknownVisibleFrameFitTopology = false
     var didObserveUnknownDisplayConfiguration = false
+    var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
     var screenChangeCaptureSuppressionSignature: String?
