@@ -11,7 +11,6 @@ private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
-
     private enum DividerCursorKind: Equatable {
         case vertical
         case horizontal
@@ -35,6 +34,7 @@ final class WindowTerminalHostView: NSView {
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    let paneDropRoutingSession = PaneDropRoutingSession()
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
@@ -172,12 +172,12 @@ final class WindowTerminalHostView: NSView {
             }
 
             clearActiveDividerCursor(restoreArrow: true)
-
-            if routingContext.allowsTerminalPortalDragRouting {
+            if routingContext.allowsTerminalPortalDragRouting,
+               routingContext.eventKind != .pointerUp || hasActivePaneDropDrag || AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil {
                 let dragPasteboardTypes = NSPasteboard(name: .drag).types
                 let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                     pasteboardTypes: dragPasteboardTypes,
-                    eventType: eventType
+                    eventType: eventType, hasActiveDropDrag: hasActivePaneDropDrag || AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
                 )
                 if shouldPassThrough {
                     let hitView = super.hitTest(point)
