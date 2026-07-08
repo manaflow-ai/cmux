@@ -1,0 +1,91 @@
+name: tui publish pypi
+
+on:
+  push:
+    tags:
+      - "cmux-tui-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "TUI package version to publish, for example 0.1.0"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: tui-publish-pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: derive package version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Derive package version
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^cmux-tui-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match cmux-tui-vX.Y.Z" >&2
+              exit 1
+            }
+            version="${GITHUB_REF_NAME#cmux-tui-v}"
+          else
+            version="$DISPATCH_VERSION"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "workflow_dispatch version must match X.Y.Z" >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build-package:
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tui-build-package.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      package_npm: false
+      package_pypi: true
+      include_windows: false
+
+  publish:
+    needs: build-package
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: pypi-tui
+      url: https://pypi.org/p/cmux
+    steps:
+      - name: Download PyPI wheels
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist
+
+      - name: Trusted publisher setup note
+        run: |
+          cat <<'EOF'
+          PyPI Trusted Publisher required:
+          - Project: cmux
+          - Repository: manaflow-ai/cmux
+          - Workflow: tui-publish-pypi.yml
+          - Environment: pypi-tui
+          EOF
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          packages-dir: dist
+          attestations: true

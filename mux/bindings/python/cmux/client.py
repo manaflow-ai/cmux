@@ -48,6 +48,19 @@ class IdentifyResult:
 
 
 @dataclass(frozen=True)
+class PingResult:
+    ok: bool
+    version: str
+    protocol: int
+
+
+@dataclass(frozen=True)
+class ReloadConfigResult:
+    reloaded: bool
+    path: Optional[str]
+
+
+@dataclass(frozen=True)
 class SurfaceResult:
     surface: int
 
@@ -136,6 +149,8 @@ class Event:
     rows: Optional[int] = None
     data: Optional[str] = None
     replay: Optional[str] = None
+    offset: Optional[int] = None
+    at_bottom: Optional[bool] = None
 
     @property
     def bytes_data(self) -> Optional[bytes]:
@@ -302,6 +317,21 @@ class CmuxClient:
         self._protocol = result.protocol
         return result
 
+    def ping(self) -> PingResult:
+        data = self._request("ping")
+        return PingResult(
+            ok=bool(data["ok"]),
+            version=str(data["version"]),
+            protocol=int(data["protocol"]),
+        )
+
+    def reload_config(self) -> ReloadConfigResult:
+        data = self._request("reload-config")
+        return ReloadConfigResult(
+            reloaded=bool(data.get("reloaded", False)),
+            path=data.get("path"),
+        )
+
     def list_workspaces(self) -> Tree:
         return _parse_tree(self._request("list-workspaces"))
 
@@ -408,6 +438,14 @@ class CmuxClient:
 
     def set_default_colors(self, fg: Optional[str] = None, bg: Optional[str] = None) -> EmptyResult:
         self._request("set-default-colors", fg=fg, bg=bg)
+        return EmptyResult()
+
+    def set_window_title(self, title: str) -> EmptyResult:
+        self._request("set-window-title", title=title)
+        return EmptyResult()
+
+    def clear_window_title(self) -> EmptyResult:
+        self._request("clear-window-title")
         return EmptyResult()
 
     def close_surface(self, surface: int) -> EmptyResult:
@@ -570,4 +608,6 @@ def _parse_event(value: Dict[str, Any]) -> Event:
         rows=value.get("rows"),
         data=value.get("data"),
         replay=value.get("replay"),
+        offset=value.get("offset"),
+        at_bottom=value.get("at_bottom"),
     )
