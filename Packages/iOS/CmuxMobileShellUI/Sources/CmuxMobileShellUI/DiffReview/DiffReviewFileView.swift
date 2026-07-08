@@ -183,7 +183,12 @@ struct DiffReviewFileView: View {
         do {
             let response = try await fetchFile(path)
             guard loadedPath == path, !Task.isCancelled else { return }
-            let result = UnifiedDiffParser().parse(response.unifiedDiff, isTruncated: response.truncated)
+            // Parse off the main actor: a 2 MiB capped diff of short lines can
+            // still allocate ~100k DiffLine values, which would hitch or
+            // freeze the screen if split on the main thread (rendering is
+            // separately bounded by DiffReviewHunkView.maxRenderedLines).
+            let result = await Self.parseDiff(response)
+            guard loadedPath == path, !Task.isCancelled else { return }
             hunks = result.hunks
             isTruncated = result.isTruncated
             session.recordHunkCount(result.hunks.count, for: path)
@@ -200,6 +205,14 @@ struct DiffReviewFileView: View {
 
     private func fileTitle(_ path: String) -> String {
         URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    /// Runs the pure unified-diff parse on a background task; the response and
+    /// parse result are Sendable value types.
+    private nonisolated static func parseDiff(_ response: MobileWorkspaceDiffFileResponse) async -> DiffParseResult {
+        await Task.detached(priority: .userInitiated) {
+            UnifiedDiffParser().parse(response.unifiedDiff, isTruncated: response.truncated)
+        }.value
     }
 }
 
