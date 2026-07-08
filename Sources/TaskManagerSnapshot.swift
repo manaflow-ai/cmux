@@ -87,10 +87,10 @@ struct CmuxTaskManagerSnapshot {
             assetNameByProcessID: Self.agentAssetNameByProcessID(from: agentRows)
         )
         self.agentRows = agentRows
-        let programTotalPayloads = payload["program_totals"] as? [[String: Any]] ?? []
-        self.aggregateRows = programTotalPayloads.isEmpty
-            ? Self.programAggregateRows(from: self.rows)
-            : Self.programAggregateRows(fromPayloads: programTotalPayloads)
+        // Present-but-empty program_totals is meaningful; only absent means legacy fallback.
+        self.aggregateRows = (payload["program_totals"] as? [[String: Any]])
+            .map(Self.programAggregateRows(fromPayloads:))
+            ?? Self.programAggregateRows(from: self.rows)
         let memoryDiagnostic = CmuxTaskManagerMemoryDiagnostic(payload["memory_diagnostic"] as? [String: Any])
         self.memoryDiagnostic = memoryDiagnostic
         self.childMemoryRows = Self.childMemoryRows(from: memoryDiagnostic)

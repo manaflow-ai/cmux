@@ -346,48 +346,40 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     }
 
     func testUnavailableMemorySourcesAreExposedInAggregatePayloads() throws {
+        func makeProcess(pid: Int, name: String, unavailable: Bool) -> CmuxTopProcessInfo {
+            CmuxTopProcessInfo(
+                pid: pid,
+                parentPID: 0,
+                name: name,
+                path: nil,
+                ttyDevice: nil,
+                cmuxWorkspaceID: nil,
+                cmuxSurfaceID: nil,
+                cmuxAttributionReason: nil,
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: unavailable ? 1 : 2,
+                memoryBytes: unavailable ? 0 : 2048,
+                memorySource: unavailable ? .unavailable : .residentSize,
+                residentBytes: unavailable ? 0 : 1024,
+                residentMemorySource: unavailable ? .unavailable : .rusageResidentSize,
+                virtualBytes: unavailable ? 0 : 4096,
+                threadCount: 1
+            )
+        }
+
+        // Coding agents are folded out of program rows, so use a non-agent pair for
+        // the summary/program assertions and an agent pair for the coding-agent one.
         let unavailablePID = 1111
         let fallbackPID = 2222
+        let agentUnavailablePID = 3333
+        let agentFallbackPID = 4444
         let snapshot = CmuxTopProcessSnapshot(
             processes: [
-                CmuxTopProcessInfo(
-                    pid: unavailablePID,
-                    parentPID: 0,
-                    name: "codex",
-                    path: nil,
-                    ttyDevice: nil,
-                    cmuxWorkspaceID: nil,
-                    cmuxSurfaceID: nil,
-                    cmuxAttributionReason: nil,
-                    processGroupID: nil,
-                    terminalProcessGroupID: nil,
-                    cpuPercent: 1,
-                    memoryBytes: 0,
-                    memorySource: .unavailable,
-                    residentBytes: 0,
-                    residentMemorySource: .unavailable,
-                    virtualBytes: 0,
-                    threadCount: 1
-                ),
-                CmuxTopProcessInfo(
-                    pid: fallbackPID,
-                    parentPID: 0,
-                    name: "codex",
-                    path: nil,
-                    ttyDevice: nil,
-                    cmuxWorkspaceID: nil,
-                    cmuxSurfaceID: nil,
-                    cmuxAttributionReason: nil,
-                    processGroupID: nil,
-                    terminalProcessGroupID: nil,
-                    cpuPercent: 2,
-                    memoryBytes: 2048,
-                    memorySource: .residentSize,
-                    residentBytes: 1024,
-                    residentMemorySource: .rusageResidentSize,
-                    virtualBytes: 4096,
-                    threadCount: 1
-                )
+                makeProcess(pid: unavailablePID, name: "worker", unavailable: true),
+                makeProcess(pid: fallbackPID, name: "worker", unavailable: false),
+                makeProcess(pid: agentUnavailablePID, name: "codex", unavailable: true),
+                makeProcess(pid: agentFallbackPID, name: "codex", unavailable: false)
             ],
             sampledAt: Date(timeIntervalSince1970: 0),
             includesProcessDetails: false
@@ -396,16 +388,24 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         let summary = snapshot.summaryPayload(for: [unavailablePID, fallbackPID])
         assertUnavailableMemoryPayload(summary, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
 
-        let program = try XCTUnwrap(snapshot.programSummaryPayload(for: [unavailablePID, fallbackPID]).first)
+        let programs = snapshot.programSummaryPayload(
+            for: [unavailablePID, fallbackPID, agentUnavailablePID, agentFallbackPID]
+        )
+        XCTAssertEqual(programs.compactMap { $0["name"] as? String }, ["worker"])
+        let program = try XCTUnwrap(programs.first)
         let programResources = try XCTUnwrap(program["resources"] as? [String: Any])
         assertUnavailableMemoryPayload(programResources, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
 
         let codingAgent = try XCTUnwrap(
-            snapshot.codingAgentSummaryPayload(for: [unavailablePID, fallbackPID])
+            snapshot.codingAgentSummaryPayload(for: [agentUnavailablePID, agentFallbackPID])
                 .first { $0["id"] as? String == "codex" }
         )
         let codingAgentResources = try XCTUnwrap(codingAgent["resources"] as? [String: Any])
-        assertUnavailableMemoryPayload(codingAgentResources, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
+        assertUnavailableMemoryPayload(
+            codingAgentResources,
+            unavailablePID: agentUnavailablePID,
+            fallbackPID: agentFallbackPID
+        )
     }
 
     func testKernProcArgsWorkspaceID() {

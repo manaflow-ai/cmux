@@ -9,6 +9,38 @@ nonisolated func cmuxTopCanonicalProcessName(name: String, path: String?) -> Str
     return basename
 }
 
+/// Lock-guarded per-PID memo for coding-agent classification. The mutable cache is
+/// private so no caller can touch it without going through the guarded accessor,
+/// which preserves the snapshot's `@unchecked Sendable` safety argument.
+nonisolated final class CmuxTopCodingAgentDefinitionMemo: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cache: [Int: CmuxTaskManagerCodingAgentDefinition?] = [:]
+
+    func definitions(
+        for pids: some Sequence<Int>,
+        classify: (Int) -> CmuxTaskManagerCodingAgentDefinition?
+    ) -> [Int: CmuxTaskManagerCodingAgentDefinition] {
+        var definitions: [Int: CmuxTaskManagerCodingAgentDefinition] = [:]
+        lock.lock()
+        defer { lock.unlock() }
+        for pid in pids {
+            let definition: CmuxTaskManagerCodingAgentDefinition?
+            if let cached = cache[pid] {
+                definition = cached
+            } else {
+                definition = classify(pid)
+                // updateValue stores .some(nil) for unclassified PIDs; plain subscript
+                // assignment of a nil optional would remove the entry instead.
+                cache.updateValue(definition, forKey: pid)
+            }
+            if let definition {
+                definitions[pid] = definition
+            }
+        }
+        return definitions
+    }
+}
+
 nonisolated extension CmuxTopProcessSnapshot {
     static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
         guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
@@ -25,34 +57,15 @@ nonisolated extension CmuxTopProcessSnapshot {
     func codingAgentDefinitionsByPID(
         for pids: some Sequence<Int>
     ) -> [Int: CmuxTaskManagerCodingAgentDefinition] {
-        var definitions: [Int: CmuxTaskManagerCodingAgentDefinition] = [:]
-        codingAgentDefinitionCacheLock.lock()
-        defer { codingAgentDefinitionCacheLock.unlock() }
-        for pid in pids {
-            let definition: CmuxTaskManagerCodingAgentDefinition?
-            if let cached = codingAgentDefinitionCache[pid] {
-                definition = cached
-            } else {
-                definition = classifyCodingAgent(pid: pid)
-                // updateValue stores .some(nil) for unclassified PIDs; plain subscript
-                // assignment of a nil optional would remove the entry instead.
-                codingAgentDefinitionCache.updateValue(definition, forKey: pid)
-            }
-            if let definition {
-                definitions[pid] = definition
-            }
+        codingAgentDefinitionMemo.definitions(for: pids) { pid in
+            guard let process = processesByPID[pid] else { return nil }
+            let processArguments = Self.processArgumentsIfNeeded(for: process)
+            return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments?.arguments ?? [],
+                environment: processArguments?.environment ?? [:]
+            )
         }
-        return definitions
-    }
-
-    private func classifyCodingAgent(pid: Int) -> CmuxTaskManagerCodingAgentDefinition? {
-        guard let process = processesByPID[pid] else { return nil }
-        let processArguments = Self.processArgumentsIfNeeded(for: process)
-        return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-            processName: process.name,
-            processPath: process.path,
-            arguments: processArguments?.arguments ?? [],
-            environment: processArguments?.environment ?? [:]
-        )
     }
 }

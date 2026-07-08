@@ -121,6 +121,38 @@ import Testing
         #expect(groupNames.filter { $0.lowercased() == "node" }.count == 1)
     }
 
+    @Test func snapshotParserHonorsExplicitlyEmptyProgramTotals() {
+        func windowPayload() -> [String: Any] {
+            [
+                "id": "window-1",
+                "ref": "window:1",
+                "processes": [
+                    ["pid": 101, "name": "2.1.204", "resources": ["cpu_percent": 1.0, "resident_bytes": 100]],
+                    ["pid": 202, "name": "2.1.204", "resources": ["cpu_percent": 2.0, "resident_bytes": 200]],
+                ],
+            ]
+        }
+
+        // Present-but-empty program_totals means the backend intentionally has no
+        // program aggregates (e.g. the only repeated processes are coding agents);
+        // the client must not recreate them from process rows.
+        let explicitlyEmpty = CmuxTaskManagerSnapshot(payload: [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "totals": [:],
+            "program_totals": [] as [[String: Any]],
+            "windows": [windowPayload()],
+        ])
+        #expect(explicitlyEmpty.aggregateRows.isEmpty)
+
+        // Absent program_totals is a legacy payload; client-side fallback applies.
+        let legacyAbsent = CmuxTaskManagerSnapshot(payload: [
+            "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+            "totals": [:],
+            "windows": [windowPayload()],
+        ])
+        #expect(legacyAbsent.aggregateRows.map(\.title) == ["2.1.204"])
+    }
+
     @Test func totalsMemoryBytesRemainClampedSum() {
         let snapshot = snapshot([
             process(pid: 301, name: "first", memoryBytes: Int64.max - 4, residentBytes: 1),

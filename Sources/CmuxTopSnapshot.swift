@@ -138,8 +138,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
-    let codingAgentDefinitionCacheLock = NSLock()
-    var codingAgentDefinitionCache: [Int: CmuxTaskManagerCodingAgentDefinition?] = [:]
+    let codingAgentDefinitionMemo = CmuxTopCodingAgentDefinitionMemo()
 
     static func capture(
         includeProcessDetails: Bool = false,
