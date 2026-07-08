@@ -29,13 +29,17 @@ extension Workspace {
                 $0 != key && isStructuredAgentHookPIDKey($0)
             } ?? []
             for staleKey in stalePanelKeys {
-                // Keep the pane's status entry ONLY for the key-shape change
-                // (the bare key returning to a pane holding this pane's own
-                // synthesized displacement key). Anything else, including a
-                // NEW session of the same agent type under a different
-                // suffixed key, is a real replacement: clear its status too.
-                let keepEntry = staleKey == synthesizedKey
-                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !keepEntry, refreshPorts: false)
+                // The key-shape change (bare key returning to a pane holding
+                // this pane's own synthesized displacement key) reaps only the
+                // pid bookkeeping: the same runtime keeps reporting, so its
+                // status entry AND lifecycle survive. Anything else, including
+                // a NEW session of the same agent type under a different
+                // suffixed key, is a real replacement: clear everything.
+                if staleKey == synthesizedKey {
+                    _ = reapSynthesizedDisplacementKeyPreservingRow(staleKey)
+                } else {
+                    _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
+                }
             }
         }
         agentPIDPanelIdsByKey[key] = panelId
@@ -60,6 +64,25 @@ extension Workspace {
 
     static func synthesizedDisplacedPIDKey(statusKey: String, panelId: UUID) -> String {
         "\(statusKey).pane-\(panelId.uuidString)"
+    }
+
+    /// Removes ONLY the pid bookkeeping for a pane's synthesized displacement
+    /// key. The pane's status entry and lifecycle survive: the same runtime is
+    /// re-keying back to the bare key, not exiting.
+    @discardableResult
+    private func reapSynthesizedDisplacementKeyPreservingRow(_ synthesizedKey: String) -> Bool {
+        var didChange = false
+        if agentPIDs.removeValue(forKey: synthesizedKey) != nil {
+            didChange = true
+        }
+        if agentPIDProcessIdentitiesByKey.removeValue(forKey: synthesizedKey) != nil {
+            didChange = true
+        }
+        if agentPIDPanelIdsByKey[synthesizedKey] != nil {
+            removeAgentPIDOwnership(key: synthesizedKey)
+            didChange = true
+        }
+        return didChange
     }
 
     /// Workspace-scoped removal of every runtime tracked for a status key:
@@ -98,13 +121,17 @@ extension Workspace {
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
-            // Keep the pane's status entry ONLY for the key-shape change (the
-            // bare key returning to a pane holding this pane's own synthesized
-            // displacement key). Anything else, including a NEW session of the
-            // same agent type under a different suffixed key, is a real
-            // replacement: clear its status too.
-            let keepEntry = staleKey == synthesizedKey
-            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: !keepEntry, refreshPorts: false) {
+            // The key-shape change (bare key returning to a pane holding this
+            // pane's own synthesized displacement key) reaps only the pid
+            // bookkeeping: the same runtime keeps reporting, so its status
+            // entry AND lifecycle survive. Anything else, including a NEW
+            // session of the same agent type under a different suffixed key,
+            // is a real replacement: clear everything.
+            if staleKey == synthesizedKey {
+                if reapSynthesizedDisplacementKeyPreservingRow(staleKey) {
+                    didChange = true
+                }
+            } else if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
         }

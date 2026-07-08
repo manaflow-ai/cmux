@@ -58,6 +58,10 @@ struct PerAgentSidebarStatusDisplacementTests {
         workspace.recordAgentPID(key: "claude_code", pid: 111, panelId: firstPanelId, refreshPorts: false)
         #expect(workspace.agentPIDs[synthesizedKey] == nil)
         #expect(workspace.statusEntriesByPanelId[firstPanelId]?["claude_code"]?.value == "Running")
+        // The key-shape change is the SAME runtime re-keying, not an exit:
+        // the pane's lifecycle must survive too, or the state dot and summary
+        // counts go blank until the next lifecycle hook.
+        #expect(workspace.agentLifecycleStatesByPanelId[firstPanelId]?["claude_code"] == .running)
         #expect(workspace.sidebarAgentStatusRows().count == 2)
     }
 
