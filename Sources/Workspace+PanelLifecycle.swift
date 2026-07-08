@@ -460,7 +460,6 @@ extension Workspace {
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
-        titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
@@ -478,9 +477,7 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
+        discardTerminalTabAgentIconState(forPanelId: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)

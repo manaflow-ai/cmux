@@ -168,12 +168,137 @@ extension TerminalTabAgentIconResolver.RestoredAgent {
 }
 
 extension Workspace {
+    @discardableResult
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
+        var didMutate = false
+        var didMutatePanelTitle = false
+        var didMutateWorkspaceTitle = false
+        var didMutateTitleDerivedAgent = false
+
+        if panelTitles[panelId] != trimmed {
+            panelTitles[panelId] = trimmed
+            didMutate = true
+            didMutatePanelTitle = true
+        }
+
+        if panels[panelId] is TerminalPanel,
+           updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
+            didMutate = true
+            didMutateTitleDerivedAgent = true
+        }
+
+        // Update bonsplit tab title only when this panel's title changed, and
+        // update the icon when the title-derived agent fallback changes.
+        if (didMutatePanelTitle || didMutateTitleDerivedAgent),
+           let tabId = surfaceIdFromPanelId(panelId),
+           let panel = panels[panelId],
+           let existing = bonsplitController.tab(tabId) {
+            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
+                ? .some(terminalTabAgentIconAsset(forPanelId: panelId))
+                : nil
+            bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                iconAsset: iconAssetUpdate,
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
+
+        // If this is the only panel and no custom title, update workspace title
+        if panels.count == 1, customTitle == nil {
+            if self.title != trimmed {
+                self.title = trimmed
+                didMutate = true
+                didMutateWorkspaceTitle = true
+            }
+            if processTitle != trimmed {
+                processTitle = trimmed
+            }
+        }
+
+#if DEBUG
+        if didMutate {
+            cmuxDebugLog(
+                "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
+                "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
+                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
+            )
+        }
+#endif
+        return didMutate
+    }
+
     func updateTitleDerivedTerminalAgentStatusKey(forPanelId panelId: UUID, title: String) -> Bool {
         TerminalTabAgentIconResolver().updateTitleDerivedStatusKey(
             forPanelId: panelId,
             title: title,
             in: &titleDerivedAgentStatusKeysByPanelId
         )
+    }
+
+    func seedTitleDerivedTerminalAgentState(from detached: DetachedSurfaceTransfer) {
+        if let cachedTitle = detached.cachedTitle {
+            panelTitles[detached.panelId] = cachedTitle
+        }
+        guard detached.panel is TerminalPanel else { return }
+        _ = updateTitleDerivedTerminalAgentStatusKey(
+            forPanelId: detached.panelId,
+            title: detached.cachedTitle ?? detached.panel.displayTitle
+        )
+    }
+
+    func seedSessionRestoredAgentIconState(
+        panelId: UUID,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        willRunStartupCommand: Bool,
+        willRunStartupInput: Bool
+    ) {
+        if let restorableAgent {
+            restoredAgentSnapshotsByPanelId[panelId] = restorableAgent
+        } else {
+            restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        }
+        if willRunStartupCommand {
+            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+        } else if willRunStartupInput {
+            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
+        } else if restorableAgent != nil {
+            restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+        } else {
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        }
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        if restorableAgent != nil {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
+        }
+    }
+
+    func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
+        if let restorableAgent = detached.restorableAgent {
+            restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+        } else {
+            restoredAgentSnapshotsByPanelId.removeValue(forKey: detached.panelId)
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let resumeState = detached.restorableAgentResumeState {
+            restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
+        } else {
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+        }
+    }
+
+    func discardTerminalTabAgentIconState(forPanelId panelId: UUID) {
+        titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
