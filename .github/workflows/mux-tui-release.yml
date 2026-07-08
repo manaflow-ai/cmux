@@ -20,6 +20,9 @@ jobs:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    # Windows is experimental (bindgen clang include-path issue with the nested
+    # ghostty vt headers); its failure must not block the unix release.
+    continue-on-error: ${{ matrix.experimental || false }}
     permissions:
       contents: read
     strategy:
@@ -45,6 +48,7 @@ jobs:
           - target: x86_64-pc-windows-gnu
             runner: windows-latest
             cross: true
+            experimental: true
             ext: ".exe"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

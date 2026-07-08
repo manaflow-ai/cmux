@@ -14,7 +14,7 @@ const PACKAGE_BY_PLATFORM = {
   "darwin-x64": "cmux-tui-darwin-x64",
   "linux-x64": "cmux-tui-linux-x64",
   "linux-arm64": "cmux-tui-linux-arm64",
-  "win32-x64": "cmux-tui-win32-x64",
+  // win32-x64 pending: ghostty vt headers fail bindgen under mingw clang.
 };
 
 const key = `${process.platform}-${process.arch}`;
