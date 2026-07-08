@@ -7,8 +7,14 @@ let stackConfigured = true;
 let currentUser: ReturnType<typeof testflightUser> | null = null;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
+const eligibilityByUser = new WeakMap<object, boolean>();
 
 const getUser = mock(async () => currentUser);
+const isTestflightEligible = mock(async (user: unknown) =>
+  user && typeof user === "object"
+    ? eligibilityByUser.get(user) ?? true
+    : true,
+);
 const ascFetch = mock(async (path: unknown) => {
   if (String(path).startsWith("/v1/betaTesters?")) {
     return {
@@ -74,6 +80,10 @@ mock.module("../services/errors", () => ({
   captureBillingError: mock(() => undefined),
 }));
 
+mock.module("@/services/billing/pro", () => ({
+  isTestflightEligible,
+}));
+
 const { default: DashboardTestflightPage } = await import("../app/[locale]/dashboard/testflight/page");
 
 describe("dashboard TestFlight page", () => {
@@ -83,6 +93,7 @@ describe("dashboard TestFlight page", () => {
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
+    isTestflightEligible.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
   });
@@ -147,7 +158,7 @@ async function renderTestflightPage(searchParams: Record<string, string> = {}) {
 }
 
 function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
-  return {
+  const user = {
     id: "user-pro",
     isAnonymous: false,
     primaryEmail: "Pro@Example.com",
@@ -172,6 +183,8 @@ function testflightUser({ eligible = true }: { eligible?: boolean } = {}) {
     ),
     update: mock(async () => undefined),
   };
+  eligibilityByUser.set(user, eligible);
+  return user;
 }
 
 function translator(namespace?: string) {
