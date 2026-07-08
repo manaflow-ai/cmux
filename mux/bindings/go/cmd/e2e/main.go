@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	cmuxmux "github.com/manaflow-ai/cmux/mux/bindings/go"
+	"github.com/manaflow-ai/cmux/mux/bindings/go"
 )
 
 func main() {
@@ -25,7 +25,7 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	client, err := cmuxmux.NewClient(cmuxmux.Options{
+	client, err := cmux.NewClient(cmux.Options{
 		SocketPath:            socket,
 		Timeout:               5 * time.Second,
 		AllowProtocolV6Attach: true,
@@ -45,12 +45,12 @@ func run() error {
 		return fmt.Errorf("unexpected identify result: %+v", info)
 	}
 	cols, rows := uint16(80), uint16(24)
-	created, err := client.NewWorkspace(ctx, cmuxmux.NewWorkspaceOptions{Name: &marker, Cols: &cols, Rows: &rows})
+	created, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{Name: &marker, Cols: &cols, Rows: &rows})
 	if err != nil {
 		return err
 	}
 	text := fmt.Sprintf("printf '%s\\n'\r", marker)
-	if err := client.Send(ctx, created.Surface, cmuxmux.SendOptions{Text: &text}); err != nil {
+	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &text}); err != nil {
 		return err
 	}
 	if err := waitForMarker(ctx, client, created.Surface, marker); err != nil {
@@ -92,7 +92,7 @@ func run() error {
 	if err := client.ResizeSurface(ctx, created.Surface, 100, 31); err != nil {
 		return err
 	}
-	if _, err := nextResized(events, created.Surface, 500*time.Millisecond); !errors.Is(err, cmuxmux.ErrTimeout) {
+	if _, err := nextResized(events, created.Surface, 500*time.Millisecond); !errors.Is(err, cmux.ErrTimeout) {
 		return fmt.Errorf("same-size resize emitted event or failed oddly: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func run() error {
 		return fmt.Errorf("first attach event was %s", first.EventName())
 	}
 	outputText := fmt.Sprintf("printf '%s\\n'\r", later)
-	if err := client.Send(ctx, created.Surface, cmuxmux.SendOptions{Text: &outputText}); err != nil {
+	if err := client.Send(ctx, created.Surface, cmux.SendOptions{Text: &outputText}); err != nil {
 		return err
 	}
 	if err := nextAttachOutput(attach, 3*time.Second); err != nil {
@@ -126,14 +126,14 @@ func run() error {
 		return fmt.Errorf("closed workspace still present")
 	}
 	_, err = client.ReadScreen(ctx, created.Surface)
-	var commandErr *cmuxmux.CommandError
+	var commandErr *cmux.CommandError
 	if !errors.As(err, &commandErr) || commandErr.Message == "" {
 		return fmt.Errorf("closed surface error was not command error preserving message: %v", err)
 	}
 	return nil
 }
 
-func waitForMarker(ctx context.Context, client *cmuxmux.Client, surface uint64, marker string) error {
+func waitForMarker(ctx context.Context, client *cmux.Client, surface uint64, marker string) error {
 	deadline := time.Now().Add(5 * time.Second)
 	last := ""
 	for time.Now().Before(deadline) {
@@ -150,21 +150,21 @@ func waitForMarker(ctx context.Context, client *cmuxmux.Client, surface uint64, 
 	return fmt.Errorf("marker not found; last screen: %q", last)
 }
 
-func nextResized(events *cmuxmux.Stream, surface uint64, timeout time.Duration) (cmuxmux.SurfaceResizedEvent, error) {
+func nextResized(events *cmux.Stream, surface uint64, timeout time.Duration) (cmux.SurfaceResizedEvent, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	for {
 		event, err := events.Recv(ctx)
 		if err != nil {
-			return cmuxmux.SurfaceResizedEvent{}, err
+			return cmux.SurfaceResizedEvent{}, err
 		}
-		if resized, ok := event.(cmuxmux.SurfaceResizedEvent); ok && resized.Surface == surface {
+		if resized, ok := event.(cmux.SurfaceResizedEvent); ok && resized.Surface == surface {
 			return resized, nil
 		}
 	}
 }
 
-func nextAttachOutput(events *cmuxmux.Stream, timeout time.Duration) error {
+func nextAttachOutput(events *cmux.Stream, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	for {
@@ -178,7 +178,7 @@ func nextAttachOutput(events *cmuxmux.Stream, timeout time.Duration) error {
 	}
 }
 
-func findWorkspaceForSurface(tree cmuxmux.Tree, surface uint64) (uint64, bool) {
+func findWorkspaceForSurface(tree cmux.Tree, surface uint64) (uint64, bool) {
 	for _, workspace := range tree.Workspaces {
 		for _, screen := range workspace.Screens {
 			for _, pane := range screen.Panes {
