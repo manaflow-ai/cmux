@@ -114,24 +114,12 @@ extension TerminalController: ControlFleetContext {
     }
 
     func controlFleetTaskOpen(taskID: String) -> ControlFleetTaskOpenResolution {
-        let engine = FleetAppHost.shared.engine
-        switch engine.openTarget(taskID: FleetTaskID(taskID)) {
-        case .workspace(let idString):
-            guard let workspaceID = UUID(uuidString: idString),
-                  let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceID })
-            else { return .workspaceUnavailable }
-            if let windowID = AppDelegate.shared?.windowId(for: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
-            }
-            if tabManager.selectedTabId != workspace.id {
-                tabManager.selectWorkspace(workspace)
-            }
-            TerminalController.shared.setActiveTabManager(tabManager)
+        switch FleetTaskWorkspaceOpener.openTask(FleetTaskID(taskID)) {
+        case .opened(let workspaceID):
             return .opened(workspaceID: workspaceID)
-        case .noWorkspace:
+        case .workspaceUnavailable:
             return .workspaceUnavailable
-        case .notFound:
+        case .taskNotFound(let taskID):
             return .taskNotFound(taskID)
         }
     }

@@ -14,6 +14,8 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
+        case "fleet":
+            return .fleet
         default:
             return nil
         }
@@ -22,22 +24,30 @@ extension RightSidebarMode {
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            fleetEnabled: RightSidebarBetaFeatureSettings.isFleetEnabled(defaults: defaults)
         )
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0 != .customSidebar && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
+    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, fleetEnabled: Bool) -> [RightSidebarMode] {
+        allCases.filter {
+            $0 != .customSidebar && $0.isAvailable(
+                feedEnabled: feedEnabled,
+                dockEnabled: dockEnabled,
+                fleetEnabled: fleetEnabled
+            )
+        }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
+            fleetEnabled: RightSidebarBetaFeatureSettings.isFleetEnabled(defaults: defaults)
         )
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
+    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, fleetEnabled: Bool) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
@@ -45,6 +55,8 @@ extension RightSidebarMode {
             return feedEnabled
         case .dock:
             return dockEnabled
+        case .fleet:
+            return fleetEnabled
         case .customSidebar:
             return false
         }

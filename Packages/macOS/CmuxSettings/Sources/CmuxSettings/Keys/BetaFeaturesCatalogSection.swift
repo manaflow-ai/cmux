@@ -25,6 +25,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
+    /// Right-sidebar Fleet: an experimental board that displays Fleet tasks
+    /// in Queue, Running, Needs Input, Review, and Done sections. Defaults
+    /// off; while off, the Fleet mode is hidden from the right-sidebar
+    /// switcher.
+    public let rightSidebarFleet = DefaultsKey<Bool>(
+        id: "rightSidebar.beta.fleet.enabled",
+        defaultValue: false,
+        userDefaultsKey: "rightSidebar.beta.fleet.enabled"
+    )
+
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
     /// (puzzle button, sidebar-toggle provider menu, installed-extension
     /// host, and the extensions browser). Defaults off; while off, every
