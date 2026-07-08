@@ -70,6 +70,16 @@ if ! grep -Fq "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef35013
 fi
 
 swift_package_section="$(job_section "$CI_FILE" "swift-package-tests")"
+if [[ "$swift_package_section" != *"timeout-minutes: 40"* ]]; then
+  echo "FAIL: CI swift-package-tests must have enough timeout budget for helper build plus package tests" >&2
+  exit 1
+fi
+
+if [[ "$swift_package_section" != *"CMUX_CI_HELPER_XCODE_APP"* ]]; then
+  echo "FAIL: CI swift-package-tests must use a helper-specific Xcode pin" >&2
+  exit 1
+fi
+
 if [[ "$swift_package_section" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
   echo "FAIL: CI swift-package-tests must build the universal Ghostty CLI helper on the macOS 15 lane" >&2
   exit 1
@@ -81,6 +91,11 @@ if [[ "$swift_package_section" != *"actions/upload-artifact@043fb46d1a93c77aae65
 fi
 
 swift_package_before_xcode="${swift_package_section%%- name: Select Xcode*}"
+if [[ "$swift_package_before_xcode" != *"CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15"* ]]; then
+  echo "FAIL: CI swift-package-tests must require a macOS 15 SDK for the helper build" >&2
+  exit 1
+fi
+
 if [[ "$swift_package_before_xcode" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
   echo "FAIL: CI swift-package-tests must build the Ghostty helper before selecting the Xcode 26 SDK" >&2
   exit 1
@@ -88,6 +103,11 @@ fi
 
 if [[ "$swift_package_before_xcode" != *"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1"* ]]; then
   echo "FAIL: CI swift-package-tests must upload the Ghostty helper before selecting the Xcode 26 SDK" >&2
+  exit 1
+fi
+
+if [[ "$swift_package_section" != *'[[ "$HELPER_SDK_VERSION" == 15.* ]]'* ]]; then
+  echo "FAIL: CI swift-package-tests must validate the uploaded Ghostty helper was built with a macOS 15 SDK" >&2
   exit 1
 fi
 

@@ -771,9 +771,10 @@ jobs:
       - linux-preflight
     if: ${{ needs.changes.outputs.macos == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 || '/Applications/Xcode_16.4.app' }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -793,6 +794,13 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Select helper Xcode
+        run: |
+          set -euo pipefail
+          CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
+            CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 \
+            ./scripts/select-ci-xcode.sh
+
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
@@ -809,6 +817,13 @@ jobs:
           mkdir -p ghostty-cli-helper
           ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
           lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
+          for arch in arm64 x86_64; do
+            thin="ghostty-cli-helper/ghostty-$arch"
+            lipo ghostty-cli-helper/ghostty -thin "$arch" -output "$thin"
+            HELPER_SDK_VERSION="$(otool -l "$thin" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
+            echo "Ghostty helper $arch SDK version: $HELPER_SDK_VERSION"
+            [[ "$HELPER_SDK_VERSION" == 15.* ]]
+          done
 
       - name: Upload universal Ghostty CLI helper
         id: upload-ghostty-cli-helper

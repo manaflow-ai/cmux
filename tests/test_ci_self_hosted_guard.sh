@@ -212,6 +212,10 @@ check_release_helper_artifact_from_package_lane() {
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
+    in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
+    in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
+    in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
+    in_job && /CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15/ { saw_helper_sdk_pin=1 }
     in_job && /- name: Select Xcode/ { saw_select=1; after_select=1; next }
     in_job && /- name: Build universal Ghostty CLI helper/ {
       saw_build_step=1
@@ -231,12 +235,13 @@ check_release_helper_artifact_from_package_lane() {
     }
     in_job && /uses: actions\/upload-artifact@/ { saw_upload=1 }
     in_job && /name:[[:space:]]*cmux-ghostty-cli-helper/ { saw_artifact_name=1 }
+    in_job && /\[\[ "\$HELPER_SDK_VERSION" == 15\.\* \]\]/ { saw_helper_sdk_validation=1 }
 
     END {
-      exit !(saw_build_step && saw_build && saw_lipo && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
+      exit !(saw_timeout && saw_helper_xcode_env && saw_helper_select && saw_helper_sdk_pin && saw_build_step && saw_build && saw_lipo && saw_helper_sdk_validation && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: swift-package-tests must build and upload the universal Ghostty helper before selecting Xcode 26"
+    echo "FAIL: swift-package-tests must pin and validate the macOS 15 Ghostty helper before selecting Xcode 26"
     exit 1
   fi
 
