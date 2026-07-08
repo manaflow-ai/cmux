@@ -320,7 +320,6 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 }
 
-
 final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testRenameTabShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.label, "Rename Tab")
@@ -2970,6 +2969,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     private final class DetachedWorkspaceTestPanel: Panel {
         let objectWillChange = ObservableObjectPublisher()
         let id: UUID
+        let stableSurfaceIdentity = PanelStableSurfaceIdentity()
         let panelType: PanelType = .terminal
         let displayTitle = "Detached"
         let displayIcon: String? = "terminal.fill"
@@ -4942,7 +4942,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         XCTAssertTrue(workspace.sessionSnapshot(includeScrollback: false).panels.isEmpty)
     }
 
-    func testCloudVMLoadingSurfaceSwapsToTerminalInPlace() {
+    func testCloudVMLoadingSurfaceSwapsToTerminalInPlace() throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace(
             title: "Cloud VM",
@@ -4951,11 +4951,9 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
             autoWelcomeIfNeeded: false
         )
 
-        guard let loadingPanelId = workspace.focusedPanelId,
-              let loadingSurfaceId = workspace.surfaceIdFromPanelId(loadingPanelId) else {
-            XCTFail("Expected initial Cloud VM loading surface")
-            return
-        }
+        let loadingPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let loadingSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(loadingPanelId))
+        let stableSurfaceId = try XCTUnwrap(workspace.panels[loadingPanelId]).stableSurfaceId
 
         let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_123"
         let terminal = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
@@ -4967,6 +4965,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         XCTAssertEqual(terminal?.id, loadingPanelId)
         XCTAssertEqual(workspace.panels[loadingPanelId]?.panelType, .terminal)
         XCTAssertEqual(workspace.surfaceIdFromPanelId(loadingPanelId), loadingSurfaceId)
+        XCTAssertEqual(terminal?.stableSurfaceId, stableSurfaceId)
         XCTAssertEqual(workspace.focusedTerminalPanel?.id, loadingPanelId)
         XCTAssertEqual(terminal?.surface.initialCommand, command)
     }

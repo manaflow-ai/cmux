@@ -4,7 +4,7 @@ import CmuxSettings
 @testable import CmuxWorkspaces
 
 @MainActor
-private final class CoordinatorStubTab: WorkspaceTabRepresenting {
+final class CoordinatorStubTab: WorkspaceTabRepresenting {
     let id: UUID
     var groupId: UUID?
     var isPinned: Bool
@@ -24,7 +24,7 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
 
 /// Window-side stand-in for group/reorder coordinator tests.
 @MainActor
-private final class StubGroupHost: WorkspaceGroupHosting {
+final class StubGroupHost: WorkspaceGroupHosting {
     typealias Tab = CoordinatorStubTab
 
     let model: WorkspacesModel<CoordinatorStubTab>
@@ -493,7 +493,7 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func deleteWorkspaceGroupClosesMembersAndClearsLastHoldout() throws {
+    func deleteWorkspaceGroupClosesMembersAndCreatesReplacementForLastHoldout() throws {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
@@ -502,10 +502,10 @@ struct WorkspaceCoordinatorTests {
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
-        // Anchor + one member close for real; the final holdout is kept
-        // alive as an ungrouped workspace (closeWorkspace's last-tab guard).
-        #expect(closed == 2)
-        #expect(host.closedWorkspaceIds.count >= 2)
+        // The group anchor and all members close for real. A replacement ungrouped
+        // workspace is created when the final member would hit the last-tab guard.
+        #expect(closed == 3)
+        #expect(host.closedWorkspaceIds.count >= 3)
         #expect(model.workspaceGroups.isEmpty)
         #expect(model.tabs.count == 1)
         #expect(model.tabs[0].groupId == nil)

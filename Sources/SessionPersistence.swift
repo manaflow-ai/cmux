@@ -199,12 +199,6 @@ struct SessionRectSnapshot: Codable, Equatable, Sendable {
     }
 }
 
-struct SessionDisplaySnapshot: Codable, Sendable {
-    var displayID: UInt32?
-    var frame: SessionRectSnapshot?
-    var visibleFrame: SessionRectSnapshot?
-}
-
 enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
     case tabs
     case notifications
@@ -1654,6 +1648,7 @@ struct SessionProjectPanelSnapshot: Codable, Sendable {
 
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
+    var stableSurfaceId: UUID? = nil
     var type: PanelType
     var title: String?
     var customTitle: String?
@@ -1776,11 +1771,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
     /// legacy or externally-created snapshots can leave it nil.
     var workspaceId: UUID? = nil
+    var stableId: UUID? = nil
     var processTitle: String
     var customTitle: String?
-    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
-    /// persisted before provenance existed decode unchanged; restore treats
-    /// absent provenance as user-set (the conservative choice for auto-naming).
+    /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
@@ -1857,6 +1851,9 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+    /// Per-display-configuration remembered frames (LRU ring). Optional and
+    /// additive so older persisted snapshots decode unchanged.
+    var configFrames: [SessionConfigFrameEntry]? = nil
 }
 
 struct AppSessionSnapshot: Codable, Sendable {

@@ -70,6 +70,10 @@ enum SidebarSelectedWorkspaceScrollPolicy {
             return true
         }
 
+        guard oldWorkspaceIds.count == newWorkspaceIds.count else {
+            return false
+        }
+
         guard oldIndex != newIndex else {
             return false
         }
