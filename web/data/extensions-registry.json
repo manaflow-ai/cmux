@@ -1,0 +1,7 @@
+{
+  "$comment": "Curated allowlist for ncmux.com/extensions. An extension is listed only after the cmux team has installed, reviewed, and committed to supporting it. Approval = a maintainer merges a PR adding an entry. Keep entries sorted by repo.",
+  "extensions": [
+    { "repo": "manaflow-ai/cmux-agent-usage", "addedAt": "2026-07-07" },
+    { "repo": "manaflow-ai/cmux-gh-dash", "addedAt": "2026-07-07" }
+  ]
+}

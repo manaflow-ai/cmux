@@ -1475,6 +1475,21 @@
       "dataNot": "Den interaktive terminaløkten din, innholdet og tastetrykkene dens går direkte mellom telefonen og Mac-en din over ditt eget nettverk, og videresendes ikke gjennom eller lagres på cmux-serverne. Det eneste unntaket er videresendt varseltekst, som går gjennom cmux og Apple's push service for å nå telefonen din, med mindre du aktiverer Hide content (se Varsler ovenfor).",
       "enterpriseTitle": "Enterprise og selvhostet",
       "enterpriseDesc": "For en selvhostet eller air-gapped utrulling, kontakt <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "Hvordan den kuraterte cmux marketplace gjennomgår innsendinger og lister støttede utvidelser.",
+      "intro": "Marketplace er et kuratert registry over støttede Dock TUI-utvidelser; bare godkjente repoer vises.",
+      "discoveryIntro": "Nettstedet leser en registry-fil. Et repo vises først etter at oppføringen merges:",
+      "submitTitle": "Send inn en utvidelse",
+      "submitIntro": "Kjør CLI submit fra en cmux-installasjon for å validere repoet og åpne en GitHub-issue:",
+      "submitIssue": "Du kan også åpne skjemaet direkte og lime inn valideringsutdata.",
+      "approvalTitle": "Godkjenning",
+      "approvalIntro": "Godkjenning betyr at cmux-teamet har gjennomgått utvidelsen og støtter oppføringen:",
+      "approvalInstall": "Vi installerer via preview-flyten og pinner committen.",
+      "approvalReview": "Vi gjennomgår manifest, kommandoer, lisens og relevant kode.",
+      "approvalDogfood": "Vi tester panes nok til å bekrefte oppførselen.",
+      "approvalMerge": "En maintainer merger en PR som legger repoet til registry.",
+      "takedownsIntro": "Fjerning er også en registry-PR og fjerner oppføringen ved neste deploy."
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "Last ned lyst ikon",
     "downloadDark": "Last ned mørkt ikon",
     "brandPage": "Merkevareressurser"
+  },
+  "extensions": {
+    "metaDescription": "Bla gjennom cmux Dock TUI-utvidelser som cmux-teamet har gjennomgått og støtter.",
+    "intro": "Et kuratert galleri med TUI-utvidelser fra fellesskapet; alle støttes av cmux-teamet.",
+    "trustNote": "Alle oppførte utvidelser er gjennomgått og støttet. Les <link>tillitsnotatene</link> før installasjon.",
+    "supportedLabel": "Støttet",
+    "submitTitle": "Send inn en utvidelse for gjennomgang",
+    "submitBody": "Kjør submit for å validere repoet og åpne en forhåndsutfylt GitHub-issue; godkjenning skjer når en maintainer merger en registry-PR.",
+    "submitIssueAction": "Åpne innsending-issue",
+    "templateAction": "Utvidelsesmal"
   },
   "afterSignIn": {
     "title": "Logget på cmux",

@@ -33,18 +33,25 @@ export default function ExtensionsMarketplaceDocsPage() {
 
       <DocsHeading level={2} id="discovery">{t("discoveryTitle")}</DocsHeading>
       <p>{t("discoveryIntro")}</p>
-      <CodeBlock lang="text">cmux-extension</CodeBlock>
+      <CodeBlock title="web/data/extensions-registry.json" lang="json">{`{
+  "extensions": [
+    { "repo": "owner/repo", "addedAt": "2026-07-07" }
+  ]
+}`}</CodeBlock>
 
-      <DocsHeading level={2} id="refresh">{t("refreshTitle")}</DocsHeading>
-      <p>{t("refreshIntro")}</p>
+      <DocsHeading level={2} id="submit">{t("submitTitle")}</DocsHeading>
+      <p>{t("submitIntro")}</p>
+      <CodeBlock lang="text">cmux extension submit owner/repo</CodeBlock>
+      <p>{t("submitIssue")}</p>
+
+      <DocsHeading level={2} id="approval">{t("approvalTitle")}</DocsHeading>
+      <p>{t("approvalIntro")}</p>
       <ul>
-        <li>{t("refreshTopic")}</li>
-        <li>{t("refreshForks")}</li>
-        <li>{t("refreshMetadata")}</li>
+        <li>{t("approvalInstall")}</li>
+        <li>{t("approvalReview")}</li>
+        <li>{t("approvalDogfood")}</li>
+        <li>{t("approvalMerge")}</li>
       </ul>
-
-      <DocsHeading level={2} id="endorsement">{t("endorsementTitle")}</DocsHeading>
-      <p>{t("endorsementIntro")}</p>
 
       <DocsHeading level={2} id="install-buttons">{t("installTitle")}</DocsHeading>
       <p>{t("installIntro")}</p>
@@ -53,10 +60,7 @@ export default function ExtensionsMarketplaceDocsPage() {
 
       <DocsHeading level={2} id="takedowns">{t("takedownsTitle")}</DocsHeading>
       <p>{t("takedownsIntro")}</p>
-      <CodeBlock title="web/data/extensions-blocklist.json" lang="json">{`{
-  "$comment": "Takedowns are handled by PR and deploy.",
-  "blocked": ["owner/repo"]
-}`}</CodeBlock>
+      <CodeBlock lang="text">web/data/extensions-registry.json</CodeBlock>
     </>
   );
 }

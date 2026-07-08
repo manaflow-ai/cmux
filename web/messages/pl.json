@@ -1475,6 +1475,21 @@
       "dataNot": "Twoja interaktywna sesja terminala, jej zawartość i naciśnięcia klawiszy, płynie bezpośrednio między telefonem a Makiem przez twoją własną sieć i nie jest przekazywana przez serwery cmux ani na nich przechowywana. Jedynym wyjątkiem jest przekazywany tekst powiadomień, który przechodzi przez cmux i usługę push firmy Apple, aby dotrzeć do twojego telefonu, chyba że włączysz Hide content (zobacz Powiadomienia powyżej).",
       "enterpriseTitle": "Wdrożenia korporacyjne i własne",
       "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "Jak kuratorowany marketplace cmux sprawdza zgłoszenia i listuje wspierane rozszerzenia.",
+      "intro": "Marketplace jest kuratorowanym rejestrem wspieranych rozszerzeń Dock TUI; pokazuje tylko zatwierdzone repozytoria.",
+      "discoveryIntro": "Strona czyta plik rejestru. Repozytorium pojawia się po scaleniu jego wpisu:",
+      "submitTitle": "Prześlij rozszerzenie",
+      "submitIntro": "Uruchom CLI submit z cmux, aby zwalidować repozytorium i otworzyć issue GitHub:",
+      "submitIssue": "Możesz też otworzyć formularz bezpośrednio i wkleić wynik walidacji.",
+      "approvalTitle": "Akceptacja",
+      "approvalIntro": "Akceptacja oznacza, że cmux sprawdził rozszerzenie i wspiera wpis:",
+      "approvalInstall": "Instalujemy przez podgląd i przypinamy commit.",
+      "approvalReview": "Sprawdzamy manifest, polecenia, licencję i kod.",
+      "approvalDogfood": "Testujemy panele, by potwierdzić opisane działanie.",
+      "approvalMerge": "Maintainer scala PR dodający repozytorium do rejestru.",
+      "takedownsIntro": "Usunięcie także jest PR rejestru i usuwa wpis przy następnym wdrożeniu."
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "Pobierz jasną ikonę",
     "downloadDark": "Pobierz ciemną ikonę",
     "brandPage": "Zasoby marki"
+  },
+  "extensions": {
+    "metaDescription": "Przeglądaj rozszerzenia cmux Dock TUI sprawdzone i wspierane przez zespół cmux.",
+    "intro": "Kuratorowana galeria społecznościowych rozszerzeń TUI; każde jest wspierane przez cmux.",
+    "trustNote": "Każde rozszerzenie zostało sprawdzone i wspierane. Przeczytaj <link>uwagi o zaufaniu</link> przed instalacją.",
+    "supportedLabel": "Wspierane",
+    "submitTitle": "Prześlij rozszerzenie do przeglądu",
+    "submitBody": "Uruchom submit, aby zwalidować repozytorium i otworzyć wstępnie wypełnione issue GitHub; akceptacja następuje po scaleniu PR rejestru.",
+    "submitIssueAction": "Otwórz issue zgłoszenia",
+    "templateAction": "Szablon rozszerzenia"
   },
   "afterSignIn": {
     "title": "Zalogowano do cmux",

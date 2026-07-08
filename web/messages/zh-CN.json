@@ -1475,6 +1475,21 @@
       "dataNot": "你的交互式终端会话、其内容和击键，通过你自己的网络在手机和 Mac 之间直接传输，不会经由 cmux 服务器中继或存储在其上。唯一的例外是转发的通知文本，它会经过 cmux 和 Apple 的推送服务到达你的手机，除非你启用 Hide content（参见上方的通知）。",
       "enterpriseTitle": "企业与自托管",
       "enterpriseDesc": "如需自托管或气隙隔离部署，请联系 <link>founders@manaflow.com</link>。"
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "精选 cmux marketplace 如何审核提交并列出受支持扩展。",
+      "intro": "marketplace 是受支持 Dock TUI 扩展的 registry；只显示已批准仓库。",
+      "discoveryIntro": "网站读取 registry 文件。仓库在其条目被合并后才会显示：",
+      "submitTitle": "提交扩展",
+      "submitIntro": "从 cmux 运行 CLI submit 以验证仓库并打开 GitHub issue：",
+      "submitIssue": "你也可以直接打开表单并粘贴验证输出。",
+      "approvalTitle": "批准",
+      "approvalIntro": "批准表示 cmux 已审核该扩展并支持该列表项：",
+      "approvalInstall": "我们通过 preview 流程安装并固定 commit。",
+      "approvalReview": "我们审核 manifest、命令、许可证和相关代码。",
+      "approvalDogfood": "我们试用 panes 以确认行为符合描述。",
+      "approvalMerge": "maintainer 合并把仓库加入 registry 的 PR。",
+      "takedownsIntro": "移除也通过 registry PR 完成，并在下次部署时从图库删除。"
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "下载浅色图标",
     "downloadDark": "下载深色图标",
     "brandPage": "品牌素材"
+  },
+  "extensions": {
+    "metaDescription": "浏览由 cmux 团队审核并支持的 cmux Dock TUI 扩展。",
+    "intro": "精选的社区 TUI 扩展图库；这里的每个扩展都由 cmux 支持。",
+    "trustNote": "每个扩展都已审核并受支持。安装前请阅读<link>信任说明</link>。",
+    "supportedLabel": "已支持",
+    "submitTitle": "提交扩展以供审核",
+    "submitBody": "运行 submit 验证仓库并打开预填的 GitHub issue；maintainer 合并 registry PR 后即批准。",
+    "submitIssueAction": "打开提交 issue",
+    "templateAction": "扩展模板"
   },
   "afterSignIn": {
     "title": "已登录 cmux",

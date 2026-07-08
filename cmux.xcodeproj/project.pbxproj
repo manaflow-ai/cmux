@@ -370,6 +370,8 @@
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
 		C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */; };
+		C0DEF0B20000000000000001 /* CmuxExtensionSubmitIssueURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B20000000000000002 /* CmuxExtensionSubmitIssueURL.swift */; };
+		C0DEF0B20000000000000003 /* CmuxExtensionSubmitIssueURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B20000000000000002 /* CmuxExtensionSubmitIssueURL.swift */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
 		CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = CF00F00000000000000000A2 /* CmuxFoundation */; };
@@ -1750,6 +1752,7 @@
 		D0CEA0000000000000000033 /* CmuxExtensionInstallURLRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionInstallURLRequest.swift; sourceTree = "<group>"; };
 		D0CEA0000000000000000041 /* CmuxExtensionInstallURLRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionInstallURLRequestTests.swift; sourceTree = "<group>"; };
 		C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxExtensionSidebarSelection+CustomSidebarName.swift"; sourceTree = "<group>"; };
+		C0DEF0B20000000000000002 /* CmuxExtensionSubmitIssueURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionSubmitIssueURL.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
 		C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXInstalledExtensionSidebarHostView.swift; sourceTree = "<group>"; };
@@ -3690,6 +3693,7 @@
 				D0CEA0000000000000000010 /* DockExtensionsRuntime.swift */,
 				D0CEA0000000000000000037 /* DockExtension+SocketPayloads.swift */,
 				D0CEA0000000000000000011 /* DockExtensionsAppHost.swift */,
+				C0DEF0B20000000000000002 /* CmuxExtensionSubmitIssueURL.swift */,
 				D0CEA0000000000000000012 /* ExtensionInstallCoordinator.swift */,
 				D0CEA0000000000000000013 /* ExtensionConsentView.swift */,
 				D0CEA0000000000000000014 /* ExtensionConsentWindowController.swift */,
@@ -4745,6 +4749,7 @@
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 				D0CEA0000000000000000032 /* CmuxExtensionInstallURLRequest.swift in Sources */,
 				C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */,
+				C0DEF0B20000000000000001 /* CmuxExtensionSubmitIssueURL.swift in Sources */,
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
 				C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */,
@@ -5416,6 +5421,7 @@
 				B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
+				C0DEF0B20000000000000003 /* CmuxExtensionSubmitIssueURL.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 					FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,

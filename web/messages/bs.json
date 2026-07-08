@@ -1475,6 +1475,21 @@
       "dataNot": "Vaša interaktivna terminalska sesija, njen sadržaj i pritisci tipki teku direktno između vašeg telefona i vašeg Mac-a putem vaše vlastite mreže i ne prenose se kroz cmux servere niti se na njima pohranjuju. Jedini izuzetak je proslijeđeni tekst notifikacije, koji prolazi kroz cmux i Appleov push servis da bi stigao do vašeg telefona, osim ako ne omogućite Hide content (pogledajte Notifikacije iznad).",
       "enterpriseTitle": "Enterprise i samostalno hostovanje",
       "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "Kako kurirani cmux marketplace pregledava prijave i prikazuje podržane ekstenzije.",
+      "intro": "Marketplace je kurirani registar podržanih Dock TUI ekstenzija; prikazuju se samo odobreni repozitoriji.",
+      "discoveryIntro": "Stranica čita registry fajl. Repozitorij se pojavljuje tek nakon mergea unosa:",
+      "submitTitle": "Pošalji ekstenziju",
+      "submitIntro": "Pokrenite CLI submit iz bilo koje cmux instalacije da validira repozitorij i otvori GitHub issue:",
+      "submitIssue": "Možete direktno otvoriti obrazac i zalijepiti izlaz validacije.",
+      "approvalTitle": "Odobrenje",
+      "approvalIntro": "Odobrenje znači da je cmux tim pregledao ekstenziju i podržava listing:",
+      "approvalInstall": "Instaliramo ekstenziju kroz preview tok i pinujemo commit.",
+      "approvalReview": "Pregledamo manifest, naredbe, licencu i relevantni kod.",
+      "approvalDogfood": "Isprobamo paneove da potvrdimo opisano ponašanje.",
+      "approvalMerge": "Maintainer spaja PR koji dodaje repozitorij u registry.",
+      "takedownsIntro": "Uklanjanje je također registry PR i briše unos iz galerije pri sljedećem deployu."
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "Preuzmi svijetlu ikonu",
     "downloadDark": "Preuzmi tamnu ikonu",
     "brandPage": "Materijali brenda"
+  },
+  "extensions": {
+    "metaDescription": "Pregledajte cmux Dock TUI ekstenzije koje cmux tim pregledava i podržava.",
+    "intro": "Kurirana galerija TUI ekstenzija zajednice; svaku ovdje podržava cmux tim.",
+    "trustNote": "Svaku ekstenziju je cmux tim pregledao i podržao. Pročitajte <link>napomene o povjerenju</link> prije instalacije.",
+    "supportedLabel": "Podržano",
+    "submitTitle": "Pošaljite ekstenziju na pregled",
+    "submitBody": "Pokrenite submit da validirate repozitorij i otvorite unaprijed popunjen GitHub issue; odobrenje nastaje kada maintainer spoji registry PR.",
+    "submitIssueAction": "Otvori issue za slanje",
+    "templateAction": "Predložak ekstenzije"
   },
   "afterSignIn": {
     "title": "Prijavljeni ste u cmux",

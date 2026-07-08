@@ -1475,6 +1475,21 @@
       "dataNot": "Tu sesión interactiva de terminal, su contenido y las pulsaciones de teclas fluyen directamente entre tu teléfono y tu Mac a través de tu propia red, y no se retransmiten ni se almacenan en los servidores de cmux. La única excepción es el texto de las notificaciones reenviadas, que transita por cmux y el servicio de notificaciones de Apple para llegar a tu teléfono, a menos que actives Hide content (consulta Notificaciones más arriba).",
       "enterpriseTitle": "Empresas y autoalojamiento",
       "enterpriseDesc": "Para un despliegue autoalojado o aislado de red, contacta con <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "Cómo el marketplace curado de cmux revisa envíos y lista extensiones compatibles.",
+      "intro": "El marketplace es un registro curado de extensiones Dock TUI compatibles; solo aparecen repositorios aprobados.",
+      "discoveryIntro": "El sitio lee un archivo de registro. Un repositorio aparece solo después de fusionar su entrada:",
+      "submitTitle": "Enviar una extensión",
+      "submitIntro": "Ejecuta CLI submit desde cualquier cmux para validar el repositorio y abrir un issue de GitHub:",
+      "submitIssue": "También puedes abrir el formulario directamente y pegar la salida de validación.",
+      "approvalTitle": "Aprobación",
+      "approvalIntro": "La aprobación significa que cmux revisó la extensión y respalda su listado:",
+      "approvalInstall": "Instalamos la extensión con el flujo de vista previa y fijamos el commit.",
+      "approvalReview": "Revisamos manifiesto, comandos, licencia y código relevante.",
+      "approvalDogfood": "Probamos los paneles para confirmar el comportamiento descrito.",
+      "approvalMerge": "Un maintainer fusiona un PR que agrega el repositorio al registro.",
+      "takedownsIntro": "La eliminación también es un PR del registro y quita la entrada en el siguiente deploy."
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "Descargar icono claro",
     "downloadDark": "Descargar icono oscuro",
     "brandPage": "Recursos de marca"
+  },
+  "extensions": {
+    "metaDescription": "Explora extensiones Dock TUI de cmux revisadas y respaldadas por el equipo de cmux.",
+    "intro": "Una galería curada de extensiones TUI de la comunidad; todas están respaldadas por cmux.",
+    "trustNote": "Cada extensión fue revisada y respaldada por cmux. Lee las <link>notas de confianza</link> antes de instalar.",
+    "supportedLabel": "Compatible",
+    "submitTitle": "Enviar una extensión para revisión",
+    "submitBody": "Ejecuta submit para validar tu repositorio y abrir un issue de GitHub prellenado; se aprueba cuando un maintainer fusiona un PR del registro.",
+    "submitIssueAction": "Abrir issue de envío",
+    "templateAction": "Plantilla de extensión"
   },
   "afterSignIn": {
     "title": "Sesión iniciada en cmux",

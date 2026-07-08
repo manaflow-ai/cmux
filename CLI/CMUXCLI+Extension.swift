@@ -14,6 +14,7 @@ extension CMUXCLI {
     ) throws {
         var jsonOutput = inheritedJSONOutput
         var assumeYes = false
+        var noOpen = false
         var ref: String?
         var positionals: [String] = []
 
@@ -25,6 +26,8 @@ extension CMUXCLI {
                 jsonOutput = true
             case "--yes", "-y":
                 assumeYes = true
+            case "--no-open":
+                noOpen = true
             case "--ref":
                 index += 1
                 guard index < commandArgs.count else {
@@ -47,7 +50,7 @@ extension CMUXCLI {
         guard let action = positionals.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.extension.error.missingCommand",
-                defaultValue: "extension requires a subcommand: list, install, update, uninstall, link, unlink, open, config-dir, or paths"
+                defaultValue: "extension requires a subcommand: list, install, submit, update, uninstall, link, unlink, open, config-dir, or paths"
             ))
         }
         let remaining = Array(positionals.dropFirst())
@@ -75,6 +78,24 @@ extension CMUXCLI {
                 previewParams: params,
                 assumeYes: assumeYes,
                 jsonOutput: jsonOutput
+            )
+
+        case "submit":
+            guard let source = remaining.first, remaining.count == 1 else {
+                throw CLIError(message: String(
+                    localized: "cli.extension.error.submitArgs",
+                    defaultValue: "usage: cmux extension submit <owner/repo[/subdir]> [--ref <ref>] [--json] [--no-open]"
+                ))
+            }
+            var params: [String: Any] = ["source": source]
+            if let ref { params["ref"] = ref }
+            try runExtensionSubmitFlow(
+                client: client,
+                source: source,
+                ref: ref,
+                previewParams: params,
+                jsonOutput: jsonOutput,
+                noOpen: noOpen
             )
 
         case "update", "upgrade":
@@ -207,7 +228,7 @@ extension CMUXCLI {
         default:
             throw CLIError(message: String(
                 localized: "cli.extension.error.unknownCommand",
-                defaultValue: "unknown extension subcommand '\(action)'. Expected list, install, update, uninstall, link, unlink, open, config-dir, or paths."
+                defaultValue: "unknown extension subcommand '\(action)'. Expected list, install, submit, update, uninstall, link, unlink, open, config-dir, or paths."
             ))
         }
     }
@@ -292,6 +313,131 @@ extension CMUXCLI {
             localized: "cli.extension.installed",
             defaultValue: "Installed \(name) (pinned to \(sha)). Open it with: cmux extension open \((installed["id"] as? String) ?? "<id>")"
         ))
+    }
+
+    private func runExtensionSubmitFlow(
+        client: SocketClient,
+        source: String,
+        ref: String?,
+        previewParams: [String: Any],
+        jsonOutput: Bool,
+        noOpen: Bool
+    ) throws {
+        let preview = try client.sendV2(
+            method: "extension.preview",
+            params: previewParams,
+            responseTimeout: 760
+        )
+        guard let token = preview["preview_token"] as? String else {
+            throw CLIError(message: String(
+                localized: "cli.extension.error.noToken",
+                defaultValue: "the app returned no preview token; is this cmux up to date?"
+            ))
+        }
+        defer {
+            _ = try? client.sendV2(method: "extension.discard", params: ["preview_token": token])
+        }
+
+        let resolvedSource = (preview["source"] as? String) ?? source
+        let pinnedSha = preview["resolved_sha"] as? String
+        let name = preview["name"] as? String
+        let version = preview["version"] as? String
+        let description = preview["description"] as? String
+        let submitCommand = Self.extensionSubmitCommand(source: resolvedSource, ref: ref)
+        let issueURL = CmuxExtensionSubmitIssueURL.build(
+            source: resolvedSource,
+            pinnedSha: pinnedSha,
+            name: name,
+            version: version,
+            description: description,
+            ref: ref,
+            validationOutput: Self.extensionSubmitValidationOutput(
+                source: resolvedSource,
+                ref: ref,
+                preview: preview
+            )
+        )
+
+        if jsonOutput {
+            var payload: [String: Any] = [
+                "repo": resolvedSource,
+                "pinnedSha": pinnedSha ?? "",
+                "issueUrl": issueURL.absoluteString,
+            ]
+            if let name { payload["name"] = name }
+            if let version { payload["version"] = version }
+            if let description { payload["description"] = description }
+            if let panes = preview["panes"] as? [[String: Any]] { payload["panes"] = panes }
+            print(jsonString(payload))
+            return
+        }
+
+        print(String(
+            localized: "cli.extension.submit.validated",
+            defaultValue: "Validated extension submission preview:"
+        ))
+        let safeSubmitCommand = submitCommand.cmuxTerminalSafe()
+        print(String(
+            localized: "cli.extension.submit.command",
+            defaultValue: "Command: \(safeSubmitCommand)"
+        ))
+        Self.printExtensionInstallPreview(preview)
+        let safeIssueURL = issueURL.absoluteString.cmuxTerminalSafe()
+        print(String(
+            localized: "cli.extension.submit.issueURL",
+            defaultValue: "Submission issue: \(safeIssueURL)"
+        ))
+
+        if !noOpen {
+            try openExtensionSubmissionIssue(issueURL)
+        }
+    }
+
+    private func openExtensionSubmissionIssue(_ url: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [url.absoluteString]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: String(
+                localized: "cli.extension.submit.openFailed",
+                defaultValue: "Failed to open the extension submission issue URL."
+            ))
+        }
+    }
+
+    private static func extensionSubmitValidationOutput(
+        source: String,
+        ref: String?,
+        preview: [String: Any]
+    ) -> String {
+        var lines = [
+            extensionSubmitCommand(source: source, ref: ref),
+            "Repository: \(source)",
+            "Pinned SHA: \((preview["resolved_sha"] as? String) ?? "")",
+            "Name: \((preview["name"] as? String) ?? "")",
+            "Version: \((preview["version"] as? String) ?? "")",
+        ]
+        let panes = preview["panes"] as? [[String: Any]] ?? []
+        if !panes.isEmpty {
+            lines.append("Panes:")
+            for pane in panes {
+                let id = (pane["id"] as? String) ?? "?"
+                let title = (pane["title"] as? String) ?? ""
+                lines.append("- \(id): \(title)")
+                if let command = pane["command"] as? String {
+                    lines.append("  command: \(command)")
+                }
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func extensionSubmitCommand(source: String, ref: String?) -> String {
+        "cmux extension submit \(source)\(ref.map { " --ref \($0)" } ?? "")"
     }
 
     private func printExtensionList(_ payload: [String: Any]) {

@@ -15801,12 +15801,14 @@ struct CMUXCLI {
             """)
         case "extension":
             return String(localized: "cli.extension.usage", defaultValue: """
-            Usage: cmux extension <list|install|update|uninstall|link|unlink|open|config-dir|paths> [args] [--json]
+            Usage: cmux extension <list|install|submit|update|uninstall|link|unlink|open|config-dir|paths> [args] [--json]
             Dock TUI extensions: GitHub repos with a cmux-extension.json manifest, run as Dock panes.
             Commands:
               list                          Installed extensions and their panes
               install <owner/repo[/sub]>    Preview the pinned commit + commands, confirm, install
                   [--ref <ref>] [--yes]     --ref pins a branch/tag/SHA; --yes skips the prompt
+              submit <owner/repo[/sub]>     Validate and open a prefilled supported-listing issue
+                  [--ref <ref>] [--no-open] --json prints the issue URL without opening it
               update <id> [--yes]           Re-resolve the source and re-consent to the new commit
               uninstall <id>                Remove the extension and its checkout (config/state kept)
               link <path>                   Register a local directory for development (no pin/build)
@@ -15814,7 +15816,7 @@ struct CMUXCLI {
               open <id | id.pane>           Open an extension pane in the Dock
               config-dir <id>               Print the extension's config directory
               paths <id>                    Print root, config, state, and logs directories
-            Extensions are not reviewed by cmux; they run as you. Manifest docs: https://ncmux.com/docs/extensions
+            Supported listings are reviewed by cmux before they appear. Manifest docs: https://ncmux.com/docs/extensions
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """

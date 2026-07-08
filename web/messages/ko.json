@@ -1475,6 +1475,21 @@
       "dataNot": "사용자의 대화형 터미널 세션과 그 내용 및 키 입력은 사용자 자신의 네트워크를 통해 휴대폰과 Mac 사이에서 직접 흐르며, cmux 서버를 거쳐 중계되거나 거기에 저장되지 않습니다. 유일한 예외는 전달된 알림 텍스트로, Hide content를 켜지 않는 한 휴대폰에 도달하기 위해 cmux와 Apple의 푸시 서비스를 거칩니다(위의 알림 참조).",
       "enterpriseTitle": "기업 및 자체 호스팅",
       "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@manaflow.com</link>으로 문의하세요."
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "선별된 cmux marketplace가 제출을 검토하고 지원 확장을 나열하는 방식입니다.",
+      "intro": "marketplace는 지원되는 Dock TUI 확장의 registry이며 승인된 저장소만 표시됩니다.",
+      "discoveryIntro": "웹사이트는 registry 파일을 읽습니다. 저장소는 항목이 병합된 뒤에만 표시됩니다:",
+      "submitTitle": "확장 제출",
+      "submitIntro": "cmux에서 CLI submit을 실행해 저장소를 검증하고 GitHub 이슈를 엽니다:",
+      "submitIssue": "제출 양식을 직접 열어 검증 출력을 붙여 넣을 수도 있습니다.",
+      "approvalTitle": "승인",
+      "approvalIntro": "승인은 cmux 팀이 검토했고 목록을 지원한다는 뜻입니다:",
+      "approvalInstall": "preview 흐름으로 설치하고 커밋을 고정합니다.",
+      "approvalReview": "manifest, 명령, 라이선스, 관련 코드를 검토합니다.",
+      "approvalDogfood": "panes를 시험해 설명된 동작을 확인합니다.",
+      "approvalMerge": "maintainer가 registry에 추가하는 PR을 병합합니다.",
+      "takedownsIntro": "삭제도 registry PR이며 다음 배포 때 갤러리에서 제거됩니다."
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "라이트 아이콘 다운로드",
     "downloadDark": "다크 아이콘 다운로드",
     "brandPage": "브랜드 애셋"
+  },
+  "extensions": {
+    "metaDescription": "cmux 팀이 검토하고 지원하는 cmux Dock TUI 확장을 둘러보세요.",
+    "intro": "커뮤니티 TUI 확장을 선별한 갤러리이며, 모두 cmux 팀이 지원합니다.",
+    "trustNote": "모든 확장은 검토 및 지원 대상입니다. 설치 전 <link>신뢰 안내</link>를 읽어 보세요.",
+    "supportedLabel": "지원됨",
+    "submitTitle": "검토할 확장 제출",
+    "submitBody": "submit 명령으로 저장소를 검증하고 미리 채워진 GitHub 이슈를 여세요. maintainer가 registry PR을 병합하면 승인됩니다.",
+    "submitIssueAction": "제출 이슈 열기",
+    "templateAction": "확장 템플릿"
   },
   "afterSignIn": {
     "title": "cmux에 로그인했습니다",

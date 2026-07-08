@@ -15,6 +15,7 @@ type ExtensionItem = {
   pushedAt: string;
   createdAt: string;
   url: string;
+  supported: boolean;
 };
 
 type IndexResponse = {
@@ -65,6 +66,11 @@ function installCommand(fullName: string): string {
   return `cmux extension install ${fullName}`;
 }
 
+const submitCommandExample = "cmux extension submit <owner>/<repo>";
+const extensionSubmissionIssueUrl =
+  "https://github.com/manaflow-ai/cmux/issues/new?template=extension-submission.yml";
+const extensionTemplateUrl = "https://github.com/manaflow-ai/cmux-extension-template";
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return (
@@ -108,6 +114,7 @@ export function ExtensionsGallery() {
   const [extensions, setExtensions] = useState<ExtensionItem[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [copiedFullName, setCopiedFullName] = useState<string | null>(null);
+  const [copiedSubmitCommand, setCopiedSubmitCommand] = useState(false);
 
   const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const collator = useMemo(
@@ -190,10 +197,21 @@ export function ExtensionsGallery() {
   async function copyCommand(fullName: string) {
     await navigator.clipboard.writeText(installCommand(fullName));
     setCopiedFullName(fullName);
+    setCopiedSubmitCommand(false);
     if (copiedTimeoutRef.current) {
       clearTimeout(copiedTimeoutRef.current);
     }
     copiedTimeoutRef.current = setTimeout(() => setCopiedFullName(null), 1600);
+  }
+
+  async function copySubmitCommand() {
+    await navigator.clipboard.writeText(submitCommandExample);
+    setCopiedFullName(null);
+    setCopiedSubmitCommand(true);
+    if (copiedTimeoutRef.current) {
+      clearTimeout(copiedTimeoutRef.current);
+    }
+    copiedTimeoutRef.current = setTimeout(() => setCopiedSubmitCommand(false), 1600);
   }
 
   return (
@@ -288,9 +306,17 @@ export function ExtensionsGallery() {
                   className="mt-0.5 rounded-md"
                 />
                 <div className="min-w-0">
-                  <h2 className="break-words text-[15px] font-semibold leading-6">
-                    {repoName(extension.fullName)}
-                  </h2>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="break-words text-[15px] font-semibold leading-6">
+                      {repoName(extension.fullName)}
+                    </h2>
+                    {extension.supported ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                        <span aria-hidden="true">✓</span>
+                        {t("supportedLabel")}
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="break-words text-xs text-muted">
                     {extension.owner}
                   </div>
@@ -355,15 +381,37 @@ export function ExtensionsGallery() {
       ) : null}
 
       <section className="mt-10 border-t border-border pt-8">
-        <h2 className="text-lg font-semibold tracking-tight">{t("publishTitle")}</h2>
-        <p className="mt-2 text-sm leading-6 text-muted">{t("publishBody")}</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Link
-            href="/docs/extensions"
+        <h2 className="text-lg font-semibold tracking-tight">{t("submitTitle")}</h2>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">{t("submitBody")}</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="rounded-md bg-code-bg px-3 py-2 text-[12px] leading-5">
+            <code className="break-all">{submitCommandExample}</code>
+          </div>
+          <button
+            type="button"
+            onClick={() => void copySubmitCommand()}
             className="rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-code-bg"
           >
-            {t("authoringDocsAction")}
-          </Link>
+            {copiedSubmitCommand ? t("copiedAction") : t("copyAction")}
+          </button>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <a
+            href={extensionSubmissionIssueUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-code-bg"
+          >
+            {t("submitIssueAction")}
+          </a>
+          <a
+            href={extensionTemplateUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-code-bg"
+          >
+            {t("templateAction")}
+          </a>
           <Link
             href="/docs/extensions-marketplace"
             className="rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-code-bg"

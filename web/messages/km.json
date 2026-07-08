@@ -1475,6 +1475,21 @@
       "dataNot": "សម័យស្ថានីយអន្តរកម្មរបស់អ្នក ខ្លឹមសារ និងការវាយបញ្ចូលគ្រាប់ចុចរបស់វា ហូរដោយផ្ទាល់រវាងទូរស័ព្ទ និង Mac របស់អ្នកតាមរយៈបណ្តាញផ្ទាល់ខ្លួនរបស់អ្នក ហើយមិនត្រូវបានបញ្ជូនបន្តតាម ឬរក្សាទុកនៅលើម៉ាស៊ីនមេ cmux នោះទេ។ ករណីលើកលែងតែមួយគត់គឺអត្ថបទនៃការជូនដំណឹងដែលបានបញ្ជូនបន្ត ដែលឆ្លងកាត់ cmux និងសេវាpush របស់ Apple ដើម្បីទៅដល់ទូរស័ព្ទរបស់អ្នក លុះត្រាតែអ្នកបើក Hide content (សូមមើល ការជូនដំណឹង ខាងលើ)។",
       "enterpriseTitle": "សហគ្រាស និងការដំឡើងផ្ទាល់ខ្លួន",
       "enterpriseDesc": "សម្រាប់ការដាក់ពង្រាយផ្ទាល់ខ្លួន ឬដែលផ្តាច់ចេញពីបណ្តាញ សូមទាក់ទង <link>founders@manaflow.com</link>។"
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "របៀប marketplace cmux ពិនិត្យការផ្ញើ និងបង្ហាញផ្នែកបន្ថែមដែលគាំទ្រ។",
+      "intro": "marketplace គឺជា registry ដែលបានជ្រើសរើសសម្រាប់ Dock TUI ដែលគាំទ្រ; បង្ហាញតែ repository ដែលអនុម័ត។",
+      "discoveryIntro": "គេហទំព័រអាន registry file។ repository បង្ហាញបន្ទាប់ពី merge ធាតុរបស់វា:",
+      "submitTitle": "ផ្ញើផ្នែកបន្ថែម",
+      "submitIntro": "រត់ CLI submit ពី cmux ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue:",
+      "submitIssue": "អ្នកអាចបើក form ដោយផ្ទាល់ ហើយបិទភ្ជាប់លទ្ធផលផ្ទៀងផ្ទាត់។",
+      "approvalTitle": "ការអនុម័ត",
+      "approvalIntro": "ការអនុម័តមានន័យថា cmux បានពិនិត្យ និងគាំទ្រការរាយបញ្ជី:",
+      "approvalInstall": "យើងដំឡើងតាម preview flow ហើយ pin commit។",
+      "approvalReview": "យើងពិនិត្យ manifest, commands, license និង code ពាក់ព័ន្ធ។",
+      "approvalDogfood": "យើងសាកល្បង panes ដើម្បីបញ្ជាក់អាកប្បកិរិយា។",
+      "approvalMerge": "maintainer merge PR បន្ថែម repository ទៅ registry។",
+      "takedownsIntro": "ការដកចេញក៏ជា registry PR ហើយនឹងលុបពីវិចិត្រសាលពេល deploy បន្ទាប់។"
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "ទាញយករូបតំណាងភ្លឺ",
     "downloadDark": "ទាញយករូបតំណាងងងឹត",
     "brandPage": "ធនធានម៉ាក"
+  },
+  "extensions": {
+    "metaDescription": "រកមើលផ្នែកបន្ថែម cmux Dock TUI ដែលក្រុម cmux ពិនិត្យ និងគាំទ្រ។",
+    "intro": "វិចិត្រសាលផ្នែកបន្ថែម TUI របស់សហគមន៍ដែលបានជ្រើសរើស ហើយគាំទ្រដោយ cmux។",
+    "trustNote": "ផ្នែកបន្ថែមទាំងអស់ត្រូវបានពិនិត្យ និងគាំទ្រ។ អាន <link>កំណត់សម្គាល់ទំនុកចិត្ត</link> មុនដំឡើង។",
+    "supportedLabel": "បានគាំទ្រ",
+    "submitTitle": "ផ្ញើផ្នែកបន្ថែមសម្រាប់ពិនិត្យ",
+    "submitBody": "រត់ submit ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue ដែលបំពេញរួច; អនុម័តពេល maintainer merge registry PR។",
+    "submitIssueAction": "បើក issue ផ្ញើ",
+    "templateAction": "គំរូផ្នែកបន្ថែម"
   },
   "afterSignIn": {
     "title": "បានចូល cmux ហើយ",

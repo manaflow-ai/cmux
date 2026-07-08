@@ -1475,6 +1475,21 @@
       "dataNot": "你的互動式終端工作階段、其內容和按鍵，透過你自己的網路在手機和 Mac 之間直接傳輸，不會經由 cmux 伺服器中繼或儲存在其上。唯一的例外是轉發的通知文字，它會經過 cmux 和 Apple 的推送服務到達你的手機，除非你啟用 Hide content（參見上方的通知）。",
       "enterpriseTitle": "企業與自架",
       "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@manaflow.com</link>。"
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "精選 cmux marketplace 如何審核提交並列出支援的擴充功能。",
+      "intro": "marketplace 是支援 Dock TUI 擴充功能的 registry；只顯示已核准 repository。",
+      "discoveryIntro": "網站讀取 registry 檔案。repository 在其項目被合併後才會顯示：",
+      "submitTitle": "提交擴充功能",
+      "submitIntro": "從 cmux 執行 CLI submit 以驗證 repository 並開啟 GitHub issue：",
+      "submitIssue": "你也可以直接開啟表單並貼上驗證輸出。",
+      "approvalTitle": "核准",
+      "approvalIntro": "核准表示 cmux 已審核該擴充功能並支援該列表項目：",
+      "approvalInstall": "我們透過 preview 流程安裝並固定 commit。",
+      "approvalReview": "我們審核 manifest、指令、授權與相關程式碼。",
+      "approvalDogfood": "我們試用 panes 以確認行為符合描述。",
+      "approvalMerge": "maintainer 合併把 repository 加入 registry 的 PR。",
+      "takedownsIntro": "移除也透過 registry PR 完成，並在下次部署時從圖庫刪除。"
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "下載淺色圖示",
     "downloadDark": "下載深色圖示",
     "brandPage": "品牌素材"
+  },
+  "extensions": {
+    "metaDescription": "瀏覽由 cmux 團隊審核並支援的 cmux Dock TUI 擴充功能。",
+    "intro": "精選的社群 TUI 擴充功能圖庫；這裡的每個擴充功能都由 cmux 支援。",
+    "trustNote": "每個擴充功能都已審核並受支援。安裝前請閱讀<link>信任說明</link>。",
+    "supportedLabel": "已支援",
+    "submitTitle": "提交擴充功能以供審核",
+    "submitBody": "執行 submit 驗證 repository 並開啟預填 GitHub issue；maintainer 合併 registry PR 後即核准。",
+    "submitIssueAction": "開啟提交 issue",
+    "templateAction": "擴充功能範本"
   },
   "afterSignIn": {
     "title": "已登入 cmux",

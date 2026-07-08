@@ -1475,6 +1475,21 @@
       "dataNot": "La tua sessione interattiva del terminale, i suoi contenuti e le digitazioni passano direttamente tra il telefono e il Mac sulla tua rete, e non vengono inoltrati né memorizzati sui server di cmux. L'unica eccezione è il testo delle notifiche inoltrate, che transita attraverso cmux e il servizio di notifiche di Apple per raggiungere il telefono, a meno che non attivi Hide content (vedi Notifiche più sopra).",
       "enterpriseTitle": "Aziende e self-hosting",
       "enterpriseDesc": "Per un deployment self-hosted o air-gapped, contatta <link>founders@manaflow.com</link>."
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "Come il marketplace curato di cmux revisiona gli invii ed elenca estensioni supportate.",
+      "intro": "Il marketplace è un registro curato di estensioni Dock TUI supportate; compaiono solo repository approvati.",
+      "discoveryIntro": "Il sito legge un file di registro. Un repository appare solo dopo il merge della sua voce:",
+      "submitTitle": "Invia un’estensione",
+      "submitIntro": "Esegui CLI submit da un’installazione cmux per validare il repository e aprire una issue GitHub:",
+      "submitIssue": "Puoi anche aprire il modulo direttamente e incollare l’output di validazione.",
+      "approvalTitle": "Approvazione",
+      "approvalIntro": "Approvazione significa che cmux ha revisionato l’estensione e supporta il listing:",
+      "approvalInstall": "Installiamo tramite il flusso di anteprima e fissiamo il commit.",
+      "approvalReview": "Revisioniamo manifest, comandi, licenza e codice pertinente.",
+      "approvalDogfood": "Proviamo i pannelli per confermare il comportamento descritto.",
+      "approvalMerge": "Un maintainer unisce una PR che aggiunge il repository al registro.",
+      "takedownsIntro": "La rimozione è anch’essa una PR del registro e toglie la voce al deploy successivo."
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "Scarica icona chiara",
     "downloadDark": "Scarica icona scura",
     "brandPage": "Asset del brand"
+  },
+  "extensions": {
+    "metaDescription": "Sfoglia estensioni Dock TUI di cmux revisionate e supportate dal team cmux.",
+    "intro": "Una galleria curata di estensioni TUI della community; ognuna è supportata da cmux.",
+    "trustNote": "Ogni estensione è stata revisionata e supportata. Leggi le <link>note sulla fiducia</link> prima dell’installazione.",
+    "supportedLabel": "Supportata",
+    "submitTitle": "Invia un’estensione per revisione",
+    "submitBody": "Esegui submit per validare il repository e aprire una issue GitHub precompilata; l’approvazione avviene quando un maintainer unisce una PR del registro.",
+    "submitIssueAction": "Apri issue di invio",
+    "templateAction": "Template estensione"
   },
   "afterSignIn": {
     "title": "Accesso a cmux effettuato",

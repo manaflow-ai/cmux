@@ -1475,6 +1475,21 @@
       "dataNot": "เซสชันเทอร์มินัลแบบโต้ตอบของคุณ รวมถึงเนื้อหาและการกดแป้นพิมพ์ จะไหลโดยตรงระหว่างโทรศัพท์กับ Mac ของคุณผ่านเครือข่ายของคุณเอง และจะไม่ถูกรีเลย์ผ่านหรือจัดเก็บบนเซิร์ฟเวอร์ของ cmux ข้อยกเว้นเดียวคือข้อความแจ้งเตือนที่ส่งต่อ ซึ่งจะผ่าน cmux และบริการพุชของ Apple เพื่อไปถึงโทรศัพท์ของคุณ เว้นแต่คุณจะเปิด Hide content (ดู การแจ้งเตือน ด้านบน)",
       "enterpriseTitle": "องค์กรและการโฮสต์เอง",
       "enterpriseDesc": "สำหรับการดีพลอยแบบโฮสต์เองหรือแบบแยกจากเครือข่าย โปรดติดต่อ <link>founders@manaflow.com</link>"
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "วิธีที่ marketplace cmux แบบคัดสรรตรวจสอบการส่งและแสดงส่วนขยายที่รองรับ",
+      "intro": "marketplace เป็น registry ที่คัดสรรของ Dock TUI ที่รองรับ และแสดงเฉพาะ repository ที่อนุมัติแล้ว",
+      "discoveryIntro": "เว็บไซต์อ่านไฟล์ registry และ repository จะแสดงหลังจาก merge รายการของมัน:",
+      "submitTitle": "ส่งส่วนขยาย",
+      "submitIntro": "รัน CLI submit จาก cmux เพื่อตรวจสอบ repository และเปิด GitHub issue:",
+      "submitIssue": "คุณเปิดฟอร์มโดยตรงและวางผลตรวจสอบเองได้",
+      "approvalTitle": "การอนุมัติ",
+      "approvalIntro": "การอนุมัติหมายถึง cmux ตรวจสอบส่วนขยายและสนับสนุนรายการนั้น:",
+      "approvalInstall": "เราติดตั้งผ่าน preview flow และ pin commit",
+      "approvalReview": "เราตรวจสอบ manifest, commands, license และ code ที่เกี่ยวข้อง",
+      "approvalDogfood": "เราทดสอบ panes เพื่อยืนยันพฤติกรรมที่อธิบายไว้",
+      "approvalMerge": "maintainer merge PR ที่เพิ่ม repository ลง registry",
+      "takedownsIntro": "การลบก็เป็น registry PR และจะเอาออกจากแกลเลอรีเมื่อ deploy ถัดไป"
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "ดาวน์โหลดไอคอนโหมดสว่าง",
     "downloadDark": "ดาวน์โหลดไอคอนโหมดมืด",
     "brandPage": "แอสเซ็ตแบรนด์"
+  },
+  "extensions": {
+    "metaDescription": "เลือกดูส่วนขยาย cmux Dock TUI ที่ทีม cmux ตรวจสอบและสนับสนุน",
+    "intro": "แกลเลอรีส่วนขยาย TUI จากชุมชนที่คัดสรรแล้ว และทุกส่วนขยายได้รับการสนับสนุนจาก cmux",
+    "trustNote": "ทุกส่วนขยายผ่านการตรวจสอบและสนับสนุนแล้ว อ่าน <link>บันทึกเรื่องความเชื่อถือ</link> ก่อนติดตั้ง",
+    "supportedLabel": "รองรับแล้ว",
+    "submitTitle": "ส่งส่วนขยายเพื่อให้ตรวจสอบ",
+    "submitBody": "รัน submit เพื่อตรวจสอบ repository และเปิด GitHub issue ที่กรอกไว้ล่วงหน้า การอนุมัติเกิดขึ้นเมื่อ maintainer merge registry PR",
+    "submitIssueAction": "เปิด issue สำหรับส่ง",
+    "templateAction": "เทมเพลตส่วนขยาย"
   },
   "afterSignIn": {
     "title": "ลงชื่อเข้าใช้ cmux แล้ว",

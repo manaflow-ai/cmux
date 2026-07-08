@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const githubSearchRepositorySchema = z.object({
+export const githubRepositorySchema = z.object({
   full_name: z.string().min(1),
   owner: z.object({
     login: z.string().min(1),
@@ -16,13 +16,15 @@ export const githubSearchRepositorySchema = z.object({
   archived: z.boolean(),
 }).passthrough();
 
-export const githubSearchResponseSchema = z.object({
-  items: z.array(githubSearchRepositorySchema),
-}).passthrough();
+const registryRepoSchema = z.string().regex(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/);
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-export const extensionsBlocklistSchema = z.object({
+export const extensionsRegistrySchema = z.object({
   $comment: z.string().optional(),
-  blocked: z.array(z.string()),
+  extensions: z.array(z.object({
+    repo: registryRepoSchema,
+    addedAt: isoDateSchema,
+  }).strict()),
 }).strict();
 
 export const extensionDtoSchema = z.object({
@@ -35,6 +37,7 @@ export const extensionDtoSchema = z.object({
   pushedAt: z.string().datetime(),
   createdAt: z.string().datetime(),
   url: z.string().url(),
+  supported: z.boolean(),
 }).strict();
 
 export const extensionsIndexResponseSchema = z.object({
@@ -42,18 +45,16 @@ export const extensionsIndexResponseSchema = z.object({
   fetchedAt: z.string().datetime(),
 }).strict();
 
-export type GitHubSearchRepository = z.infer<typeof githubSearchRepositorySchema>;
+export type GitHubRepository = z.infer<typeof githubRepositorySchema>;
+export type ExtensionsRegistry = z.infer<typeof extensionsRegistrySchema>;
 export type ExtensionDto = z.infer<typeof extensionDtoSchema>;
 export type ExtensionsIndexResponse = z.infer<typeof extensionsIndexResponseSchema>;
 
 export function mapGithubRepositoriesToExtensions(
-  repositories: readonly GitHubSearchRepository[],
-  blocklistedFullNames: readonly string[],
+  repositories: readonly GitHubRepository[],
 ): ExtensionDto[] {
-  const blocked = new Set(blocklistedFullNames.map((name) => name.toLowerCase()));
   const mapped = repositories
     .filter((repo) => !repo.fork && !repo.archived)
-    .filter((repo) => !blocked.has(repo.full_name.toLowerCase()))
     .map((repo) => ({
       fullName: repo.full_name,
       owner: repo.owner.login,
@@ -64,6 +65,7 @@ export function mapGithubRepositoriesToExtensions(
       pushedAt: repo.pushed_at,
       createdAt: repo.created_at,
       url: repo.html_url,
+      supported: true,
     }));
 
   return z.array(extensionDtoSchema).parse(mapped);

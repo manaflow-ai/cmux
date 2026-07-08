@@ -2,14 +2,17 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
 import extensionSchema from "../data/cmux-extension.schema.json";
 import helloTuiManifest from "../../Examples/extensions/hello-tui/cmux-extension.json";
+import registryJson from "../data/extensions-registry.json";
 import {
-  githubSearchRepositorySchema,
+  extensionsRegistrySchema,
+  githubRepositorySchema,
   mapGithubRepositoriesToExtensions,
 } from "../app/api/extensions/index/mapping";
 
 const originalSkipEnvValidation = process.env.SKIP_ENV_VALIDATION;
 process.env.SKIP_ENV_VALIDATION = "1";
 const originalFetch = globalThis.fetch;
+const registry = extensionsRegistrySchema.parse(registryJson);
 const { GET } = await import("../app/api/extensions/index/route");
 
 afterEach(() => {
@@ -25,7 +28,7 @@ afterAll(() => {
 });
 
 function repo(overrides: Record<string, unknown> = {}) {
-  return githubSearchRepositorySchema.parse({
+  return githubRepositorySchema.parse({
     full_name: "owner/extension",
     owner: {
       login: "owner",
@@ -43,8 +46,26 @@ function repo(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function registryRepo(repoName: string, stars: number) {
+  const [owner] = repoName.split("/");
+  return repo({
+    full_name: repoName,
+    owner: {
+      login: owner,
+      avatar_url: "https://avatars.githubusercontent.com/u/2?v=4",
+    },
+    html_url: `https://github.com/${repoName}`,
+    stargazers_count: stars,
+  });
+}
+
+function githubApiPath(repoName: string): string {
+  const [owner, name] = repoName.split("/");
+  return `/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}`;
+}
+
 describe("extensions index mapping", () => {
-  test("filters forks, archived repos, and blocklisted full names", () => {
+  test("filters forks and archived repos and marks listed entries supported", () => {
     const extensions = mapGithubRepositoriesToExtensions(
       [
         repo(),
@@ -58,12 +79,7 @@ describe("extensions index mapping", () => {
           html_url: "https://github.com/owner/archived",
           archived: true,
         }),
-        repo({
-          full_name: "Blocked/Repo",
-          html_url: "https://github.com/Blocked/Repo",
-        }),
       ],
-      ["blocked/repo"],
     );
 
     expect(extensions).toEqual([
@@ -77,6 +93,7 @@ describe("extensions index mapping", () => {
         pushedAt: "2026-07-01T12:00:00Z",
         createdAt: "2026-06-01T12:00:00Z",
         url: "https://github.com/owner/extension",
+        supported: true,
       },
     ]);
   });
@@ -89,16 +106,88 @@ describe("extensions index mapping", () => {
           language: null,
         }),
       ],
-      [],
     );
 
     expect(extension?.description).toBeNull();
     expect(extension?.language).toBeNull();
+    expect(extension?.supported).toBe(true);
   });
 });
 
 describe("extensions index route", () => {
-  test("returns a 502 JSON error when GitHub search fails", async () => {
+  test("returns registry repositories sorted by stars without topic search", async () => {
+    const fetchCalls: Array<RequestInfo | URL> = [];
+    const returnedRepos = registry.extensions.map((entry, index) => ({
+      repo: entry.repo,
+      stars: registry.extensions.length - index,
+    }));
+    const fetchMock = mock(async (...args: unknown[]) => {
+      const input = args[0] as RequestInfo | URL;
+      fetchCalls.push(input);
+      const url = String(input);
+      const match = returnedRepos.find((entry) => url.endsWith(githubApiPath(entry.repo)));
+      if (match) {
+        return Response.json(registryRepo(match.repo, match.stars));
+      }
+      return new Response(JSON.stringify({ message: "unexpected url" }), { status: 500 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const response = await GET(new Request("https://cmux.test/api/extensions/index"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.extensions.map((extension: { fullName: string }) => extension.fullName)).toEqual(
+      [...returnedRepos]
+        .sort((left, right) => right.stars - left.stars || left.repo.localeCompare(right.repo))
+        .map((entry) => entry.repo),
+    );
+    expect(body.extensions.every((extension: { supported?: boolean }) => extension.supported === true)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(registry.extensions.length);
+    expect(fetchCalls.every((input) => !String(input).includes("/search/repositories"))).toBe(true);
+  });
+
+  test("skips a registry entry when its repository fetch fails", async () => {
+    const failedRepo = registry.extensions[0]?.repo;
+    const returnedRepos = registry.extensions.slice(1).map((entry, index) => ({
+      repo: entry.repo,
+      stars: registry.extensions.length - index,
+    }));
+    expect(failedRepo).toBeDefined();
+    expect(returnedRepos.length).toBeGreaterThan(0);
+
+    const fetchMock = mock(async (...args: unknown[]) => {
+      const input = args[0] as RequestInfo | URL;
+      const url = String(input);
+      if (failedRepo && url.endsWith(githubApiPath(failedRepo))) {
+        return new Response(JSON.stringify({ message: "not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const match = returnedRepos.find((entry) => url.endsWith(githubApiPath(entry.repo)));
+      if (match) {
+        return Response.json(registryRepo(match.repo, match.stars));
+      }
+      return new Response(JSON.stringify({ message: "unexpected url" }), { status: 500 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const response = await GET(new Request("https://cmux.test/api/extensions/index"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.extensions).toHaveLength(returnedRepos.length);
+    expect(body.extensions.map((extension: { fullName: string }) => extension.fullName)).toEqual(
+      [...returnedRepos]
+        .sort((left, right) => right.stars - left.stars || left.repo.localeCompare(right.repo))
+        .map((entry) => entry.repo),
+    );
+    expect(body.extensions.every((extension: { supported?: boolean }) => extension.supported === true)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(registry.extensions.length);
+  });
+
+  test("returns a 502 JSON error when every registry repository fetch fails", async () => {
     const fetchMock = mock(async () =>
       new Response(JSON.stringify({ message: "unavailable" }), {
         status: 503,
@@ -111,7 +200,7 @@ describe("extensions index route", () => {
 
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "github_extensions_unavailable" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(registry.extensions.length);
   });
 });
 

@@ -59,4 +59,87 @@ struct CmuxExtensionInstallURLRequestTests {
         #expect(parsed?.source == "owner/repo/sub")
         #expect(parsed?.ref == "main")
     }
+
+    @Test func submissionIssueURLPercentEncodesFieldValues() throws {
+        let url = CmuxExtensionSubmitIssueURL.build(
+            source: "owner name/repo.with space",
+            pinnedSha: "abc 123",
+            name: "Name with spaces",
+            version: "1.0",
+            description: "Line one & line two",
+            ref: nil,
+            validationOutput: "command: cmux extension submit owner name/repo.with space"
+        )
+        let absolute = url.absoluteString
+
+        #expect(absolute.contains("repo=owner%20name%2Frepo.with%20space"))
+        #expect(absolute.contains("pinned-sha=abc%20123"))
+        #expect(absolute.contains("description=Line%20one%20%26%20line%20two"))
+        #expect(absolute.contains("validation=command%3A%20cmux%20extension%20submit%20owner%20name%2Frepo.with%20space"))
+    }
+
+    @Test func submissionIssueURLIncludesSubdirectoryWhenPresent() throws {
+        let url = CmuxExtensionSubmitIssueURL.build(
+            source: "owner/repo/examples/tui",
+            pinnedSha: "abc123",
+            name: "Example",
+            version: nil,
+            description: nil,
+            ref: nil,
+            validationOutput: nil
+        )
+        let queryItems = try queryItems(url)
+
+        #expect(queryItems["template"] == "extension-submission.yml")
+        #expect(queryItems["repo"] == "owner/repo")
+        #expect(queryItems["subdirectory"] == "examples/tui")
+        #expect(queryItems["pinned-sha"] == "abc123")
+    }
+
+    @Test func submissionIssueURLOmitsSubdirectoryForRootManifest() throws {
+        let url = CmuxExtensionSubmitIssueURL.build(
+            source: "owner/repo",
+            pinnedSha: "abc123",
+            name: "Example",
+            version: nil,
+            description: nil,
+            ref: nil,
+            validationOutput: nil
+        )
+        let queryItems = try queryItems(url)
+
+        #expect(queryItems["repo"] == "owner/repo")
+        #expect(queryItems["subdirectory"] == nil)
+    }
+
+    @Test func submissionIssueURLUsesIssueFormFieldIdsAndRefInValidation() throws {
+        let url = CmuxExtensionSubmitIssueURL.build(
+            source: "owner/repo/sub",
+            pinnedSha: "abc123",
+            name: "Example",
+            version: "2.0",
+            description: nil,
+            ref: "release/v2",
+            validationOutput: nil
+        )
+        let queryItems = try queryItems(url)
+
+        #expect(Set(queryItems.keys).isSuperset(of: [
+            "template",
+            "repo",
+            "subdirectory",
+            "pinned-sha",
+            "description",
+            "validation",
+        ]))
+        #expect(queryItems["validation"]?.contains("--ref release/v2") == true)
+        #expect(queryItems["validation"]?.contains("Version: 2.0") == true)
+    }
+
+    private func queryItems(_ url: URL) throws -> [String: String] {
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        return Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+    }
 }

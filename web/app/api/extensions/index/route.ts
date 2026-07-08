@@ -3,13 +3,14 @@ import * as Effect from "effect/Effect";
 import { NextResponse } from "next/server";
 
 import { env } from "@/app/env";
-import blocklistJson from "@/data/extensions-blocklist.json";
+import registryJson from "@/data/extensions-registry.json";
 import {
-  extensionsBlocklistSchema,
+  extensionsRegistrySchema,
   extensionsIndexResponseSchema,
-  githubSearchResponseSchema,
+  githubRepositorySchema,
   mapGithubRepositoriesToExtensions,
   type ExtensionsIndexResponse,
+  type GitHubRepository,
 } from "./mapping";
 import {
   recordSpanError,
@@ -68,8 +69,74 @@ export async function GET(request: Request): Promise<Response> {
 
 function loadExtensionsIndex(span: Span): Effect.Effect<ExtensionsIndexResponse, ExtensionsIndexError> {
   return Effect.gen(function* () {
+    const registry = yield* Effect.try({
+      try: () => extensionsRegistrySchema.parse(registryJson),
+      catch: (cause) =>
+        new ExtensionsIndexValidationError({
+          error: "extensions_registry_invalid",
+          cause,
+        }),
+    });
+
+    yield* Effect.sync(() =>
+      setSpanAttributes(span, { "cmux.extensions.registry_count": registry.extensions.length }),
+    );
+
+    const fetched = yield* Effect.forEach(
+      registry.extensions,
+      (entry) =>
+        fetchGithubRepository(entry.repo, span).pipe(
+          Effect.map((repository) => ({ repository, skipped: false as const })),
+          Effect.catchAll((error) =>
+            Effect.sync(() => {
+              recordSpanError(span, error);
+              return { repository: null, skipped: true as const };
+            }),
+          ),
+        ),
+      { concurrency: 8 },
+    );
+
+    const repositories = fetched
+      .map((entry) => entry.repository)
+      .filter((repository): repository is GitHubRepository => repository !== null);
+    const skippedCount = fetched.filter((entry) => entry.skipped).length;
+
+    yield* Effect.sync(() =>
+      setSpanAttributes(span, { "cmux.extensions.skipped": skippedCount }),
+    );
+
+    if (registry.extensions.length > 0 && repositories.length === 0) {
+      return yield* Effect.fail(
+        new ExtensionsIndexUpstreamError({
+          error: "github_extensions_unavailable",
+        }),
+      );
+    }
+
+    return yield* Effect.try({
+      try: () =>
+        extensionsIndexResponseSchema.parse({
+          extensions: mapGithubRepositoriesToExtensions(repositories)
+            .sort((left, right) => right.stars - left.stars || left.fullName.localeCompare(right.fullName)),
+          fetchedAt: new Date().toISOString(),
+        }),
+      catch: (cause) =>
+        new ExtensionsIndexValidationError({
+          error: "extensions_index_invalid",
+          cause,
+        }),
+    });
+  });
+}
+
+function fetchGithubRepository(
+  repo: string,
+  span: Span,
+): Effect.Effect<GitHubRepository, ExtensionsIndexError> {
+  return Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
-      try: () => fetch(githubSearchUrl(), {
+      try: () => fetch(githubRepositoryUrl(repo), {
         headers: githubHeaders(),
         next: { revalidate },
       }),
@@ -102,46 +169,20 @@ function loadExtensionsIndex(span: Span): Effect.Effect<ExtensionsIndexResponse,
         }),
     });
 
-    const parsed = yield* Effect.try({
-      try: () => githubSearchResponseSchema.parse(raw),
+    return yield* Effect.try({
+      try: () => githubRepositorySchema.parse(raw),
       catch: (cause) =>
         new ExtensionsIndexValidationError({
           error: "github_extensions_invalid_payload",
           cause,
         }),
     });
-
-    const blocklist = yield* Effect.try({
-      try: () => extensionsBlocklistSchema.parse(blocklistJson),
-      catch: (cause) =>
-        new ExtensionsIndexValidationError({
-          error: "extensions_blocklist_invalid",
-          cause,
-        }),
-    });
-
-    return yield* Effect.try({
-      try: () =>
-        extensionsIndexResponseSchema.parse({
-          extensions: mapGithubRepositoriesToExtensions(parsed.items, blocklist.blocked),
-          fetchedAt: new Date().toISOString(),
-        }),
-      catch: (cause) =>
-        new ExtensionsIndexValidationError({
-          error: "extensions_index_invalid",
-          cause,
-        }),
-    });
   });
 }
 
-function githubSearchUrl(): string {
-  const url = new URL("https://api.github.com/search/repositories");
-  url.searchParams.set("q", "topic:cmux-extension");
-  url.searchParams.set("sort", "stars");
-  url.searchParams.set("order", "desc");
-  url.searchParams.set("per_page", "100");
-  return url.toString();
+function githubRepositoryUrl(repo: string): string {
+  const [owner, name] = repo.split("/");
+  return `https://api.github.com/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}`;
 }
 
 function githubHeaders(): HeadersInit {

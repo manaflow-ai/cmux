@@ -1475,6 +1475,21 @@
       "dataNot": "Etkileşimli terminal oturumunuz, içeriği ve tuş vuruşları doğrudan telefonunuz ile Mac'iniz arasında kendi ağınız üzerinden akar; cmux sunucuları aracılığıyla aktarılmaz ya da bunlarda saklanmaz. Tek istisna, telefonunuza ulaşmak için cmux ve Apple'ın push hizmeti üzerinden geçen iletilmiş bildirim metnidir; ancak Hide content seçeneğini etkinleştirirseniz bu da geçerli olmaz (yukarıdaki Bildirimler bölümüne bakın).",
       "enterpriseTitle": "Kurumsal ve kendi sunucunuzda barındırma",
       "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@manaflow.com</link> ile iletişime geçin."
+    },
+    "extensionsMarketplace": {
+      "metaDescription": "Küratörlü cmux marketplace’in gönderimleri inceleyip desteklenen uzantıları listeleme biçimi.",
+      "intro": "Marketplace, desteklenen Dock TUI uzantılarının registry’sidir; yalnızca onaylı repository’ler görünür.",
+      "discoveryIntro": "Site registry dosyasını okur. Repository, girdisi merge edildikten sonra görünür:",
+      "submitTitle": "Uzantı gönder",
+      "submitIntro": "cmux içinden CLI submit çalıştırarak repository’yi doğrulayın ve GitHub issue açın:",
+      "submitIssue": "Formu doğrudan açıp doğrulama çıktısını yapıştırabilirsiniz.",
+      "approvalTitle": "Onay",
+      "approvalIntro": "Onay, cmux’un uzantıyı incelediği ve listelemeyi desteklediği anlamına gelir:",
+      "approvalInstall": "Preview akışıyla kurar ve commit’i pinleriz.",
+      "approvalReview": "Manifest, komutlar, lisans ve ilgili kodu inceleriz.",
+      "approvalDogfood": "Panes’i deneyerek davranışı doğrularız.",
+      "approvalMerge": "Maintainer repository’yi registry’ye ekleyen PR’ı merge eder.",
+      "takedownsIntro": "Kaldırma da registry PR’ıdır ve sonraki deploy’da galeriden çıkarır."
     }
   },
   "legal": {
@@ -1592,6 +1607,16 @@
     "downloadLight": "Açık simgeyi indir",
     "downloadDark": "Koyu simgeyi indir",
     "brandPage": "Marka varlıkları"
+  },
+  "extensions": {
+    "metaDescription": "cmux ekibi tarafından incelenen ve desteklenen cmux Dock TUI uzantılarına göz atın.",
+    "intro": "Topluluk TUI uzantılarından oluşan küratörlü galeri; hepsi cmux tarafından desteklenir.",
+    "trustNote": "Her uzantı incelenmiş ve desteklenmiştir. Kurulumdan önce <link>güven notlarını</link> okuyun.",
+    "supportedLabel": "Destekleniyor",
+    "submitTitle": "İnceleme için uzantı gönder",
+    "submitBody": "submit komutuyla repository’yi doğrulayıp önceden doldurulmuş GitHub issue açın; onay, registry PR’ı merge edilince gerçekleşir.",
+    "submitIssueAction": "Gönderim issue’sunu aç",
+    "templateAction": "Uzantı şablonu"
   },
   "afterSignIn": {
     "title": "cmux oturumu açıldı",
