@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import AppKit
 import Foundation
 import StackAuth
 
@@ -123,7 +124,7 @@ struct MacAuthComposition {
             tokenStore: tokenStore,
             sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
             callbackRouter: callbackRouter,
-            makeSignInURL: { AuthEnvironment.signInURL() },
+            makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme }
         )
     }

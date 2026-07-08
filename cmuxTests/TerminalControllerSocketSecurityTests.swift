@@ -1,13 +1,233 @@
-import XCTest
 import AppKit
+import CmuxCore
 import Darwin
+import Foundation
+import Testing
+import CmuxTerminal
+import struct CmuxSettings.IntegrationsCatalogSection
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private func testComment(_ message: @autoclosure () -> String) -> Comment? {
+    let value = message()
+    return value.isEmpty ? nil : Comment(rawValue: value)
+}
+
+private func XCTAssertEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(value1 == value2, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNotEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(value1 != value2, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertTrue(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(try expression(), testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertFalse(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value = try expression()
+        #expect(!value, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(try expression() == nil, testComment(message()), sourceLocation: sourceLocation)
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTUnwrap<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> T {
+    let value = try expression()
+    return try #require(value, testComment(message()), sourceLocation: sourceLocation)
+}
+
+private func XCTFail(
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    Issue.record(Comment(rawValue: message()), sourceLocation: sourceLocation)
+}
+
 @MainActor
-final class TerminalControllerSocketSecurityTests: XCTestCase {
+@Suite(.serialized)
+final class TerminalControllerSocketSecurityTests {
+    private var teardownBlocks: [() -> Void] = []
+
+    @Test func browserDownloadQueueKeepsCompletionAfterPromptReadyEvent() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        recordDownloadEvent("started", id: "download-1", surfaceId: surfaceId)
+        recordDownloadEvent("ready_to_save", id: "download-1", surfaceId: surfaceId)
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["type"] as? String, "ready_to_save")
+        recordDownloadEvent("ready_to_save", id: "download-1", surfaceId: surfaceId)
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+        recordDownloadEvent("saved", id: "download-1", surfaceId: surfaceId, path: "/tmp/report.csv")
+        for index in 0...140 { recordDownloadEvent("started", id: "started-\(index)", surfaceId: surfaceId) }
+        let saved = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId); XCTAssertEqual(saved?["type"] as? String, "saved")
+        XCTAssertEqual(saved?["path"] as? String, "/tmp/report.csv")
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
+    @Test func browserDownloadQueuePrefersPromptedCompletionWhenAlreadyClosed() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        recordDownloadEvent("started", id: "download-closed", surfaceId: surfaceId)
+        recordDownloadEvent("ready_to_save", id: "download-closed", surfaceId: surfaceId)
+        recordDownloadEvent("saved", id: "download-closed", surfaceId: surfaceId, path: "/tmp/report.csv")
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["type"] as? String, "saved")
+        XCTAssertEqual(returned?["path"] as? String, "/tmp/report.csv")
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
+    @Test func browserDownloadConsumedIDRegistryIsBounded() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        let oldestID = "download-0"
+        let newestID = "download-140"
+        for index in 0...140 {
+            controller.v2MarkBrowserDownloadEventConsumed(
+                ["type": "saved", "download_id": "download-\(index)"],
+                surfaceId: surfaceId
+            )
+        }
+
+        recordDownloadEvent("saved", id: oldestID, surfaceId: surfaceId)
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["download_id"] as? String, oldestID)
+
+        recordDownloadEvent("saved", id: newestID, surfaceId: surfaceId)
+
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
+    @Test func browserDownloadEventQueueIsBounded() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        for index in 0...140 {
+            recordDownloadEvent(
+                "ready_to_save",
+                id: "download-\(index)",
+                surfaceId: surfaceId,
+                filename: "report-\(index).csv"
+            )
+        }
+
+        var returnedIDs: [String] = []
+        while let event = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId) {
+            if let downloadID = event["download_id"] as? String {
+                returnedIDs.append(downloadID)
+            }
+        }
+
+        XCTAssertEqual(returnedIDs.count, 128)
+        XCTAssertEqual(returnedIDs.first, "download-13")
+        XCTAssertEqual(returnedIDs.last, "download-140")
+    }
+
+    private func recordDownloadEvent(
+        _ type: String,
+        id: String,
+        surfaceId: UUID,
+        filename: String = "report.csv",
+        path: String? = nil
+    ) {
+        var event: [String: Any] = ["type": type, "download_id": id, "filename": filename]
+        if let path {
+            event["path"] = path
+        }
+        TerminalController.shared.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
+    }
+
+    init() {
+        TerminalController.shared.stop()
+    }
+
+    deinit {
+        teardownBlocks.forEach { $0() }
+    }
+
     private func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
@@ -15,17 +235,11 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             .path
     }
 
-    override func setUp() {
-        super.setUp()
-        TerminalController.shared.stop()
+    private func addTeardownBlock(_ block: @escaping () -> Void) {
+        teardownBlocks.append(block)
     }
 
-    override func tearDown() {
-        TerminalController.shared.stop()
-        super.tearDown()
-    }
-
-    func testSocketPermissionsFollowAccessMode() throws {
+    @Test func testSocketPermissionsFollowAccessMode() throws {
         let tabManager = TabManager()
 
         let allowAllPath = makeSocketPath("allow-all")
@@ -49,7 +263,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try socketMode(at: restrictedPath), 0o600)
     }
 
-    func testPasswordModeRejectsUnauthenticatedCommands() throws {
+    @Test func testPasswordModeRejectsUnauthenticatedCommands() throws {
         let socketPath = makeSocketPath("password-mode")
         let tabManager = TabManager()
 
@@ -74,7 +288,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(wrongAuthThenPing[1].hasPrefix("ERROR:"))
     }
 
-    func testSocketCommandPolicyDistinguishesFocusIntent() throws {
+    @Test func testSocketCommandPolicyDistinguishesFocusIntent() throws {
 #if DEBUG
         let nonFocus = TerminalController.debugSocketCommandPolicySnapshot(
             commandKey: "ping",
@@ -136,11 +350,11 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(debugType.insideSuppressed)
         XCTAssertFalse(debugType.insideAllowsFocus)
 #else
-        throw XCTSkip("Socket command policy snapshot helper is debug-only.")
+        return
 #endif
     }
 
-    func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {
+    @Test func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {
 #if DEBUG
         TerminalController.shared.setActiveTabManager(TabManager())
         defer { TerminalController.shared.setActiveTabManager(nil) }
@@ -171,11 +385,11 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(error["message"] as? String, "surface_id cannot be empty")
         }
 #else
-        throw XCTSkip("Debug-only regression test")
+        return
 #endif
     }
 
-    func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
+    @Test func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)
 
@@ -202,7 +416,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
-    func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
+    @Test func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
         let response = try handleV2Request(
             method: "workspace.remote.configure",
             params: [
@@ -222,7 +436,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
-    func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
+    @Test func testRemoteConfigureDefaultsPersistentDaemonSlotForBootstrapSSH() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -257,7 +471,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
-    func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {
+    @Test func testRemoteConfigureDerivesAgentSocketPathFromForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
         setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
@@ -301,7 +515,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
     }
 
-    func testRemoteConfigureExplicitEmptyAgentSocketSuppressesForwardAgentFallback() throws {
+    @Test func testRemoteConfigureExplicitEmptyAgentSocketSuppressesForwardAgentFallback() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
         setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
@@ -346,7 +560,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
-    func testRemoteConfigureUsesLastForwardAgentOption() throws {
+    @Test func testRemoteConfigureUsesLastForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
         setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
@@ -390,7 +604,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
-    func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
+    @Test func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
         let response = try handleV2Request(
             method: "workspace.remote.configure",
             params: [
@@ -410,7 +624,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
-    func testRemotePTYResizeRunsOnSocketWorker() async throws {
+    @Test func testRemotePTYResizeRunsOnSocketWorker() async throws {
         let socketPath = makeSocketPath("pty-worker")
         let tabManager = TabManager()
         TerminalController.shared.start(
@@ -448,7 +662,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
-    func testWorkspaceWorkerMethodRejectsWindowAliasInsteadOfDefaultWindowFallback() async throws {
+    @Test func testWorkspaceWorkerMethodRejectsWindowAliasInsteadOfDefaultWindowFallback() async throws {
         let socketPath = makeSocketPath("alias-worker")
         let tabManager = TabManager()
         TerminalController.shared.start(
@@ -476,7 +690,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         try assertUnsupportedWorkspaceWindowAlias(workerEnvelope)
     }
 
-    func testHeartbeatMethodsSupportInProcessAndSocketDispatch() async throws {
+    @Test func testHeartbeatMethodsSupportInProcessAndSocketDispatch() async throws {
         let socketPath = makeSocketPath("heartbeat-worker")
         let tabManager = TabManager()
         TerminalController.shared.start(
@@ -496,6 +710,149 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(workerEnvelope["ok"] as? Bool, true, method)
             try assertHeartbeatResult(method: method, envelope: workerEnvelope)
         }
+    }
+
+    @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
+        let socketPath = makeSocketPath("v1-ping")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // v1 `ping` sits on the worker lane
+        // (`ControlCommandExecutionPolicy(forV1Command:)`) but is
+        // mainThreadCallable, so in-process main-thread dispatch must answer
+        // inline instead of tripping the v1 invalid-dispatch guard.
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("ping"), "PONG")
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("PING"), "PONG")
+
+        // Worker-lane proof: this synchronous round-trip blocks the main
+        // thread in read() until the reply lands, so the reply can only
+        // arrive if the connection thread serves `ping` without a
+        // DispatchQueue.main.sync hop. A main-lane `ping` would deadlock here
+        // (main waits on the reply, the reply waits on main).
+        let responses = try sendCommands(["ping"], to: socketPath)
+        XCTAssertEqual(responses, ["PONG"])
+
+        // A main-lane v1 command still round-trips through the main hop. It
+        // must be sent off-main (async, like sendV2RequestAsync) so the main
+        // thread stays free to serve the command's DispatchQueue.main.sync.
+        let mainLane = try await sendV1CommandsAsync(["current_workspace"], to: socketPath)
+        XCTAssertEqual(mainLane.count, 1)
+        XCTAssertFalse(mainLane[0].isEmpty)
+    }
+
+    @Test func testSurfaceReadTextIsServicedOnTheWorkerLane() async throws {
+        let socketPath = makeSocketPath("v2-read-text-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+        // Release the focused terminal's Ghostty surface so the capture hop
+        // fails deterministically at the raw-snapshot read: the reply must be
+        // the legacy `internal_error` bytes. A worker-lane dispatch drift
+        // (policy lists the method but the worker switch case is missing)
+        // would instead answer the loud "has no worker handler" backstop, and
+        // a coordinator re-lift would answer method_not_found — both caught
+        // here.
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // surface.read_text is worker-lane and NOT mainThreadCallable: an
+        // in-process main-thread caller is rejected with invalid_dispatch
+        // instead of running the (possibly multi-MB) scrollback formatting
+        // inline on the main thread. A `read_text`'s reply cannot land while
+        // the main thread is wedged (its Ghostty capture legitimately takes
+        // one v2MainSync hop), so unlike the set_status worker-lane proof
+        // below this round-trip runs with the main actor free.
+        let inline = TerminalController.shared.handleSocketLine(
+            #"{"id":"rt-main","method":"surface.read_text","params":{}}"#
+        )
+        XCTAssertTrue(inline.contains("invalid_dispatch"), inline)
+        XCTAssertTrue(inline.contains("surface.read_text must run off the main thread"), inline)
+
+        // Worker-lane round-trip from a background sender (timeout-bounded by
+        // the await): byte-faithful legacy error for a released surface.
+        let envelope = try await sendV2RequestAsync(
+            method: "surface.read_text",
+            params: ["workspace_id": workspace.id.uuidString],
+            to: socketPath
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, false)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "internal_error")
+        XCTAssertEqual(error["message"] as? String, "Failed to read terminal text")
+
+        // v1 twin: read_screen shares the capture-hop/format-off-main split
+        // and the not-mainThreadCallable policy.
+        let v1Inline = TerminalController.shared.handleSocketLine("read_screen")
+        XCTAssertEqual(v1Inline, "ERROR: read_screen must run off the main thread")
+        let v1Replies = try await sendV1CommandsAsync(["read_screen"], to: socketPath)
+        XCTAssertEqual(v1Replies, ["ERROR: Terminal surface not found"])
+    }
+
+    @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
+        let socketPath = makeSocketPath("v1-status-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // Worker-lane proof for a migrated telemetry verb (tranche B1): the
+        // scoped set_status path is parse + TerminalMutationBus enqueue with
+        // zero v2MainSync hops, so its reply must arrive while this test
+        // wedges the main thread in the semaphore wait below. The verb is
+        // mainThreadCallable, so the round-trip has to be sent from a
+        // background queue — an in-process main-thread send would run inline
+        // and prove nothing. A regression that reroutes the verb to the main
+        // lane (or adds a main hop to the scoped path) turns this into a
+        // bounded timeout failure, not a deadlock, because the sender thread
+        // just parks in read() until then.
+        let command = "set_status build ok --tab=\(workspace.id.uuidString)"
+        let replyArrived = DispatchSemaphore(value: 0)
+        let replyBox = WorkerLaneReplyBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            replyBox.store(Result { try self.sendV1Commands([command], to: socketPath) })
+            replyArrived.signal()
+        }
+
+        let waited = replyArrived.wait(timeout: .now() + 5)
+        XCTAssertEqual(
+            waited == .success,
+            true,
+            "set_status must be serviced on the socket-worker lane; its reply did not arrive while the main thread was blocked"
+        )
+        XCTAssertEqual(try replyBox.take(), ["OK"])
+
+        // The mutation is bus-deferred and the main thread has been held by
+        // this test since before the send, so the reply necessarily preceded
+        // the apply; drain and verify the deferred write lands.
+        XCTAssertNil(workspace.statusEntries["build"])
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(workspace.statusEntries["build"]?.value, "ok")
     }
 
     private func assertHeartbeatResult(method: String, envelope: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
@@ -536,7 +893,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
     }
 
-    func testRemotePTYBridgeWaitForReadyRunsOnSocketWorker() async throws {
+    @Test func testRemotePTYBridgeWaitForReadyRunsOnSocketWorker() async throws {
         let socketPath = makeSocketPath("pty-bridge-worker")
         let tabManager = TabManager()
         TerminalController.shared.start(
@@ -572,7 +929,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
-    func testRemotePTYAttachEndRoutesMovedSurfaceToCurrentWorkspace() throws {
+    @Test func testRemotePTYAttachEndRoutesMovedSurfaceToCurrentWorkspace() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
@@ -609,7 +966,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(moved.destination.activeRemoteTerminalSessionCount, 0)
     }
 
-    func testRemotePTYRejectsWorkspaceSurfaceMismatchWithoutMovedSurfaceOptIn() async throws {
+    @Test func testRemotePTYRejectsWorkspaceSurfaceMismatchWithoutMovedSurfaceOptIn() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
@@ -651,7 +1008,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(data["resolved_workspace_id"] as? String, moved.destination.id.uuidString)
     }
 
-    func testRemotePTYResizeRoutesMovedSurfaceToCurrentWorkspace() async throws {
+    @Test func testRemotePTYResizeRoutesMovedSurfaceToCurrentWorkspace() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
@@ -704,7 +1061,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
     }
 
-    func testRemotePTYBridgeRoutesMovedSurfaceToCurrentWorkspace() async throws {
+    @Test func testRemotePTYBridgeRoutesMovedSurfaceToCurrentWorkspace() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
@@ -745,7 +1102,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
     }
 
-    func testRemotePTYAllWorkspacesTreatsMissingPTYListAsUnsupported() {
+    @Test func testRemotePTYAllWorkspacesTreatsMissingPTYListAsUnsupported() {
         let unsupported = NSError(
             domain: "cmux.remote.daemon.rpc",
             code: 14,
@@ -774,291 +1131,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(remotePTYSessionListErrorIsUnsupportedDaemon(differentRPCMethod))
     }
 
-    func testRightSidebarV1CommandsDriveExistingState() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
-
-        let windowId = UUID()
-        let tabManager = TabManager()
-        let sidebarState = SidebarState()
-        let sidebarSelectionState = SidebarSelectionState()
-        let fileExplorerState = FileExplorerState()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
-
-        appDelegate.fileExplorerState = fileExplorerState
-        appDelegate.registerMainWindow(
-            window,
-            windowId: windowId,
-            tabManager: tabManager,
-            sidebarState: sidebarState,
-            sidebarSelectionState: sidebarSelectionState,
-            fileExplorerState: fileExplorerState
-        )
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            window.close()
-        }
-
-        fileExplorerState.setVisible(false)
-        fileExplorerState.mode = .files
-
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar show"), "OK")
-        XCTAssertTrue(fileExplorerState.isVisible)
-
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar set find"), "OK")
-        XCTAssertEqual(fileExplorerState.mode, .find)
-        XCTAssertTrue(fileExplorerState.isVisible)
-
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar set vault --no-focus"), "OK")
-        XCTAssertEqual(fileExplorerState.mode, .sessions)
-
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar set sessions --no-focus"), "OK")
-        XCTAssertEqual(fileExplorerState.mode, .sessions)
-
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar hide"), "OK")
-        XCTAssertFalse(fileExplorerState.isVisible)
-
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar toggle"), "OK")
-        XCTAssertTrue(fileExplorerState.isVisible)
-
-        XCTAssertEqual(TerminalController.shared.handleSocketLine("right_sidebar focus"), "OK")
-        XCTAssertTrue(fileExplorerState.isVisible)
-
-        let modeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
-        let modeData = try XCTUnwrap(modeResponse.data(using: .utf8))
-        let modePayload = try XCTUnwrap(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
-        XCTAssertEqual(modePayload["visible"] as? Bool, true)
-        XCTAssertEqual(modePayload["mode"] as? String, "sessions")
-
-        XCTAssertTrue(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
-    }
-
-    func testRightSidebarV1ParserProducesRemoteCommands() throws {
-#if DEBUG
-        let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
-        let windowId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
-        let cases: [(String, RightSidebarRemoteRequest)] = [
-            (
-                "right_sidebar toggle",
-                RightSidebarRemoteRequest(command: .toggle, target: RightSidebarRemoteTarget())
-            ),
-            (
-                "right_sidebar show --window=\(windowId.uuidString)",
-                RightSidebarRemoteRequest(command: .show, target: RightSidebarRemoteTarget(windowId: windowId, workspaceId: nil))
-            ),
-            (
-                "right_sidebar hide --tab=\(workspaceId.uuidString)",
-                RightSidebarRemoteRequest(command: .hide, target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceId))
-            ),
-            (
-                "right_sidebar focus",
-                RightSidebarRemoteRequest(command: .focus, target: RightSidebarRemoteTarget())
-            ),
-            (
-                "right_sidebar set find",
-                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
-            ),
-            (
-                "right_sidebar set vault --no-focus",
-                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
-            ),
-            (
-                "right_sidebar sessions",
-                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
-            ),
-            (
-                "right_sidebar mode",
-                RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget())
-            ),
-            (
-                "right_sidebar state --workspace \(workspaceId.uuidString) --window \(windowId.uuidString)",
-                RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget(windowId: windowId, workspaceId: workspaceId))
-            ),
-        ]
-
-        for (line, expected) in cases {
-            let result = TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line)
-            XCTAssertEqual(try result.get(), expected, line)
-        }
-
-        let invalidCases: [(String, String)] = [
-            ("right_sidebar", "Usage: right_sidebar"),
-            ("right_sidebar set", "Usage: right_sidebar set"),
-            ("right_sidebar set unknown", "Unknown right sidebar mode"),
-            ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
-            ("right_sidebar files --no-focus", "--no-focus is only valid"),
-            ("right_sidebar --bad", "Unknown right sidebar option"),
-            ("right_sidebar show --tab not-a-uuid", "Invalid right sidebar --tab id"),
-            ("right_sidebar show --window", "--window requires an id"),
-        ]
-
-        for (line, expectedMessage) in invalidCases {
-            switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line) {
-            case .success(let request):
-                XCTFail("Expected parser failure for \(line), got \(request)")
-            case .failure(let error):
-                XCTAssertTrue(
-                    error.message.contains(expectedMessage),
-                    "Expected \(line) to contain \(expectedMessage), got \(error.message)"
-                )
-            }
-        }
-#else
-        throw XCTSkip("Right sidebar parser helper is debug-only.")
-#endif
-    }
-
-    func testRightSidebarV1FocusPolicyIsCommandSpecific() throws {
-#if DEBUG
-        let cases: [(String, Bool)] = [
-            ("right_sidebar toggle", true),
-            ("right_sidebar show", true),
-            ("right_sidebar focus", true),
-            ("right_sidebar set find", true),
-            ("right_sidebar sessions", true),
-            ("right_sidebar set vault --no-focus", false),
-            ("right_sidebar hide", false),
-            ("right_sidebar mode", false),
-            ("right_sidebar state", false),
-            ("right_sidebar set unknown", false),
-        ]
-
-        for (line, expected) in cases {
-            XCTAssertEqual(
-                TerminalController.shared.rightSidebarCommandAllowsInAppFocusMutationsForTesting(line),
-                expected,
-                line
-            )
-        }
-#else
-        throw XCTSkip("Right sidebar focus policy helper is debug-only.")
-#endif
-    }
-
-    func testRightSidebarRemoteCommandsCanTargetRegisteredWindowOrWorkspaceWithoutFocus() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
-        let windowAId = UUID()
-        let windowBId = UUID()
-        let managerA = TabManager()
-        let managerB = TabManager()
-        let managerC = TabManager()
-        _ = managerA.addWorkspace(select: false, eagerLoadTerminal: false)
-        let workspaceB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
-        let workspaceC = managerC.addWorkspace(select: false, eagerLoadTerminal: false)
-        let stateA = FileExplorerState()
-        let stateB = FileExplorerState()
-        let fallbackState = FileExplorerState()
-
-        stateA.setVisible(false)
-        stateA.mode = .files
-        stateB.setVisible(false)
-        stateB.mode = .files
-        fallbackState.setVisible(true)
-        fallbackState.mode = .dock
-        appDelegate.fileExplorerState = fallbackState
-
-        appDelegate.registerMainWindowContextForTesting(
-            windowId: windowAId,
-            tabManager: managerA,
-            fileExplorerState: stateA
-        )
-        appDelegate.registerMainWindowContextForTesting(
-            windowId: windowBId,
-            tabManager: managerB,
-            fileExplorerState: stateB
-        )
-        let windowCId = appDelegate.registerMainWindowContextForTesting(
-            tabManager: managerC
-        )
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowAId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowBId)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowCId)
-        }
-
-        XCTAssertEqual(
-            appDelegate.applyRightSidebarRemoteCommand(
-                .setMode(.find, focus: false),
-                target: RightSidebarRemoteTarget(windowId: windowAId, workspaceId: nil)
-            ),
-            .ok
-        )
-        XCTAssertTrue(stateA.isVisible)
-        XCTAssertEqual(stateA.mode, .find)
-        XCTAssertFalse(stateB.isVisible)
-        XCTAssertEqual(stateB.mode, .files)
-
-        XCTAssertEqual(
-            appDelegate.applyRightSidebarRemoteCommand(
-                .setMode(.sessions, focus: false),
-                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-            ),
-            .ok
-        )
-        XCTAssertTrue(stateB.isVisible)
-        XCTAssertEqual(stateB.mode, .sessions)
-        XCTAssertEqual(stateA.mode, .find)
-
-        XCTAssertEqual(
-            appDelegate.applyRightSidebarRemoteCommand(
-                .hide,
-                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-            ),
-            .ok
-        )
-        XCTAssertFalse(stateB.isVisible)
-        XCTAssertTrue(stateA.isVisible)
-
-        switch appDelegate.applyRightSidebarRemoteCommand(
-            .toggle,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-        ) {
-        case .failure(let message):
-            XCTAssertTrue(message.contains("target not found"), message)
-        case .ok, .state:
-            XCTFail("Expected targeted toggle without a window to fail")
-        }
-        XCTAssertFalse(stateB.isVisible)
-
-        XCTAssertEqual(
-            appDelegate.applyRightSidebarRemoteCommand(
-                .getState,
-                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-            ),
-            .state(.init(visible: false, mode: .sessions))
-        )
-
-        switch appDelegate.applyRightSidebarRemoteCommand(
-            .getState,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceC.id)
-        ) {
-        case .failure(let message):
-            XCTAssertTrue(message.contains("state not available"), message)
-        case .ok, .state:
-            XCTFail("Expected explicit target without right-sidebar state to fail")
-        }
-
-        switch appDelegate.applyRightSidebarRemoteCommand(
-            .hide,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: UUID())
-        ) {
-        case .failure(let message):
-            XCTAssertTrue(message.contains("target not found"), message)
-        case .ok, .state:
-            XCTFail("Expected missing workspace target to fail")
-        }
-    }
-
-    func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {
+    @Test func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {
         let socketPath = makeSocketPath("notify-surface")
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
@@ -1126,22 +1199,22 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
-    func testPaneCreateStartupEnvironmentMarksManagedSubagentForRawNotificationSuppression() async throws {
+    @Test func testPaneCreateStartupEnvironmentMarksManagedSubagentForRawNotificationSuppression() async throws {
         let socketPath = makeSocketPath("pane-env")
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
         let defaults = UserDefaults.standard
-        let previousSuppressionDefault = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousSuppressionDefault = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
 
-        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.set(true, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
             if let previousSuppressionDefault {
-                defaults.set(previousSuppressionDefault, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.set(previousSuppressionDefault, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             }
         }
 
@@ -1179,7 +1252,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: sourcePanelId))
     }
 
-    func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
+    @Test func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
         let socketPath = makeSocketPath("relay-fallback")
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
@@ -1227,7 +1300,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(portsKickResult["surface_id"] as? String, focusedPanelId.uuidString)
     }
 
-    func testSurfaceRelayRPCsRejectExplicitUnknownSurfaceID() async throws {
+    @Test func testSurfaceRelayRPCsRejectExplicitUnknownSurfaceID() async throws {
         let socketPath = makeSocketPath("relay-invalid")
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
@@ -1280,7 +1353,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
     }
 
-    func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
+    @Test func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()
         let pinnedWorkspace = manager.addWorkspace(select: false)
@@ -1318,7 +1391,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
     }
 
-    func testV2SurfaceCloseCommandsRecordRecentlyClosedHistory() throws {
+    @Test func testV2SurfaceCloseCommandsRecordRecentlyClosedHistory() throws {
         ClosedItemHistoryStore.shared.removeAll()
         let defaults = UserDefaults.standard
         let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
@@ -1372,7 +1445,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
-    func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
+    @Test func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
         let defaults = UserDefaults.standard
         let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
         BrowserAvailabilitySettings.setDisabled(true)
@@ -1400,7 +1473,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(error["code"] as? String, "browser_disabled")
     }
 
-    func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
+    @Test func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer {
             ClosedItemHistoryStore.shared.removeAll()
@@ -1425,14 +1498,12 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     }
 
     private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                FileManager.default.fileExists(atPath: path)
-            },
-            object: NSObject()
-        )
-        if XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed {
-            return
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return
+            }
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTFail("Timed out waiting for socket at \(path)")
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
@@ -1622,6 +1693,36 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
     }
 
+    /// v1 twin of `sendV2Request`: one connection, newline-delimited v1
+    /// commands, one reply line each. Nonisolated so `sendV1CommandsAsync`
+    /// can run it on a global queue while the main actor stays free.
+    private nonisolated func sendV1Commands(_ commands: [String], to socketPath: String) throws -> [String] {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+        var responses: [String] = []
+        for command in commands {
+            try writeLine(command, to: fd)
+            responses.append(try readLine(from: fd))
+        }
+        return responses
+    }
+
+    /// v1 twin of `sendV2RequestAsync`: main-lane v1 commands need the main
+    /// thread free for their `DispatchQueue.main.sync` hop, so the blocking
+    /// socket round-trip runs on a global queue and the main-actor test
+    /// awaits the result.
+    private func sendV1CommandsAsync(_ commands: [String], to socketPath: String) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try self.sendV1Commands(commands, to: socketPath))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private nonisolated func connect(to socketPath: String) throws -> Int32 {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -1717,5 +1818,30 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             code: Int(errno),
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
         )
+    }
+}
+
+/// Cross-thread reply capture for the worker-lane-while-main-blocked tests:
+/// the background sender stores exactly once before signaling its semaphore,
+/// and the main-actor test reads only after that signal. The lock makes the
+/// handoff explicit instead of relying on the semaphore's happens-before
+/// alone.
+private final class WorkerLaneReplyBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<[String], Error>?
+
+    func store(_ result: Result<[String], Error>) {
+        lock.lock()
+        self.result = result
+        lock.unlock()
+    }
+
+    func take() throws -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let result else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
+        }
+        return try result.get()
     }
 }

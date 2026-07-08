@@ -5,3 +5,6 @@
 #include "Shared.xcconfig"
 
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) CMUX_DEV_AUTH
+
+// Dev pairing scheme (explicit; same as the Shared.xcconfig default).
+CMUX_IOS_URL_SCHEME = cmux-ios-dev

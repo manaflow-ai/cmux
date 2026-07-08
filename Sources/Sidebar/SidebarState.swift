@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Combine
 import CoreGraphics
 import Foundation
@@ -67,6 +68,10 @@ enum SidebarSelectedWorkspaceScrollPolicy {
 
         guard let oldIndex = oldWorkspaceIds.firstIndex(of: selectedWorkspaceId) else {
             return true
+        }
+
+        guard oldWorkspaceIds.count == newWorkspaceIds.count else {
+            return false
         }
 
         guard oldIndex != newIndex else {

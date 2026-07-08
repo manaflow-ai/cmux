@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
@@ -99,7 +100,7 @@ extension CMUXCLI {
 
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
         appendIfExisting(homeExpandedURL("~/.config/ghostty/themes", isDirectory: true))
-        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: processEnv) {
+        for appSupportDirectory in CmuxApplicationSupportDirectories(environment: processEnv).userDirectories {
             appendIfExisting(
                 appSupportDirectory
                     .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
@@ -142,9 +143,9 @@ extension CMUXCLI {
             }
         }
 
-        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(
+        for appSupportDirectory in CmuxApplicationSupportDirectories(
             environment: ProcessInfo.processInfo.environment
-        ) {
+        ).userDirectories {
             let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
                 "com.mitchellh.ghostty",
                 isDirectory: true
@@ -161,7 +162,7 @@ extension CMUXCLI {
                 append(legacyGhosttyConfigURL)
             }
 
-            for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            for url in CmuxGhosttyConfigPathResolver().loadConfigURLs(
                 currentBundleIdentifier: targetBundleIdentifier,
                 appSupportDirectory: appSupportDirectory,
                 fileManager: fileManager
@@ -232,9 +233,9 @@ extension CMUXCLI {
 
     func cmuxThemeOverrideConfigURL(targetBundleIdentifier: String) throws -> URL {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: "Unable to resolve Application Support directory")
+            throw CLIError(message: "Failed to locate the Application Support directory")
         }
-        return CmuxGhosttyConfigPathResolver.editableConfigURL(
+        return CmuxGhosttyConfigPathResolver().editableConfigURL(
             currentBundleIdentifier: targetBundleIdentifier,
             appSupportDirectory: appSupport
         )
@@ -427,5 +428,23 @@ extension CMUXCLI {
         }
 
         return nil
+    }
+
+    func isRightSidebarCLIMode(_ value: String) -> Bool {
+        switch value.lowercased() {
+        case "files", "find", "vault", "sessions", "feed", "dock":
+            return true
+        default:
+            return false
+        }
+    }
+
+    func normalizedRightSidebarCLIArgument(_ value: String) -> String {
+        switch value.lowercased() {
+        case "files", "find", "vault", "sessions", "feed", "dock":
+            return value.lowercased()
+        default:
+            return value
+        }
     }
 }

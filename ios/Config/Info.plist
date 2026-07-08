@@ -12,10 +12,14 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CMUXAuthEnvironment</key>
+	<string>$(CMUX_IOS_AUTH_ENV)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXPresenceBaseURL</key>
+	<string>$(CMUX_PRESENCE_BASE_URL)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -31,7 +35,12 @@
 			<string>dev.cmux.ios.attach</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>cmux-ios</string>
+				<!-- Channel-specific pairing scheme (CMUX_IOS_URL_SCHEME in
+				     Config/Shared.xcconfig + Config/Release.xcconfig): dev builds
+				     register cmux-ios-dev, Release (beta/prod) registers cmux-ios,
+				     so a beta/prod QR scanned with the Camera app can never open a
+				     dev build. Keep the values in sync with CmxPairingURLScheme. -->
+				<string>$(CMUX_IOS_URL_SCHEME)</string>
 			</array>
 		</dict>
 		<dict>
@@ -55,6 +64,23 @@
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record audio to transcribe your voice into the message box.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach photos to send to your terminal agent.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcribe your speech into the message box.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- The in-app browser (WKWebView) loads pages the user navigates to,
+		     which include plain-HTTP sites and local dev servers (localhost,
+		     127.0.0.1, and RFC1918 private-LAN like 192.168.x). This key exempts
+		     ONLY WKWebView web content from ATS; the app's own API/auth/pairing
+		     traffic stays under ATS and still requires HTTPS. NSAllowsLocalNetworking
+		     alone would not cover routable private-LAN dev servers. -->
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

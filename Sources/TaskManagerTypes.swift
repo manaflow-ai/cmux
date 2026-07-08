@@ -542,7 +542,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             displayName: "Claude Code",
             assetName: "AgentIcons/Claude",
             launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
-            directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
+            directBasenames: ["claude", "claude.exe", "claude-code", "claude_code", "claude-teams", "omc"],
             argumentNeedles: [
                 "claude-code",
                 "claude_code",
@@ -582,7 +582,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         CmuxTaskManagerCodingAgentDefinition(
             id: "omp",
             displayName: "OMP",
-            assetName: nil,
+            assetName: "AgentIcons/Pi",
             launchKinds: ["omp"],
             directBasenames: ["omp"],
             argumentNeedles: ["@oh-my-pi/pi-coding-agent"]

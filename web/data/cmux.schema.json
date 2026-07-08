@@ -18,25 +18,158 @@
       "default": 1,
       "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
     },
+    "paneBorderColor": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.paneBorderColor",
+      "description": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits."
+    },
+    "activePaneBorderColor": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.activePaneBorderColor",
+      "description": "Optional border color drawn around the focused cmux pane in split workspaces."
+    },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
       "type": "object",
       "additionalProperties": true
     },
     "ui": {
       "title": "ui",
-      "description": "UI action wiring, including surface tab bar buttons and plus-button behavior.",
+      "description": "UI action wiring, including surface tab bar buttons and plus-button behavior. The plus-button context menu shows ui.newWorkspace.contextMenu (or the default items) followed by actions that opt in via newWorkspaceMenu.",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "newWorkspace": {
+          "title": "newWorkspace",
+          "description": "New Workspace button behavior and context-menu wiring.",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "ID of the action run by plain New Workspace. This is the default workspace layout; omit or remove it for None (Blank Terminal). Project-local ui.newWorkspace.action wins over the global value."
+            }
+          }
+        }
+      }
     },
     "commands": {
       "title": "commands",
-      "description": "Custom shell commands and workspace layout definitions.",
+      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, and setup (a bootstrap command sent to the first terminal before its own command).",
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": true
+      }
+    },
+    "agentChat": {
+      "title": "agentChat",
+      "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probing /healthz first and optionally starting the server with startCommand.",
+      "descriptionKey": "schemaDescriptions.agentChat.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "minLength": 1,
+          "default": "http://127.0.0.1:7739",
+          "description": "Base URL for the machine-local Agent Chat GUI server. cmux probes <url>/healthz before opening the workspace.",
+          "descriptionKey": "schemaDescriptions.agentChat.url"
+        },
+        "startCommand": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional shell command to start the Agent Chat server when <url>/healthz is unreachable. cmux runs it detached with the user's SHELL, polls healthz for a short bounded window, then opens the workspace either way.",
+          "descriptionKey": "schemaDescriptions.agentChat.startCommand"
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Keyboard behavior overrides for the Agent Chat web UI.",
+          "descriptionKey": "schemaDescriptions.agentChat.keys.description",
+          "properties": {
+            "ctrlJ": {
+              "type": "string",
+              "enum": ["newline", "menu"],
+              "default": "newline",
+              "description": "Behavior for Ctrl+J in Agent Chat text fields. Use newline to insert a line break, or menu to move to the next popup item while a menu is open.",
+              "descriptionKey": "schemaDescriptions.agentChat.keys.ctrlJ"
+            }
+          }
+        },
+        "fonts": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Font overrides for the Agent Chat web UI. Omitted values fall back to Ghostty and built-in defaults.",
+          "descriptionKey": "schemaDescriptions.agentChat.fonts.description",
+          "properties": {
+            "sansFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CSS font family used for Agent Chat body and UI text.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.sansFamily"
+            },
+            "bodyFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for sansFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.bodyFamily"
+            },
+            "family": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for sansFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.family"
+            },
+            "baseSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Base Agent Chat font size in CSS pixels.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.baseSize"
+            },
+            "bodySize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Alias for baseSize.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.bodySize"
+            },
+            "monoFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CSS font family used for Agent Chat code and monospace text.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.monoFamily"
+            },
+            "codeFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for monoFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeFamily"
+            },
+            "codeSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Agent Chat code font size in CSS pixels.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeSize"
+            },
+            "monoSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Alias for codeSize.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.monoSize"
+            },
+            "codeLineHeight": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Line-height multiplier used for Agent Chat code blocks.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeLineHeight"
+            }
+          }
+        }
       }
     },
     "vault": {
@@ -138,6 +271,14 @@
                   { "pattern": "\\{\\{sessionPath\\}\\}" }
                 ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
+              },
+              "forkCommand": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
+                "description": "Optional shell-like argv template used to fork (branch) a session into a new copy, for example \"{{executable}} --session {{sessionId}} --fork\". Same placeholders as resumeCommand. Omit when the agent has no fork capability; Fork Conversation stays hidden for it."
               },
               "cwd": {
                 "type": "string",
@@ -266,6 +407,12 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
@@ -318,6 +465,15 @@
           "type": "boolean",
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
+        },
+        "globalFontMagnification": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 200,
+          "multipleOf": 10,
+          "default": 100,
+          "descriptionKey": "schemaDescriptions.app.globalFontMagnification",
+          "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "reorderOnNotification": {
           "type": "boolean",
@@ -387,11 +543,19 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "scrollSpeed": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 3.0,
+          "default": 1.0,
+          "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
+          "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
+        },
         "copyOnSelect": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
-          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+          "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -436,12 +600,134 @@
             }
           }
         },
+        "rendererRealization": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Reclaim off-screen terminal renderer memory."
+            },
+            "idleSeconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 604800,
+              "default": 30,
+              "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
+            },
+            "maxWarmRenderers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 12,
+              "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,
           "maximum": 20,
           "default": 10,
           "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
+        },
+        "textBoxDefaultSubmitAction": {
+          "type": "string",
+          "default": "text-entry",
+          "description": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
+          "descriptionKey": "schemaDescriptions.terminal.textBoxDefaultSubmitAction"
+        },
+        "textBoxSubmitActions": {
+          "type": "array",
+          "default": [],
+          "description": "Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu.",
+          "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActions",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "kind", "systemImage", "backgroundColorHex"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "description": "Stable action ID referenced by terminal.textBoxDefaultSubmitAction.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionId"
+              },
+              "title": {
+                "type": "string",
+                "description": "Menu label for this submit action.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionTitle"
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["textEntry", "commandTemplate"],
+                "description": "Whether this action submits plain Text Entry or expands a shell command template.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionKind"
+              },
+              "commandTemplate": {
+                "type": "string",
+                "description": "Shell command template for commandTemplate actions. Include {{prompt}} to shell-quote the prompt into the command.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionCommandTemplate"
+              },
+              "preservePromptAfterLaunch": {
+                "type": "boolean",
+                "description": "When true, launch commandTemplate without the prompt and keep the prompt in the TextBox for the active agent.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionPreservePromptAfterLaunch"
+              },
+              "systemImage": {
+                "type": "string",
+                "description": "Fallback SF Symbol name shown on the submit button.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionSystemImage"
+              },
+              "assetName": {
+                "type": "string",
+                "description": "Optional app asset catalog image name shown on the submit button.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionAssetName"
+              },
+              "imagePath": {
+                "type": "string",
+                "description": "Optional PNG or image file path shown on the submit button. Tilde is expanded.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionImagePath"
+              },
+              "backgroundColorHex": {
+                "type": "string",
+                "pattern": "^#?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+                "description": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states.",
+                "descriptionKey": "schemaDescriptions.terminal.textBoxSubmitActionBackgroundColorHex"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": ["kind"],
+                  "properties": {
+                    "kind": { "const": "commandTemplate" }
+                  }
+                },
+                "then": {
+                  "required": ["commandTemplate"],
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "commandTemplate": {
+                          "type": "string",
+                          "pattern": "\\{\\{prompt\\}\\}"
+                        }
+                      }
+                    },
+                    {
+                      "required": ["preservePromptAfterLaunch"],
+                      "properties": {
+                        "preservePromptAfterLaunch": { "const": true }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
         },
         "resumeCommands": {
           "type": "array",
@@ -510,6 +796,34 @@
               }
             }
           }
+        },
+        "uploadCommands": {
+          "type": "array",
+          "default": [],
+          "description": "Host-scoped rules that replace the built-in scp for terminal file drops and pastes over SSH. When the ssh destination matches a rule, cmux runs that rule's command once per file instead of scp, and inserts the command's stdout at the cursor (verbatim, with control characters stripped); if the command prints nothing, cmux inserts the shell-escaped remote path it chose instead. Per-file outputs are space-joined. First matching enabled rule wins; no match runs the built-in scp unchanged. A non-zero exit, timeout, or cancel inserts nothing.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command"],
+            "properties": {
+              "hostPattern": {
+                "type": ["string", "null"],
+                "minLength": 1,
+                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. Omit the key or set it to null for a catch-all (a blank string is rejected)."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Shell command run via /bin/sh -c, once per file. It receives the file and endpoint on its environment (CMUX_UPLOAD_LOCAL_PATH, CMUX_UPLOAD_REMOTE_PATH, CMUX_UPLOAD_DESTINATION, CMUX_UPLOAD_PORT, CMUX_UPLOAD_IDENTITY_FILE, CMUX_UPLOAD_SSH_OPTIONS). Its stdout is what cmux inserts at the cursor."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this rule is active. Defaults to true."
+              }
+            }
+          }
         }
       }
     },
@@ -538,6 +852,31 @@
           "type": "boolean",
           "default": true,
           "description": "Flash the focused pane when requested."
+        },
+        "suppressOnlyFocusedSurface": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
+          "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
+        },
+        "agentPermissionPrompt": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.notifications.agentPermissionPrompt",
+          "description": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent."
+        },
+        "agentTurnComplete": {
+          "type": "string",
+          "enum": ["whenIdle", "always", "never"],
+          "default": "whenIdle",
+          "descriptionKey": "schemaDescriptions.notifications.agentTurnComplete",
+          "description": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it."
+        },
+        "agentIdleReminder": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.notifications.agentIdleReminder",
+          "description": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         },
         "sound": {
           "type": "string",
@@ -701,6 +1040,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "rightMaxWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "descriptionKey": "schemaDescriptions.sidebar.rightMaxWidth",
+          "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         }
       }
     },
@@ -860,6 +1205,18 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "workspaceAutoNaming": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.automation.workspaceAutoNaming",
+          "description": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win."
+        },
+        "autoNamingAgent": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
+          "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
+        },
         "ripgrepBinaryPath": {
           "type": "string",
           "default": "",
@@ -964,6 +1321,12 @@
           "default": 300,
           "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
         },
+        "askWhereToSaveDownloads": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
+          "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
@@ -1052,6 +1415,28 @@
         }
       }
     },
+    "canvas": {
+      "title": "canvas",
+      "description": "Freeform canvas workspace layout settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paneGap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 16,
+          "description": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "descriptionKey": "schemaDescriptions.canvas.paneGap"
+        },
+        "snappingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",
@@ -1063,6 +1448,22 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        }
+      }
+    },
+    "fileExplorer": {
+      "title": "fileExplorer",
+      "description": "Right-sidebar file explorer (file tree) settings.",
+      "descriptionKey": "schemaDescriptions.fileExplorer.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "doubleClickAction": {
+          "type": "string",
+          "enum": ["preview", "defaultEditor", "preferredEditor"],
+          "default": "preview",
+          "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
+          "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
         }
       }
     },
@@ -1087,6 +1488,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "showModifierHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut-hint chips while holding Cmd or Control.",
+          "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
+        },
         "bindings": {
           "type": "object",
           "default": {},
@@ -1103,6 +1510,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newBrowserWorkspace",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1135,13 +1543,17 @@
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
               "focusTextBoxInput",
+              "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
+              "sendCtrlFToTerminal",
+              "clearScreenKeepScrollback",
               "focusLeft",
               "focusRight",
               "focusUp",
@@ -1152,13 +1564,31 @@
               "equalizeSplits",
               "splitBrowserRight",
               "splitBrowserDown",
+              "toggleCanvasLayout",
+              "canvasRevealFocusedPane",
+              "canvasOverview",
+              "canvasZoomIn",
+              "canvasZoomOut",
+              "canvasZoomReset",
+              "canvasTidy",
+              "canvasAlignLeft",
+              "canvasAlignRight",
+              "canvasAlignTop",
+              "canvasAlignBottom",
+              "canvasEqualizeWidths",
+              "canvasEqualizeHeights",
+              "canvasDistributeHorizontally",
+              "canvasDistributeVertically",
               "toggleFileExplorer",
+              "fileExplorerOpenSelection",
+              "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",
               "browserForward",
               "browserReload",
+              "browserHardReload",
               "browserZoomIn",
               "browserZoomOut",
               "browserZoomReset",
@@ -1175,6 +1605,7 @@
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
               "toggleReactGrab",
+              "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
               "diffViewerScrollToBottom",
@@ -1183,24 +1614,39 @@
             ]
           },
           "properties": {
+            "fileExplorerOpenSelection": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerOpenSelectionFinderAlias": {
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollDown": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollUp": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToBottom": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToTop": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
           "additionalProperties": {
             "$ref": "#/$defs/shortcutBindingNullable"
+          }
+        },
+        "when": {
+          "type": "object",
+          "default": {},
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "descriptionKey": "schemaDescriptions.shortcuts.when",
+          "additionalProperties": {
+            "type": "string"
           }
         }
       }
@@ -1259,15 +1705,38 @@
         }
       ]
     },
-    "diffViewerShortcutBinding": {
+    "singleBareFirstStrokeShortcutBinding": {
       "oneOf": [
         {
           "$ref": "#/$defs/unboundShortcutBinding",
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
-          "$ref": "#/$defs/diffViewerShortcutFirstStroke",
-          "description": "Single-stroke diff viewer shortcut, for example j, k, /, or shift+g."
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        }
+      ]
+    },
+    "singleBareFirstStrokeShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/singleBareFirstStrokeShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "bareFirstStrokeShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
         },
         {
           "type": "array",
@@ -1275,20 +1744,20 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/diffViewerShortcutFirstStroke"
+              "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
             }
           ],
-          "description": "Chorded diff viewer shortcut. Example: [\"g\", \"g\"]."
+          "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
         }
       ]
     },
-    "diffViewerShortcutBindingNullable": {
+    "bareFirstStrokeShortcutBindingNullable": {
       "oneOf": [
         {
-          "$ref": "#/$defs/diffViewerShortcutBinding"
+          "$ref": "#/$defs/bareFirstStrokeShortcutBinding"
         },
         {
           "type": "null",
@@ -1318,7 +1787,7 @@
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
     },
-    "diffViewerShortcutFirstStroke": {
+    "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [
         {
           "$ref": "#/$defs/shortcutStroke"
@@ -1332,12 +1801,18 @@
               "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
             },
             {
+              "pattern": "^(?:[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩)$"
+            },
+            {
+              "pattern": "^(?:[lL][eE][fF][tT]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[lL][eE][fF][tT][aA][rR][rR][oO][wW]|←|[rR][iI][gG][hH][tT]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[rR][iI][gG][hH][tT][aA][rR][rR][oO][wW]|→|[uU][pP]|[aA][rR][rR][oO][wW][uU][pP]|[uU][pP][aA][rR][rR][oO][wW]|↑|[dD][oO][wW][nN]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[dD][oO][wW][nN][aA][rR][rR][oO][wW]|↓)$"
+            },
+            {
               "pattern": "^(?:[A-Za-z0-9]|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT])$"
             }
           ]
         }
       ],
-      "description": "First or only diff viewer shortcut stroke. Bare printable keys are accepted."
+      "description": "First or only shortcut stroke. Bare printable keys are accepted for actions that opt into bare first strokes."
     },
     "shortcutStroke": {
       "type": "string",

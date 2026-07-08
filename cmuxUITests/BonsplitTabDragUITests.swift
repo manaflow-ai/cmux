@@ -317,6 +317,34 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
+    func testLaunchCompletesWithHiddenRightSidebarRestoringFindMode() {
+        let (app, dataPath) = launchConfiguredApp(
+            rightSidebarMode: "find",
+            showRightSidebar: false
+        )
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to keep running with hidden right sidebar in find mode. state=\(app.state.rawValue) data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1 with hidden right sidebar in find mode. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        XCTAssertEqual(ready["rightSidebarVisible"], "0")
+        XCTAssertNotEqual(app.state, .notRunning, "Expected app to still be running after hidden right-sidebar setup. data=\(loadJSON(atPath: dataPath) ?? [:])")
+        XCTAssertFalse(
+            app.textFields["FileExplorerSearchField"].firstMatch.exists,
+            "Hidden right sidebar should not expose the File Explorer search field at launch."
+        )
+    }
+
     func testTitlebarShortcutHintsDoNotCoverHeaderIcons() {
         let (app, dataPath) = launchConfiguredApp(alwaysShowShortcutHints: true)
 
@@ -844,6 +872,7 @@ final class BonsplitTabDragUITests: XCTestCase {
     private func launchConfiguredApp(
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
+        rightSidebarMode: String? = nil,
         showRightSidebar: Bool = false,
         alwaysShowShortcutHints: Bool = false,
         windowSize: String? = nil,
@@ -872,6 +901,12 @@ final class BonsplitTabDragUITests: XCTestCase {
             app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
+        if let rightSidebarMode {
+            app.launchArguments += [
+                "-rightSidebar.mode", rightSidebarMode,
+                "-fileExplorer.isVisible", showRightSidebar ? "1" : "0",
+            ]
+        }
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {

@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxSettings
+import CmuxTerminalCore
 import CryptoKit
 import Foundation
 @preconcurrency import Network
@@ -160,15 +161,16 @@ private enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func result() -> MobileHostRPCResult {
+    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = routes
         lock.unlock()
-        return .ok([
-            "routes": cachedRoutes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "render_grid",
-            "capabilities": MobileHostService.mobileHostCapabilities,
-        ])
+        let routesPayload = cachedRoutes.map(\.mobileHostJSONObject)
+        return .ok(
+            includeIdentity
+                ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
+                : MobileHostService.publicStatusPayload(routesPayload: routesPayload)
+        )
     }
 }
 
@@ -292,28 +294,87 @@ final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
 
-    /// The single source of truth for the capabilities advertised to mobile
-    /// clients via `mobile.host.status`. Every status path (the public-status
-    /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
-    /// full status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin on the entries present here.
-    ///
-    /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
-    /// feedback round-trip (`dogfood.feedback.submit`). It is absent from
-    /// release builds, so a release client never sees the verb advertised.
-    nonisolated static var mobileHostCapabilities: [String] {
-        var capabilities = [
-            "events.v1",
-            "terminal.bytes.v1",
-            "terminal.render_grid.v1",
-            "terminal.replay.v1",
-            "terminal.viewport.v1",
-            "workspace.actions.v1",
+    /// The single shape every public `mobile.host.status` reply uses (the
+    /// public-status cache, the network status gate, and
+    /// `TerminalController`'s no-private-metadata branch), so the fields
+    /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
+    /// reachability probe any peer may ask for, but the Mac's stable identity
+    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
+    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
+    /// reply that carries it.
+    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+        // The Mac's resolved terminal theme is caller-independent, so it rides
+        // the public payload (identity merges on top). `GhosttyConfig.load()`
+        // resolves named ghostty themes, cmux's managed defaults, and explicit
+        // color overrides into a complete effective palette; the phone applies
+        // it so its embedded terminal renders with the Mac's colors instead of
+        // the built-in Monokai default.
+        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
+        return [
+            "routes": routesPayload,
+            "terminal_fidelity": "render_grid",
+            "capabilities": mobileHostCapabilities,
+            "theme": theme.mobileHostJSONObject,
         ]
-        #if DEBUG
-        capabilities.append("dogfood.v1")
-        #endif
-        return capabilities
+    }
+
+    /// `publicStatusPayload` plus the Mac's identity, for a caller that has
+    /// proven same-account Stack ownership. The pairing QR no longer carries
+    /// the display name or the device id, so this reply is where a freshly
+    /// paired phone learns what to call this Mac and which paired-Mac record
+    /// the connection belongs to.
+    nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+        var payload = publicStatusPayload(routesPayload: routesPayload)
+        payload["mac_device_id"] = MobileHostIdentity.deviceID()
+        if let displayName = MobileHostIdentity.displayName() {
+            payload["mac_display_name"] = displayName
+        }
+        let build = MobileHostBuildIdentity.current()
+        if let appVersion = build.appVersion {
+            payload["mac_app_version"] = appVersion
+        }
+        if let appBuild = build.appBuild {
+            payload["mac_app_build"] = appBuild
+        }
+        return payload
+    }
+
+    /// The `mobile.host.status` reply for a network caller.
+    ///
+    /// Status is the one unauthenticated verb (a phone probes reachability
+    /// before it has anything to present), so a tokenless request gets the
+    /// cached identity-free payload without touching the main actor or the
+    /// Stack verifier — the DoS posture of the public probe is unchanged, and
+    /// an arbitrary process that can reach the port learns nothing that
+    /// identifies or fingerprints this Mac. A request that does present the
+    /// owner's same-account Stack token (the iOS client attaches it to status
+    /// whenever it has one) is verified and answered with the Mac's identity,
+    /// which is what a freshly QR-paired phone needs to key its paired-Mac
+    /// record. A token that fails verification degrades to the identity-free
+    /// payload rather than an error: reachability stays observable, and the
+    /// authorized verbs that follow surface the auth failure properly.
+    /// Verification goes through the same gate as the authorized verbs
+    /// (``verifiedStackCaller(for:)``), so a DEBUG dev-token client that can
+    /// list workspaces also sees identity.
+    ///
+    /// Because status is unauthenticated, the network verifications a
+    /// token-bearing status request can trigger are bounded: an
+    /// already-verified token answers from the verifier's cache, and
+    /// cache-miss lookups are capped by
+    /// ``MobileHostStatusVerificationLimiter`` (over the cap the reply
+    /// degrades to identity-free and the phone's identity-recovery retry
+    /// picks it up later). A flood of unique garbage tokens therefore cannot
+    /// queue unbounded Stack lookups behind this verb.
+    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedToken?.isEmpty == false else {
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        }
+        let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
+        if !verified {
+            mobileHostLog.error("mobile host status identity withheld: stack verification failed")
+        }
+        return MobileHostPublicStatusCache.result(includeIdentity: verified)
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -330,6 +391,12 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    /// Watches for network path changes while the listener is bound, so the
+    /// advertised route set (and the team device registry that
+    /// ``DeviceRegistryClient`` mirrors it into) refreshes when the Mac moves
+    /// networks or Tailscale flips, not only when the listener restarts.
+    /// `nil` while stopped.
+    private var pathMonitor: MobileHostNetworkPathMonitor?
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
@@ -354,6 +421,21 @@ final class MobileHostService {
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.id
+    }
+
+    /// This Mac's authenticated Stack email, or `nil` when signed out or before
+    /// the auth graph is configured.
+    ///
+    /// The mobile data plane only accepts same-account connections, so the
+    /// caller is this Mac's own Stack account. The privileged agent feedback
+    /// sink (`dogfood.feedback.submit`) checks this email's domain at the trust
+    /// boundary, so a crafted RPC from a non-privileged account is rejected
+    /// regardless of which route the phone UI chose.
+    func currentAuthenticatedLocalUserEmail() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.primaryEmail
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -641,6 +723,7 @@ final class MobileHostService {
             }
         })
         MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
 
@@ -708,6 +791,7 @@ final class MobileHostService {
             listenerUsesEphemeralFallback = !usePreferredPort
             listenerPort = nil
             nextListener.start(queue: callbackQueue)
+            startNetworkPathMonitorIfNeeded()
         } catch {
             if usePreferredPort {
                 mobileHostLog.info("mobile host preferred port unavailable before listener start, falling back to an ephemeral port")
@@ -736,6 +820,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        stopNetworkPathMonitor()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listener?.stateUpdateHandler = nil
@@ -845,16 +930,6 @@ final class MobileHostService {
         }
     }
 
-    private func publicStatusSnapshot() async -> MobileHostServiceStatus {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
-        return makeStatus(routes: routes)
-    }
-
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let isRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
@@ -909,15 +984,6 @@ final class MobileHostService {
         start()
     }
 
-    private func publicHostStatusResult() async -> MobileHostRPCResult {
-        let status = await publicStatusSnapshot()
-        return .ok([
-            "routes": status.routes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "render_grid",
-            "capabilities": MobileHostService.mobileHostCapabilities,
-        ])
-    }
-
     nonisolated private static func acceptConnectionOffMain(
         _ connection: NWConnection,
         generation: UUID
@@ -965,7 +1031,7 @@ final class MobileHostService {
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
-                        return MobileHostPublicStatusCache.result()
+                        return await MobileHostService.networkStatusResult(for: request)
                     }
                     let result = await TerminalController.shared.mobileHostHandleRPC(request)
                     await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1019,7 +1085,12 @@ final class MobileHostService {
             workspaceID: workspaceID,
             terminalID: terminalID,
             routes: selectedRoutes,
-            ttl: ttl
+            ttl: ttl,
+            macUserEmail: await currentAuthenticatedLocalUserEmail(),
+            macUserID: await currentAuthenticatedLocalUserID(),
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: MobileHostBuildIdentity.current().appVersion,
+            macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
         return try ticketStore.payload(for: ticket)
     }
@@ -1079,7 +1150,7 @@ final class MobileHostService {
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
-                    return await MobileHostService.shared.publicHostStatusResult()
+                    return await MobileHostService.networkStatusResult(for: request)
                 }
                 let result = await TerminalController.shared.mobileHostHandleRPC(request)
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1159,6 +1230,60 @@ final class MobileHostService {
         await authorizationError(for: request)
     }
 
+    /// Whether `request`'s Stack token passes the DEBUG dev-token policy.
+    /// Always `false` in release builds. Shared by the authorization gate and
+    /// the status identity gate so a dev-token client is treated identically
+    /// on both.
+    private func devStackTokenAuthorized(_ request: MobileHostRPCRequest) -> Bool {
+        #if DEBUG
+        if let stackAccessToken = request.auth?.stackAccessToken {
+            return MobileHostDevStackAuthPolicy.authorize(
+                providedToken: stackAccessToken,
+                acceptedToken: debugAcceptedStackAuthToken
+            )
+        }
+        #endif
+        return false
+    }
+
+    /// Whether `request` presents credentials that pass the same Stack gate
+    /// as the authorized verbs (including the DEBUG dev-token policy),
+    /// independent of whether the method itself requires authorization. The
+    /// status path uses this to decide if the caller may see the Mac's
+    /// identity.
+    ///
+    /// Unlike ``authorizationError(for:)`` (whose verbs are authorized, so a
+    /// caller burning a network verification is at least failing auth), this
+    /// gate is reachable from the UNAUTHENTICATED status verb. It therefore
+    /// answers from the verifier's cache when it can, and caps concurrent
+    /// cache-miss network lookups: saturated means "withhold identity now",
+    /// never an unbounded queue of attacker-minted token verifications. The
+    /// legitimate client recovers via its identity-recovery retry once its
+    /// token is cache-verified by the authorized verbs that follow connect.
+    func verifiedStackCaller(for request: MobileHostRPCRequest) async -> Bool {
+        if devStackTokenAuthorized(request) {
+            return true
+        }
+        if let cachedVerdict = await MobileHostStackAuthVerifier.shared.cachedVerdict(auth: request.auth) {
+            return cachedVerdict
+        }
+        guard await MobileHostStatusVerificationLimiter.shared.acquire() else {
+            mobileHostLog.error("mobile host status identity withheld: verification limiter saturated")
+            return false
+        }
+        let verified: Bool
+        do {
+            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            verified = true
+        } catch {
+            verified = false
+        }
+        // Non-throwing actor call: runs even if this task was cancelled
+        // mid-verification, so a slot can never leak.
+        await MobileHostStatusVerificationLimiter.shared.release()
+        return verified
+    }
+
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
@@ -1170,18 +1295,12 @@ final class MobileHostService {
         // photographed QR is useless without the owner's signed-in account, and
         // pairing is bound to "who is signed in on this Mac" rather than a stored
         // ticket, so it survives Mac restarts and ticket expiry.
-        #if DEBUG
-        if let stackAccessToken = request.auth?.stackAccessToken,
-           MobileHostDevStackAuthPolicy.authorize(
-                providedToken: stackAccessToken,
-                acceptedToken: debugAcceptedStackAuthToken
-           ) {
-            return nil
+        if devStackTokenAuthorized(request) {
+            return ticketAuthorizationResultIfNeeded(for: request)
         }
-        #endif
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
-            return nil
+            return ticketAuthorizationResultIfNeeded(for: request)
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different
             // account than the one signed in on this Mac. Surface a distinct code
@@ -1199,6 +1318,20 @@ final class MobileHostService {
                 message: "Mobile sync authorization failed."
             ))
         }
+    }
+
+    private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+        let createsWorkspaceInGroup = request.method == "workspace.create" && request.params["group_id"] != nil && !(request.params["group_id"] is NSNull)
+        let requiresCurrentAttachTicket = request.method == "workspace.move" || request.method == "workspace.group.action" || createsWorkspaceInGroup
+        guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachToken.isEmpty else {
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+        }
+        guard let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
+            return requiresCurrentAttachTicket ? .failure(Self.scopedTicketError) : nil
+        }
+        if let error = Self.ticketAuthorizationError(authorization: authorization, request: request) { return .failure(error) }
+        return nil
     }
 
     private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {
@@ -1233,21 +1366,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest
-    ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: [],
-                createdTerminalIDs: []
-            ),
-            request: request
-        )
-    }
-
-    private static func ticketAuthorizationError(
+    static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1270,10 +1389,29 @@ final class MobileHostService {
         case "mobile.workspace.list", "workspace.list":
             return nil
         case "workspace.create":
+            guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
+                return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
+            }
+            return nil
+        case "workspace.move":
+            return ticketMacScopedWorkspaceMutationAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "workspace.action", "workspace.close":
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
+        case "workspace.group.action":
+            return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
+        case "workspace.group.collapse", "workspace.group.expand":
+            // Display-only group state. Keyed by `group_id` (not a workspace or
+            // terminal selection), so it is Mac-scoped like the workspace list and
+            // not constrained by the ticket's workspace/terminal pin. The Stack
+            // same-account gate in `authorizationError` remains authoritative.
             return nil
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
@@ -1292,11 +1430,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketTerminalAuthorizationError(
-        authorization: MobileAttachTicketAuthorization,
-        workspaceSelection: String?,
-        terminalSelection: String?
-    ) -> MobileHostRPCError? {
+    private static func ticketTerminalAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?, terminalSelection: String?) -> MobileHostRPCError? {
         if let terminalSelection,
            authorization.createdTerminalIDs.contains(terminalSelection) {
             return nil
@@ -1305,54 +1439,45 @@ final class MobileHostService {
            authorization.createdWorkspaceIDs.contains(workspaceSelection) {
             return nil
         }
-
         let ticket = authorization.ticket
         let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Empty workspaceID means the ticket is Mac-wide (general pairing).
-        // Allow any workspace/terminal under it.
-        if ticketWorkspaceID.isEmpty {
-            return nil
-        }
+        // Empty workspaceID means the ticket is Mac-wide (general pairing), so allow any workspace/terminal.
+        if ticketWorkspaceID.isEmpty { return nil }
         if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
             return scopedTicketError
         }
-
         if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !terminalID.isEmpty {
-            guard terminalSelection == terminalID else {
-                return scopedTicketError
-            }
+            guard terminalSelection == terminalID else { return scopedTicketError }
             return nil
         }
+        guard workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
+        return nil
+    }
 
-        guard workspaceSelection == ticketWorkspaceID else {
-            return scopedTicketError
+    private static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
+        if let workspaceSelection, authorization.createdWorkspaceIDs.contains(workspaceSelection) { return nil }
+        let ticket = authorization.ticket
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ticketWorkspaceID.isEmpty {
+            guard let workspaceSelection, workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
         }
         return nil
     }
 
-    static func debugTicketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest,
-        createdWorkspaceIDs: Set<String> = [],
-        createdTerminalIDs: Set<String> = []
+    private static func ticketMacScopedWorkspaceMutationAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        workspaceSelection: String? = nil
     ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: createdWorkspaceIDs,
-                createdTerminalIDs: createdTerminalIDs
-            ),
-            request: request
+        let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ticketWorkspaceID.isEmpty else { return scopedTicketError }
+        return ticketWorkspaceAuthorizationError(
+            authorization: authorization,
+            workspaceSelection: workspaceSelection
         )
     }
 
-    private static var scopedTicketError: MobileHostRPCError {
-        MobileHostRPCError(
-            code: "forbidden",
-            message: "Attach ticket is not valid for this workspace or terminal."
-        )
-    }
+    private static var scopedTicketError: MobileHostRPCError { MobileHostRPCError(code: "forbidden", message: "Attach ticket is not valid for this workspace or terminal.") }
 
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
@@ -1489,7 +1614,54 @@ final class MobileHostService {
             routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
         )
     }
+
+    // MARK: - Network path monitoring
+
+    /// Begin republishing routes on network path changes (observation and
+    /// dedup live in ``MobileHostNetworkPathMonitor``). Idempotent; runs for
+    /// the lifetime of the listener and is stopped by ``stop()``.
+    private func startNetworkPathMonitorIfNeeded() {
+        guard pathMonitor == nil else { return }
+        let monitor = MobileHostNetworkPathMonitor { [weak self] in
+            self?.handleNetworkPathChange()
+        }
+        monitor.start(queue: callbackQueue)
+        pathMonitor = monitor
+    }
+
+    private func stopNetworkPathMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    private func handleNetworkPathChange() {
+        // The cached Tailscale hosts (and any in-flight resolution) may describe
+        // the previous network; drop them on EVERY path observation so no later
+        // refresh can be satisfied from, or raced by, old-path state. This must
+        // happen before the no-port early return: the monitor's first
+        // observation can land mid-bind, advancing its dedup baseline, and the
+        // `.ready` publish that follows would otherwise be free to reuse a
+        // TTL-fresh cache from the previous network with no further path
+        // callback coming to correct it.
+        routeResolver.invalidateResolvedTailscaleHostCache()
+        guard let port = listenerPort else {
+            // Mid-bind (no port yet): the `.ready` handler publishes against the
+            // current path when the bind completes, and the invalidation above
+            // guarantees it resolves freshly.
+            return
+        }
+        let generation = listenerGeneration
+        // Same two-phase publish as the listener-ready handler: immediate routes
+        // from interface scan now, DNS-resolved hosts when they land.
+        routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
+            Task { @MainActor [weak self] in
+                self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
+            }
+        })
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+    }
 }
+
 
 #if DEBUG
 extension MobileHostService {
@@ -1568,13 +1740,18 @@ private enum MobileHostAuthorizationError: Error {
 }
 
 enum MobileHostAuthorizationPolicy {
-    static func authorizeStackUser(localUserID: String?, remoteUserID: String) throws {
-        guard let localUserID, !localUserID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    static func authorizeStackUserID(localUserID: String?, remoteUserID: String?) throws {
+        guard let localUserID = normalizedUserID(localUserID) else {
             throw MobileHostAuthorizationError.missingLocalUser
         }
-        guard localUserID == remoteUserID else {
+        guard normalizedUserID(remoteUserID) == localUserID else {
             throw MobileHostAuthorizationError.accountMismatch
         }
+    }
+
+    private static func normalizedUserID(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 
@@ -1599,7 +1776,7 @@ private actor MobileHostStackAuthVerifier {
     private static let verificationTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
 
     private struct CacheEntry {
-        let userID: String
+        let userID: String?
         let expiresAt: Date
     }
 
@@ -1608,6 +1785,25 @@ private actor MobileHostStackAuthVerifier {
     private static let cacheTTLSeconds: TimeInterval = 60
     private static let refreshAheadWindowSeconds: TimeInterval = 15
 
+    /// The verification verdict for `auth`'s token using only the cache, or
+    /// `nil` when no fresh cached binding exists (deciding would need a Stack
+    /// network lookup). Lets the unauthenticated status path answer
+    /// already-verified callers without spending a capped network slot.
+    func cachedVerdict(auth: MobileHostRPCAuth?) async -> Bool? {
+        guard let accessToken = auth?.stackAccessToken else {
+            return false
+        }
+        guard let cached = cache[Self.cacheKey(for: accessToken)],
+              cached.expiresAt > Date() else {
+            return nil
+        }
+        let localUserID = await currentAuthenticatedLocalUserID()
+        return (try? MobileHostAuthorizationPolicy.authorizeStackUserID(
+            localUserID: localUserID,
+            remoteUserID: cached.userID
+        )) != nil
+    }
+
     func verify(auth: MobileHostRPCAuth?) async throws {
         guard let accessToken = auth?.stackAccessToken else {
             throw MobileHostAuthorizationError.missingStackTokens
@@ -1615,7 +1811,7 @@ private actor MobileHostStackAuthVerifier {
 
         let cacheKey = Self.cacheKey(for: accessToken)
         let now = Date()
-        let remoteUserID: String
+        let remoteUserID: String?
         cache = cache.filter { $0.value.expiresAt > now }
         if let cached = cache[cacheKey], cached.expiresAt > now {
             remoteUserID = cached.userID
@@ -1631,13 +1827,13 @@ private actor MobileHostStackAuthVerifier {
         }
 
         let localUserID = await currentAuthenticatedLocalUserID()
-        try MobileHostAuthorizationPolicy.authorizeStackUser(
+        try MobileHostAuthorizationPolicy.authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )
     }
 
-    private func fetchAndCacheRemoteUserID(cacheKey: String, accessToken: String) async throws -> String {
+    private func fetchAndCacheRemoteUserID(cacheKey: String, accessToken: String) async throws -> String? {
         let stack = Self.makeStackClient(accessToken: accessToken)
         guard let user = try await Self.withVerificationTimeout({
             try await stack.getUser(or: .throw)
@@ -2033,13 +2229,21 @@ actor MobileHostConnection {
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
+            // Report whether this stream id was already registered BEFORE the
+            // idempotent replace. The phone's render-grid liveness probe
+            // re-asserts its subscription on prolonged silence; `false` tells
+            // it the registration had been lost (events emitted in the gap
+            // were never delivered), so it requests a catch-up replay instead
+            // of trusting delta continuity.
+            let alreadySubscribed = subscriptions[streamID] != nil
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG
-            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) connID=\(self.id.uuidString)")
+            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
             return .ok([
                 "stream_id": streamID,
                 "topics": Array(topics).sorted(),
+                "already_subscribed": alreadySubscribed,
             ])
         case "mobile.events.unsubscribe":
             let streamID = request.params["stream_id"] as? String ?? ""
@@ -2055,7 +2259,13 @@ actor MobileHostConnection {
 
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
-        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay":
+        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay",
+             // Subscription management is plumbing, not user interaction: the
+             // phone's render-grid liveness watchdog re-asserts its
+             // subscription on every silence window (~9s when idle), and
+             // counting that as interactive activity starves host work gated
+             // on mobile quiet (e.g. TabManager background git/PR refresh).
+             "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
         default:
             return true

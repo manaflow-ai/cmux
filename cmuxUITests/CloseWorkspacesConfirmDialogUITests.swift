@@ -204,8 +204,10 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         var resolvedPath: String?
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
+        let ready = waitForControlSocketReady(
+            pingTimeout: timeout,
+            socketFileExists: { self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) } },
+            pingReturnsPong: {
                 let originalPath = self.socketPath
                 for candidate in self.socketCandidates() {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
@@ -217,14 +219,10 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
                     self.socketPath = originalPath
                 }
                 return false
-            },
-            object: NSObject()
+            }
         )
-        let completed = XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
-        if let resolvedPath {
-            socketPath = resolvedPath
-        }
-        return completed
+        if let resolvedPath { socketPath = resolvedPath }
+        return ready
     }
 
     private func socketCandidates() -> [String] {
