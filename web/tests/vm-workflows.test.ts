@@ -477,6 +477,84 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("createVm destroys provider handle when account deletion claims the provisioning row", async () => {
+    const requested = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000134",
+      userId: "user-workflow-finalize-deleted",
+      billingTeamId: "team-workflow-finalize-deleted",
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const failedCreates: Array<Parameters<VmRepositoryShape["markCreateFailed"]>[0]> = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: requested, usageEvents }),
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      markCreateRunning: () =>
+        Effect.fail(new VmDatabaseError({
+          operation: "markCreateRunning",
+          cause: new Error("row was claimed by account deletion"),
+        })),
+      markCreateFailed: (failure) =>
+        Effect.sync(() => {
+          failedCreates.push(failure);
+        }),
+      recordUsageEvent: (event) =>
+        Effect.sync(() => {
+          usageEvents.push(event);
+        }),
+      recordUsageEvents: (events) =>
+        Effect.sync(() => {
+          usageEvents.push(...events);
+        }),
+    };
+    const destroyedProviderIds: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () =>
+        Effect.succeed({
+          provider: "freestyle" as const,
+          providerVmId: "provider-vm-finalize-deleted",
+          status: "running" as const,
+          image: "snapshot-test",
+          createdAt: Date.now(),
+        }),
+      destroy: (_provider, providerVmId) =>
+        Effect.sync(() => {
+          destroyedProviderIds.push(providerVmId);
+        }),
+    };
+
+    await expect(
+      Effect.runPromise(
+        createVm({
+          userId: "user-workflow-finalize-deleted",
+          billingCustomerType: "team",
+          billingTeamId: "team-workflow-finalize-deleted",
+          billingPlanId: "free",
+          maxActiveVms: 1,
+          provider: "freestyle",
+          image: "snapshot-test",
+        }).pipe(Effect.provide(workflowLayer(repo, provider))),
+      ),
+    ).rejects.toThrow();
+
+    expect(destroyedProviderIds).toEqual(["provider-vm-finalize-deleted"]);
+    expect(failedCreates).toContainEqual({
+      id: requested.id,
+      code: "database_finalize_failed",
+      message: "Cloud VM state update failed.",
+    });
+    expect(usageEvents).toContainEqual(expect.objectContaining({
+      userId: "user-workflow-finalize-deleted",
+      billingTeamId: "team-workflow-finalize-deleted",
+      vmId: requested.id,
+      eventType: "vm.create.failed",
+      provider: "freestyle",
+      imageId: "snapshot-test",
+    }));
+  });
+
   test("revokeExpiredIdentityLeases uses a small default cron batch", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000131",

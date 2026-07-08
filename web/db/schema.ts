@@ -79,6 +79,14 @@ export const cloudVms = pgTable(
   ],
 );
 
+export const accountDeletionTombstones = pgTable(
+  "account_deletion_tombstones",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {

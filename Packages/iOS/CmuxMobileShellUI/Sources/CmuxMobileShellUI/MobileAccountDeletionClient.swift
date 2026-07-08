@@ -12,15 +12,18 @@ public struct MobileAccountDeletionClient: Sendable {
     private let apiBaseURL: String
     private let tokenProvider: any TokenProviding
     private let session: URLSession
+    private let requestTimeout: TimeInterval
 
     public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
-        session: sending URLSession = .shared
+        session: sending URLSession = .shared,
+        requestTimeout: TimeInterval = 30
     ) {
         self.apiBaseURL = apiBaseURL.hasSuffix("/") ? String(apiBaseURL.dropLast()) : apiBaseURL
         self.tokenProvider = tokenProvider
         self.session = session
+        self.requestTimeout = requestTimeout
     }
 
     public func deleteAccount() async throws {
@@ -34,6 +37,7 @@ public struct MobileAccountDeletionClient: Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
+        request.timeoutInterval = requestTimeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue("application/json", forHTTPHeaderField: "Accept")

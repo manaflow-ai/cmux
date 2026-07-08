@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { cloudDb } from "../db/client";
-import { cloudVmLeases, cloudVmSessions } from "../db/schema";
+import { accountDeletionTombstones, cloudVmLeases, cloudVmSessions } from "../db/schema";
 import { deleteCmuxAccountData } from "../services/account/deletion";
 
 const calls: string[] = [];
@@ -43,6 +43,12 @@ describe("account deletion cleanup", () => {
     }, fakeRuntime());
 
     expect(calls.slice(0, 4)).toEqual([
+      "transaction",
+      "lock-account-deletion",
+      "insert-account-deletion-tombstone",
+      "claim-providerless-vms",
+    ]);
+    expect(calls.slice(3, 7)).toEqual([
       "claim-providerless-vms",
       "select-provider-backed-vms",
       "destroy:user-1:provider-vm-1",
@@ -108,6 +114,14 @@ function fakeRuntime() {
 
 function fakeTransaction() {
   return {
+    execute: async () => {
+      calls.push("lock-account-deletion");
+      return [];
+    },
+    insert: (table: unknown) => {
+      if (table === accountDeletionTombstones) return insertBuilder("insert-account-deletion-tombstone");
+      return insertBuilder();
+    },
     update: () => updateBuilder(),
     delete: (table: unknown) => {
       if (table === cloudVmSessions) return writeBuilder("delete-cloud-vm-sessions");
@@ -115,6 +129,17 @@ function fakeTransaction() {
       return writeBuilder();
     },
   };
+}
+
+function insertBuilder(label?: string) {
+  const builder = {
+    values: () => builder,
+    onConflictDoNothing: async () => {
+      if (label) calls.push(label);
+      return [];
+    },
+  };
+  return builder;
 }
 
 function selectBuilder(rows: () => unknown[]) {

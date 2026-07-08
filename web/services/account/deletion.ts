@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
+  accountDeletionTombstones,
   billingEmailClaims,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
@@ -31,6 +31,7 @@ import {
 import { isStripeBillingConfigured, stripe } from "../billing/stripe";
 import { destroyAccountOwnedVm, runVmWorkflow } from "../vms/workflows";
 import { deleteObject } from "../vault/storage";
+import { accountDeletionAdvisoryLockKey, accountDeletionUserHash } from "./deletionLock";
 
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
@@ -94,6 +95,7 @@ export async function deleteCmuxAccountData(
   runtime: AccountDeletionRuntime = defaultAccountDeletionRuntime,
 ): Promise<void> {
   const anonymizedUserId = deletedAccountId(input.userId);
+  await markAccountDeletionStarted(input.userId, runtime);
   await claimProviderlessAccountVms(input.userId, runtime);
   await destroyProviderBackedAccountVms(input.userId, runtime);
 
@@ -167,6 +169,20 @@ export async function deleteCmuxAccountData(
     await tx.update(billingEmailClaims)
       .set({ claimedByUserId: null })
       .where(eq(billingEmailClaims.claimedByUserId, input.userId));
+  });
+}
+
+async function markAccountDeletionStarted(
+  userId: string,
+  runtime: AccountDeletionRuntime,
+): Promise<void> {
+  const db = runtime.cloudDb();
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(userId)}, 0))`);
+    await tx
+      .insert(accountDeletionTombstones)
+      .values({ userIdHash: accountDeletionUserHash(userId) })
+      .onConflictDoNothing();
   });
 }
 
@@ -301,7 +317,7 @@ async function cancelStripeAccountBilling(
 }
 
 function deletedAccountId(userId: string): string {
-  return `deleted_${createHash("sha256").update(userId).digest("hex").slice(0, 24)}`;
+  return `deleted_${accountDeletionUserHash(userId).slice(0, 24)}`;
 }
 
 function stackJsonObject(value: unknown): StackJsonObject {
