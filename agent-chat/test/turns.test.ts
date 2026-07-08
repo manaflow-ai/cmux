@@ -91,6 +91,11 @@ if (range.firstVisible !== 2 || range.start !== 1 || range.end < 5 || range.tota
 if (virtualFirstVisibleIndex(10, heights, 250, 100) !== 2) {
   throw new Error("first visible index should ignore overscan and follow the viewport top");
 }
+// Exact row-bottom boundary: the row ending at scrollTop is fully above the
+// viewport, so the NEXT row anchors and the boundary row stays compensatable.
+if (virtualFirstVisibleIndex(10, heights, 200, 100) !== 2) {
+  throw new Error("scrollTop on a row's bottom edge should anchor the next row");
+}
 const measuredDelta = scrollCompensationDelta(1, 3, 100, 135, 260);
 if (measuredDelta !== 35) {
   throw new Error(`measurement above anchor should compensate by exact delta, got ${measuredDelta}`);

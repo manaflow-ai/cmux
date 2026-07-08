@@ -14,7 +14,9 @@ export function virtualFirstVisibleIndex(count: number, heights: Map<number, num
   let offset = 0;
   for (let i = 0; i < count; i++) {
     offset += heights.get(i) ?? estimate;
-    if (offset >= scrollTop) return i;
+    // Strict: when scrollTop sits exactly on a row's bottom edge, that row is
+    // fully above the viewport and must stay compensatable (index < anchor).
+    if (offset > scrollTop) return i;
   }
   return count - 1;
 }
