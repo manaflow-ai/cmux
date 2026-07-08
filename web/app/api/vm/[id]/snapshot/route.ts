@@ -33,6 +33,7 @@ export async function POST(
         const snapshot = await runVmWorkflow(snapshotVm({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
           providerVmId: id,
           name,
         }));

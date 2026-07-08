@@ -189,6 +189,10 @@ def check_requires(fixture: Dict[str, Any], socket_path: str) -> None:
 def dispatch(client: CmuxClient, cmd: str, params: Dict[str, Any]) -> Any:
     mapping = {
         "identify": client.identify,
+        "ping": client.ping,
+        "reload-config": client.reload_config,
+        "set-window-title": client.set_window_title,
+        "clear-window-title": lambda **kw: client.clear_window_title(),
         "list-workspaces": client.list_workspaces,
         "export-layout": client.export_layout,
         "apply-layout": client.apply_layout,
