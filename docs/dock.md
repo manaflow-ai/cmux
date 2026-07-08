@@ -93,7 +93,7 @@ Fields:
 - `height`: optional requested terminal height in points. Controls without a height share remaining space.
 - `env`: optional non-secret environment variables passed only to command and terminal controls.
 
-Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command. Project Dock trust prompts show each requested browser URL and profile before cmux opens the controls. Trust for browser controls is bound to the resolved profile UUID, so a display-name or slug reference that later points at a different profile asks for trust again.
+Command controls run through the login-shell wrapper: cmux starts the configured command in a login shell, then drops into an interactive login shell after the command exits. Terminal controls (`type: "terminal"` with no `command`) start as a plain interactive login shell and do not run a command. Project Dock trust prompts show each requested browser URL and profile before cmux opens the controls, including the resolved profile ID for non-default profiles. Trust for browser controls is bound to the resolved profile UUID, so a display-name or slug reference that later points at a different profile asks for trust again.
 
 Existing configs without `type` keep loading unchanged as command controls. Legacy configs that set `type: "terminal"` together with a `command` also keep loading as command controls. The order of `controls` seeds the initial Dock layout top-to-bottom; once open, you can re-tile, add, and close Dock panes in-app without editing the file.
 

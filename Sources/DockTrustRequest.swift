@@ -2,7 +2,7 @@ struct DockTrustControlSummary: Equatable, Identifiable, Sendable {
     enum Detail: Equatable, Sendable {
         case command(String)
         case loginShell
-        case browser(url: String, profileDisplayName: String, profileIsDefault: Bool)
+        case browser(url: String, profileDisplayName: String, profileIsDefault: Bool, profileID: String)
     }
 
     let id: String

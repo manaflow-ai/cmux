@@ -218,7 +218,7 @@ struct DockPrimitiveControlTests {
             .appendingPathComponent("dock-\(UUID().uuidString).json", isDirectory: false)
         let profileName = "Dock Trust \(UUID().uuidString)"
 
-        func trustFingerprint() throws -> String {
+        func trustRequest() throws -> DockTrustRequest {
             let resolution = DockConfigResolution(
                 controls: [
                     DockControlDefinition(
@@ -239,19 +239,28 @@ struct DockPrimitiveControlTests {
             defer { store.closeAllPanels() }
             let generation = store.markConfigurationLoadInFlightForTesting(rootDirectory: root.path)
             store.applyConfigurationLoadResult(.resolved(resolution), generation: generation, replacingPanels: true)
-            return try #require(store.trustRequest).descriptor.fingerprint
+            return try #require(store.trustRequest)
         }
 
         let firstProfile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
         let firstProfileID = firstProfile.id
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: firstProfileID) }
-        let firstFingerprint = try trustFingerprint()
+        let firstRequest = try trustRequest()
+        let firstFingerprint = firstRequest.descriptor.fingerprint
+        #expect(firstRequest.controlSummaries.map(\.detail) == [
+            .browser(
+                url: "https://docs.cmux.dev",
+                profileDisplayName: profileName,
+                profileIsDefault: false,
+                profileID: firstProfileID.uuidString
+            )
+        ])
 
         _ = BrowserProfileStore.shared.deleteProfile(id: firstProfileID)
         let secondProfile = try #require(BrowserProfileStore.shared.createProfile(named: profileName))
         let secondProfileID = secondProfile.id
         defer { _ = BrowserProfileStore.shared.deleteProfile(id: secondProfileID) }
-        let secondFingerprint = try trustFingerprint()
+        let secondFingerprint = try trustRequest().descriptor.fingerprint
 
         #expect(firstProfileID != secondProfileID)
         #expect(firstFingerprint != secondFingerprint)
@@ -302,7 +311,8 @@ struct DockPrimitiveControlTests {
             .browser(
                 url: "https://docs.cmux.dev",
                 profileDisplayName: defaultProfileName,
-                profileIsDefault: true
+                profileIsDefault: true,
+                profileID: BrowserProfileStore.shared.builtInDefaultProfileID.uuidString
             )
         ])
 

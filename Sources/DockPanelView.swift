@@ -260,7 +260,7 @@ private struct DockTrustControlSummaryRow: View {
             return command
         case .loginShell:
             return String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell")
-        case .browser(let url, let profileDisplayName, let profileIsDefault):
+        case .browser(let url, let profileDisplayName, let profileIsDefault, let profileID):
             let profileName = profileIsDefault
                 ? String(localized: "dock.trust.control.defaultBrowserProfile", defaultValue: "Default browser profile")
                 : profileDisplayName
@@ -268,7 +268,14 @@ private struct DockTrustControlSummaryRow: View {
                 format: String(localized: "dock.trust.control.browserProfile", defaultValue: "Profile: %@"),
                 profileName
             )
-            return "\(url)\n\(profileLine)"
+            guard !profileIsDefault, !profileID.isEmpty else {
+                return "\(url)\n\(profileLine)"
+            }
+            let profileIDLine = String(
+                format: String(localized: "dock.trust.control.browserProfileID", defaultValue: "Profile ID: %@"),
+                profileID
+            )
+            return "\(url)\n\(profileLine)\n\(profileIDLine)"
         }
     }
 }

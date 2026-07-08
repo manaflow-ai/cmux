@@ -822,10 +822,11 @@ final class DockSplitStore: BonsplitDelegate {
                 detail = .browser(
                     url: url,
                     profileDisplayName: resolvedProfile.displayName,
-                    profileIsDefault: resolvedProfile.isDefault
+                    profileIsDefault: resolvedProfile.isDefault,
+                    profileID: resolvedProfile.id.uuidString
                 )
             } else {
-                detail = .browser(url: url, profileDisplayName: profile ?? "", profileIsDefault: false)
+                detail = .browser(url: url, profileDisplayName: profile ?? "", profileIsDefault: false, profileID: "")
             }
         }
         return DockTrustControlSummary(id: control.id, title: control.title, detail: detail)
