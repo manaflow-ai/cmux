@@ -431,20 +431,12 @@ extension CMUXCLI {
     }
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
-        switch value.lowercased() {
-        case "files", "notes", "find", "vault", "sessions", "feed", "dock":
-            return true
-        default:
-            return false
-        }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return Self.availableRightSidebarModeTokens().contains(normalized)
     }
 
     func normalizedRightSidebarCLIArgument(_ value: String) -> String {
-        switch value.lowercased() {
-        case "files", "notes", "find", "vault", "sessions", "feed", "dock":
-            return value.lowercased()
-        default:
-            return value
-        }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return isRightSidebarCLIMode(normalized) ? normalized : value
     }
 }

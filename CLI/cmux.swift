@@ -3019,7 +3019,7 @@ struct CMUXCLI {
         return defaultValue
     }
 
-    private static func availableRightSidebarModeTokens(
+    static func availableRightSidebarModeTokens(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         var tokens = ["files", "find", "vault", "sessions"]
@@ -18273,7 +18273,8 @@ struct CMUXCLI {
 
         case "set":
             guard parsed.positional.count == 2 else {
-                throw CLIError(message: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: files, notes, find, vault, sessions, feed, or dock"))
+                let modes = Self.availableRightSidebarModeTokens().joined(separator: ", ")
+                throw CLIError(message: String(format: String(localized: "cli.rightSidebar.error.setRequiresMode", defaultValue: "right-sidebar set requires a mode: %@"), modes))
             }
             let mode = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard isRightSidebarCLIMode(mode) else {
@@ -18285,7 +18286,7 @@ struct CMUXCLI {
             }
             return args
 
-        case "files", "notes", "find", "vault", "sessions", "feed", "dock":
+        case _ where isRightSidebarCLIMode(action):
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }

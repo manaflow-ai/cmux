@@ -98,6 +98,28 @@ import Testing
         )
         XCTAssertFalse(disabledTopLevelResult.stdout.contains("note new ["), disabledTopLevelResult.stdout)
 
+        for mode in ["notes", "feed", "dock"] {
+            let disabledSetResult = runProcess(
+                executablePath: cliPath,
+                arguments: ["right-sidebar", "set", mode],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(disabledSetResult.timedOut, disabledSetResult.stdout)
+            XCTAssertNotEqual(disabledSetResult.status, 0, disabledSetResult.stdout)
+            XCTAssertTrue(disabledSetResult.stdout.contains("Unknown right-sidebar mode '\(mode)'"), disabledSetResult.stdout)
+
+            let disabledAliasResult = runProcess(
+                executablePath: cliPath,
+                arguments: ["right-sidebar", mode],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(disabledAliasResult.timedOut, disabledAliasResult.stdout)
+            XCTAssertNotEqual(disabledAliasResult.status, 0, disabledAliasResult.stdout)
+            XCTAssertTrue(disabledAliasResult.stdout.contains("Unknown right-sidebar command '\(mode)'"), disabledAliasResult.stdout)
+        }
+
         defaults.set(true, forKey: "rightSidebar.beta.notes.enabled")
         defaults.synchronize()
 
