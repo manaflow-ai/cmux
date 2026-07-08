@@ -15,6 +15,7 @@ async function run(cmd: string[], cwd = root) {
 await run(["git", "init"]);
 await run(["git", "add", "tracked.txt"]);
 await run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "-m", "init"]);
+await writeFile(join(root, "untracked.txt"), "new\nfile\n");
 
 const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
 let sessionId = "";
@@ -42,20 +43,28 @@ ws.send(JSON.stringify({
 }));
 const files = await filesChanged;
 if (!files.some((f) => f.path === "tracked.txt")) throw new Error(`tracked.txt missing from files-changed: ${JSON.stringify(files)}`);
+if (!files.some((f) => f.path === "untracked.txt")) throw new Error(`untracked.txt missing from files-changed: ${JSON.stringify(files)}`);
 
-const diff = new Promise<string>((resolve, reject) => {
-  const timeout = setTimeout(() => reject(new Error("timed out waiting for file-diff")), 20_000);
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(String(ev.data));
-    if (msg.kind === "file-diff" && msg.path === "tracked.txt") {
-      clearTimeout(timeout);
-      resolve(String(msg.diff ?? ""));
-    }
-  };
-});
+function waitForDiff(path: string) {
+  return new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("timed out waiting for file-diff")), 20_000);
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(String(ev.data));
+      if (msg.kind === "file-diff" && msg.path === path) {
+        clearTimeout(timeout);
+        resolve(String(msg.diff ?? ""));
+      }
+    };
+  });
+}
+const diff = waitForDiff("tracked.txt");
 ws.send(JSON.stringify({ op: "get-file-diff", sessionId, path: "tracked.txt" }));
 const text = await diff;
 if (!text.includes("tracked.txt") || !/^\+.+/m.test(text)) throw new Error(`unexpected diff: ${text}`);
+const untrackedDiff = waitForDiff("untracked.txt");
+ws.send(JSON.stringify({ op: "get-file-diff", sessionId, path: "untracked.txt" }));
+const untrackedText = await untrackedDiff;
+if (!untrackedText.includes("untracked.txt") || !/^\+new$/m.test(untrackedText)) throw new Error(`unexpected untracked diff: ${untrackedText}`);
 ws.close();
 console.log("files-changed: OK");
 

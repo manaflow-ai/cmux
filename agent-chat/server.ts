@@ -510,6 +510,10 @@ async function gitFiles(cwd: string): Promise<string[]> {
 }
 
 async function gitOutput(cwd: string, args: string[], maxBytes = 120_000): Promise<string> {
+  return gitOutputWithCodes(cwd, args, maxBytes, [0]);
+}
+
+async function gitOutputWithCodes(cwd: string, args: string[], maxBytes = 120_000, okCodes: number[] = [0]): Promise<string> {
   const proc = Bun.spawn(["git", "-C", cwd, ...args], {
     stdout: "pipe",
     stderr: "pipe",
@@ -517,7 +521,7 @@ async function gitOutput(cwd: string, args: string[], maxBytes = 120_000): Promi
   });
   const out = await new Response(proc.stdout).text();
   const code = await proc.exited;
-  if (code !== 0) throw new Error("git command failed");
+  if (!okCodes.includes(code)) throw new Error("git command failed");
   return out.length > maxBytes ? out.slice(0, maxBytes) + "\n[truncated]" : out;
 }
 
@@ -582,7 +586,14 @@ export function resolveFileDiffPath(cwd: string, path: string): string {
 async function fileDiff(cwd: string, path: string): Promise<string> {
   if (!(await isGitRepo(cwd))) throw new Error("not a git repository");
   const safePath = resolveFileDiffPath(cwd, path);
-  const diff = await gitOutput(cwd, ["diff", "--no-ext-diff", "HEAD", "--", safePath], 80_000).catch(() => "");
+  const tracked = await gitOutput(cwd, ["ls-files", "--error-unmatch", "--", safePath], 10_000)
+    .then(() => true)
+    .catch(() => false);
+  const diff = tracked
+    ? await gitOutput(cwd, ["diff", "--no-ext-diff", "HEAD", "--", safePath], 80_000).catch(() => "")
+    : await gitOutputWithCodes(cwd, ["diff", "--no-ext-diff", "--no-index", "--", "/dev/null", safePath], 80_000, [0, 1])
+      .catch(() => `diff unavailable for ${safePath}\n`);
+  if (!diff.trim()) return `empty diff for ${safePath}\n`;
   return diff.split(/\r?\n/).slice(0, 400).join("\n");
 }
 

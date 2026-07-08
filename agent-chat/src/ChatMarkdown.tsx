@@ -11,6 +11,28 @@ const themeName = "agent-css-variables";
 let highlighterPromise: Promise<HighlighterCore> | null = null;
 let reportedHighlighterFailure = false;
 const htmlCache = new Map<string, string>();
+const HTML_CACHE_LIMIT = 400;
+
+function cachedHtml(key: string): string | null {
+  const hit = htmlCache.get(key);
+  if (hit === undefined) return null;
+  htmlCache.delete(key);
+  htmlCache.set(key, hit);
+  return hit;
+}
+
+function cacheHtml(key: string, html: string) {
+  htmlCache.set(key, html);
+  while (htmlCache.size > HTML_CACHE_LIMIT) {
+    const oldest = htmlCache.keys().next().value;
+    if (oldest === undefined) break;
+    htmlCache.delete(oldest);
+  }
+}
+
+export function htmlCacheSizeForTest(): number {
+  return htmlCache.size;
+}
 
 function normalizeLang(registration: unknown): LanguageRegistration[] {
   return (Array.isArray(registration) ? registration : [registration]) as LanguageRegistration[];
@@ -68,12 +90,12 @@ function highlighter() {
 
 export async function highlightCode(code: string, lang = "text"): Promise<string> {
   const key = `${lang}\0${code}`;
-  const cached = htmlCache.get(key);
+  const cached = cachedHtml(key);
   if (cached) return cached;
   try {
     const h = await highlighter();
     const html = h.codeToHtml(code, { lang: langs.includes(lang) ? lang : "text", theme: themeName });
-    htmlCache.set(key, html);
+    cacheHtml(key, html);
     return html;
   } catch (err) {
     if (!reportedHighlighterFailure) {
@@ -102,11 +124,11 @@ function languageOf(className: unknown): string {
 }
 
 export function MarkdownCodeBlock({ code, lang = "text" }: { code: string; lang?: string }) {
-  const [html, setHtml] = useState<string | null>(() => htmlCache.get(`${lang}\0${code}`) ?? null);
+  const [html, setHtml] = useState<string | null>(() => cachedHtml(`${lang}\0${code}`));
   useEffect(() => {
     let cancelled = false;
     const key = `${lang}\0${code}`;
-    const cached = htmlCache.get(key);
+    const cached = cachedHtml(key);
     if (cached) {
       setHtml(cached);
       return;
@@ -114,7 +136,7 @@ export function MarkdownCodeBlock({ code, lang = "text" }: { code: string; lang?
     setHtml(null);
     highlightCode(code, lang)
       .then((next) => {
-        htmlCache.set(key, next);
+        cacheHtml(key, next);
         if (!cancelled) setHtml(next);
       })
       .catch(() => {

@@ -85,6 +85,89 @@
           "minLength": 1,
           "description": "Optional shell command to start the Agent Chat server when <url>/healthz is unreachable. cmux runs it detached with the user's SHELL, polls healthz for a short bounded window, then opens the workspace either way.",
           "descriptionKey": "schemaDescriptions.agentChat.startCommand"
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Keyboard behavior overrides for the Agent Chat web UI.",
+          "descriptionKey": "schemaDescriptions.agentChat.keys.description",
+          "properties": {
+            "ctrlJ": {
+              "type": "string",
+              "enum": ["newline", "menu"],
+              "default": "newline",
+              "description": "Behavior for Ctrl+J in Agent Chat text fields. Use newline to insert a line break, or menu to move to the next popup item while a menu is open.",
+              "descriptionKey": "schemaDescriptions.agentChat.keys.ctrlJ"
+            }
+          }
+        },
+        "fonts": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Font overrides for the Agent Chat web UI. Omitted values fall back to Ghostty and built-in defaults.",
+          "descriptionKey": "schemaDescriptions.agentChat.fonts.description",
+          "properties": {
+            "sansFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CSS font family used for Agent Chat body and UI text.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.sansFamily"
+            },
+            "bodyFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for sansFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.bodyFamily"
+            },
+            "family": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for sansFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.family"
+            },
+            "baseSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Base Agent Chat font size in CSS pixels.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.baseSize"
+            },
+            "bodySize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Alias for baseSize.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.bodySize"
+            },
+            "monoFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CSS font family used for Agent Chat code and monospace text.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.monoFamily"
+            },
+            "codeFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for monoFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeFamily"
+            },
+            "codeSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Agent Chat code font size in CSS pixels.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeSize"
+            },
+            "monoSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Alias for codeSize.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.monoSize"
+            },
+            "codeLineHeight": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Line-height multiplier used for Agent Chat code blocks.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeLineHeight"
+            }
+          }
         }
       }
     },

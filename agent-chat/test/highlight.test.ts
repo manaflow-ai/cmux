@@ -1,4 +1,4 @@
-import { highlightCode } from "../src/ChatMarkdown";
+import { highlightCode, htmlCacheSizeForTest } from "../src/ChatMarkdown";
 import { DEFAULT_ANSI_PALETTE, resolveGhosttyTheme } from "../theme";
 
 const html = await highlightCode("const answer: number = 42;\nconsole.log(answer);\n", "ts");
@@ -29,6 +29,13 @@ if (theme.palette.length !== 16 || theme.palette.some((c) => !/^#[0-9a-f]{6}$/i.
   throw new Error(`resolved theme must expose 16 ANSI colors, got: ${JSON.stringify(theme.palette)}`);
 }
 if (DEFAULT_ANSI_PALETTE.length !== 16) throw new Error("default ANSI palette must contain 16 colors");
+
+for (let i = 0; i < 430; i++) {
+  await highlightCode(`const value_${i}: number = ${i};\n`, "ts");
+}
+if (htmlCacheSizeForTest() > 400) {
+  throw new Error(`highlight cache exceeded LRU cap: ${htmlCacheSizeForTest()}`);
+}
 
 console.log("highlight assertions passed");
 
