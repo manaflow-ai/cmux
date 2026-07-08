@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxTerminalCore
 public import Foundation
 public import GhosttyKit
 
@@ -110,7 +109,7 @@ extension TerminalSurface {
         // mailbox is full). If it dropped, keep `rendererRealized = true` so the
         // controller retries on its next pass rather than desyncing from
         // Ghostty's still-realized swap chain.
-        if GhosttySurfaceRendererRealizer().setRealized(surface, false) {
+        if ghostty_surface_set_renderer_realized(surface, false) {
             rendererRealized = false
             return true
         }
@@ -141,7 +140,7 @@ extension TerminalSurface {
         // the push drops, `rendererRealized` stays false, and the controller's
         // pass re-realizes any visible-but-unrealized surface as the backstop. We
         // never block the main actor waiting on the renderer thread.
-        if GhosttySurfaceRendererRealizer().setRealized(surface, true) {
+        if ghostty_surface_set_renderer_realized(surface, true) {
             rendererRealized = true
         } else {
             // Enqueue dropped (full mailbox, i.e. the renderer thread is not

@@ -58,11 +58,7 @@ void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}
 void ghostty_surface_set_occlusion(void) {}
-bool ghostty_surface_set_renderer_realized(void *surface, bool realized) {
-    (void)surface;
-    (void)realized;
-    return false;
-}
+void ghostty_surface_set_renderer_realized(void) {}
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
 void ghostty_surface_text(void) {}

@@ -8,7 +8,6 @@
 // (its binary is not lib-prefixed), so the test runner provides this stub to
 // satisfy the link; no test calls it.
 bool ghostty_surface_clear_selection(void *surface);
-bool ghostty_surface_set_renderer_realized(void *surface, bool realized);
 
 // Test-only stand-in for the GhosttyKit symbol referenced by
 // GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints; no test calls it.
