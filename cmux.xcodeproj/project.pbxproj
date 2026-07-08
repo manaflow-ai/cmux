@@ -141,6 +141,9 @@
 		D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */; };
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
+		B4550A010000000000000001 /* BrowserAppSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4550A010000000000000002 /* BrowserAppSessionBridge.swift */; };
+		B4550A020000000000000001 /* BrowserAppSessionHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4550A020000000000000002 /* BrowserAppSessionHandoff.swift */; };
+		B4550A030000000000000001 /* BrowserAppSessionHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4550A030000000000000002 /* BrowserAppSessionHandoffTests.swift */; };
 		D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */; };
 		D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
@@ -1733,6 +1736,9 @@
 		D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarDebug.swift; sourceTree = "<group>"; };
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
+		B4550A010000000000000002 /* BrowserAppSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAppSessionBridge.swift; sourceTree = "<group>"; };
+		B4550A020000000000000002 /* BrowserAppSessionHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAppSessionHandoff.swift; sourceTree = "<group>"; };
+		B4550A030000000000000002 /* BrowserAppSessionHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAppSessionHandoffTests.swift; sourceTree = "<group>"; };
 		D3622001A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAuthPromptTextFormatter.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
@@ -3876,6 +3882,8 @@
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				B4245004000000000000PW01 /* BrowserPrewarmedWebViewPool.swift */,
 				B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */,
+				B4550A010000000000000002 /* BrowserAppSessionBridge.swift */,
+				B4550A020000000000000002 /* BrowserAppSessionHandoff.swift */,
 				B424PWNP000000000000PW02 /* BrowserNavigationPolicy.swift */,
 				B424PWRS000000000000PW02 /* BrowserPortalWebViewRenderingState.swift */,
 				D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */,
@@ -4321,6 +4329,7 @@
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */,
 				604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */,
+				B4550A030000000000000002 /* BrowserAppSessionHandoffTests.swift */,
 				BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */,
 				BCBC0A0E0000000000000E12 /* BrowserMediaActivityAggregationTests.swift */,
 				BCBC0A0E0000000000000E22 /* BrowserMediaPlaybackAudioActivityTests.swift */,
@@ -5215,6 +5224,8 @@
 					A50012F1 /* Backport.swift in Sources */,
 					D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
+				B4550A010000000000000001 /* BrowserAppSessionBridge.swift in Sources */,
+				B4550A020000000000000001 /* BrowserAppSessionHandoff.swift in Sources */,
 				D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */,
 				B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */,
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
@@ -6236,6 +6247,7 @@
 				7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */,
 				A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */,
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
+				B4550A030000000000000001 /* BrowserAppSessionHandoffTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */,

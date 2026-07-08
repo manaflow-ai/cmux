@@ -2731,18 +2731,12 @@ final class BrowserPanel: Panel, ObservableObject {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
-
-    /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
-
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
-
-    /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
     var webViewDidRequestClose: (() -> Void)?
-
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
@@ -2754,7 +2748,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     private var pendingWebContentRecoveryURL: URL?
-
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
     private var suppressOmnibarAutofocusUntil: Date?
@@ -2776,14 +2769,12 @@ final class BrowserPanel: Panel, ObservableObject {
         logSink: Self.omnibarPageFocusLogSink
     )
 
-    /// Published URL being displayed
     @Published private(set) var currentURL: URL? {
         didSet {
             guard oldValue != currentURL else { return }
             applyConfiguredWebViewBackground()
         }
     }
-
     /// Whether the browser panel should render its WKWebView in the content area.
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published private(set) var shouldRenderWebView: Bool = false {
@@ -5795,8 +5786,18 @@ final class BrowserPanel: Panel, ObservableObject {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
+        // The handoff (when a session must be primed) and the fallback original
+        // request both go through finishNavigation, so they share bookkeeping.
+        if BrowserAppSessionBridge.shared.beginHandoffNavigationIfNeeded(
+            panelID: id, destinationURL: originalURL, request: request,
+            websiteDataStore: webView.configuration.websiteDataStore,
+            navigate: { [weak self] in self?.finishNavigation(request: $0, originalURL: originalURL, recordTypedNavigation: recordTypedNavigation) }
+        ) { return }
+        finishNavigation(request: request, originalURL: originalURL, recordTypedNavigation: recordTypedNavigation)
+    }
+
+    private func finishNavigation(request: URLRequest, originalURL: URL, recordTypedNavigation: Bool) {
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
-        // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         navigationDelegate?.recordAttemptedRequest(effectiveRequest, displayURL: originalURL)
@@ -5806,9 +5807,7 @@ final class BrowserPanel: Panel, ObservableObject {
             shouldPreloadInitialNavigationInBackground = false
             ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
         }
-        if recordTypedNavigation {
-            historyStore.recordTypedNavigation(url: originalURL)
-        }
+        if recordTypedNavigation { historyStore.recordTypedNavigation(url: originalURL) }
         browserLoadRequest(effectiveRequest, in: webView)
     }
 

@@ -13,17 +13,16 @@ public final class HostBrowserSignInFlow {
     /// Whether the in-flight popup has waited long enough for the UI to offer
     /// the default-browser fallback instead of an indefinite spinner.
     public private(set) var signInIsSlow = false
-
     /// Display-safe failure from the most recent hosted-browser sign-in
     /// attempt. `nil` for a fresh attempt and for deliberate cancellation.
     public private(set) var lastFailure: AuthError?
-
     private let coordinator: AuthCoordinator
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let sessionFactory: any HostBrowserAuthSessionFactory
     private let callbackRouter: AuthCallbackRouter
     private let makeSignInURL: @MainActor (_ callbackState: String) -> URL
     private let callbackScheme: @MainActor () -> String
+    private let onSignedOut: @MainActor @Sendable () async -> Void
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
@@ -40,7 +39,6 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var pendingManualCallbackState: String?
     @ObservationIgnored private var pendingFallbackCallbackState: String?
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
-
     /// Creates the flow.
     public init(
         coordinator: AuthCoordinator,
@@ -49,6 +47,7 @@ public final class HostBrowserSignInFlow {
         callbackRouter: AuthCallbackRouter,
         makeSignInURL: @escaping @MainActor (_ callbackState: String) -> URL,
         callbackScheme: @escaping @MainActor () -> String,
+        onSignedOut: @escaping @MainActor @Sendable () async -> Void = {},
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30
@@ -59,6 +58,7 @@ public final class HostBrowserSignInFlow {
         self.callbackRouter = callbackRouter
         self.makeSignInURL = makeSignInURL
         self.callbackScheme = callbackScheme
+        self.onSignedOut = onSignedOut
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
@@ -145,13 +145,12 @@ public final class HostBrowserSignInFlow {
         signOutGeneration &+= 1
         lastFailure = nil
         cancelActiveAttempt()
+        await onSignedOut()
         await coordinator.signOut()
         log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
     }
-
     /// Sign out with a socket deadline while sign-out continues in background.
     public func signOut(timeout: TimeInterval) async {
-        // Strong capture keeps user-requested sign-out alive past caller timeout.
         let attempt = Task { @MainActor in
             await self.signOut()
             return true
@@ -429,6 +428,7 @@ public final class HostBrowserSignInFlow {
             // Sign-out ran while the validation round trip was in flight. The
             // user's intent wins: tear the just-published session back down.
             log.log("auth.callback.coordinator.rollback attempt=\(attemptID.map(String.init) ?? "external") reason=signOutRaced generation=\(signOutGeneration)")
+            await onSignedOut()
             await coordinator.signOut()
             await tokenStore.clearTokensIfCurrent(
                 accessToken: payload.accessToken,

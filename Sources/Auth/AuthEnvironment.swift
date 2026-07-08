@@ -99,7 +99,7 @@ enum AuthEnvironment {
     }
 
     static func resolvedPricingURL(environment: [String: String]) -> URL {
-        appWebOrigin(environment: environment).appendingPathComponent("pricing")
+        resolvedAppWebOrigin(environment: environment).appendingPathComponent("pricing")
     }
 
     static var appPricingURL: URL {
@@ -107,7 +107,35 @@ enum AuthEnvironment {
     }
 
     static func resolvedAppPricingURL(environment: [String: String]) -> URL {
-        appWebOrigin(environment: environment).appendingPathComponent("app-pricing")
+        resolvedAppWebOrigin(environment: environment).appendingPathComponent("app-pricing")
+    }
+
+    static var appWebOrigin: URL {
+        resolvedAppWebOrigin(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func resolvedAppWebOrigin(environment: [String: String]) -> URL {
+        if let explicitWebsite = environmentURL("CMUX_WWW_ORIGIN", environment: environment) {
+            return canonicalizedLoopbackURL(explicitWebsite)
+        }
+        if let authWebsite = environmentURL("CMUX_AUTH_WWW_ORIGIN", environment: environment) {
+            return canonicalizedLoopbackURL(authWebsite)
+        }
+        #if DEBUG
+        if environmentPort("CMUX_PORT", environment: environment) != nil ||
+            environmentPort("PORT", environment: environment) != nil {
+            return URL(string: resolvedDefaultWebOrigin(environment: environment))!
+        }
+        if let override = devOverride(key: "CMUX_WWW_ORIGIN"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
+        }
+        #endif
+        return resolvedURL(
+            environmentKey: "CMUX_WWW_ORIGIN",
+            fallback: resolvedDefaultWebOrigin(environment: environment),
+            environment: environment
+        )
     }
 
     /// Payment entrypoint used by native app UI. `CMUX_BILLING_WWW_ORIGIN`
@@ -206,31 +234,7 @@ enum AuthEnvironment {
         if let overridden = environmentURL("CMUX_BILLING_WWW_ORIGIN", environment: environment) {
             return overridden
         }
-        return appWebOrigin(environment: environment)
-    }
-
-    private static func appWebOrigin(environment: [String: String]) -> URL {
-        if let explicitWebsite = environmentURL("CMUX_WWW_ORIGIN", environment: environment) {
-            return canonicalizedLoopbackURL(explicitWebsite)
-        }
-        if let authWebsite = environmentURL("CMUX_AUTH_WWW_ORIGIN", environment: environment) {
-            return canonicalizedLoopbackURL(authWebsite)
-        }
-        #if DEBUG
-        if environmentPort("CMUX_PORT", environment: environment) != nil ||
-            environmentPort("PORT", environment: environment) != nil {
-            return URL(string: resolvedDefaultWebOrigin(environment: environment))!
-        }
-        if let override = devOverride(key: "CMUX_WWW_ORIGIN"),
-           let url = URL(string: override) {
-            return canonicalizedLoopbackURL(url)
-        }
-        #endif
-        return resolvedURL(
-            environmentKey: "CMUX_WWW_ORIGIN",
-            fallback: resolvedDefaultWebOrigin(environment: environment),
-            environment: environment
-        )
+        return resolvedAppWebOrigin(environment: environment)
     }
 
     private static func billingCheckoutURL(origin: URL, callbackScheme: String) -> URL {

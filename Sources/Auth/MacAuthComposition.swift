@@ -125,7 +125,10 @@ struct MacAuthComposition {
             sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
             callbackRouter: callbackRouter,
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
-            callbackScheme: { AuthEnvironment.callbackScheme }
+            callbackScheme: { AuthEnvironment.callbackScheme },
+            onSignedOut: {
+                await BrowserAppSessionBridge.shared.clearCmuxWebSession()
+            }
         )
     }
 
