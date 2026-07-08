@@ -75,30 +75,57 @@ def count_lines_at_ref(repo_root: pathlib.Path, ref: str, rel_path: str) -> int 
     return result.stdout.count(b"\n") + (0 if result.stdout.endswith(b"\n") or not result.stdout else 1)
 
 
-def load_budget(path: pathlib.Path) -> FileLengthBudget:
+def parse_budget(text: str, source: str) -> FileLengthBudget:
     budget: FileLengthBudget = {}
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, raw_line in enumerate(handle, start=1):
-            line = raw_line.rstrip("\n")
-            if not line or line.startswith("#"):
-                continue
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.rstrip("\n")
+        if not line or line.startswith("#"):
+            continue
 
-            parts = line.split("\t", 1)
-            if len(parts) != 2:
-                raise ValueError(f"{path}:{line_number}: expected max_lines<TAB>relative path")
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            raise ValueError(f"{source}:{line_number}: expected max_lines<TAB>relative path")
 
-            count_text, rel_path = parts
-            try:
-                count = int(count_text)
-            except ValueError as exc:
-                raise ValueError(f"{path}:{line_number}: invalid line count {count_text!r}") from exc
+        count_text, rel_path = parts
+        try:
+            count = int(count_text)
+        except ValueError as exc:
+            raise ValueError(f"{source}:{line_number}: invalid line count {count_text!r}") from exc
 
-            if count < 0:
-                raise ValueError(f"{path}:{line_number}: line count must be non-negative")
-            if rel_path in budget:
-                raise ValueError(f"{path}:{line_number}: duplicate entry for {rel_path!r}")
-            budget[rel_path] = count
+        if count < 0:
+            raise ValueError(f"{source}:{line_number}: line count must be non-negative")
+        if rel_path in budget:
+            raise ValueError(f"{source}:{line_number}: duplicate entry for {rel_path!r}")
+        budget[rel_path] = count
     return budget
+
+
+def load_budget(path: pathlib.Path) -> FileLengthBudget:
+    return parse_budget(path.read_text(encoding="utf-8"), str(path))
+
+
+def repo_relative_path(repo_root: pathlib.Path, path: pathlib.Path) -> str | None:
+    try:
+        return path.resolve(strict=False).relative_to(repo_root).as_posix()
+    except ValueError:
+        return None
+
+
+def load_budget_at_ref(repo_root: pathlib.Path, ref: str, rel_path: str) -> FileLengthBudget | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "show", f"{ref}:{rel_path}"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError:
+        return None
+
+    if result.returncode != 0:
+        return None
+    return parse_budget(result.stdout, f"{ref}:{rel_path}")
 
 
 def write_budget(path: pathlib.Path, budget: FileLengthBudget) -> None:
@@ -119,6 +146,7 @@ def print_file_summary(label: str, file_lengths: FileLengthBudget) -> None:
 def compare_budget(
     actual: FileLengthBudget,
     allowed: FileLengthBudget,
+    base_allowed: FileLengthBudget | None,
     threshold: int,
     all_file_lengths: FileLengthBudget,
     repo_root: pathlib.Path,
@@ -157,6 +185,21 @@ def compare_budget(
 
             if allowed_count is None:
                 failures.append((rel_path, actual_count, None, "missing budget entry"))
+                continue
+            base_allowed_count = base_allowed.get(rel_path) if base_allowed is not None else None
+            if (
+                base_allowed_count is not None
+                and allowed_count < base_allowed_count
+                and actual_count > allowed_count
+            ):
+                failures.append(
+                    (
+                        rel_path,
+                        actual_count,
+                        allowed_count,
+                        f"budget lowered below actual count (base budget {base_allowed_count})",
+                    )
+                )
                 continue
             if actual_count > allowed_count and base_growth is not None and base_growth > 0:
                 incidental.append((rel_path, actual_count, allowed_count, base_growth))
@@ -303,10 +346,20 @@ def main(argv: list[str]) -> int:
     except ValueError as exc:
         print(f"Error reading Swift file length budget: {exc}", file=sys.stderr)
         return 2
+    base_allowed: FileLengthBudget | None = None
+    if args.base_ref:
+        budget_ref_path = repo_relative_path(repo_root, budget_path)
+        if budget_ref_path is not None:
+            try:
+                base_allowed = load_budget_at_ref(repo_root, args.base_ref, budget_ref_path)
+            except ValueError as exc:
+                print(f"Error reading base Swift file length budget: {exc}", file=sys.stderr)
+                return 2
     print_file_summary("Allowed Swift file length budget", allowed)
     return compare_budget(
         actual,
         allowed,
+        base_allowed,
         args.threshold,
         file_lengths,
         repo_root,

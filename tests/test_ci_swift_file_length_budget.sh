@@ -178,6 +178,30 @@ if grep -Fq 'Swift file length budget exceeded' "$TMP_DIR/unchanged-over-budget.
   exit 1
 fi
 
+mkdir -p "$FIXTURE/.github"
+printf '6\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$FIXTURE/.github/swift-file-length-budget.tsv"
+git -C "$FIXTURE" add .github/swift-file-length-budget.tsv
+git -C "$FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm 'record checked-in budget'
+CHECKED_IN_BUDGET_REF="$(git -C "$FIXTURE" rev-parse HEAD)"
+
+printf '5\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$FIXTURE/.github/swift-file-length-budget.tsv"
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$FIXTURE/.github/swift-file-length-budget.tsv" \
+  --threshold 5 \
+  --base-ref "$CHECKED_IN_BUDGET_REF" \
+  --incidental-growth 0 \
+  --hard-cap 10 >"$TMP_DIR/lowered-budget.out" 2>&1; then
+  echo "expected lowered checked-in budget to fail base-ref check" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'budget lowered below actual count (base budget 6)' "$TMP_DIR/lowered-budget.out"; then
+  echo "expected lowered-budget reason" >&2
+  cat "$TMP_DIR/lowered-budget.out" >&2
+  exit 1
+fi
+
 if python3 scripts/swift_file_length_budget.py \
   --repo-root "$FIXTURE" \
   --budget "$BUDGET" \
