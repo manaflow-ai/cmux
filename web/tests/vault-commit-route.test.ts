@@ -170,6 +170,36 @@ describe("Vault commit route", () => {
       .where(eq(vaultSnapshots.objectKey, objectKey));
     expect(snapshots).toHaveLength(1);
   });
+
+  dbTest("deletes a copied final object when the database commit rolls back", async () => {
+    const db = cloudDb();
+    const objectKey = realBuildObjectKey(userId, "codex", "session-1", sha256);
+    await insertGrant(objectKey, 456);
+    await db.execute(sql`
+      alter table vault_snapshots
+      add constraint vault_snapshots_force_failure check (compressed_size_bytes < 0)
+    `);
+
+    try {
+      const response = await POST(commitRequest({ compressedSizeBytes: 456 }));
+
+      expect(response.status).toBe(500);
+      expect(copyObject).toHaveBeenCalledWith(`${objectKey}.upload`, objectKey);
+      expect(deleteObject).toHaveBeenCalledWith(objectKey);
+      const grants = await db
+        .select({ id: vaultUploadGrants.id })
+        .from(vaultUploadGrants)
+        .where(eq(vaultUploadGrants.objectKey, objectKey));
+      expect(grants).toHaveLength(1);
+      const snapshots = await db
+        .select({ objectKey: vaultSnapshots.objectKey })
+        .from(vaultSnapshots)
+        .where(eq(vaultSnapshots.objectKey, objectKey));
+      expect(snapshots).toHaveLength(0);
+    } finally {
+      await db.execute(sql`alter table vault_snapshots drop constraint if exists vault_snapshots_force_failure`);
+    }
+  });
 });
 
 async function insertGrant(

@@ -297,6 +297,32 @@ describe("Vault uploads route", () => {
       .where(eq(vaultUploadGrants.objectKey, objectKey));
     expect(grants).toHaveLength(0);
   });
+
+  dbTest("deletes expired staged uploads and uncommitted copied final objects", async () => {
+    const db = cloudDb();
+    const expiredSha = "c".repeat(64);
+    const objectKey = realBuildObjectKey(userId, "codex", "session-gc", expiredSha);
+    const uploadObjectKey = `${objectKey}.staged`;
+    await db.insert(vaultUploadGrants).values({
+      userId,
+      objectKey,
+      uploadObjectKey,
+      compressedSizeBytes: 456,
+      createdAt: new Date("2020-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2020-01-02T00:00:00.000Z"),
+    });
+
+    const response = await POST(uploadRequest({ compressedSizeBytes: 456 }));
+
+    expect(response.status).toBe(200);
+    expect(deleteObject).toHaveBeenCalledWith(uploadObjectKey);
+    expect(deleteObject).toHaveBeenCalledWith(objectKey);
+    const grants = await db
+      .select({ id: vaultUploadGrants.id })
+      .from(vaultUploadGrants)
+      .where(eq(vaultUploadGrants.objectKey, objectKey));
+    expect(grants).toHaveLength(0);
+  });
 });
 
 function uploadRequest(input: { readonly compressedSizeBytes: number }): Request {

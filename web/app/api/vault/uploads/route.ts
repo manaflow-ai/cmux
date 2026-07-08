@@ -362,12 +362,16 @@ async function gcExpiredGrants(db: ReturnType<typeof cloudDb>, now: Date): Promi
 
   for (const grant of expired) {
     const legacyFinalKeyGrant = grant.uploadObjectKey === grant.objectKey;
-    if (!legacyFinalKeyGrant || !committedKeys.has(grant.objectKey)) {
-      try {
+    const committed = committedKeys.has(grant.objectKey);
+    try {
+      if (legacyFinalKeyGrant) {
+        if (!committed) await deleteObject(grant.objectKey);
+      } else {
         await deleteObject(grant.uploadObjectKey);
-      } catch {
-        continue;
+        if (!committed) await deleteObject(grant.objectKey);
       }
+    } catch {
+      continue;
     }
     await db.delete(vaultUploadGrants).where(eq(vaultUploadGrants.id, grant.id));
   }

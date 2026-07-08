@@ -73,7 +73,13 @@ export async function getVaultPendingGrantBytes(
         total: sql<number>`coalesce(sum(${vaultUploadGrants.compressedSizeBytes}), 0)::double precision`,
       })
       .from(vaultUploadGrants)
-      .where(and(...conditions));
+      .where(and(
+        ...conditions,
+        sql`not exists (
+          select 1 from ${vaultSnapshots}
+          where ${vaultSnapshots.objectKey} = ${vaultUploadGrants.objectKey}
+        )`,
+      ));
     return row?.total ?? 0;
   } catch (error) {
     logVaultQuotaError("get_pending_grant_bytes", error);
