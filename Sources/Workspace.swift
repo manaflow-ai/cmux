@@ -12994,12 +12994,9 @@ extension Workspace: BonsplitDelegate {
             switch builtInAction {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
+            case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(
-                    tabManager: owningTabManager,
-                    preferredWindow: presentingWindow,
-                    debugSource: "surfaceTabBar.cloudVM"
-                )
+                _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
                 MobilePairingWindowController.shared.show()
             case .newTerminal, .newBrowser, .splitRight, .splitDown:

@@ -6053,21 +6053,6 @@ struct ContentView: View {
         return commands
     }
 
-    private func commandPaletteConfigActionID(for commandId: String) -> String? {
-        switch commandId {
-        case "palette.newTerminalTab":
-            return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
-        case "palette.newBrowserTab":
-            return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
-        case "palette.terminalSplitRight":
-            return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
-        case "palette.terminalSplitDown":
-            return CmuxSurfaceTabBarBuiltInAction.splitDown.configID
-        default:
-            return nil
-        }
-    }
-
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
@@ -6345,6 +6330,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
+        contributions.append(Self.commandPaletteNewAgentChatContribution())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
@@ -7573,6 +7559,7 @@ struct ContentView: View {
                 )
             }
         }
+        registerAgentChatCommandPaletteHandler(&registry)
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {

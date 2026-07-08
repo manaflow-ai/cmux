@@ -13,6 +13,29 @@
       ]
     },
     {
+      "name": "server-client-control",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "ping" },
+          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 6 } },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "set-window-title", "title": "cmux-conformance" },
+          "expect": { "id": 2, "ok": true, "data": {} },
+          "match": "exact"
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "clear-window-title" },
+          "expect": { "id": 3, "ok": true, "data": {} },
+          "match": "exact"
+        }
+      ]
+    },
+    {
       "name": "workspace-tab-split-rename",
       "steps": [
         {
@@ -195,6 +218,9 @@
     },
     {
       "name": "implemented-verbs-json",
+      "requires": {
+        "commands": ["run", "wait-for", "send-key", "copy", "ids", "notify", "list-agents", "report-agent"]
+      },
       "steps": [
         {
           "type": "command",

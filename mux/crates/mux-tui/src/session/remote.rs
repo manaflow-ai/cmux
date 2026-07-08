@@ -377,6 +377,21 @@ impl RemoteSession {
                     self.emit(MuxEvent::Status(message.to_string()));
                 }
             }
+            Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
+            Some("window-title-requested") => {
+                if let Some(title) = value.get("title").and_then(|v| v.as_str()) {
+                    self.emit(MuxEvent::WindowTitleRequested(title.to_string()));
+                }
+            }
+            Some("scroll-changed") => {
+                if let (Some(surface), Some(offset), Some(at_bottom)) = (
+                    surface_id(),
+                    value.get("offset").and_then(|v| v.as_u64()),
+                    value.get("at_bottom").and_then(|v| v.as_bool()),
+                ) {
+                    self.emit(MuxEvent::ScrollChanged { surface, offset, at_bottom });
+                }
+            }
             Some("empty") => self.emit(MuxEvent::Empty),
             Some(_) => {}
         }
