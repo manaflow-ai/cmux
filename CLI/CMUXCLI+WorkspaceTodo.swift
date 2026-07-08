@@ -281,6 +281,43 @@ extension CMUXCLI {
 
     // MARK: - Usage
 
+    static let workspaceCommandUsage = String(localized: "cli.workspace.usage", defaultValue: """
+    Usage: cmux workspace <subcommand> [flags]
+
+    Canonical noun for workspace operations. Legacy verbs
+    (new-workspace, list-workspaces, close-workspace,
+    rename-workspace, select-workspace) keep working and print a
+    one-time deprecation hint pointing here.
+
+    Subcommands:
+      list                    List workspaces in a window
+      create [flags]          Create a workspace (same flags as new-workspace)
+      env [workspace] [--mask]
+                              Print a workspace's configured environment
+                              variables (--mask redacts the values)
+      close <workspace>       Close a workspace
+      rename <workspace> --title <new>
+      select <workspace>      Make a workspace active
+      status [set <lane|auto>]
+                              Show or pin the workspace todo status
+      reconnect [workspace]   Reconnect a remote (SSH) workspace, including one
+                              whose automatic reconnect paused because the host
+                              was unreachable
+      disconnect [workspace]  Stop a remote (SSH) workspace's connection
+      loading <on|off> [--id <name>] Toggle the workspace loading spinner.
+      group <subcommand>      Workspace group operations (see cmux workspace-group --help)
+    env/reconnect/disconnect accept a positional handle or --workspace
+    <id|ref|index>, defaulting to the caller's workspace, then the
+    selected one (of --window's window when given).
+    Examples:
+      cmux workspace list --json
+      cmux workspace create --name Build --cwd ~/projects/myapp
+      cmux workspace env workspace:3 --mask
+      cmux workspace close workspace:3
+      cmux workspace reconnect
+      cmux workspace disconnect --workspace workspace:3
+    """)
+
     static let workspaceStatusUsage = """
     Usage: cmux workspace status [set <lane|auto> | cycle] [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]
 

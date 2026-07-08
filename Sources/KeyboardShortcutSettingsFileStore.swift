@@ -667,34 +667,6 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func parseFileEditorSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let value = jsonBool(section["wordWrap"]) {
-            snapshot.managedUserDefaults[FilePreviewWordWrapSettings.key] = .bool(value)
-        } else if section.keys.contains("wordWrap") {
-            logInvalid("fileEditor.wordWrap", sourcePath: sourcePath)
-        }
-    }
-
-    private func parseFileExplorerSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        if let raw = jsonString(section["doubleClickAction"]) {
-            if let action = FileExplorerDoubleClickAction(rawValue: raw) {
-                snapshot.managedUserDefaults[FileExplorerDoubleClickActionSettings.key] = .string(action.rawValue)
-            } else {
-                logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("doubleClickAction") {
-            logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
-        }
-    }
-
     private func parseSidebarSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -717,27 +689,7 @@ final class CmuxSettingsFileStore {
         }
 
         if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
-            if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
-                let betaKeys = BetaFeaturesCatalogSection()
-                if let value = jsonBool(todos["enabled"]) {
-                    snapshot.managedUserDefaults[betaKeys.workspaceTodos.userDefaultsKey] = .bool(value)
-                } else if todos.keys.contains("enabled") {
-                    logInvalid("sidebar.beta.workspaceTodos.enabled", sourcePath: sourcePath)
-                }
-                if let raw = jsonString(todos["checklistStyle"]) {
-                    if let style = WorkspaceTodoChecklistStyle.decodeFromJSON(raw) {
-                        snapshot.managedUserDefaults[
-                            betaKeys.workspaceTodosChecklistStyle.userDefaultsKey
-                        ] = .string(style.rawValue)
-                    } else {
-                        logInvalid("sidebar.beta.workspaceTodos.checklistStyle", sourcePath: sourcePath)
-                    }
-                } else if todos.keys.contains("checklistStyle") {
-                    logInvalid("sidebar.beta.workspaceTodos.checklistStyle", sourcePath: sourcePath)
-                }
-            } else if beta.keys.contains("workspaceTodos") {
-                logInvalid("sidebar.beta.workspaceTodos", sourcePath: sourcePath)
-            }
+            parseSidebarWorkspaceTodosBeta(beta, sourcePath: sourcePath, snapshot: &snapshot)
         } else if section.keys.contains("beta") {
             logInvalid("sidebar.beta", sourcePath: sourcePath)
         }
@@ -1817,7 +1769,7 @@ final class CmuxSettingsFileStore {
         rawValue as? String
     }
 
-    private func jsonBool(_ rawValue: Any?) -> Bool? {
+    func jsonBool(_ rawValue: Any?) -> Bool? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
         return number.boolValue

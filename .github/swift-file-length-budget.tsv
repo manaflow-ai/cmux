@@ -1,11 +1,11 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-35504	CLI/cmux.swift
-17874	Sources/AppDelegate.swift
-16634	Sources/ContentView.swift
-15099	Sources/TerminalController.swift
-13192	Sources/Workspace.swift
+35469	CLI/cmux.swift
+17854	Sources/AppDelegate.swift
+16279	Sources/ContentView.swift
+15095	Sources/TerminalController.swift
+13161	Sources/Workspace.swift
 12501	Sources/GhosttyTerminalView.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11388	Sources/Panels/BrowserPanel.swift
@@ -17,7 +17,7 @@
 7312	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/GhosttyConfigTests.swift
-6224	Sources/TabManager.swift
+6206	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5809	Sources/TextBoxInput.swift
 5572	cmuxTests/BrowserConfigTests.swift
@@ -35,7 +35,7 @@
 3124	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
-2633	Sources/KeyboardShortcutSettings.swift
+2581	Sources/KeyboardShortcutSettings.swift
 2562	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
@@ -46,8 +46,8 @@
 2216	Sources/TerminalNotificationStore.swift
 2133	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2126	cmuxTests/CmuxConfigTests.swift
-2037	Sources/KeyboardShortcutSettingsFileStore.swift
-2031	Sources/SessionPersistence.swift
+2014	Sources/SessionPersistence.swift
+1989	Sources/KeyboardShortcutSettingsFileStore.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1847	cmuxTests/TerminalControllerSocketSecurityTests.swift
@@ -226,8 +226,6 @@
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/MobileTerminalRenderGridTests.swift
 538	Sources/TerminalController+ControlSurfaceContext2.swift
-535	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/WorkspaceTodo/ControlCommandCoordinator+WorkspaceTodo.swift
-535	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandCoordinatorWorkspaceTodoTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
 533	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 528	cmuxUITests/AutomationSocketUITests.swift
@@ -254,7 +252,6 @@
 506	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift
 506	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 506	Sources/App/MainWindowVisibilityController.swift
-506	cmuxTests/SidebarWorkspaceSnapshotRefreshPolicyTests.swift
 504	Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/UserDefaultsSettingsStoreTests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift

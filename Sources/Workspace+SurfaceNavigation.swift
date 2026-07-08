@@ -1,4 +1,41 @@
+import CmuxWorkspaces
+import Foundation
+
+/// Surface navigation and sidebar status helpers extracted from `Workspace.swift`, which sits at its file-length budget.
 extension Workspace {
+    /// Notification unread lookup for sidebar surface indicators.
+    func hasUnreadNotification(panelId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
+    }
+
+    /// Surface-kind mapping used by workspace state snapshots.
+    func surfaceKind(for panel: any Panel) -> String {
+        switch panel.panelType {
+        case .terminal:
+            return SurfaceKind.terminal.rawValue
+        case .browser:
+            return SurfaceKind.browser.rawValue
+        case .markdown:
+            return SurfaceKind.markdown.rawValue
+        case .filePreview:
+            return SurfaceKind.filePreview.rawValue
+        case .rightSidebarTool:
+            return SurfaceKind.rightSidebarTool.rawValue
+        case .customSidebar:
+            return SurfaceKind.customSidebar.rawValue
+        case .agentSession:
+            return SurfaceKind.agentSession.rawValue
+        case .project:
+            return SurfaceKind.project.rawValue
+        case .extensionBrowser:
+            return SurfaceKind.extensionBrowser.rawValue
+        case .workspaceTodo:
+            return SurfaceKind.todo.rawValue
+        case .cloudVMLoading:
+            return SurfaceKind.cloudVMLoading.rawValue
+        }
+    }
+
     /// Select the next surface in the currently focused split pane, or in
     /// workspace Canvas order when Canvas layout is active.
     func selectNextSurface() {
