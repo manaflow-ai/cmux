@@ -16,7 +16,7 @@ extension TerminalController: ControlSidebarContext {
 
     // MARK: - Scheduled sidebar mutations (status / agent / blocks)
 
-    func controlSidebarScheduleStatusUpsert(
+    nonisolated func controlSidebarScheduleStatusUpsert(
         target: ControlSidebarTabTarget,
         key: String,
         value: String,
@@ -65,14 +65,14 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
-    func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {
+    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {
         controlSidebarScheduleMutation(target: target) { _, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
             tab.clearAgentPID(key: key)
         }
     }
 
-    func controlSidebarScheduleAgentPIDRecord(
+    nonisolated func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
@@ -97,11 +97,18 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
-    func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
+    nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
         AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
     }
 
-    func controlSidebarIsAllowedAgentLifecycleKey(
+    /// `nonisolated` so the vault-registry disk IO runs on the calling
+    /// (socket-worker) thread; only the tab resolution + panel-directory
+    /// candidate snapshot crosses to the main actor, as `set_agent_lifecycle`'s
+    /// single hop. The legacy body resolved the tab before the registration-id
+    /// syntax check; both are side-effect-free reads, so checking the pure
+    /// syntax first (to skip the hop for non-registry keys) cannot change the
+    /// result.
+    nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
         _ key: String,
         target: ControlSidebarTabTarget,
         panelID: UUID?
@@ -114,23 +121,28 @@ extension TerminalController: ControlSidebarContext {
         guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else {
             return false
         }
-        guard let tab = controlSidebarResolveMutationTab(target),
-              CmuxVaultAgentRegistration.isValidID(key) else {
+        guard CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
-        let registry = CmuxVaultAgentRegistry.load(
-            workingDirectory: controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelID)
-        )
+        let snapshot: (tabResolved: Bool, workingDirectory: String?) = v2MainSync {
+            guard let tab = self.controlSidebarResolveMutationTab(target) else {
+                return (false, nil)
+            }
+            return (true, self.controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: tab, panelId: panelID))
+        }
+        guard snapshot.tabResolved else {
+            return false
+        }
+        let registry = CmuxVaultAgentRegistry.load(workingDirectory: snapshot.workingDirectory)
         return registry.registration(id: key) != nil
     }
 
-    /// The byte-faithful twin of the deleted file-private
-    /// `agentLifecycleRegistryWorkingDirectory(tab:panelId:)`.
+    /// Mirrors the v2 lifecycle registry cwd resolver while preserving remote cwd trust.
     private func controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: Workspace, panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { tab.panelDirectories[$0] },
-            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
-            tab.currentDirectory,
+            panelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.focusedPanelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.usesRemoteDirectoryProvenance ? tab.presentedCurrentDirectory : tab.currentDirectory,
         ]
         return candidates.compactMap(controlSidebarNormalizedOptionValue).first
     }
@@ -143,7 +155,7 @@ extension TerminalController: ControlSidebarContext {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func controlSidebarScheduleAgentLifecycle(
+    nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
@@ -200,11 +212,18 @@ extension TerminalController: ControlSidebarContext {
         return ControlSidebarWorkspaceLoadingState(before: before, after: tab.hasRunningAgentLifecycle(key: key))
     }
 
-    func controlSidebarSetAgentHibernation(enabled: Bool) {
-        AgentHibernationSettings.setValues(enabled: enabled)
+    /// `nonisolated` with the settings write inside `agent_hibernation`'s
+    /// single main hop: `setValues` posts the settings-did-change notification
+    /// synchronously, and its observers assume the main thread (the legacy
+    /// body always ran there). Keeping the hop synchronous also preserves the
+    /// apply-then-reply ordering main-thread test callers rely on.
+    nonisolated func controlSidebarSetAgentHibernation(enabled: Bool) {
+        v2MainSync {
+            AgentHibernationSettings.setValues(enabled: enabled)
+        }
     }
 
-    func controlSidebarScheduleAgentPIDClear(
+    nonisolated func controlSidebarScheduleAgentPIDClear(
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
@@ -222,7 +241,7 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
-    func controlSidebarScheduleMetadataBlockUpsert(
+    nonisolated func controlSidebarScheduleMetadataBlockUpsert(
         target: ControlSidebarTabTarget,
         key: String,
         markdown: String,
@@ -290,7 +309,7 @@ extension TerminalController: ControlSidebarContext {
         return .removed
     }
 
-    func controlSidebarIsValidLogLevel(_ raw: String) -> Bool {
+    nonisolated func controlSidebarIsValidLogLevel(_ raw: String) -> Bool {
         SidebarLogLevel(rawValue: raw) != nil
     }
 

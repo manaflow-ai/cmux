@@ -152,11 +152,21 @@ enum NotificationSettingsFileMapping {
             jsonKey: "suppressOnlyFocusedSurface",
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
         ),
+        .init(
+            jsonKey: "agentPermissionPrompt",
+            defaultsKey: notifications.agentPermissionPrompt.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "agentIdleReminder",
+            defaultsKey: notifications.agentIdleReminder.userDefaultsKey
+        ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "customSoundFilePath", defaultsKey: NotificationSoundSettings.customFilePathKey),
         .init(jsonKey: "command", defaultsKey: NotificationSoundSettings.customCommandKey),
+        // agentTurnComplete is enum-valued and validated explicitly in
+        // parseNotificationsSection, like notifications.sound.
     ]
 }
 
@@ -335,6 +345,8 @@ extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
     static let supportedSettingsJSONPaths: Set<String> = [
+        PaneChromeSettings.paneBorderColorKey,
+        PaneChromeSettings.activePaneBorderColorKey,
         "app.language",
         "app.appearance",
         "app.appIcon",
@@ -375,6 +387,7 @@ extension CmuxSettingsFileStore {
         "terminal.rendererRealization.maxWarmRenderers",
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
+        "terminal.uploadCommands",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
@@ -385,6 +398,9 @@ extension CmuxSettingsFileStore {
         "notifications.hooks",
         "notifications.hooksMode",
         "notifications.suppressOnlyFocusedSurface",
+        "notifications.agentPermissionPrompt",
+        "notifications.agentTurnComplete",
+        "notifications.agentIdleReminder",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",

@@ -2,7 +2,7 @@
 
 Flag Swift changes that add too much unrelated responsibility to one file or keep independently testable feature logic inside the app target when it should be isolated behind a SwiftPM package boundary.
 
-cmux already has a checked-in Swift file length budget reference (`.github/swift-file-length-budget.tsv` and `scripts/swift_file_length_budget.py`). This rule is the enforcement layer for review: do not satisfy it by mechanically moving code around, and do not expand the TSV budget for a feature that should instead be split by responsibility or extracted into a package.
+cmux already has a checked-in Swift file length budget reference (`.github/swift-file-length-budget.tsv` and `scripts/swift_file_length_budget.py`). The CI gate is diff-aware: small incidental growth in an existing over-budget file is allowed, while new large files, meaningful PR-local growth, and hard-cap violations still fail. This rule is the semantic review layer: do not satisfy it by mechanically moving code around, and do not expand the TSV budget for a feature that should instead be split by responsibility or extracted into a package.
 
 Report a failure when the diff introduces or materially expands:
 
@@ -12,9 +12,9 @@ Report a failure when the diff introduces or materially expands:
 - A feature implemented directly in the app target/module's root `Sources/` path when its core logic is independent of cmux app lifecycle and can compile/test without AppKit, SwiftUI view state, Ghostty globals, or process-wide singletons.
 - Reusable domain logic used by more than one surface (Mac app, CLI, daemon, tests, previews, debug tooling, future iOS/shared code) without a small SwiftPM package target.
 - Provider, auth, protocol, parsing, persistence, logging, or workstream logic that needs isolated fakes, fixtures, or unit tests but is hidden behind app-target globals.
-- A PR that primarily updates `.github/swift-file-length-budget.tsv` to accept growth instead of reducing the large file, splitting responsibilities, or adding a package boundary.
+- A PR that primarily updates `.github/swift-file-length-budget.tsv` to accept meaningful growth instead of reducing the large file, splitting responsibilities, or adding a package boundary.
 
-Line counting follows the existing budget script as a shared measurement convention, even if that script is not required as an active CI gate: count physical lines including blank lines; scan cmux-owned Swift files under `Sources`, `CLI`, `Packages`, `cmuxTests`, and `cmuxUITests`; exclude whole path subtrees containing `/vendor/`, `/ghostty/`, `/homebrew-cmux/`, `/SourcePackages/`, or `/.ci-source-packages/`; and use 500 lines as the tracked-file reference threshold from `.github/swift-file-length-budget.tsv`. For this LLM rule, use the post-change physical file length when visible; use PR added-line count only for the "more than 250 lines added" growth check.
+Line counting follows the existing budget script as a shared measurement convention: count physical lines including blank lines; scan cmux-owned Swift files under `Sources`, `CLI`, `Packages`, `cmuxTests`, and `cmuxUITests`; exclude whole path subtrees containing `/vendor/`, `/ghostty/`, `/homebrew-cmux/`, `/.build/`, `/SourcePackages/`, or `/.ci-source-packages/`; and use 500 lines as the tracked-file reference threshold from `.github/swift-file-length-budget.tsv`. For this LLM rule, use the post-change physical file length when visible; use PR added-line count only for the "more than 250 lines added" growth check. Do not object to a small focused bug fix merely because it adds a few lines to an existing oversized file.
 
 Package-boundary signals:
 

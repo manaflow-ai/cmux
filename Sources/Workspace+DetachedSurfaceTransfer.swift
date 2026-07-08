@@ -9,6 +9,10 @@ extension Workspace {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        /// Start-time identities recorded for `agentPIDs`, so a consumer can
+        /// distinguish "recorded process still runs" from "pid was reused by
+        /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
+        let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
     }
 
@@ -23,6 +27,7 @@ extension Workspace {
         let isLoading: Bool
         let isPinned: Bool
         let directory: String?
+        let directoryIsTrustedRemoteReport: Bool
         let directoryDisplayLabel: String?
         let ttyName: String?
         let cachedTitle: String?
@@ -32,6 +37,7 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
@@ -51,6 +57,7 @@ extension Workspace {
                 isLoading: isLoading,
                 isPinned: isPinned,
                 directory: directory,
+                directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
                 directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
@@ -60,6 +67,7 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,

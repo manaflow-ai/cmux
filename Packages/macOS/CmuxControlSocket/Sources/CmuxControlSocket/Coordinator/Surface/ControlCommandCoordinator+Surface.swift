@@ -18,9 +18,12 @@ extension ControlCommandCoordinator {
     func handleSurface(_ request: ControlRequest) -> ControlCallResult? {
         switch request.method {
         case "surface.list":
-            return surfaceList(request.params)
+            // Worker-lane resolution read (tranche D): the nonisolated body is
+            // shared with the socket dispatcher's worker lane; from this
+            // main-actor dispatch its hop collapses inline.
+            return surfaceList(request.params, context: context)
         case "surface.current":
-            return surfaceCurrent(request.params)
+            return surfaceCurrent(request.params, context: context)
         case "surface.focus":
             return surfaceFocus(request.params)
         case "surface.split":
@@ -46,9 +49,12 @@ extension ControlCommandCoordinator {
         case "surface.resume.clear":
             return surfaceResumeClear(request.params)
         case "surface.send_text":
-            return surfaceSendText(request.params)
+            // Worker-lane sends (tranche E): the nonisolated bodies are shared
+            // with the socket dispatcher's worker lane; from this main-actor
+            // dispatch their hop collapses inline.
+            return surfaceSendText(request.params, context: context)
         case "surface.send_key":
-            return surfaceSendKey(request.params)
+            return surfaceSendKey(request.params, context: context)
         case "surface.report_tty": return surfaceReportTTY(request.params)
         case "surface.report_pwd": return surfaceReportPWD(request.params)
         case "surface.report_shell_state":
@@ -57,8 +63,8 @@ extension ControlCommandCoordinator {
             return surfacePortsKick(request.params)
         case "surface.clear_history":
             return surfaceClearHistory(request.params)
-        case "surface.read_text":
-            return surfaceReadText(request.params)
+        // `surface.read_text` runs on the socket-worker lane (issue #5757),
+        // dispatched app-side, not through this @MainActor coordinator.
         case "surface.trigger_flash":
             return surfaceTriggerFlash(request.params)
         case "debug.terminals":
@@ -75,72 +81,165 @@ extension ControlCommandCoordinator {
 
     // MARK: - list
 
+    /// The `surface.list` hop outcome: the Sendable snapshot plus every ref the
+    /// payload embeds, minted inside the hop in the payload's literal order.
+    private enum SurfaceListHopOutcome: Sendable {
+        case tabManagerUnavailable
+        case workspaceNotFound
+        case listed(
+            snapshot: ControlSurfaceListSnapshot,
+            surfaceRefs: [SurfaceListRowRefs],
+            workspaceRef: JSONValue,
+            windowRef: JSONValue
+        )
+    }
+
+    /// The per-row refs of one `surface.list` item (parallel to
+    /// `snapshot.surfaces`).
+    private struct SurfaceListRowRefs: Sendable {
+        let surfaceRef: JSONValue
+        let paneRef: JSONValue
+    }
+
     /// `surface.list` — the resolved workspace's surfaces.
-    func surfaceList(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+    ///
+    /// Worker-lane resolution read (tranche D of issue #5757): routing
+    /// resolution, the snapshot witness, and ref minting take ONE
+    /// `controlResolveOnMain` hop (which refreshes known refs first, exactly
+    /// like the main-lane dispatch preamble); the per-surface JSON row build
+    /// and the reply encode run on the calling socket-worker thread.
+    nonisolated func surfaceList(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let snapshot = context?.controlSurfaceList(routing: routing) else {
+        let outcome: SurfaceListHopOutcome = context.controlResolveOnMain { seam in
+            let routing = self.routingSelectors(params)
+            guard seam.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let snapshot = seam.controlSurfaceList(routing: routing) else {
+                return .workspaceNotFound
+            }
+            // Mint in the payload's literal order: per row (surface, pane),
+            // then workspace, then window — identical ordinal assignment to
+            // the legacy in-payload minting.
+            let surfaceRefs = snapshot.surfaces.map { surface in
+                SurfaceListRowRefs(
+                    surfaceRef: self.ref(.surface, surface.surfaceID),
+                    paneRef: self.ref(.pane, surface.paneID)
+                )
+            }
+            return .listed(
+                snapshot: snapshot,
+                surfaceRefs: surfaceRefs,
+                workspaceRef: self.ref(.workspace, snapshot.workspaceID),
+                windowRef: self.ref(.window, snapshot.windowID)
+            )
+        }
+
+        switch outcome {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
-
-        let surfaces: [JSONValue] = snapshot.surfaces.enumerated().map { index, surface in
-            var item: [String: JSONValue] = [
-                "id": .string(surface.surfaceID.uuidString),
-                "ref": ref(.surface, surface.surfaceID),
-                "index": .int(Int64(index)),
-                "type": .string(surface.typeRawValue),
-                "title": .string(surface.title),
-                "focused": .bool(surface.isFocused),
-                "pane_id": orNull(surface.paneID?.uuidString),
-                "pane_ref": ref(.pane, surface.paneID),
-                "index_in_pane": surface.indexInPane.map { .int(Int64($0)) } ?? .null,
-                "selected_in_pane": surface.selectedInPane.map { .bool($0) } ?? .null,
-            ]
-            if let dev = surface.developerToolsVisible {
-                item["developer_tools_visible"] = .bool(dev)
+        case let .listed(snapshot, surfaceRefs, workspaceRef, windowRef):
+            let surfaces: [JSONValue] = snapshot.surfaces.enumerated().map { index, surface in
+                var item: [String: JSONValue] = [
+                    "id": .string(surface.surfaceID.uuidString),
+                    "ref": surfaceRefs[index].surfaceRef,
+                    "index": .int(Int64(index)),
+                    "type": .string(surface.typeRawValue),
+                    "title": .string(surface.title),
+                    "focused": .bool(surface.isFocused),
+                    "pane_id": orNull(surface.paneID?.uuidString),
+                    "pane_ref": surfaceRefs[index].paneRef,
+                    "index_in_pane": surface.indexInPane.map { .int(Int64($0)) } ?? .null,
+                    "selected_in_pane": surface.selectedInPane.map { .bool($0) } ?? .null,
+                ]
+                if let dev = surface.developerToolsVisible {
+                    item["developer_tools_visible"] = .bool(dev)
+                }
+                if surface.isTerminal {
+                    item["requested_working_directory"] = orNull(surface.requestedWorkingDirectory)
+                    item["initial_command"] = orNull(surface.initialCommand)
+                    item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
+                    item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
+                }
+                return .object(item)
             }
-            if surface.isTerminal {
-                item["requested_working_directory"] = orNull(surface.requestedWorkingDirectory)
-                item["initial_command"] = orNull(surface.initialCommand)
-                item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
-                item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
-            }
-            return .object(item)
-        }
 
-        return .ok(.object([
-            "workspace_id": .string(snapshot.workspaceID.uuidString),
-            "workspace_ref": ref(.workspace, snapshot.workspaceID),
-            "surfaces": .array(surfaces),
-            "window_id": orNull(snapshot.windowID?.uuidString),
-            "window_ref": ref(.window, snapshot.windowID),
-        ]))
+            return .ok(.object([
+                "workspace_id": .string(snapshot.workspaceID.uuidString),
+                "workspace_ref": workspaceRef,
+                "surfaces": .array(surfaces),
+                "window_id": orNull(snapshot.windowID?.uuidString),
+                "window_ref": windowRef,
+            ]))
+        }
     }
 
     // MARK: - current
 
+    /// The `surface.current` hop outcome (refs minted in payload order:
+    /// window, workspace, pane, surface).
+    private enum SurfaceCurrentHopOutcome: Sendable {
+        case tabManagerUnavailable
+        case workspaceNotFound
+        case current(
+            snapshot: ControlSurfaceCurrentSnapshot,
+            windowRef: JSONValue,
+            workspaceRef: JSONValue,
+            paneRef: JSONValue,
+            surfaceRef: JSONValue
+        )
+    }
+
     /// `surface.current` — the resolved workspace's current surface.
-    func surfaceCurrent(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+    /// Worker-lane resolution read; see ``surfaceList(_:context:)``.
+    nonisolated func surfaceCurrent(
+        _ params: [String: JSONValue],
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let snapshot = context?.controlSurfaceCurrent(routing: routing) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        let outcome: SurfaceCurrentHopOutcome = context.controlResolveOnMain { seam in
+            let routing = self.routingSelectors(params)
+            guard seam.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let snapshot = seam.controlSurfaceCurrent(routing: routing) else {
+                return .workspaceNotFound
+            }
+            return .current(
+                snapshot: snapshot,
+                windowRef: self.ref(.window, snapshot.windowID),
+                workspaceRef: self.ref(.workspace, snapshot.workspaceID),
+                paneRef: self.ref(.pane, snapshot.paneID),
+                surfaceRef: self.ref(.surface, snapshot.surfaceID)
+            )
         }
-        return .ok(.object([
-            "window_id": orNull(snapshot.windowID?.uuidString),
-            "window_ref": ref(.window, snapshot.windowID),
-            "workspace_id": .string(snapshot.workspaceID.uuidString),
-            "workspace_ref": ref(.workspace, snapshot.workspaceID),
-            "pane_id": orNull(snapshot.paneID?.uuidString),
-            "pane_ref": ref(.pane, snapshot.paneID),
-            "surface_id": orNull(snapshot.surfaceID?.uuidString),
-            "surface_ref": ref(.surface, snapshot.surfaceID),
-            "surface_type": orNull(snapshot.surfaceTypeRawValue),
-        ]))
+        switch outcome {
+        case .tabManagerUnavailable:
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .workspaceNotFound:
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        case let .current(snapshot, windowRef, workspaceRef, paneRef, surfaceRef):
+            return .ok(.object([
+                "window_id": orNull(snapshot.windowID?.uuidString),
+                "window_ref": windowRef,
+                "workspace_id": .string(snapshot.workspaceID.uuidString),
+                "workspace_ref": workspaceRef,
+                "pane_id": orNull(snapshot.paneID?.uuidString),
+                "pane_ref": paneRef,
+                "surface_id": orNull(snapshot.surfaceID?.uuidString),
+                "surface_ref": surfaceRef,
+                "surface_type": orNull(snapshot.surfaceTypeRawValue),
+            ]))
+        }
     }
 
     // MARK: - health
@@ -247,6 +346,7 @@ extension ControlCommandCoordinator {
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
+            remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             clientUnsupportedRemoteTmuxOptions: stringArray(params, "remote_tmux_unsupported_options") ?? [],
             requestedFocus: bool(params, "focus") ?? false,
@@ -401,6 +501,7 @@ extension ControlCommandCoordinator {
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
+            remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedPaneID: uuid(params, "pane_id"),
             requestedFocus: bool(params, "focus") ?? false,
@@ -428,8 +529,8 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "placement must be one of: workspace, dock", data: .object(["placement": .string(rawValue)]))
         case .dockUnsupportedType(let typeRawValue, let message):
             return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
-        case .dockUnavailable(let message):
-            return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
+        case .dockUnavailable(let message): return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
+        case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
         case .workspaceNotFound:

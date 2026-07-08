@@ -31,7 +31,7 @@ struct CmuxConfigExecutor {
                 confirm: command.confirm ?? false,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
-                displayCommand: command.name,
+                displayCommand: workspaceShellDisclosure(command),
                 displayTitle: displayTitle ?? command.name,
                 presentingWindow: presentingWindow
             ) {
@@ -76,6 +76,25 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        if let syntheticCommand = action.inlineWorkspaceSyntheticCommand {
+            // Inline `type: "workspace"` actions reuse the named-command path via a
+            // synthetic definition so trust, restart, confirm, and layout behavior
+            // stay identical.
+            return execute(
+                command: syntheticCommand,
+                tabManager: tabManager,
+                baseCwd: baseCwd,
+                configSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
+                actionID: action.id,
+                icon: action.icon,
+                iconSourcePath: action.iconSourcePath,
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
+            )
+        }
+
         if let commandName = action.workspaceCommandName,
            let command = commands.first(where: { $0.name == commandName }) {
             guard command.workspace != nil else { return false }
@@ -278,7 +297,9 @@ struct CmuxConfigExecutor {
         configPath: String
     ) -> NSAlert {
         let alert = NSAlert()
-        let trimmedDisplayTitle = displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Titles come from project-local configs too — strip bidi/zero-width
+        // controls like the command body below, so the header can't be spoofed.
+        let trimmedDisplayTitle = displayTitle.map(sanitizeForDisplay)
         alert.messageText = (trimmedDisplayTitle?.isEmpty == false)
             ? trimmedDisplayTitle!
             : String(
@@ -421,6 +442,17 @@ struct CmuxConfigExecutor {
             )
         }
 
+        if let inlineWorkspaceCommand = button.inlineWorkspaceSyntheticCommand {
+            return workspaceTrustDescriptor(
+                command: inlineWorkspaceCommand,
+                actionID: button.id,
+                configSourcePath: configSourcePath,
+                icon: resolvedIcon,
+                iconSourcePath: iconSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+
         guard let terminalCommand = button.terminalCommand else {
             return nil
         }
@@ -449,71 +481,5 @@ struct CmuxConfigExecutor {
         ]
         let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
         return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func executeWorkspaceCommand(
-        command: CmuxCommandDefinition,
-        workspace wsDef: CmuxWorkspaceDefinition,
-        tabManager: TabManager,
-        baseCwd: String
-    ) -> Bool {
-        let workspaceName = wsDef.name ?? command.name
-        let restart = command.restart ?? .new
-        var existingWorkspaceToClose: Workspace?
-
-        if let existing = tabManager.tabs.first(where: { $0.customTitle == workspaceName }) {
-            switch restart {
-            case .new:
-                break
-            case .ignore:
-                tabManager.selectWorkspace(existing)
-                return true
-            case .recreate:
-                existingWorkspaceToClose = existing
-            case .confirm:
-                let alert = NSAlert()
-                alert.messageText = String(
-                    localized: "dialog.cmuxConfig.confirmRestart.title",
-                    defaultValue: "Workspace Already Exists"
-                )
-                alert.informativeText = String(
-                    localized: "dialog.cmuxConfig.confirmRestart.message",
-                    defaultValue: "A workspace with this name already exists. Close it and create a new one?"
-                )
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: String(
-                    localized: "dialog.cmuxConfig.confirmRestart.recreate",
-                    defaultValue: "Recreate"
-                ))
-                alert.addButton(withTitle: String(
-                    localized: "dialog.cmuxConfig.confirmRestart.cancel",
-                    defaultValue: "Cancel"
-                ))
-                guard alert.runModal() == .alertFirstButtonReturn else {
-                    tabManager.selectWorkspace(existing)
-                    return false
-                }
-                existingWorkspaceToClose = existing
-            }
-        }
-
-        let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        let newWorkspace = tabManager.addWorkspace(
-            workingDirectory: resolvedCwd,
-            workspaceEnvironment: wsDef.env ?? [:]
-        )
-        newWorkspace.setCustomTitle(workspaceName)
-        if let color = wsDef.color {
-            newWorkspace.setCustomColor(color)
-        }
-
-        if let existingWorkspaceToClose, existingWorkspaceToClose.id != newWorkspace.id {
-            tabManager.closeWorkspace(existingWorkspaceToClose)
-        }
-
-        if let layout = wsDef.layout {
-            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
-        }
-        return true
     }
 }

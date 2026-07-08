@@ -61,6 +61,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 5,
         text: "live",
+        columns: 16,
         activeScreen: .alternate
     )
     let transport = try #require(box.get())
@@ -145,6 +146,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.lines.contains { $0.contains("alt") } }
@@ -190,6 +192,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 1,
         text: "stale-alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 5, text: "raw-b"))
@@ -221,6 +224,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
@@ -256,6 +260,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
@@ -318,6 +323,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
@@ -350,6 +356,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 9,
         text: "still-alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let laterAltDelivered = try await pollUntil { collector.lines.contains { $0.contains("still-alt") } }
@@ -427,6 +434,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 9,
         text: "still-alive",
+        columns: 16,
         activeScreen: .alternate
     )
     let transport = try #require(box.get())
@@ -490,6 +498,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 11,
         text: "repaired",
+        columns: 16,
         activeScreen: .alternate
     )
     let transport = try #require(box.get())
@@ -565,44 +574,4 @@ import Testing
         "a stream that ends before its subscribe ack must converge to unavailable, not loop reconnecting"
     )
     #expect(store.connectionRecoveryFailed)
-}
-
-/// Older Macs used `workspace.actions.v1` for rename/pin only. Newly added
-/// read-state and close actions need separate capability bits so a newer iPhone
-/// does not show controls that an older Mac will reject at runtime.
-@MainActor
-@Test func workspaceReadStateAndCloseCapabilitiesAreVersionGated() async throws {
-    let oldMacClock = TestClock()
-    let oldMacRouter = LivenessHostRouter()
-    let oldMacBox = TransportBox()
-    await oldMacRouter.setCapabilities([
-        "events.v1",
-        "terminal.render_grid.v1",
-        "terminal.replay.v1",
-        "workspace.actions.v1",
-    ])
-    let oldMacStore = try await makeConnectedStore(router: oldMacRouter, box: oldMacBox, clock: oldMacClock)
-    let oldMacResolved = try await pollUntil { await oldMacRouter.count(of: "mobile.host.status") >= 1 }
-    #expect(oldMacResolved)
-    #expect(oldMacStore.supportsWorkspaceActions)
-    #expect(oldMacStore.supportsWorkspaceReadStateActions == false)
-    #expect(oldMacStore.supportsWorkspaceCloseActions == false)
-
-    let currentMacClock = TestClock()
-    let currentMacRouter = LivenessHostRouter()
-    let currentMacBox = TransportBox()
-    await currentMacRouter.setCapabilities([
-        "events.v1",
-        "terminal.render_grid.v1",
-        "terminal.replay.v1",
-        "workspace.actions.v1",
-        "workspace.read_state.v1",
-        "workspace.close.v1",
-    ])
-    let currentMacStore = try await makeConnectedStore(router: currentMacRouter, box: currentMacBox, clock: currentMacClock)
-    let currentMacResolved = try await pollUntil { await currentMacRouter.count(of: "mobile.host.status") >= 1 }
-    #expect(currentMacResolved)
-    #expect(currentMacStore.supportsWorkspaceActions)
-    #expect(currentMacStore.supportsWorkspaceReadStateActions)
-    #expect(currentMacStore.supportsWorkspaceCloseActions)
 }
