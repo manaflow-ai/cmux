@@ -29,8 +29,14 @@ extension VMOnboardDeriver {
                 guard var run = step.run, !run.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 if isCIOnlyRun(run) { continue }
                 // CI checks out into the workspace root; our clone step puts the
-                // repo in ~/<repoName>, so project commands need the cd.
-                run = "cd \(repoName)\n" + run
+                // repo in ~/<repoName>, so project commands need the cd. Honor
+                // the step's working-directory (or the job default) so monorepo
+                // commands like `npm ci` in web/ run where CI ran them.
+                guard let cdTarget = runDirectory(
+                    repoName: repoName,
+                    workingDirectory: step.workingDirectory ?? job.defaultWorkingDirectory
+                ) else { continue }
+                run = "cd \(cdTarget)\n" + run
                 derived.append(VMEnvSpec.Step(name: step.name ?? "run", run: run, timeoutMinutes: nil))
             }
             guard !derived.isEmpty else { continue }
@@ -47,12 +53,16 @@ extension VMOnboardDeriver {
         let name: String
         var steps: [WorkflowStep]
         var runsOn: String?
+        /// From `defaults.run.working-directory` in the job body (line-scanned:
+        /// any `working-directory:` outside the steps list belongs to defaults).
+        var defaultWorkingDirectory: String?
     }
 
     private struct WorkflowStep {
         var name: String?
         var uses: String?
         var run: String?
+        var workingDirectory: String?
         var with: [String: String] = [:]
     }
 
@@ -82,6 +92,15 @@ extension VMOnboardDeriver {
                     if bodyIndent <= 2 { break }
                     if bodyTrimmed.hasPrefix("runs-on:") {
                         job.runsOn = String(bodyTrimmed.dropFirst("runs-on:".count)).trimmingCharacters(in: .whitespaces)
+                        index += 1
+                        continue
+                    }
+                    if bodyTrimmed.hasPrefix("working-directory:") {
+                        // Steps are consumed wholesale below, so a bare
+                        // working-directory key here is `defaults.run.working-directory`.
+                        job.defaultWorkingDirectory = stripYAMLScalarQuotes(
+                            String(bodyTrimmed.dropFirst("working-directory:".count)).trimmingCharacters(in: .whitespaces)
+                        )
                         index += 1
                         continue
                     }
@@ -168,6 +187,7 @@ extension VMOnboardDeriver {
         case "name": step.name = value
         case "uses": step.uses = value
         case "run": step.run = value
+        case "working-directory": step.workingDirectory = value
         case "with":
             // Collect simple `key: value` lines under with:
             while index < lines.count {
@@ -232,6 +252,29 @@ extension VMOnboardDeriver {
         // checkout, caches, artifact upload/download, codecov etc.: CI plumbing.
         return nil
     }
+
+    /// Where a translated run step should execute: the clone dir, plus the
+    /// workflow's working-directory when one is declared. Returns nil when the
+    /// working directory cannot be mapped into the clone (absolute paths,
+    /// expressions, shell metacharacters) — dropping the step is safer than
+    /// running it in the wrong directory.
+    private static func runDirectory(repoName: String, workingDirectory: String?) -> String? {
+        guard var dir = workingDirectory?.trimmingCharacters(in: .whitespaces), !dir.isEmpty else {
+            return repoName
+        }
+        while dir.hasPrefix("./") { dir = String(dir.dropFirst(2)) }
+        while dir.hasSuffix("/") { dir = String(dir.dropLast()) }
+        if dir.isEmpty || dir == "." { return repoName }
+        guard !dir.hasPrefix("/"), !dir.hasPrefix("-"), !dir.contains(".."),
+              dir.unicodeScalars.allSatisfy({ workingDirectoryScalars.contains($0) }) else {
+            return nil
+        }
+        return "\(repoName)/\(dir)"
+    }
+
+    private static let workingDirectoryScalars = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+    )
 
     /// Runs that only make sense inside GitHub's runner: writes to the runner's
     /// step-communication files. Kept narrow on purpose — a command merely

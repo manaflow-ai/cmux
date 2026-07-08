@@ -253,6 +253,35 @@ struct CMUXCLIVMOnboardDeriveTests {
     }
 
     @Test
+    func workflowDerivationHonorsWorkingDirectories() throws {
+        let workflow = """
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            defaults:
+              run:
+                working-directory: web
+            steps:
+              - name: install
+                run: npm ci
+              - name: native build
+                working-directory: ./native
+                run: make
+              - name: escape attempt
+                working-directory: ../outside
+                run: whoami
+        """
+        let result = try #require(VMOnboardDeriver.deriveFromWorkflow(workflow, repoName: "app"))
+        let runs = result.steps.map(\.run)
+        // Job default working-directory applies to plain steps.
+        #expect(runs.contains("cd app/web\nnpm ci"))
+        // Step-level working-directory overrides the job default.
+        #expect(runs.contains("cd app/native\nmake"))
+        // Directories that escape the clone are dropped, not run at the root.
+        #expect(!runs.contains { $0.contains("whoami") })
+    }
+
+    @Test
     func devcontainerFallsBackToRootFileWhenNestedYieldsNothing() throws {
         let root = try makeRepo(files: [
             ".devcontainer/devcontainer.json": "{ \"image\": \"ubuntu\" }",
