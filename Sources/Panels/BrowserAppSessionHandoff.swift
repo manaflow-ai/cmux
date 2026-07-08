@@ -29,18 +29,24 @@ struct BrowserAppSessionHandoff {
         )?.url else {
             return nil
         }
-        var bodyComponents = URLComponents()
-        bodyComponents.queryItems = [
-            URLQueryItem(name: "refresh_token", value: tokens.refreshToken),
-            URLQueryItem(name: "access_token", value: tokens.accessToken),
-            URLQueryItem(name: "after", value: relativePath(destinationURL)),
-        ].filter { $0.value?.isEmpty == false }
+        // Build the form body by hand: URLComponents.percentEncodedQuery leaves
+        // "+" literal, and application/x-www-form-urlencoded decodes "+" to a
+        // space, silently corrupting any token that contains "+". Percent-encode
+        // every value with a set that excludes "+", "&", "=", and "%".
+        let pairs: [(String, String)] = [
+            ("refresh_token", tokens.refreshToken),
+            ("access_token", tokens.accessToken),
+            ("after", relativePath(destinationURL)),
+        ].filter { !$0.1.isEmpty }
+        let body = pairs
+            .map { "\($0.0)=\(formURLEncode($0.1))" }
+            .joined(separator: "&")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("no-referrer", forHTTPHeaderField: "Referrer-Policy")
-        request.httpBody = bodyComponents.percentEncodedQuery?.data(using: .utf8)
+        request.httpBody = body.data(using: .utf8)
         return request
     }
 
@@ -89,6 +95,16 @@ struct BrowserAppSessionHandoff {
         case "https": return 443
         default: return nil
         }
+    }
+
+    private static func formURLEncode(_ value: String) -> String {
+        // application/x-www-form-urlencoded value encoding: percent-encode
+        // everything except RFC 3986 unreserved characters, so "+", "&", "=",
+        // "%", and space are all escaped. A "+" left literal would decode back
+        // to a space and silently corrupt a token that contains "+".
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     private static func relativePath(_ url: URL) -> String {

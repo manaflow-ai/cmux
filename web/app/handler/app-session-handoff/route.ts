@@ -46,7 +46,13 @@ function sanitizedAfterPath(value: string | null): string | null {
     const parsed = new URL(value, "https://cmux.invalid");
     if (parsed.origin !== "https://cmux.invalid") return null;
     if (parsed.pathname === "/handler/app-session-handoff") return null;
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    const result = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    // Dot-segment normalization can turn "/..//evil.com" into pathname
+    // "//evil.com", which is protocol-relative when later resolved and would
+    // 302 off-origin. Reject anything that is not a plain same-origin path.
+    if (result.startsWith("//") || result.startsWith("/\\")) return null;
+    if (new URL(result, "https://cmux.invalid").origin !== "https://cmux.invalid") return null;
+    return result;
   } catch {
     return null;
   }
