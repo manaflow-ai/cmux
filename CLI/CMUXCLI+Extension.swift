@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// `cmux extension …` — Dock TUI extensions from the terminal, herdr-style:
+/// `cmux extension …` — TUI extensions from the terminal, herdr-style:
 /// list, install (preview → y/N consent → pinned install), update, uninstall,
 /// link/unlink for local development, open, and path queries. The app does
 /// the actual staging/pinning; the CLI's interactive preview stands in for
@@ -189,7 +189,7 @@ extension CMUXCLI {
                 jsonOutput: jsonOutput,
                 fallbackText: String(
                     localized: "cli.extension.opened",
-                    defaultValue: "Opened \(qualifiedId) in the Dock."
+                    defaultValue: "Opened \(qualifiedId) in the current workspace."
                 )
             )
 

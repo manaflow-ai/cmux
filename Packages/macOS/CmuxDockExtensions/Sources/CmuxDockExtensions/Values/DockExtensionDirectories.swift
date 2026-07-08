@@ -1,6 +1,6 @@
 import Foundation
 
-/// The on-disk layout for Dock extensions, mirroring herdr's separation of
+/// The on-disk layout for TUI extensions, mirroring herdr's separation of
 /// managed checkout, user config, and durable state:
 ///
 /// - `<home>/.config/cmux/extensions.json` — the lockfile (user-visible dotfile).

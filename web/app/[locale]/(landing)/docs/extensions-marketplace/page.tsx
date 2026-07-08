@@ -64,9 +64,9 @@ export default function ExtensionsMarketplaceDocsPage() {
         <li>{t("approvalMerge")}</li>
       </ul>
 
-      <DocsHeading level={2} id="install-buttons">{t("installTitle")}</DocsHeading>
+      <DocsHeading level={2} id="install-command">{t("installTitle")}</DocsHeading>
       <p>{t("installIntro")}</p>
-      <CodeBlock lang="text">cmux://extensions/install?repo=owner%2Frepo</CodeBlock>
+      <CodeBlock lang="text">cmux extension install owner/repo</CodeBlock>
       <p>{t("installConsent")}</p>
 
       <DocsHeading level={2} id="takedowns">{t("takedownsTitle")}</DocsHeading>

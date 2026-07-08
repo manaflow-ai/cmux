@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "Utvidelsesmarkedsplass",
-      "metaDescription": "Hvordan den kuraterte cmux marketplace gjennomgår innsendinger og lister støttede utvidelser.",
+      "metaDescription": "Hvordan den kuraterte cmux marketplace gjennomgår innsendinger, lister støttede utvidelser og peker brukere til kopierbare installasjonskommandoer.",
       "title": "Utvidelsesmarkedsplass",
-      "intro": "Marketplace er et kuratert registry over støttede Dock TUI-utvidelser; bare godkjente repoer vises.",
+      "intro": "Marketplace er et kuratert registry over støttede TUI-utvidelser; bare repoer godkjent av cmux-teamet vises.",
       "discoveryTitle": "Oppdagelse",
       "discoveryIntro": "Nettstedet leser manaflow-ai/awesome-cmux extensions.json ved forespørsel og bruker den innebygde seed-en bare som fallback. Et repo vises først etter at en maintainer merger oppføringen der:",
       "submitTitle": "Send inn en utvidelse",
@@ -1584,9 +1584,9 @@
       "approvalReview": "Vi gjennomgår manifest, kommandoer, lisens og relevant kode.",
       "approvalDogfood": "Vi tester panes nok til å bekrefte oppførselen.",
       "approvalMerge": "En maintainer merger en PR som legger repoet til manaflow-ai/awesome-cmux extensions.json.",
-      "installTitle": "Installasjonsknapper",
-      "installIntro": "Galleriets «Installer i cmux»-knapp er en vanlig cmux-dyplenke som bare inneholder repository-navnet:",
-      "installConsent": "cmux-appen åpner lenken, henter repositoryet, validerer manifestet, fester installasjonen til en commit og viser samtykkeskjermen i appen før noe kjøres.",
+      "installTitle": "Installasjonskommando",
+      "installIntro": "Galleriet viser en kopierbar terminalkommando for hver utvidelse:",
+      "installConsent": "Lim inn kommandoen i en hvilken som helst terminal. cmux CLI henter repoet, validerer manifestet, fester installasjonen til en commit og ber om samtykke før noe kjøres.",
       "takedownsTitle": "Fjerninger",
       "takedownsIntro": "Fjerning eller takedown er den motsatte PR-en mot manaflow-ai/awesome-cmux extensions.json. Når repooppføringen slettes, fjernes den fra det offentlige galleriet etter cache-oppdatering."
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "Merkevareressurser"
   },
   "extensions": {
-    "metaDescription": "Bla gjennom cmux Dock TUI-utvidelser som cmux-teamet har gjennomgått og støtter.",
+    "metaDescription": "Bla gjennom cmux TUI-utvidelser som cmux-teamet har gjennomgått og støtter.",
     "intro": "Et kuratert galleri med TUI-utvidelser fra fellesskapet; alle støttes av cmux-teamet.",
     "trustNote": "Alle oppførte utvidelser er gjennomgått og støttet. Les <link>tillitsnotatene</link> før installasjon.",
     "supportedLabel": "Støttet",

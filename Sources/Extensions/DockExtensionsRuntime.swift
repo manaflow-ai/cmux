@@ -4,8 +4,8 @@ import CmuxSettingsUI
 import Foundation
 import Observation
 
-/// App-target composition root for Dock TUI extensions: builds the domain
-/// store over the standard on-disk layout, bridges it to the Dock and
+/// App-target composition root for TUI extensions: builds the domain
+/// store over the standard on-disk layout, bridges it to app surfaces and
 /// Settings, and owns the consent flow. Composed as a singleton like the app
 /// target's window controllers.
 @MainActor
@@ -101,8 +101,8 @@ final class DockExtensionsRuntime {
         return state
     }
 
-    /// Launchable panes across every installed extension, for the palette and
-    /// the Dock empty-pane launcher: `(qualifiedId, title, icon)`.
+    /// Launchable panes across every installed extension, for the command
+    /// palette: `(qualifiedId, title, icon)`.
     var launchablePaneItems: [(qualifiedId: String, title: String, iconSystemName: String)] {
         store.installed.flatMap { installed in
             installed.launchablePanes.map { pane in

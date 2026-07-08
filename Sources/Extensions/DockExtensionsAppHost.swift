@@ -1,9 +1,9 @@
 import AppKit
+import CmuxControlSocket
 import CmuxDockExtensions
 
-/// App-side ``DockExtensionsHost``: opens extension panes in the active
-/// window's Dock and enables the Dock beta feature on install (the locked
-/// product decision — installing an extension turns the Dock on).
+/// App-side ``DockExtensionsHost``: opens extension panes as regular terminal
+/// splits in the active workspace.
 @MainActor
 final class DockExtensionsAppHost: DockExtensionsHost {
     var currentAppVersion: String {
@@ -17,39 +17,50 @@ final class DockExtensionsAppHost: DockExtensionsHost {
               ) else {
             return false
         }
-        // Opening a pane implies the Dock: make sure the availability gate
-        // passes before the mode switch below.
-        enableDockBetaFlagIfNeeded()
-        let dock = context.windowDockStore()
-        guard dock.openExtensionPane(
-            controlId: request.controlId,
-            title: request.title,
-            iconSystemName: request.iconSystemName,
-            shellCommand: request.shellCommand,
-            workingDirectory: request.workingDirectory,
-            environment: request.environment
-        ) != nil else {
-            return false
-        }
-        appDelegate.focusRightSidebarInActiveMainWindow(
-            mode: .dock,
-            focusFirstItem: false,
-            preferredWindow: context.window
+        let startupScript = DockSplitStore.shellStartupScript(
+            command: request.shellCommand,
+            workingDirectory: request.workingDirectory
         )
-        return true
+        var environment = request.environment
+        environment["CMUX_DOCK_CONTROL_ID"] = request.controlId
+        environment["CMUX_DOCK_CONTROL_TITLE"] = request.title
+
+        let controller = TerminalController.shared
+        return controller.withSocketCommandPolicy(commandKey: "extension.open", isV2: true) {
+            let resolution = controller.controlPaneCreate(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: true,
+                    windowID: context.windowId,
+                    groupID: nil,
+                    workspaceID: context.tabManager.selectedTabId,
+                    surfaceID: nil,
+                    paneID: nil
+                ),
+                inputs: ControlPaneCreateInputs(
+                    directionRaw: "right",
+                    typeRaw: "terminal",
+                    urlRaw: nil,
+                    workingDirectory: request.workingDirectory,
+                    initialCommand: startupScript,
+                    tmuxStartCommand: nil,
+                    startupEnvironment: environment,
+                    requestedSourceSurfaceID: nil,
+                    requestedFocus: true,
+                    hasInitialDividerPosition: false,
+                    initialDividerPositionRaw: nil
+                )
+            )
+            guard case .created(_, let workspaceID, _, let surfaceID, _) = resolution,
+                  let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                return false
+            }
+            workspace.setPanelCustomTitle(panelId: surfaceID, title: request.title, source: .auto)
+            return true
+        }
     }
 
     func activateDockForExtensions() {
-        // Flag-only, no window raising: this also runs for socket/CLI installs,
-        // which must not steal focus (socket policy). GUI installs reveal the
-        // Dock from the consent coordinator, an explicit user action.
-        enableDockBetaFlagIfNeeded()
-    }
-
-    private func enableDockBetaFlagIfNeeded() {
-        let defaults = UserDefaults.standard
-        if !defaults.bool(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey) {
-            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
-        }
+        // Compatibility hook for the package host protocol. Extensions no
+        // longer require any Dock feature gate after install.
     }
 }

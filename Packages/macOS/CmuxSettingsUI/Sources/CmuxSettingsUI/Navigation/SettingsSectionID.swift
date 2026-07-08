@@ -21,7 +21,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case sidebarAppearance
     /// User/agent-authored custom sidebars: enable gate and renderer choice.
     case customSidebars
-    /// Dock TUI extensions installed from GitHub: install, marketplace, and
+    /// TUI extensions installed from GitHub: install, marketplace, and
     /// the installed list.
     case extensions
     case betaFeatures

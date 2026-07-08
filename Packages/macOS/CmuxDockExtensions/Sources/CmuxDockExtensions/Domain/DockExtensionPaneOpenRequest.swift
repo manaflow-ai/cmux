@@ -1,9 +1,8 @@
 import Foundation
 
-/// Everything the app-side Dock bridge needs to open one extension pane as a
-/// Dock terminal tab. Built by `DockExtensionsStore.openPane(...)`; consumed
-/// by the app target's ``DockExtensionsHost`` implementation, which feeds it
-/// into the Dock's login-shell terminal spawn path.
+/// Everything the app-side host needs to open one extension pane as a terminal
+/// pane. Built by `DockExtensionsStore.openPane(...)`; consumed by the app
+/// target's ``DockExtensionsHost`` implementation.
 public struct DockExtensionPaneOpenRequest: Equatable, Sendable {
     /// Qualified `<extensionId>.<paneId>` id, exported as
     /// `CMUX_DOCK_CONTROL_ID` like config-seeded dock controls.
@@ -12,11 +11,11 @@ public struct DockExtensionPaneOpenRequest: Equatable, Sendable {
     /// Tab title.
     public let title: String
 
-    /// SF Symbol for the Dock tab.
+    /// SF Symbol for launch surfaces that show this pane.
     public let iconSystemName: String
 
     /// The pane argv rendered as one shell command string (see
-    /// ``DockExtensionPane/shellCommand``) for the Dock's login-shell wrapper.
+    /// ``DockExtensionPane/shellCommand``) for the app's login-shell wrapper.
     public let shellCommand: String
 
     /// Absolute working directory (extension root plus the pane's `cwd`).

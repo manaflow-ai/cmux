@@ -1,7 +1,7 @@
 import CmuxDockExtensions
 import Foundation
 
-/// v2 socket verbs for Dock TUI extensions (`extension.list/preview/install/
+/// v2 socket verbs for TUI extensions (`extension.list/preview/install/
 /// discard/uninstall/link/unlink/open/paths`).
 ///
 /// Threading (socket policy): every mutating/listing verb runs on the
@@ -163,7 +163,7 @@ extension TerminalController {
     }
 
     /// Main-actor, focus-intent (`focusIntentV2Methods`): the user explicitly
-    /// asked to open a pane, so revealing the Dock and focusing it is the
+    /// asked to open a pane, so focusing the new workspace split is the
     /// command's purpose.
     func v2ExtensionOpen(params: [String: Any]) -> V2CallResult {
         let runtime = DockExtensionsRuntime.shared

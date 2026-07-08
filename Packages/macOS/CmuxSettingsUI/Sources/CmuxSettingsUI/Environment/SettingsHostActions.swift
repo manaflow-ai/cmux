@@ -164,7 +164,7 @@ public protocol SettingsHostActions: AnyObject {
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
 
-    /// The host-owned view state for the **Extensions** section (Dock TUI
+    /// The host-owned view state for the **Extensions** section (TUI
     /// extensions installed from GitHub), or `nil` when the host has no
     /// extensions runtime (previews/tests). The host returns the same
     /// instance every call and keeps its `rows` current.

@@ -1,7 +1,7 @@
 import Foundation
 
 /// The parsed `cmux-extension.json` manifest — the contract between cmux and a
-/// Dock TUI extension.
+/// TUI extension.
 ///
 /// The manifest format deliberately mirrors herdr's `herdr-plugin.toml` field
 /// semantics (required `id`/`name`/`version`, optional `description`/

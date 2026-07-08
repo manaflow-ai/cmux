@@ -69,10 +69,6 @@ function hasStars(extension: ExtensionItem): extension is ExtensionItem & { star
   return extension.stars !== null && extension.stars !== undefined;
 }
 
-function installHref(fullName: string): string {
-  return `cmux://extensions/install?repo=${encodeURIComponent(fullName)}`;
-}
-
 function installCommand(fullName: string): string {
   return `cmux extension install ${fullName}`;
 }
@@ -384,16 +380,10 @@ export function ExtensionsGallery() {
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <a
-                  href={installHref(extension.fullName)}
-                  className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
-                >
-                  {t("installAction")}
-                </a>
                 <button
                   type="button"
                   onClick={() => void copyCommand(extension.fullName)}
-                  className="rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-code-bg"
+                  className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
                 >
                   {copiedFullName === extension.fullName
                     ? t("copiedAction")

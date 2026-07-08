@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "Marketplace des extensions",
-      "metaDescription": "Comment la marketplace cmux organisée examine les soumissions et liste les extensions prises en charge.",
+      "metaDescription": "Comment la marketplace cmux organisée examine les soumissions, liste les extensions prises en charge et oriente vers des commandes d’installation copiables.",
       "title": "Marketplace des extensions",
-      "intro": "La marketplace est un registre organisé d’extensions Dock TUI prises en charge; seuls les dépôts approuvés apparaissent.",
+      "intro": "La marketplace est un registre organisé d’extensions TUI prises en charge; seuls les dépôts approuvés par l’équipe cmux apparaissent.",
       "discoveryTitle": "Découverte",
       "discoveryIntro": "Le site lit manaflow-ai/awesome-cmux extensions.json à chaque requête et n’utilise le seed intégré qu’en secours. Un dépôt apparaît seulement après qu’un maintainer y fusionne son entrée :",
       "submitTitle": "Soumettre une extension",
@@ -1584,9 +1584,9 @@
       "approvalReview": "Nous examinons manifeste, commandes, licence et code pertinent.",
       "approvalDogfood": "Nous testons les panneaux pour confirmer le comportement décrit.",
       "approvalMerge": "Un maintainer fusionne une PR ajoutant le dépôt à manaflow-ai/awesome-cmux extensions.json.",
-      "installTitle": "Boutons d'installation",
-      "installIntro": "Le bouton « Installer dans cmux » de la galerie est un simple lien profond cmux contenant uniquement le nom du dépôt :",
-      "installConsent": "L'application cmux ouvre le lien, récupère le dépôt, valide le manifeste, épingle l'installation sur un commit et affiche l'écran de consentement dans l'application avant d'exécuter quoi que ce soit.",
+      "installTitle": "Commande d’installation",
+      "installIntro": "La galerie affiche une commande de terminal copiable pour chaque extension :",
+      "installConsent": "Collez la commande dans n’importe quel terminal. La CLI cmux récupère le dépôt, valide le manifeste, épingle l’installation sur un commit et demande votre consentement avant d’exécuter quoi que ce soit.",
       "takedownsTitle": "Retraits",
       "takedownsIntro": "La suppression ou le retrait est la PR inverse contre manaflow-ai/awesome-cmux extensions.json. Supprimer l’entrée du dépôt la retire de la galerie publique après rafraîchissement du cache."
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "Ressources de marque"
   },
   "extensions": {
-    "metaDescription": "Parcourez les extensions Dock TUI cmux examinées et prises en charge par l’équipe cmux.",
+    "metaDescription": "Parcourez les extensions TUI cmux examinées et prises en charge par l’équipe cmux.",
     "intro": "Une galerie organisée d’extensions TUI communautaires; chacune est prise en charge par cmux.",
     "trustNote": "Chaque extension a été examinée et prise en charge. Lisez les <link>notes de confiance</link> avant l’installation.",
     "supportedLabel": "Pris en charge",

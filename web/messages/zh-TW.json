@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "擴充功能市集",
-      "metaDescription": "精選 cmux marketplace 如何審核提交並列出支援的擴充功能。",
+      "metaDescription": "精選 cmux marketplace 如何審核提交、列出支援的擴充功能，並引導使用者複製安裝命令。",
       "title": "擴充功能市集",
-      "intro": "marketplace 是支援 Dock TUI 擴充功能的 registry；只顯示已核准 repository。",
+      "intro": "marketplace 是支援 TUI 擴充功能的精選 registry；只顯示 cmux 團隊核准的 repository。",
       "discoveryTitle": "探索",
       "discoveryIntro": "網站在請求時讀取 manaflow-ai/awesome-cmux 的 extensions.json，內建 seed 只作為 fallback。repository 只有在 maintainer 將項目合併到那裡後才會顯示：",
       "submitTitle": "提交擴充功能",
@@ -1584,9 +1584,9 @@
       "approvalReview": "我們審核 manifest、指令、授權與相關程式碼。",
       "approvalDogfood": "我們試用 panes 以確認行為符合描述。",
       "approvalMerge": "maintainer 合併把 repository 加入 manaflow-ai/awesome-cmux extensions.json 的 PR。",
-      "installTitle": "安裝按鈕",
-      "installIntro": "圖庫中的「在 cmux 中安裝」按鈕是一個僅包含儲存庫名稱的普通 cmux 深層連結：",
-      "installConsent": "cmux 應用程式會開啟連結、取得儲存庫、驗證資訊清單、將安裝固定到某個提交，並在執行任何內容之前顯示應用程式內的同意畫面。",
+      "installTitle": "安裝命令",
+      "installIntro": "圖庫會為每個擴充功能顯示可複製的終端機命令：",
+      "installConsent": "將命令貼到任何終端機中。cmux CLI 會取得 repository、驗證資訊清單、將安裝固定到某個提交，並在執行任何內容之前要求同意。",
       "takedownsTitle": "下架",
       "takedownsIntro": "移除或 takedown 是針對 manaflow-ai/awesome-cmux extensions.json 的反向 PR。刪除 repository 項目後，它會在快取刷新後從公開圖庫中移除。"
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "品牌素材"
   },
   "extensions": {
-    "metaDescription": "瀏覽由 cmux 團隊審核並支援的 cmux Dock TUI 擴充功能。",
+    "metaDescription": "瀏覽由 cmux 團隊審核並支援的 cmux TUI 擴充功能。",
     "intro": "精選的社群 TUI 擴充功能圖庫；這裡的每個擴充功能都由 cmux 支援。",
     "trustNote": "每個擴充功能都已審核並受支援。安裝前請閱讀<link>信任說明</link>。",
     "supportedLabel": "已支援",

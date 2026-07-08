@@ -10,7 +10,7 @@ extension CMUXCLI {
     static var extensionUsageText: String {
         String(localized: "cli.extension.usage", defaultValue: """
         Usage: cmux extension <list|install|submit|update|uninstall|link|unlink|open|config-dir|paths> [args] [--json]
-        Dock TUI extensions: GitHub repos with a cmux-extension.json manifest, run as Dock panes.
+        TUI extensions: GitHub repos with a cmux-extension.json manifest, run as terminal panes.
         Commands:
           list                          Installed extensions and their panes
           install <owner/repo[/sub]>    Preview the pinned commit + commands, confirm, install
@@ -21,7 +21,7 @@ extension CMUXCLI {
           uninstall <id>                Remove the extension and its checkout (config/state kept)
           link <path>                   Register a local directory for development (no pin/build)
           unlink <id>                   Remove the record without touching files
-          open <id | id.pane>           Open an extension pane in the Dock
+          open <id | id.pane>           Open an extension pane in the current workspace
           config-dir <id>               Print the extension's config directory
           paths <id>                    Print root, config, state, and logs directories
         Supported listings are reviewed by cmux before they appear. Manifest docs: https://ncmux.com/docs/extensions
@@ -106,7 +106,7 @@ extension CMUXCLI {
         }
         print(String(
             localized: "cli.extension.preview.trust",
-            defaultValue: "\(yellow)Not reviewed by cmux. It will run as you, with your environment.\(reset) Installing pins it to \(sha) and enables the Dock beta feature."
+            defaultValue: "\(yellow)Not reviewed by cmux. It will run as you, with your environment.\(reset) Installing pins it to \(sha)."
         ))
         for warning in preview["warnings"] as? [String] ?? [] {
             print("\(yellow)warning:\(reset) \(warning.cmuxTerminalSafe())")
@@ -125,7 +125,7 @@ extension CMUXCLI {
         if !panes.isEmpty {
             print(String(
                 localized: "cli.extension.preview.panesHeader",
-                defaultValue: "Runs when you open its Dock panes:"
+                defaultValue: "Runs when you open its terminal panes:"
             ))
             for pane in panes {
                 let paneId = ((pane["id"] as? String) ?? "?").cmuxTerminalSafe()

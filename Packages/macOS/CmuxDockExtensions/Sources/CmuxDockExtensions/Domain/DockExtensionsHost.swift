@@ -1,7 +1,7 @@
 import Foundation
 
 /// App-side effects the extensions domain cannot perform itself. Implemented
-/// by the app target (which owns the Dock stores and settings) and injected
+/// by the app target (which owns windows and settings) and injected
 /// into ``DockExtensionsStore`` at the composition root — the package never
 /// reaches into app state directly.
 @MainActor
@@ -10,13 +10,11 @@ public protocol DockExtensionsHost: AnyObject {
     /// a manifest's `minCmuxVersion`.
     var currentAppVersion: String { get }
 
-    /// Opens one extension pane as a Dock terminal tab in the active window's
-    /// Dock. Returns `false` when no Dock is available (no main window).
+    /// Opens one extension pane as a terminal pane in the active workspace.
+    /// Returns `false` when no main workspace is available.
     func openExtensionPane(_ request: DockExtensionPaneOpenRequest) -> Bool
 
-    /// Called after a successful install: enables the Dock beta feature (the
-    /// locked product decision — installing an extension turns the Dock on).
-    /// Must not raise windows or steal focus — it also runs for socket/CLI
-    /// installs; GUI surfaces do their own reveal.
+    /// Called after a successful install. Must not raise windows or steal focus
+    /// because it also runs for socket/CLI installs.
     func activateDockForExtensions()
 }

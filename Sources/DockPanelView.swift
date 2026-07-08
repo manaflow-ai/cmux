@@ -27,11 +27,7 @@ struct DockPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            content
-            Divider()
-            DockExtensionsBar()
-        }
+        content
         .background(Color(nsColor: appearance.backgroundColor))
         .background(
             DockKeyboardFocusBridge(store: store)
@@ -102,28 +98,13 @@ private struct DockSplitContentView: View {
     /// Dock surfaces never overlay main-area surfaces.
     private static let portalPriority = 1
 
-    /// Installed TUI-extension panes offered as launchers in empty Dock panes.
-    /// Reads the extensions store (observable), so installs/uninstalls refresh
-    /// the affordance live.
-    private var dockEmptyPaneExtensionItems: [DockEmptyPaneExtensionItem] {
-        DockExtensionsRuntime.shared.launchablePaneItems.map {
-            DockEmptyPaneExtensionItem(
-                id: $0.qualifiedId,
-                title: $0.title,
-                iconSystemName: $0.iconSystemName
-            )
-        }
-    }
-
     var body: some View {
         BonsplitView(controller: store.bonsplitController) { tab, paneId in
             dockContent(tab: tab, paneId: paneId)
         } emptyPane: { paneId in
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) },
-                extensionItems: dockEmptyPaneExtensionItems,
-                onOpenExtension: { DockExtensionsRuntime.shared.openPaneOrBeep(qualifiedId: $0) }
+                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
@@ -167,92 +148,18 @@ private struct DockSplitContentView: View {
         } else {
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) },
-                extensionItems: dockEmptyPaneExtensionItems,
-                onOpenExtension: { DockExtensionsRuntime.shared.openPaneOrBeep(qualifiedId: $0) }
+                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
     }
 }
 
-/// Always-visible Dock footer: the discoverability surface for TUI extensions.
-/// A compact menu listing installed panes plus install/marketplace entries —
-/// present even when every Dock pane is full of tabs (the empty-pane launcher
-/// only shows in empty panes). Reads the extensions store (observable), so
-/// installs/uninstalls refresh the menu live.
-private struct DockExtensionsBar: View {
-    var body: some View {
-        HStack(spacing: 6) {
-            Menu {
-                let items = DockExtensionsRuntime.shared.launchablePaneItems
-                if items.isEmpty {
-                    Text(String(
-                        localized: "dock.extensionsBar.empty",
-                        defaultValue: "No extensions installed"
-                    ))
-                } else {
-                    ForEach(items, id: \.qualifiedId) { item in
-                        Button {
-                            DockExtensionsRuntime.shared.openPaneOrBeep(qualifiedId: item.qualifiedId)
-                        } label: {
-                            Label(item.title, systemImage: item.iconSystemName)
-                        }
-                    }
-                }
-                Divider()
-                Button {
-                    DockExtensionsRuntime.shared.installCoordinator.promptForInstall()
-                } label: {
-                    Label(
-                        String(localized: "dock.extensionsBar.install", defaultValue: "Install from GitHub…"),
-                        systemImage: "plus"
-                    )
-                }
-                Button {
-                    NSWorkspace.shared.open(DockExtensionsRuntime.marketplaceURL)
-                } label: {
-                    Label(
-                        String(localized: "dock.extensionsBar.browse", defaultValue: "Browse Marketplace"),
-                        systemImage: "storefront"
-                    )
-                }
-            } label: {
-                Label(
-                    String(localized: "dock.extensionsBar.title", defaultValue: "Extensions"),
-                    systemImage: "puzzlepiece.extension"
-                )
-                .font(.system(size: 11))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityIdentifier("DockExtensionsBarMenu")
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-    }
-}
-
-/// One installed-extension pane offered in an empty Dock pane.
-struct DockEmptyPaneExtensionItem: Identifiable, Equatable {
-    /// Qualified `<extensionId>.<paneId>` id.
-    let id: String
-    let title: String
-    let iconSystemName: String
-}
-
 /// Shown in an empty Dock pane (initial empty Dock, or a freshly split pane).
-/// Offers the same in-app create affordances as the tab-bar split buttons,
-/// plus launchers for installed TUI-extension panes.
+/// Offers the same in-app create affordances as the tab-bar split buttons.
 private struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
-    let extensionItems: [DockEmptyPaneExtensionItem]
-    let onOpenExtension: (String) -> Void
-
-    /// Keeps the empty-pane affordance compact when many extensions exist.
-    private static let maxExtensionButtons = 4
 
     var body: some View {
         VStack(spacing: 12) {
@@ -278,24 +185,6 @@ private struct DockEmptyPaneView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            if !extensionItems.isEmpty {
-                VStack(spacing: 6) {
-                    Text(String(localized: "dock.emptyPane.extensions", defaultValue: "Extensions"))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .textCase(.uppercase)
-                    ForEach(extensionItems.prefix(Self.maxExtensionButtons)) { item in
-                        Button {
-                            onOpenExtension(item.id)
-                        } label: {
-                            Label(item.title, systemImage: item.iconSystemName)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-                .padding(.top, 4)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(16)

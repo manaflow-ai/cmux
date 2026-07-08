@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "มาร์เก็ตเพลสส่วนขยาย",
-      "metaDescription": "วิธีที่ marketplace cmux แบบคัดสรรตรวจสอบการส่งและแสดงส่วนขยายที่รองรับ",
+      "metaDescription": "วิธีที่ marketplace cmux แบบคัดสรรตรวจสอบการส่ง แสดงส่วนขยายที่รองรับ และนำผู้ใช้ไปยังคำสั่งติดตั้งที่คัดลอกได้",
       "title": "มาร์เก็ตเพลสส่วนขยาย",
-      "intro": "marketplace เป็น registry ที่คัดสรรของ Dock TUI ที่รองรับ และแสดงเฉพาะ repository ที่อนุมัติแล้ว",
+      "intro": "marketplace เป็น registry ที่คัดสรรของส่วนขยาย TUI ที่รองรับ และแสดงเฉพาะ repository ที่ทีม cmux อนุมัติแล้ว",
       "discoveryTitle": "การค้นพบ",
       "discoveryIntro": "เว็บไซต์อ่าน manaflow-ai/awesome-cmux extensions.json ตอนมี request และใช้ seed ที่ฝังมาเป็น fallback เท่านั้น repository จะแสดงหลังจาก maintainer merge รายการไว้ที่นั่น:",
       "submitTitle": "ส่งส่วนขยาย",
@@ -1584,9 +1584,9 @@
       "approvalReview": "เราตรวจสอบ manifest, commands, license และ code ที่เกี่ยวข้อง",
       "approvalDogfood": "เราทดสอบ panes เพื่อยืนยันพฤติกรรมที่อธิบายไว้",
       "approvalMerge": "maintainer merge PR ที่เพิ่ม repository ลง manaflow-ai/awesome-cmux extensions.json",
-      "installTitle": "ปุ่มติดตั้ง",
-      "installIntro": "ปุ่ม \"ติดตั้งใน cmux\" ในแกลเลอรีคือลิงก์ระดับลึกของ cmux ธรรมดาที่มีเพียงชื่อรีโพซิทอรีเท่านั้น:",
-      "installConsent": "แอป cmux จะเปิดลิงก์ ดึงรีโพซิทอรี ตรวจสอบไฟล์กำกับ ปักหมุดการติดตั้งไว้ที่คอมมิต และแสดงหน้าจอขอความยินยอมในแอปก่อนที่จะเรียกใช้สิ่งใด",
+      "installTitle": "คำสั่งติดตั้ง",
+      "installIntro": "แกลเลอรีแสดงคำสั่งเทอร์มินัลที่คัดลอกได้สำหรับแต่ละส่วนขยาย:",
+      "installConsent": "วางคำสั่งในเทอร์มินัลใดก็ได้ cmux CLI จะดึง repository ตรวจสอบไฟล์กำกับ ปักหมุดการติดตั้งไว้ที่คอมมิต และขอความยินยอมก่อนเรียกใช้อะไร",
       "takedownsTitle": "การถอดออก",
       "takedownsIntro": "การลบหรือ takedown คือ PR ย้อนกลับต่อ manaflow-ai/awesome-cmux extensions.json เมื่อลบรายการ repository แล้วจะเอาออกจากแกลเลอรีสาธารณะหลัง cache refresh"
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "แอสเซ็ตแบรนด์"
   },
   "extensions": {
-    "metaDescription": "เลือกดูส่วนขยาย cmux Dock TUI ที่ทีม cmux ตรวจสอบและสนับสนุน",
+    "metaDescription": "เลือกดูส่วนขยาย cmux TUI ที่ทีม cmux ตรวจสอบและสนับสนุน",
     "intro": "แกลเลอรีส่วนขยาย TUI จากชุมชนที่คัดสรรแล้ว และทุกส่วนขยายได้รับการสนับสนุนจาก cmux",
     "trustNote": "ทุกส่วนขยายผ่านการตรวจสอบและสนับสนุนแล้ว อ่าน <link>บันทึกเรื่องความเชื่อถือ</link> ก่อนติดตั้ง",
     "supportedLabel": "รองรับแล้ว",

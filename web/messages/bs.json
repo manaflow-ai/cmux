@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "Marketplace ekstenzija",
-      "metaDescription": "Kako kurirani cmux marketplace pregledava prijave i prikazuje podržane ekstenzije.",
+      "metaDescription": "Kako kurirani cmux marketplace pregledava prijave, prikazuje podržane ekstenzije i vodi korisnike do instalacijskih komandi koje se mogu kopirati.",
       "title": "Marketplace ekstenzija",
-      "intro": "Marketplace je kurirani registar podržanih Dock TUI ekstenzija; prikazuju se samo odobreni repozitoriji.",
+      "intro": "Marketplace je kurirani registar podržanih TUI ekstenzija; prikazuju se samo repozitoriji koje je cmux tim odobrio.",
       "discoveryTitle": "Otkrivanje",
       "discoveryIntro": "Stranica pri zahtjevu čita manaflow-ai/awesome-cmux extensions.json, a ugrađeni seed koristi samo kao fallback. Repozitorij se pojavljuje tek nakon što maintainer mergea unos tamo:",
       "submitTitle": "Pošalji ekstenziju",
@@ -1584,9 +1584,9 @@
       "approvalReview": "Pregledamo manifest, naredbe, licencu i relevantni kod.",
       "approvalDogfood": "Isprobamo paneove da potvrdimo opisano ponašanje.",
       "approvalMerge": "Maintainer spaja PR koji dodaje repozitorij u manaflow-ai/awesome-cmux extensions.json.",
-      "installTitle": "Dugmad za instalaciju",
-      "installIntro": "Dugme \"Instaliraj u cmux\" u galeriji je običan cmux deep link koji sadrži samo naziv repozitorija:",
-      "installConsent": "cmux aplikacija otvara link, preuzima repozitorij, validira manifest, fiksira instalaciju na commit i prikazuje ekran za saglasnost u aplikaciji prije nego što se bilo šta pokrene.",
+      "installTitle": "Komanda za instalaciju",
+      "installIntro": "Galerija prikazuje terminalsku komandu za svaku ekstenziju koju možete kopirati:",
+      "installConsent": "Zalijepite komandu u bilo koji terminal. cmux CLI preuzima repozitorij, validira manifest, fiksira instalaciju na commit i traži saglasnost prije pokretanja bilo čega.",
       "takedownsTitle": "Uklanjanja",
       "takedownsIntro": "Uklanjanje je obrnuti PR prema manaflow-ai/awesome-cmux extensions.json. Brisanje unosa repozitorija uklanja ga iz javne galerije nakon osvježavanja cachea."
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "Materijali brenda"
   },
   "extensions": {
-    "metaDescription": "Pregledajte cmux Dock TUI ekstenzije koje cmux tim pregledava i podržava.",
+    "metaDescription": "Pregledajte cmux TUI ekstenzije koje cmux tim pregledava i podržava.",
     "intro": "Kurirana galerija TUI ekstenzija zajednice; svaku ovdje podržava cmux tim.",
     "trustNote": "Svaku ekstenziju je cmux tim pregledao i podržao. Pročitajte <link>napomene o povjerenju</link> prije instalacije.",
     "supportedLabel": "Podržano",

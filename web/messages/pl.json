@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "Marketplace rozszerzeń",
-      "metaDescription": "Jak kuratorowany marketplace cmux sprawdza zgłoszenia i listuje wspierane rozszerzenia.",
+      "metaDescription": "Jak kuratorowany marketplace cmux sprawdza zgłoszenia, listuje wspierane rozszerzenia i prowadzi do kopiowalnych komend instalacji.",
       "title": "Marketplace rozszerzeń",
-      "intro": "Marketplace jest kuratorowanym rejestrem wspieranych rozszerzeń Dock TUI; pokazuje tylko zatwierdzone repozytoria.",
+      "intro": "Marketplace jest kuratorowanym rejestrem wspieranych rozszerzeń TUI; pokazuje tylko repozytoria zatwierdzone przez zespół cmux.",
       "discoveryTitle": "Odkrywanie",
       "discoveryIntro": "Strona odczytuje manaflow-ai/awesome-cmux extensions.json przy żądaniu, a wbudowanego seeda używa tylko jako fallbacku. Repozytorium pojawia się dopiero po scaleniu tam jego wpisu przez maintainera:",
       "submitTitle": "Prześlij rozszerzenie",
@@ -1584,9 +1584,9 @@
       "approvalReview": "Sprawdzamy manifest, polecenia, licencję i kod.",
       "approvalDogfood": "Testujemy panele, by potwierdzić opisane działanie.",
       "approvalMerge": "Maintainer scala PR dodający repozytorium do manaflow-ai/awesome-cmux extensions.json.",
-      "installTitle": "Przyciski instalacji",
-      "installIntro": "Przycisk „Zainstaluj w cmux” w galerii to zwykły głęboki link cmux zawierający tylko nazwę repozytorium:",
-      "installConsent": "Aplikacja cmux otwiera link, pobiera repozytorium, weryfikuje manifest, przypina instalację do commita i pokazuje ekran zgody w aplikacji, zanim cokolwiek uruchomi.",
+      "installTitle": "Komenda instalacji",
+      "installIntro": "Galeria pokazuje kopiowalną komendę terminala dla każdego rozszerzenia:",
+      "installConsent": "Wklej komendę w dowolnym terminalu. CLI cmux pobiera repozytorium, weryfikuje manifest, przypina instalację do commita i prosi o zgodę przed uruchomieniem czegokolwiek.",
       "takedownsTitle": "Usunięcia",
       "takedownsIntro": "Usunięcie lub takedown to odwrotny PR względem manaflow-ai/awesome-cmux extensions.json. Skasowanie wpisu repozytorium usuwa go z publicznej galerii po odświeżeniu cache."
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "Zasoby marki"
   },
   "extensions": {
-    "metaDescription": "Przeglądaj rozszerzenia cmux Dock TUI sprawdzone i wspierane przez zespół cmux.",
+    "metaDescription": "Przeglądaj rozszerzenia cmux TUI sprawdzone i wspierane przez zespół cmux.",
     "intro": "Kuratorowana galeria społecznościowych rozszerzeń TUI; każde jest wspierane przez cmux.",
     "trustNote": "Każde rozszerzenie zostało sprawdzone i wspierane. Przeczytaj <link>uwagi o zaufaniu</link> przed instalacją.",
     "supportedLabel": "Wspierane",

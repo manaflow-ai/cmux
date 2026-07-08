@@ -56,7 +56,7 @@ public final class DockExtensionsStore {
         self.manifestLoader = manifestLoader
     }
 
-    /// Attaches the app-side host bridge (Dock pane opening, beta-flag
+    /// Attaches the app-side host bridge (pane opening, compatibility
     /// activation). Set once at the composition root, after both sides exist.
     public func attachHost(_ host: any DockExtensionsHost) {
         self.host = host
@@ -174,7 +174,7 @@ public final class DockExtensionsStore {
 
     /// Executes a consented preview: runs build steps in the staged checkout,
     /// moves it into the managed checkouts directory, records the pin +
-    /// consent fingerprint, and activates the Dock beta feature.
+    /// consent fingerprint, and notifies the host after installation.
     public func install(_ preview: DockExtensionInstallPreview) async throws {
         let id = preview.manifest.id
         guard let staging = preview.stagingDirectory else {
@@ -316,7 +316,7 @@ public final class DockExtensionsStore {
 
     // MARK: - Pane launch
 
-    /// Opens one extension pane in the active window's Dock.
+    /// Opens one extension pane in the active workspace.
     public func openPane(extensionId: String, paneId: String) throws {
         let qualifiedId = DockExtensionPane.qualifiedId(extensionId: extensionId, paneId: paneId)
         guard let installedExt = installedExtension(id: extensionId) else {
@@ -433,7 +433,7 @@ public final class DockExtensionsStore {
                 warnings.append(
                     String(
                         localized: "dockExtensions.warning.placement",
-                        defaultValue: "Pane \"\(pane.id)\" requests placement \"\(placement)\"; it will open in the Dock."
+                        defaultValue: "Pane \"\(pane.id)\" requests placement \"\(placement)\"; cmux opens extension panes in the current workspace."
                     )
                 )
             }

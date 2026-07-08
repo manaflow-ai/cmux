@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// **Extensions** section — Dock TUI extensions installed from GitHub:
+/// **Extensions** section — TUI extensions installed from GitHub:
 /// an install field, a marketplace link, and the installed list with
 /// open/enable/update/uninstall controls. All data and actions come from the
 /// host via ``ExtensionsSettingsState`` (value snapshots + closures).
@@ -73,7 +73,7 @@ public struct ExtensionsSection: View {
         SettingsCardNote(
             String(
                 localized: "settings.extensions.note",
-                defaultValue: "Extensions are TUI apps published on GitHub that run inside the Dock. They are not reviewed by cmux and run as you, with your environment — install only from authors you trust. Installing pins the extension to a commit and enables the Dock beta feature."
+                defaultValue: "Extensions are TUI apps published on GitHub that run as terminal panes in the current workspace. They are not reviewed by cmux and run as you, with your environment — install only from authors you trust. Installing pins the extension to a commit."
             )
         )
         SettingsCardDivider()

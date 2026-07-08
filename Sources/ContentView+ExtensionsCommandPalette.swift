@@ -2,7 +2,7 @@ import AppKit
 import CmuxCommandPalette
 import CmuxDockExtensions
 
-/// Command-palette surface for Dock TUI extensions: install/browse commands
+/// Command-palette surface for TUI extensions: install/browse commands
 /// plus one dynamic "open" command per installed launchable pane. The palette
 /// rebuilds contributions and handlers on every open, so freshly installed
 /// extensions appear without a restart.

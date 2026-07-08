@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "Erweiterungs-Marktplatz",
-      "metaDescription": "Wie der kuratierte cmux-Marktplatz Einreichungen prüft und unterstützte Erweiterungen listet.",
+      "metaDescription": "Wie der kuratierte cmux-Marktplatz Einreichungen prüft, unterstützte Erweiterungen listet und Nutzer zu kopierbaren Installationsbefehlen führt.",
       "title": "Erweiterungs-Marktplatz",
-      "intro": "Der Marktplatz ist eine kuratierte Registry unterstützter Dock-TUI-Erweiterungen; nur genehmigte Repositories erscheinen.",
+      "intro": "Der Marktplatz ist eine kuratierte Registry unterstützter TUI-Erweiterungen; nur vom cmux-Team genehmigte Repositories erscheinen.",
       "discoveryTitle": "Entdeckung",
       "discoveryIntro": "Die Website liest manaflow-ai/awesome-cmux extensions.json zur Request-Zeit und nutzt den gebündelten Seed nur als Fallback. Ein Repository erscheint erst, nachdem ein Maintainer dort einen Eintrag merged:",
       "submitTitle": "Erweiterung einreichen",
@@ -1584,9 +1584,9 @@
       "approvalReview": "Wir prüfen Manifest, Befehle, Lizenz und relevanten Code.",
       "approvalDogfood": "Wir testen die Panes ausreichend, um das Verhalten zu bestätigen.",
       "approvalMerge": "Ein Maintainer merged einen PR, der das Repository zu manaflow-ai/awesome-cmux extensions.json hinzufügt.",
-      "installTitle": "Install-Buttons",
-      "installIntro": "Der „In cmux installieren“-Button der Galerie ist ein einfacher cmux-Deeplink, der nur den Repository-Namen enthält:",
-      "installConsent": "Die cmux-App öffnet den Link, ruft das Repository ab, validiert das Manifest, pinnt die Installation auf einen Commit und zeigt den Zustimmungsdialog in der App an, bevor irgendetwas ausgeführt wird.",
+      "installTitle": "Installationsbefehl",
+      "installIntro": "Die Galerie zeigt für jede Erweiterung einen kopierbaren Terminalbefehl:",
+      "installConsent": "Fügen Sie den Befehl in ein beliebiges Terminal ein. Die cmux-CLI ruft das Repository ab, validiert das Manifest, pinnt die Installation auf einen Commit und fragt vor dem Ausführen um Zustimmung.",
       "takedownsTitle": "Entfernungen",
       "takedownsIntro": "Entfernung oder Takedown ist der umgekehrte PR gegen manaflow-ai/awesome-cmux extensions.json. Das Löschen des Repository-Eintrags entfernt ihn nach der Cache-Aktualisierung aus der öffentlichen Galerie."
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "Brand-Assets"
   },
   "extensions": {
-    "metaDescription": "Durchsuche cmux Dock-TUI-Erweiterungen, die vom cmux-Team geprüft und unterstützt werden.",
+    "metaDescription": "Durchsuche cmux TUI-Erweiterungen, die vom cmux-Team geprüft und unterstützt werden.",
     "intro": "Eine kuratierte Galerie von Community-TUI-Erweiterungen; jede hier wird vom cmux-Team unterstützt.",
     "trustNote": "Jede gelistete Erweiterung wurde geprüft und unterstützt. Lies die <link>Vertrauenshinweise</link> vor der Installation.",
     "supportedLabel": "Unterstützt",

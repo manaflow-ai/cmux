@@ -12,7 +12,7 @@ const helloTuiManifest = `{
   "id": "hello-tui",
   "name": "Hello TUI",
   "version": "0.1.0",
-  "description": "Minimal Dock extension demo: prints its cmux context and ticks a clock.",
+  "description": "Minimal terminal extension demo: prints its cmux context and ticks a clock.",
   "icon": "sparkles",
   "panes": [
     {

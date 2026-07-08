@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "확장 프로그램 마켓플레이스",
-      "metaDescription": "선별된 cmux marketplace가 제출을 검토하고 지원 확장을 나열하는 방식입니다.",
+      "metaDescription": "선별된 cmux marketplace가 제출을 검토하고 지원 확장을 나열하며 복사 가능한 설치 명령으로 안내하는 방식입니다.",
       "title": "확장 프로그램 마켓플레이스",
-      "intro": "marketplace는 지원되는 Dock TUI 확장의 registry이며 승인된 저장소만 표시됩니다.",
+      "intro": "marketplace는 지원되는 TUI 확장의 registry이며 cmux 팀이 승인한 저장소만 표시됩니다.",
       "discoveryTitle": "발견",
       "discoveryIntro": "웹사이트는 요청 시 manaflow-ai/awesome-cmux extensions.json을 읽고, 포함된 seed는 fallback으로만 사용합니다. 저장소는 maintainer가 그곳에 항목을 병합한 뒤에만 표시됩니다:",
       "submitTitle": "확장 제출",
@@ -1584,9 +1584,9 @@
       "approvalReview": "manifest, 명령, 라이선스, 관련 코드를 검토합니다.",
       "approvalDogfood": "panes를 시험해 설명된 동작을 확인합니다.",
       "approvalMerge": "maintainer가 저장소를 manaflow-ai/awesome-cmux extensions.json에 추가하는 PR을 병합합니다.",
-      "installTitle": "설치 버튼",
-      "installIntro": "갤러리의 'cmux에 설치' 버튼은 저장소 이름만 포함하는 일반 cmux 딥 링크입니다:",
-      "installConsent": "cmux 앱은 링크를 열고 저장소를 가져와 매니페스트를 검증하고 설치를 커밋에 고정한 뒤, 무언가를 실행하기 전에 앱 내 동의 화면을 표시합니다.",
+      "installTitle": "설치 명령",
+      "installIntro": "갤러리는 각 확장에 대해 복사 가능한 터미널 명령을 표시합니다:",
+      "installConsent": "명령을 아무 터미널에 붙여 넣으세요. cmux CLI가 저장소를 가져오고 매니페스트를 검증하며 설치를 커밋에 고정한 뒤, 실행 전에 동의를 요청합니다.",
       "takedownsTitle": "게시 중단",
       "takedownsIntro": "삭제 또는 takedown은 manaflow-ai/awesome-cmux extensions.json에 대한 반대 PR입니다. 저장소 항목을 삭제하면 캐시가 갱신된 뒤 공개 갤러리에서 제거됩니다."
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "브랜드 애셋"
   },
   "extensions": {
-    "metaDescription": "cmux 팀이 검토하고 지원하는 cmux Dock TUI 확장을 둘러보세요.",
+    "metaDescription": "cmux 팀이 검토하고 지원하는 cmux TUI 확장을 둘러보세요.",
     "intro": "커뮤니티 TUI 확장을 선별한 갤러리이며, 모두 cmux 팀이 지원합니다.",
     "trustNote": "모든 확장은 검토 및 지원 대상입니다. 설치 전 <link>신뢰 안내</link>를 읽어 보세요.",
     "supportedLabel": "지원됨",

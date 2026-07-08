@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "ទីផ្សារផ្នែកបន្ថែម",
-      "metaDescription": "របៀប marketplace cmux ពិនិត្យការផ្ញើ និងបង្ហាញផ្នែកបន្ថែមដែលគាំទ្រ។",
+      "metaDescription": "របៀប marketplace cmux ពិនិត្យការផ្ញើ បង្ហាញផ្នែកបន្ថែមដែលគាំទ្រ និងណែនាំទៅកាន់ពាក្យបញ្ជាដំឡើងដែលអាចចម្លងបាន។",
       "title": "ទីផ្សារផ្នែកបន្ថែម",
-      "intro": "marketplace គឺជា registry ដែលបានជ្រើសរើសសម្រាប់ Dock TUI ដែលគាំទ្រ; បង្ហាញតែ repository ដែលអនុម័ត។",
+      "intro": "marketplace គឺជា registry ដែលបានជ្រើសរើសសម្រាប់ TUI extensions ដែលគាំទ្រ; បង្ហាញតែ repository ដែលក្រុម cmux អនុម័ត។",
       "discoveryTitle": "ការរកឃើញ",
       "discoveryIntro": "គេហទំព័រអាន manaflow-ai/awesome-cmux extensions.json ពេលមាន request ហើយប្រើ seed ដែលភ្ជាប់មកជា fallback ប៉ុណ្ណោះ។ repository បង្ហាញបន្ទាប់ពី maintainer merge ធាតុនៅទីនោះ:",
       "submitTitle": "ផ្ញើផ្នែកបន្ថែម",
@@ -1584,9 +1584,9 @@
       "approvalReview": "យើងពិនិត្យ manifest, commands, license និង code ពាក់ព័ន្ធ។",
       "approvalDogfood": "យើងសាកល្បង panes ដើម្បីបញ្ជាក់អាកប្បកិរិយា។",
       "approvalMerge": "maintainer merge PR ដែលបន្ថែម repository ទៅ manaflow-ai/awesome-cmux extensions.json។",
-      "installTitle": "ប៊ូតុងដំឡើង",
-      "installIntro": "ប៊ូតុង \"ដំឡើងក្នុង cmux\" នៅក្នុងវិចិត្រសាលគឺជាតំណភ្ជាប់ជ្រៅ cmux ធម្មតាដែលមានតែឈ្មោះឃ្លាំងកូដប៉ុណ្ណោះ៖",
-      "installConsent": "កម្មវិធី cmux បើកតំណភ្ជាប់ ទាញយកឃ្លាំងកូដ ផ្ទៀងផ្ទាត់ manifest ភ្ជាប់ការដំឡើងទៅ commit មួយ ហើយបង្ហាញអេក្រង់យល់ព្រមក្នុងកម្មវិធីមុនពេលដំណើរការអ្វីមួយ។",
+      "installTitle": "ពាក្យបញ្ជាដំឡើង",
+      "installIntro": "វិចិត្រសាលបង្ហាញពាក្យបញ្ជា terminal ដែលអាចចម្លងបានសម្រាប់ extension នីមួយៗ៖",
+      "installConsent": "បិទភ្ជាប់ពាក្យបញ្ជានៅក្នុង terminal ណាមួយ។ cmux CLI ទាញយក repository ផ្ទៀងផ្ទាត់ manifest ភ្ជាប់ការដំឡើងទៅ commit មួយ ហើយស្នើសុំការយល់ព្រមមុនពេលដំណើរការអ្វីមួយ។",
       "takedownsTitle": "ការដកចេញ",
       "takedownsIntro": "ការដកចេញ ឬ takedown គឺ PR បញ្ច្រាសលើ manaflow-ai/awesome-cmux extensions.json។ ការលុបធាតុ repository នឹងយកវាចេញពីវិចិត្រសាលសាធារណៈបន្ទាប់ពី cache refresh។"
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "ធនធានម៉ាក"
   },
   "extensions": {
-    "metaDescription": "រកមើលផ្នែកបន្ថែម cmux Dock TUI ដែលក្រុម cmux ពិនិត្យ និងគាំទ្រ។",
+    "metaDescription": "រកមើលផ្នែកបន្ថែម cmux TUI ដែលក្រុម cmux ពិនិត្យ និងគាំទ្រ។",
     "intro": "វិចិត្រសាលផ្នែកបន្ថែម TUI របស់សហគមន៍ដែលបានជ្រើសរើស ហើយគាំទ្រដោយ cmux។",
     "trustNote": "ផ្នែកបន្ថែមទាំងអស់ត្រូវបានពិនិត្យ និងគាំទ្រ។ អាន <link>កំណត់សម្គាល់ទំនុកចិត្ត</link> មុនដំឡើង។",
     "supportedLabel": "បានគាំទ្រ",

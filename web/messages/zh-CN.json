@@ -1567,9 +1567,9 @@
     },
     "extensionsMarketplace": {
       "metaTitle": "扩展市场",
-      "metaDescription": "精选 cmux marketplace 如何审核提交并列出受支持扩展。",
+      "metaDescription": "精选 cmux marketplace 如何审核提交、列出受支持扩展，并引导用户复制安装命令。",
       "title": "扩展市场",
-      "intro": "marketplace 是受支持 Dock TUI 扩展的 registry；只显示已批准仓库。",
+      "intro": "marketplace 是受支持 TUI 扩展的精选 registry；只显示 cmux 团队批准的仓库。",
       "discoveryTitle": "发现",
       "discoveryIntro": "网站在请求时读取 manaflow-ai/awesome-cmux 的 extensions.json，内置 seed 只作为 fallback。仓库只有在 maintainer 将条目合并到那里后才会显示：",
       "submitTitle": "提交扩展",
@@ -1584,9 +1584,9 @@
       "approvalReview": "我们审核 manifest、命令、许可证和相关代码。",
       "approvalDogfood": "我们试用 panes 以确认行为符合描述。",
       "approvalMerge": "maintainer 合并把仓库加入 manaflow-ai/awesome-cmux extensions.json 的 PR。",
-      "installTitle": "安装按钮",
-      "installIntro": "图库中的“在 cmux 中安装”按钮是一个仅包含仓库名称的普通 cmux 深层链接：",
-      "installConsent": "cmux 应用会打开链接、获取仓库、验证清单、将安装固定到某个提交，并在运行任何内容之前显示应用内同意界面。",
+      "installTitle": "安装命令",
+      "installIntro": "图库会为每个扩展显示可复制的终端命令：",
+      "installConsent": "将命令粘贴到任意终端中。cmux CLI 会获取仓库、验证清单、将安装固定到某个提交，并在运行任何内容之前请求同意。",
       "takedownsTitle": "下架",
       "takedownsIntro": "移除或 takedown 是针对 manaflow-ai/awesome-cmux extensions.json 的反向 PR。删除仓库条目后，它会在缓存刷新后从公开图库中移除。"
     }
@@ -1708,7 +1708,7 @@
     "brandPage": "品牌素材"
   },
   "extensions": {
-    "metaDescription": "浏览由 cmux 团队审核并支持的 cmux Dock TUI 扩展。",
+    "metaDescription": "浏览由 cmux 团队审核并支持的 cmux TUI 扩展。",
     "intro": "精选的社区 TUI 扩展图库；这里的每个扩展都由 cmux 支持。",
     "trustNote": "每个扩展都已审核并受支持。安装前请阅读<link>信任说明</link>。",
     "supportedLabel": "已支持",

@@ -56,7 +56,7 @@ struct ExtensionConsentView: View {
     private var promptContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(
-                String(localized: "extensions.consent.prompt.title", defaultValue: "Install a Dock extension"),
+                String(localized: "extensions.consent.prompt.title", defaultValue: "Install an extension"),
                 systemImage: "puzzlepiece.extension"
             )
             .font(.system(size: 15, weight: .semibold))
@@ -190,7 +190,7 @@ struct ExtensionConsentView: View {
                 ))
                 Text(String(
                     localized: "extensions.consent.pinNote",
-                    defaultValue: "Installing pins it to the commit shown above and enables the Dock beta feature. It never updates without asking again."
+                    defaultValue: "Installing pins it to the commit shown above. It never updates without asking again."
                 ))
                 .foregroundStyle(.secondary)
             }
@@ -230,7 +230,7 @@ struct ExtensionConsentView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle(String(
                 localized: "extensions.consent.panes",
-                defaultValue: "Runs when you open its Dock panes"
+                defaultValue: "Runs when you open its terminal panes"
             ))
             ForEach(preview.manifest.panesForCurrentPlatform, id: \.id) { pane in
                 VStack(alignment: .leading, spacing: 3) {
@@ -346,7 +346,7 @@ struct ExtensionConsentView: View {
                 .font(.system(size: 13, weight: .semibold))
             Text(String(
                 localized: "extensions.consent.installed.detail",
-                defaultValue: "Open its panes from the Dock, the command palette, or Settings → Extensions."
+                defaultValue: "Open its panes from the command palette, Settings → Extensions, or the cmux CLI."
             ))
             .font(.system(size: 11.5))
             .foregroundStyle(.secondary)

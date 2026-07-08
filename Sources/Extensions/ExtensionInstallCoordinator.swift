@@ -24,7 +24,7 @@ final class ExtensionInstallCoordinator {
         case installing(DockExtensionInstallPreview)
         /// Terminal failure.
         case failed(message: String)
-        /// Success; `openPaneQualifiedId` offers a one-click open when the
+        /// Success; `openPaneQualifiedId` offers an Open Now action when the
         /// extension has exactly one pane.
         case installed(name: String, openPaneQualifiedId: String?)
     }
@@ -125,13 +125,6 @@ final class ExtensionInstallCoordinator {
         Task { @MainActor in
             do {
                 try await store.install(preview)
-                // GUI install: reveal the Dock so the user sees where panes
-                // live. Socket/CLI installs skip this (focus policy); their
-                // reveal happens only on explicit `extension open`.
-                AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                    mode: .dock,
-                    focusFirstItem: false
-                )
                 let panes = preview.manifest.panesForCurrentPlatform
                 let openPaneQualifiedId = panes.count == 1
                     ? panes.first.map {

@@ -1,10 +1,10 @@
 import CmuxDockExtensions
 import Foundation
 
-/// A `cmux://extensions/install?repo=owner/repo[&subdir=…][&ref=…]` deep link
-/// — the marketplace gallery's "Install in cmux" button. Parsing never
-/// installs anything: a valid request only opens the consent window, where
-/// the exact pinned commit and commands are reviewed like any other install.
+/// A legacy `cmux://extensions/install?repo=owner/repo[&subdir=…][&ref=…]`
+/// deep link. Parsing never installs anything: a valid request only opens the
+/// consent window, where the exact pinned commit and commands are reviewed
+/// like any other install.
 struct CmuxExtensionInstallURLRequest: Equatable {
     /// Reasons a recognized `extensions/install` link is rejected.
     enum ParseError: Error, Equatable {
