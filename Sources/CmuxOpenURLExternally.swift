@@ -17,7 +17,7 @@ nonisolated private let logger = Logger(subsystem: Bundle.main.bundleIdentifier 
 /// thread and from WKNavigationDelegate callbacks.
 @discardableResult
 func cmuxOpenURLExternally(_ url: URL) -> Bool {
-    let preferred = CmuxSettingsCatalog.shared.browser.preferredExternalBrowser.value
+    let preferred = SettingCatalog().browser.preferredExternalBrowser.value(in: .standard)
         .trimmingCharacters(in: .whitespacesAndNewlines)
 
     guard !preferred.isEmpty else {
