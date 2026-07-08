@@ -137,6 +137,71 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Unwraps node-hosted known agent argv")
+    func unwrapsNodeHostedKnownAgentArgv() {
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                ["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex", "--model", "gpt-5.5"],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("Unwrap skips node options before script")
+    func unwrapSkipsNodeOptionsBeforeScript() {
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                [
+                    "node",
+                    "--require",
+                    "tsx",
+                    "--import=loader",
+                    "--conditions",
+                    "development",
+                    "/tools/claude.js",
+                    "--model",
+                    "claude-fable-5",
+                ],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == ["claude", "--model", "claude-fable-5"]
+        )
+    }
+
+    @Test("Unwrap bails when node option consumes script")
+    func unwrapBailsWhenNodeOptionConsumesScript() {
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                ["node", "-e", "require('/tools/codex')", "--model", "gpt-5.5"],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                ["node", "--eval", "require('/tools/codex')"],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == nil
+        )
+    }
+
+    @Test("Unwrap ignores unknown JavaScript scripts")
+    func unwrapIgnoresUnknownJavaScriptScripts() {
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                ["node", "script.js", "--model", "gpt-5.5"],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == nil
+        )
+    }
+
+    @Test("Unwrap accepts bun-hosted known agents")
+    func unwrapAcceptsBunHostedKnownAgents() {
+        #expect(
+            AgentLaunchSanitizer.unwrappedJavaScriptRuntimeAgentArgv(
+                ["bun", "/repo/bin/codex.mjs", "--model", "gpt-5.5"],
+                isKnownAgentExecutableName: isKnownAgentExecutableName
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
 
     private func realisticCodexHookArgv() -> [String] {
         [
@@ -162,5 +227,9 @@ struct CodexHookInjectionStrippingTests {
             "-c",
             "model_reasoning_effort=xhigh",
         ]
+    }
+
+    private func isKnownAgentExecutableName(_ name: String) -> Bool {
+        name == "codex" || name == "claude"
     }
 }

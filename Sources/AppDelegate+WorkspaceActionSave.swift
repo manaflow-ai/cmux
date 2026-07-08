@@ -298,6 +298,10 @@ extension AppDelegate {
     ) {
         let snapshot = workspace.captureConfigActionSnapshot()
         let globalConfigPath = cmuxConfigStore.globalConfigPath
+        if let oversizedCommand = snapshot.oversizedCommands.first {
+            presentWorkspaceCommandTooLongAlert(oversizedCommand, for: window)
+            return
+        }
 
         let alert = NSAlert()
         alert.messageText = String(
@@ -319,57 +323,15 @@ extension AppDelegate {
             )
             message += "\n\n" + String(format: skippedFormat, Int64(snapshot.skippedPanelCount))
         }
-        let capturedCommands = snapshot.capturedCommands
-        if !capturedCommands.isEmpty {
-            // Show every command verbatim so nothing secret-bearing is written
-            // to the config without the user seeing it first.
-            let commandsHeader = String(
-                localized: "dialog.saveWorkspaceLayout.commandsHeader",
-                defaultValue: "Commands that will be saved and re-run:"
-            )
-            message += "\n\n" + commandsHeader + "\n" + capturedCommands.joined(separator: "\n")
-        }
-        let capturedURLs = snapshot.capturedURLs
-        if !capturedURLs.isEmpty {
-            let urlsHeader = String(
-                localized: "dialog.saveWorkspaceLayout.urlsHeader",
-                defaultValue: "URLs that will be saved:"
-            )
-            message += "\n\n" + urlsHeader + "\n" + capturedURLs.joined(separator: "\n")
-        }
-        let capturedEnvironmentKeys = snapshot.capturedEnvironmentKeys
-        if !capturedEnvironmentKeys.isEmpty {
-            let envHeader = String(
-                localized: "dialog.saveWorkspaceLayout.envHeader",
-                defaultValue: "Environment variables whose values will be saved:"
-            )
-            message += "\n\n" + envHeader + "\n" + capturedEnvironmentKeys.joined(separator: ", ")
-        }
         alert.informativeText = message
 
-        let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        nameField.stringValue = workspace.customTitle
-            ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent
-        nameField.placeholderString = String(
-            localized: "dialog.saveWorkspaceLayout.namePlaceholder",
-            defaultValue: "Layout name"
+        let accessory = WorkspaceActionSaveDialogAccessory(
+            snapshot: snapshot,
+            initialName: workspace.customTitle
+                ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent
         )
-        let makeDefaultCheckbox = NSButton(
-            checkboxWithTitle: String(
-                localized: "dialog.saveWorkspaceLayout.makeDefaultCheckbox",
-                defaultValue: "Use as default for new workspaces"
-            ),
-            target: nil,
-            action: nil
-        )
-        makeDefaultCheckbox.state = .off
-        let accessoryStack = NSStackView(views: [nameField, makeDefaultCheckbox])
-        accessoryStack.orientation = .vertical
-        accessoryStack.alignment = .leading
-        accessoryStack.spacing = 8
-        accessoryStack.frame = NSRect(x: 0, y: 0, width: 260, height: 56)
-        alert.accessoryView = accessoryStack
-        alert.window.initialFirstResponder = nameField
+        alert.accessoryView = accessory.view
+        alert.window.initialFirstResponder = accessory.nameField
         alert.addButton(withTitle: String(
             localized: "dialog.saveWorkspaceLayout.save",
             defaultValue: "Save"
@@ -381,7 +343,7 @@ extension AppDelegate {
 
         alert.beginSheetModal(for: window) { [weak window, weak cmuxConfigStore] response in
             guard response == .alertFirstButtonReturn else { return }
-            let typedTitle = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let typedTitle = accessory.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = typedTitle.isEmpty
                 ? String(localized: "dialog.saveWorkspaceLayout.defaultName", defaultValue: "Workspace")
                 : typedTitle
@@ -401,7 +363,7 @@ extension AppDelegate {
                     reservedActionIDs: cmuxConfigStore.map { Set($0.actionLookup.keys) } ?? []
                 )
                 var defaultUpdateError: Error?
-                if makeDefaultCheckbox.state == .on {
+                if accessory.makeDefaultCheckbox.state == .on {
                     do {
                         try CmuxConfigActionSaver.setNewWorkspaceDefaultAction(
                             id: result.actionID,
@@ -436,6 +398,36 @@ extension AppDelegate {
                 errorAlert.beginSheetModal(for: window)
             }
         }
+    }
+
+    private func presentWorkspaceCommandTooLongAlert(_ command: String, for window: NSWindow) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.saveWorkspaceLayout.commandTooLongTitle",
+            defaultValue: "Command Too Long to Save"
+        )
+        let messageFormat = String(
+            localized: "dialog.saveWorkspaceLayout.commandTooLongMessage",
+            defaultValue: "A captured command is longer than %1$lld UTF-8 bytes and cannot be replayed reliably from a saved layout. Shorten it before saving.\n\n%2$@"
+        )
+        alert.informativeText = String(
+            format: messageFormat,
+            Int64(TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length),
+            truncatedWorkspaceCommandPreview(command)
+        )
+        alert.addButton(withTitle: String(
+            localized: "dialog.saveWorkspaceLayout.ok",
+            defaultValue: "OK"
+        ))
+        alert.beginSheetModal(for: window)
+    }
+
+    private func truncatedWorkspaceCommandPreview(_ command: String) -> String {
+        let maxCharacters = 120
+        guard command.count > maxCharacters else { return command }
+        let endIndex = command.index(command.startIndex, offsetBy: maxCharacters)
+        return String(command[..<endIndex]) + "…"
     }
 
     private func presentNewWorkspaceDefaultLayoutError(_ error: Error, for window: NSWindow) {

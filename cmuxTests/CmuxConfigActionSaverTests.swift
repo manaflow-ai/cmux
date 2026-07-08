@@ -401,6 +401,23 @@ struct CmuxConfigActionSaverTests {
         #expect(plain.capturedEnvironmentKeys == [])
     }
 
+    @Test func snapshotReportsOversizedCommands() {
+        let exactLimit = String(repeating: "a", count: TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length)
+        let oversized = exactLimit + "b"
+        let snapshot = WorkspaceConfigActionSnapshot(
+            definition: CmuxWorkspaceDefinition(
+                name: "W",
+                setup: oversized,
+                layout: .pane(CmuxPaneDefinition(surfaces: [
+                    CmuxSurfaceDefinition(type: .terminal, command: exactLimit),
+                    CmuxSurfaceDefinition(type: .terminal, command: oversized),
+                ]))
+            ),
+            skippedPanelCount: 0
+        )
+        #expect(snapshot.oversizedCommands == [oversized, oversized])
+    }
+
     private func nodeWrappedCodexHookArgv() -> [String] {
         [
             "node",
