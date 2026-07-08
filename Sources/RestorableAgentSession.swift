@@ -959,6 +959,11 @@ struct RestorableAgentSessionIndex: Sendable {
         let kind: RestorableAgentKind
     }
 
+    private struct PanelIDKindKey: Hashable {
+        let panelId: UUID
+        let kind: RestorableAgentKind
+    }
+
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
@@ -1090,6 +1095,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
+        var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1143,6 +1149,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
+                let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
                 let liveProcessID = liveScopedProcessID(
                     for: effectiveRecord,
                     kind: kind,
@@ -1168,6 +1175,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
                 if shouldReplaceHookEntry(
+                    existing: hookCandidatesByPanelIdAndKind[panelIDKindKey],
+                    incoming: entry
+                ) {
+                    hookCandidatesByPanelIdAndKind[panelIDKindKey] = entry
+                }
+                if shouldReplaceHookEntry(
                     existing: hookCandidatesBySession[sessionKey],
                     incoming: entry
                 ) {
@@ -1186,7 +1199,27 @@ struct RestorableAgentSessionIndex: Sendable {
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
-            if let existing = Self.matchingHookEntry(
+            let sameKindStablePanelCandidate = sameKindPanelCandidate ?? hookCandidatesByPanelIdAndKind[
+                PanelIDKindKey(panelId: key.panelId, kind: detected.snapshot.kind)
+            ]
+            if detected.sessionIDSource == .inferredLatestSessionFile,
+               let panelCandidate = sameKindStablePanelCandidate {
+                // Latest-file detection is ambiguous when multiple panels or restored workspaces share a
+                // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
+                // live process evidence for the restored panel. The workspace UUID can rotate during
+                // session restore, but the surface id is intentionally reused on the normal restore path.
+                resolved[key] = Entry(
+                    snapshot: panelCandidate.snapshot,
+                    lifecycle: panelCandidate.lifecycle,
+                    updatedAt: panelCandidate.updatedAt,
+                    processIDs: detected.processIDs,
+                    agentProcessIDs: detected.agentProcessIDs,
+                    agentProcessIdentities: agentProcessIdentities(
+                        for: detected.agentProcessIDs,
+                        processIdentityProvider: processIdentityProvider
+                    )
+                )
+            } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
                 panelCandidate: sameKindPanelCandidate,
@@ -1198,21 +1231,6 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
-                    processIDs: detected.processIDs,
-                    agentProcessIDs: detected.agentProcessIDs,
-                    agentProcessIdentities: agentProcessIdentities(
-                        for: detected.agentProcessIDs,
-                        processIdentityProvider: processIdentityProvider
-                    )
-                )
-            } else if detected.sessionIDSource == .inferredLatestSessionFile,
-                      let panelCandidate = sameKindPanelCandidate {
-                // Latest-file detection is ambiguous when multiple panels share a cwd; preserve the exact
-                // hook-store identity while still carrying live process evidence for this panel.
-                resolved[key] = Entry(
-                    snapshot: panelCandidate.snapshot,
-                    lifecycle: panelCandidate.lifecycle,
-                    updatedAt: panelCandidate.updatedAt,
                     processIDs: detected.processIDs,
                     agentProcessIDs: detected.agentProcessIDs,
                     agentProcessIdentities: agentProcessIdentities(
