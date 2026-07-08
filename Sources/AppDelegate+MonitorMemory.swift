@@ -162,7 +162,8 @@ extension AppDelegate {
         }
 
         // Reachability safety net: any window still stranded is clamped back.
-        for window in mainWindowsForVisibilityController() {
+        let mainWindows = mainWindowsForVisibilityController()
+        for window in mainWindows {
             // Native-fullscreen windows are owned by AppKit's Space machinery;
             // clamping them mid-transition fights the fullscreen teardown.
             guard !window.styleMask.contains(.fullScreen) else { continue }
@@ -180,6 +181,10 @@ extension AppDelegate {
 #endif
             window.setFrame(corrected, display: true)
         }
+        mainWindowVisibleFrameFitRescue.performFitIfNeeded(
+            displays: displays.available,
+            windows: mainWindows
+        )
     }
 
     /// Restores each window's remembered frame for `signature`, routed through

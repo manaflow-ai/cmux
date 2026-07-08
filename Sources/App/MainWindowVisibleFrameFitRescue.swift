@@ -1,51 +1,29 @@
 import AppKit
 import CmuxWindowing
 
-/// Watches real display-topology changes and fits cut-off main windows back
-/// into a current visible frame. This complements the titlebar-stranding rescue
-/// in PR #7265: that pass handles unreachable drag handles; this pass handles
-/// reachable windows whose body is still clipped or oversized.
+/// Fits cut-off main windows back into a current visible frame after AppDelegate
+/// observes and guards a real display-topology change. This complements the
+/// titlebar-stranding rescue in PR #7265: that pass handles unreachable drag
+/// handles; this pass handles reachable windows whose body is still clipped or
+/// oversized.
 @MainActor
-final class MainWindowVisibleFrameFitRescue: NSObject {
+final class MainWindowVisibleFrameFitRescue {
     private let fitCore: MainWindowVisibleFrameFitCore
     private var cachedSignature: [MainWindowVisibleFrameTopologySignatureEntry] = []
-    private var pendingFitTask: Task<Void, Never>?
-    private var isInstalled = false
 
-    /// Owned and installed by `AppDelegate`.
+    /// Owned and invoked by `AppDelegate` from the guarded screen-change path.
     init(fitCore: MainWindowVisibleFrameFitCore = MainWindowVisibleFrameFitCore()) {
         self.fitCore = fitCore
-        super.init()
     }
 
-    func install() {
-        guard !isInstalled else { return }
-        cachedSignature = currentTopologySignature()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(screenParametersDidChange(_:)),
-            name: NSApplication.didChangeScreenParametersNotification,
-            object: nil
-        )
-        isInstalled = true
+    func seedCurrentTopology(displays: [SessionDisplayGeometry]) {
+        cachedSignature = fitCore.topologySignature(of: displays)
     }
 
-    deinit {
-        pendingFitTask?.cancel()
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc private func screenParametersDidChange(_: Notification) {
-        pendingFitTask?.cancel()
-        pendingFitTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            self?.performFitIfNeeded()
-        }
-    }
-
-    private func performFitIfNeeded() {
-        let displays = Self.currentDisplays()
+    func performFitIfNeeded(
+        displays: [SessionDisplayGeometry],
+        windows: [NSWindow]
+    ) {
         guard !displays.isEmpty else { return }
 
         let signature = fitCore.topologySignature(of: displays)
@@ -53,20 +31,20 @@ final class MainWindowVisibleFrameFitRescue: NSObject {
         cachedSignature = signature
         guard topologyChanged else { return }
 
-        let windows = NSApp.windows
+        let mainWindows = windows
             .compactMap { $0 as? CmuxMainWindow }
             .filter { window in
                 !window.styleMask.contains(.fullScreen)
             }
-        guard !windows.isEmpty else { return }
+        guard !mainWindows.isEmpty else { return }
 
         let fittedFrames = fitCore.fittedFrames(
-            for: windows.map(\.frame),
+            for: mainWindows.map(\.frame),
             displays: displays,
             minimumWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
             minimumHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
         )
-        for (window, targetFrame) in zip(windows, fittedFrames) {
+        for (window, targetFrame) in zip(mainWindows, fittedFrames) {
             guard let targetFrame, targetFrame != window.frame else { continue }
             let originalFrame = window.frame
 #if DEBUG
@@ -85,21 +63,6 @@ final class MainWindowVisibleFrameFitRescue: NSObject {
             )
             window.setFrame(targetFrame, display: true)
         }
-    }
-
-    private static func currentDisplays() -> [SessionDisplayGeometry] {
-        NSScreen.screens.map { screen in
-            SessionDisplayGeometry(
-                displayID: screen.cmuxDisplayID,
-                stableID: screen.cmuxStableDisplayKey,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame
-            )
-        }
-    }
-
-    private func currentTopologySignature() -> [MainWindowVisibleFrameTopologySignatureEntry] {
-        fitCore.topologySignature(of: Self.currentDisplays())
     }
 
     private static func rectDescription(_ rect: CGRect) -> String {

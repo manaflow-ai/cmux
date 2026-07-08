@@ -2084,7 +2084,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         // Seed so the first display change after launch can restore geometry.
         lastAppliedConfigurationSignature = currentDisplayConfigurationSignature()
-        mainWindowVisibleFrameFitRescue.install()
+        mainWindowVisibleFrameFitRescue.seedCurrentTopology(
+            displays: currentDisplayGeometries().available
+        )
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
