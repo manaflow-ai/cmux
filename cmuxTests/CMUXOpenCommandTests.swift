@@ -10,7 +10,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let timedOut: Bool
     }
 
-    private final class MockSocketServerState: @unchecked Sendable {
+    final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private(set) var commands: [String] = []
 
@@ -21,7 +21,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
-    private final class AsyncValueBox<Value>: @unchecked Sendable {
+    final class AsyncValueBox<Value>: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Value
 
@@ -347,7 +347,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.hasPrefix("OK surface=surface-id pane=pane-id path="), result.stdout)
+        XCTAssertEqual(result.stdout, "OK surface=surface-id pane=pane-id\n")
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
 
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
@@ -390,13 +390,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">") && html.contains("background: transparent;"), html)
         XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
-        XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
+        let appModuleURL = try XCTUnwrap(viewerAssets["appModuleURL"])
+        XCTAssertTrue(html.contains("<script type=\"module\" src=\"\(appModuleURL)\"></script>"), html)
+        XCTAssertTrue(appModuleURL.hasPrefix("./assets/") && appModuleURL.hasSuffix("/main.mjs"), appModuleURL)
+        let appAssetDirectoryName = String(appModuleURL.dropFirst("./assets/".count).dropLast("/main.mjs".count))
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
+            .appendingPathComponent(appAssetDirectoryName, isDirectory: true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))
@@ -424,7 +427,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 file["mime_type"] as? String == "text/x-diff"
         })
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
+            file["request_path"] as? String == "/\(appModuleURL.dropFirst(2))" &&
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertTrue(files.contains { file in
@@ -537,8 +540,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         let params = try XCTUnwrap(payload["params"] as? [String: Any])
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
+        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
+        let appModuleURL = try XCTUnwrap(diffViewerAssets(from: diffViewerConfig(from: html))["appModuleURL"])
         let appEntry = try XCTUnwrap(files.first { file in
-            (file["request_path"] as? String)?.hasSuffix("/assets/cmux-diff-viewer-app/main.mjs") == true
+            file["request_path"] as? String == "/\(appModuleURL.dropFirst(2))"
         })
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         let appMain = try String(contentsOfFile: appFilePath, encoding: .utf8)
@@ -1812,189 +1818,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(patch.contains("+new line"), patch)
     }
 
-    func testDiffCommandDoesNotResolveSmartBranchBaseBeforeUnstagedFirstPaint() throws {
-        let cliPath = try bundledCLIPath()
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
-        let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
-        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
-        let fakeGHURL = fakeBinURL.appendingPathComponent("gh", isDirectory: false)
-        let diffStartedURL = rootURL.appendingPathComponent("diff-started", isDirectory: false)
-        let releaseDiffURL = rootURL.appendingPathComponent("release-diff", isDirectory: false)
-        let alternateStartedURL = rootURL.appendingPathComponent("alternate-started", isDirectory: false)
-        let releaseAlternateURL = rootURL.appendingPathComponent("release-alternate", isDirectory: false)
-        let ghLogURL = rootURL.appendingPathComponent("gh.log", isDirectory: false)
-        try FileManager.default.createDirectory(at: repoURL.appendingPathComponent(".git", isDirectory: true), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        try """
-        #!/bin/sh
-        if [ "${1:-}" = "-C" ]; then
-          shift 2
-        fi
-        if [ "${1:-}" = "rev-parse" ] && [ "${2:-}" = "--show-toplevel" ]; then
-          printf '%s\\n' "$CMUX_FAKE_GIT_REPO_ROOT"
-          exit 0
-        fi
-        if [ "${1:-}" = "rev-parse" ] && [ "${2:-}" = "--abbrev-ref" ]; then
-          printf 'feature/dvfast\\n'
-          exit 0
-        fi
-        if [ "${1:-}" = "rev-parse" ] && [ "${2:-}" = "--verify" ]; then
-          exit 0
-        fi
-        if [ "${1:-}" = "symbolic-ref" ]; then
-          printf 'origin/main\\n'
-          exit 0
-        fi
-        if [ "${1:-}" = "config" ]; then
-          exit 1
-        fi
-        if [ "${1:-}" = "merge-base" ]; then
-          printf 'mergebase\\n'
-          exit 0
-        fi
-        if [ "${1:-}" = "diff" ]; then
-          for arg in "$@"; do
-            if [ "$arg" = "--cached" ]; then
-              : > "$CMUX_FAKE_GIT_ALTERNATE_STARTED"
-              while [ ! -f "$CMUX_FAKE_GIT_RELEASE_ALTERNATE" ]; do
-                sleep 0.05
-              done
-              cat <<'PATCH'
-        diff --git a/staged.txt b/staged.txt
-        index 1111111..2222222 100644
-        --- a/staged.txt
-        +++ b/staged.txt
-        @@ -1 +1 @@
-        -old staged
-        +new staged
-        PATCH
-              exit 0
-            fi
-          done
-          : > "$CMUX_FAKE_GIT_STARTED"
-          while [ ! -f "$CMUX_FAKE_GIT_RELEASE" ]; do
-            sleep 0.05
-          done
-          cat <<'PATCH'
-        diff --git a/worktree.txt b/worktree.txt
-        index 1111111..2222222 100644
-        --- a/worktree.txt
-        +++ b/worktree.txt
-        @@ -1 +1 @@
-        -old line
-        +new line
-        PATCH
-          exit 0
-        fi
-        if [ "${1:-}" = "for-each-ref" ]; then
-          exit 0
-        fi
-        if [ "${1:-}" = "rev-list" ]; then
-          printf '0\\t1\\n'
-          exit 0
-        fi
-        exit 1
-        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGitURL.path)
-
-        try """
-        #!/bin/sh
-        printf '%s\\n' "$*" >> "$CMUX_FAKE_GH_LOG"
-        printf 'main\\n'
-        exit 0
-        """.write(to: fakeGHURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGHURL.path)
-
-        let socketPath = makeSocketPath("diff-gh")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let openedURLBox = AsyncValueBox<String?>(nil)
-        let openedHTMLURLBox = AsyncValueBox<URL?>(nil)
-        let openHandled = expectation(description: "browser opened before smart branch base lookup")
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverClosed = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String,
-                  method == "browser.open_split",
-                  let params = payload["params"] as? [String: Any],
-                  let rawURL = params["url"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-            }
-            openedURLBox.set(rawURL)
-            if let htmlURL = Self.diffViewerHTMLFileURLFromHTTPManifest(for: rawURL) {
-                openedHTMLURLBox.set(htmlURL)
-            }
-            openHandled.fulfill()
-            return Self.v2Response(
-                id: id,
-                ok: true,
-                result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL]
-            )
-        }
-
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(fakeBinURL.path):\(environment["PATH"] ?? "")"
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-        environment["CMUX_FAKE_GIT_REPO_ROOT"] = repoURL.path
-        environment["CMUX_FAKE_GIT_STARTED"] = diffStartedURL.path
-        environment["CMUX_FAKE_GIT_RELEASE"] = releaseDiffURL.path
-        environment["CMUX_FAKE_GIT_ALTERNATE_STARTED"] = alternateStartedURL.path
-        environment["CMUX_FAKE_GIT_RELEASE_ALTERNATE"] = releaseAlternateURL.path
-        environment["CMUX_FAKE_GH_LOG"] = ghLogURL.path
-        process.executableURL = URL(fileURLWithPath: cliPath)
-        process.arguments = ["diff", "--unstaged", "--cwd", repoURL.path, "--title", "Fast first paint", "--no-focus"]
-        process.environment = environment
-        process.currentDirectoryURL = repoURL
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        try process.run()
-        defer { terminateProcess(process) }
-
-        wait(for: [openHandled], timeout: 5)
-        XCTAssertNotNil(openedURLBox.get())
-        XCTAssertFalse(FileManager.default.fileExists(atPath: ghLogURL.path))
-        FileManager.default.createFile(atPath: releaseDiffURL.path, contents: Data())
-
-        let openingHTMLURL = try XCTUnwrap(openedHTMLURLBox.get())
-        XCTAssertTrue(waitUntil(timeout: 5) {
-            let html = (try? String(contentsOf: openingHTMLURL, encoding: .utf8)) ?? ""
-            return html.contains("data-cmux-diff-redirect=")
-                && FileManager.default.fileExists(atPath: alternateStartedURL.path)
-        })
-        let ghLogAtFirstPaint = (try? String(contentsOf: ghLogURL, encoding: .utf8)) ?? ""
-        XCTAssertEqual(ghLogAtFirstPaint, "")
-
-        FileManager.default.createFile(atPath: releaseAlternateURL.path, contents: Data())
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
-        XCTAssertEqual(finished.wait(timeout: .now() + 5), .success)
-        wait(for: [serverClosed], timeout: 5)
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, stderr)
-        XCTAssertTrue(stdout.contains("OK surface=surface-id pane=pane-id"), stdout)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: diffStartedURL.path))
-    }
-
     func testTopCommandSortsWorkspacesByCPUDescending() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-cpu")
@@ -2487,7 +2310,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return try diffViewerHTMLFileURL(for: rawURL, from: params)
     }
 
-    private static func diffViewerHTMLFileURLFromHTTPManifest(for rawURL: String) -> URL? {
+    static func diffViewerHTMLFileURLFromHTTPManifest(for rawURL: String) -> URL? {
         guard let viewerURL = URL(string: rawURL),
               viewerURL.scheme == "http",
               viewerURL.host == "127.0.0.1" else {
@@ -2721,7 +2544,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
     }
 
-    private func bundledCLIPath() throws -> String {
+    func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
@@ -2873,7 +2696,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return (data ?? Data(), statusCode ?? 0)
     }
 
-    private func terminateProcess(_ process: Process) {
+    func terminateProcess(_ process: Process) {
         guard process.isRunning else { return }
         process.terminate()
         let finished = DispatchSemaphore(value: 0)
@@ -2887,7 +2710,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
     }
 
-    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+    func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() {
@@ -2898,7 +2721,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return condition()
     }
 
-    private func bindUnixSocket(at path: String) throws -> Int32 {
+    func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -2930,14 +2753,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         return fd
     }
 
-    private func makeSocketPath(_ name: String) -> String {
+    func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
     }
 
-    private func startMockServer(
+    func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
         handler: @escaping @Sendable (String) -> String
@@ -3039,12 +2862,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         output.split(separator: "\n").map(String.init)
     }
 
-    private static func v2Payload(from line: String) -> [String: Any]? {
+    static func v2Payload(from line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
