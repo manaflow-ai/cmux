@@ -179,6 +179,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
   readLines(proc.stdout, (line) => {
     const msg = tryParse(line);
     if (!msg) return;
+    if (msg.jsonrpc !== undefined && msg.jsonrpc !== "2.0") return;
     if (msg.id != null && (msg.result !== undefined || msg.error !== undefined)) {
       const p = pending.get(msg.id);
       if (p) {
