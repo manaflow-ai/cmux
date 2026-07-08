@@ -31,6 +31,10 @@ public enum BrowserSecurityIndicator: Equatable, Sendable {
         self = .insecure
     }
 
+    // These helpers are static members rather than file-scope functions
+    // because scripts/lint-ios-package-conventions.sh forbids top-level
+    // funcs in iOS packages; the enum has cases, so it is a real value
+    // type, not a static namespace.
     private static func isLocalOrPrivateHost(_ host: String) -> Bool {
         let normalized = host.lowercased()
         if normalized == "localhost" || normalized.hasSuffix(".localhost") {
