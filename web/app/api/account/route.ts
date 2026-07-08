@@ -101,8 +101,17 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
 
 async function destroyPersonalCloudVms(userId: string): Promise<number> {
   const vms = await runVmWorkflow(listUserVms(userId));
+  const failures: unknown[] = [];
   for (const vm of vms) {
-    await runVmWorkflow(destroyVm({ userId, providerVmId: vm.providerVmId }));
+    try {
+      await runVmWorkflow(destroyVm({ userId, providerVmId: vm.providerVmId }));
+    } catch (error) {
+      failures.push(error);
+      logAccountDeleteError("account.delete.vm_destroy_failed", error);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`Failed to destroy ${failures.length} personal cloud VM${failures.length === 1 ? "" : "s"}`);
   }
   return vms.length;
 }

@@ -12,7 +12,7 @@ process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
 process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test-feedback-rate-limit";
 process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
-process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "test-stack-project";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 
 const ACCOUNT_USER_ID = "account-user-1";
@@ -66,6 +66,9 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
     ];
   }
   routeEvents.push("destroy-vm");
+  if (destroyVmFailureProviderIds.has(program.input.providerVmId)) {
+    throw new Error(`destroy failed for ${program.input.providerVmId}`);
+  }
   return undefined;
 });
 const deleteObject = mock(async (...args: unknown[]) => {
@@ -105,6 +108,7 @@ let deletedStripeCustomers: string[] = [];
 let stripeCancelError: unknown = null;
 let stripeDeleteCustomerError: unknown = null;
 let transactionVaultRows: TransactionVaultRows = emptyTransactionVaultRows();
+let destroyVmFailureProviderIds = new Set<string>();
 let useAccountRouteStubs = false;
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
@@ -305,6 +309,7 @@ beforeEach(() => {
   stripeCancelError = null;
   stripeDeleteCustomerError = null;
   transactionVaultRows = emptyTransactionVaultRows();
+  destroyVmFailureProviderIds = new Set();
 });
 
 afterEach(() => {
@@ -425,6 +430,28 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ error: "account_delete_failed" });
     expect(transaction).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("attempts every personal VM before failing account deletion on VM teardown errors", async () => {
+    destroyVmFailureProviderIds = new Set(["personal-vm-1"]);
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(destroyVm).toHaveBeenCalledTimes(2);
+    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-1" });
+    expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.vm_destroy_failed",
+      "Error: destroy failed for personal-vm-1",
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "account.delete.failed",
+      "Error: Failed to destroy 1 personal cloud VM",
+    );
   });
 
   test("does not delete rows or Stack user when active billing cleanup cannot run", async () => {
