@@ -11,12 +11,18 @@ import CmuxSettings
 #endif
 
 @MainActor
-@Suite("Workspace group model")
+@Suite("Workspace group model", .serialized)
 struct WorkspaceGroupTests {
 
     private func makeTabManager() -> TabManager {
-        let manager = TabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let suiteName = "cmux.workspace-group-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: UserDefaultsSettingsClient(defaults: defaults),
+            closeTabWarningDefaults: defaults
+        )
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         return manager
     }
@@ -879,11 +885,10 @@ struct WorkspaceGroupTests {
         })
     }
 
-    @Test func deleteKeepsLastWorkspaceUngrouped() {
-        // When the group contains every workspace in the window,
-        // closeWorkspace refuses to drop the last tab. The lingering tab must
-        // be detached from the group so the user isn't left with a stale
-        // groupId pointing at a removed group.
+    @Test func deleteCreatesReplacementWhenGroupContainsEveryWorkspace() {
+        // When the group contains every workspace in the window, delete
+        // creates a replacement ungrouped workspace so the group header and
+        // every original group member can close for real.
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
         let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
@@ -892,7 +897,7 @@ struct WorkspaceGroupTests {
         let closed = manager.deleteWorkspaceGroup(groupId: groupId)
 
         #expect(manager.tabs.count == 1)
-        #expect(closed == groupSize - 1)
+        #expect(closed == groupSize)
         #expect(manager.workspaceGroups.first(where: { $0.id == groupId }) == nil)
         #expect(manager.tabs.allSatisfy { $0.groupId == nil })
     }

@@ -1,5 +1,4 @@
 import Foundation
-import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
@@ -19,14 +18,17 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
+    let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
-    @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+    @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
+    var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -55,7 +57,20 @@ struct WorkspaceShellView: View {
     }
 
     var body: some View {
-        layoutContent
+        ZStack(alignment: .bottom) {
+            layoutContent
+            if let workspaceActionToast {
+                WorkspaceActionToast(
+                    content: workspaceActionToast,
+                    clock: workspaceActionToastClock,
+                    dismiss: dismissWorkspaceActionToast
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .accessibilityIdentifier("MobileWorkspaceActionToast")
+            }
+        }
     }
 
     private var layoutContent: some View {
@@ -97,6 +112,7 @@ struct WorkspaceShellView: View {
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
                 navigationStyle: .push,
+                showsNavigationToolbar: compactNavigationPath.isEmpty,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,
                 unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
@@ -104,6 +120,7 @@ struct WorkspaceShellView: View {
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
+                createWorkspaceInGroup: createWorkspaceInGroupInCompactStackClosure,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 macSelection: $macSelection,
                 switchMac: { macDeviceID in
@@ -120,6 +137,11 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
+                moveWorkspace: moveWorkspaceClosure,
+                renameWorkspaceGroup: renameWorkspaceGroupClosure,
+                setGroupPinned: setWorkspaceGroupPinnedClosure,
+                ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
+                deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
@@ -145,10 +167,7 @@ struct WorkspaceShellView: View {
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
-            MobileDebugLog.anchormux(
-                "toolbar.shell.selected workspace=\(selectedWorkspaceID?.rawValue ?? "nil") path=\(debugCompactNavigationPath) pendingCreate=\(pendingCompactCreateNavigationWorkspaceIDs != nil)"
-            )
-            if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+            if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
                 existingWorkspaceIDs: pendingCompactCreateNavigationWorkspaceIDs
@@ -158,16 +177,14 @@ struct WorkspaceShellView: View {
                 autoOpenSelectedWorkspaceForSoakIfNeeded()
                 return
             }
-            compactNavigationPath = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+            compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
-                selectedWorkspaceID: selectedWorkspaceID
+                selectedWorkspaceID: selectedWorkspaceID,
+                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
-            MobileDebugLog.anchormux(
-                "toolbar.shell.path path=\(path.map(\.rawValue).joined(separator: ",")) selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")"
-            )
             guard let selectedWorkspaceID = path.last else {
                 return
             }
@@ -178,11 +195,11 @@ struct WorkspaceShellView: View {
             store.selectedWorkspaceID = selectedWorkspaceID
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
-            MobileDebugLog.anchormux(
-                "toolbar.shell.workspaceIDs ids=\(workspaceIDs.map(\.rawValue).joined(separator: ",")) pathBefore=\(debugCompactNavigationPath)"
+            compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
+                currentPath: compactNavigationPath,
+                visibleWorkspaceIDs: Set(workspaceIDs),
+                selectedWorkspaceID: store.selectedWorkspaceID
             )
-            compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
-            MobileDebugLog.anchormux("toolbar.shell.workspaceIDs pathAfter=\(debugCompactNavigationPath)")
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
@@ -206,6 +223,7 @@ struct WorkspaceShellView: View {
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceIfConnected,
+                createWorkspaceInGroup: createWorkspaceInGroupIfConnectedClosure,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 macSelection: $macSelection,
                 switchMac: { macDeviceID in
@@ -222,6 +240,11 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
+                moveWorkspace: moveWorkspaceClosure,
+                renameWorkspaceGroup: renameWorkspaceGroupClosure,
+                setGroupPinned: setWorkspaceGroupPinnedClosure,
+                ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
+                deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
@@ -239,10 +262,6 @@ struct WorkspaceShellView: View {
         .onAppear {
             hasPresentedSplitDetail = true
         }
-    }
-
-    private var debugCompactNavigationPath: String {
-        compactNavigationPath.map(\.rawValue).joined(separator: ",")
     }
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
@@ -264,32 +283,6 @@ struct WorkspaceShellView: View {
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
-    }
-
-    /// Workspace action closures, always present for the real store. Row and
-    /// detail affordances gate themselves on each workspace's owning-Mac
-    /// capability snapshot, so a secondary Mac is not hidden behind the
-    /// foreground Mac's advertised capabilities. Built as explicit closure
-    /// literals (not method-reference ternaries, which the compiler fails to
-    /// type-check inside the large `WorkspaceListView` initializer).
-    private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
-        let store = store
-        return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
-    }
-
-    private var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        let store = store
-        return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
-    }
-
-    private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        let store = store
-        return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
-    }
-
-    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real
@@ -314,7 +307,7 @@ struct WorkspaceShellView: View {
         canCreateWorkspaceOnForegroundConnection
     }
 
-    private var canCreateWorkspaceForMacSelection: Bool {
+    var canCreateWorkspaceForMacSelection: Bool {
         macSelectionScope.canCreateWorkspace(
             base: canCreateWorkspace,
             switchPending: pendingMacSwitchID != nil
@@ -357,39 +350,6 @@ struct WorkspaceShellView: View {
         )
     }
 
-    /// Group collapse/expand closure. Present when the Mac advertises
-    /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
-    /// emits groups in the workspace list also handles collapse/expand (both
-    /// shipped together), and the capability flag arrives via a separate
-    /// `mobile.host.status` call that can lag or fail without making the
-    /// already-received groups read-only. Older Macs emit no groups, so this
-    /// stays `nil` and the list renders flat.
-    private var toggleGroupCollapsedClosure: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceGroups || !store.workspaceGroups.isEmpty else { return nil }
-        let store = store
-        return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }
-    }
-
-    private func createWorkspaceInCompactStack() {
-        guard canCreateWorkspaceForMacSelection else { return }
-        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
-        pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
-        store.createWorkspace()
-        if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
-            currentPath: compactNavigationPath,
-            selectedWorkspaceID: store.selectedWorkspaceID,
-            existingWorkspaceIDs: existingWorkspaceIDs
-        ) {
-            pendingCompactCreateNavigationWorkspaceIDs = nil
-            compactNavigationPath = createdPath
-        }
-    }
-
-    private func createWorkspaceIfConnected() {
-        guard canCreateWorkspaceForMacSelection else { return }
-        store.createWorkspace()
-    }
-
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {
         #if DEBUG
         guard ProcessInfo.processInfo.environment["CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE"] == "1",
@@ -428,6 +388,9 @@ struct WorkspaceShellView: View {
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            renameWorkspace: renameWorkspaceClosure,
+            setWorkspaceUnread: setWorkspaceUnreadClosure,
+            closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
             signOut: signOut
