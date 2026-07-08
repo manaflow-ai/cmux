@@ -35,7 +35,7 @@ import { deleteObject } from "../vault/storage";
 import { accountDeletionAdvisoryLockKey, accountDeletionUserHash } from "./deletionLock";
 
 const ACCOUNT_DELETION_METADATA_KEY = "cmuxAccountDeletionInProgress";
-const ACCOUNT_DELETION_JOB_STALE_MS = 15 * 60 * 1000;
+const ACCOUNT_DELETION_JOB_STALE_MS = 60 * 60 * 1000;
 const MAX_ACCOUNT_VM_CLEANUP_PASSES = 3;
 
 type AccountDeletionWorkflow = unknown;
