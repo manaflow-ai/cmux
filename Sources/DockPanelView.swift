@@ -261,10 +261,13 @@ private struct DockTrustControlSummaryRow: View {
 
     private var detailRows: [String] {
         switch summary.detail {
-        case .command(let command):
-            return [command]
-        case .loginShell:
-            return [String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell")]
+        case .command(let command, let workingDirectory, let environment):
+            return [command, workingDirectoryLine(workingDirectory)] + environmentRows(environment)
+        case .loginShell(let workingDirectory, let environment):
+            return [
+                String(localized: "dock.trust.control.loginShell", defaultValue: "Login shell"),
+                workingDirectoryLine(workingDirectory)
+            ] + environmentRows(environment)
         case .browser(let url, let profileDisplayName, let profileIsDefault, let profileID):
             let profileName = profileIsDefault
                 ? String(localized: "dock.trust.control.defaultBrowserProfile", defaultValue: "Default browser profile")
@@ -281,6 +284,22 @@ private struct DockTrustControlSummaryRow: View {
                 profileID
             )
             return [url, profileLine, profileIDLine]
+        }
+    }
+
+    private func workingDirectoryLine(_ workingDirectory: String) -> String {
+        String(
+            format: String(localized: "dock.trust.control.workingDirectory", defaultValue: "cwd: %@"),
+            workingDirectory
+        )
+    }
+
+    private func environmentRows(_ environment: [String: String]) -> [String] {
+        environment.sorted { $0.key < $1.key }.map { entry in
+            String(
+                format: String(localized: "dock.trust.control.environment", defaultValue: "env: %@"),
+                "\(entry.key)=\(entry.value)"
+            )
         }
     }
 }

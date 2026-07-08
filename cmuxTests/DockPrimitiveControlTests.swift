@@ -312,8 +312,20 @@ struct DockPrimitiveControlTests {
         let configURL = root.appendingPathComponent(".cmux", isDirectory: true)
             .appendingPathComponent("dock-\(UUID().uuidString).json", isDirectory: false)
         let controls = [
-            DockControlDefinition(id: "git", title: "Git", variant: .command("lazygit")),
-            DockControlDefinition(id: "shell", title: "Shell", variant: .terminal),
+            DockControlDefinition(
+                id: "git",
+                title: "Git",
+                variant: .command("lazygit"),
+                cwd: ".",
+                env: ["PATH": "/tmp/cmux-bin"]
+            ),
+            DockControlDefinition(
+                id: "shell",
+                title: "Shell",
+                variant: .terminal,
+                cwd: "shell",
+                env: ["ZDOTDIR": root.path]
+            ),
             DockControlDefinition(id: "docs", title: "Docs", variant: .browser(url: "https://docs.cmux.dev", profile: nil))
         ]
         let projectResolution = DockConfigResolution(
@@ -343,8 +355,15 @@ struct DockPrimitiveControlTests {
         projectStore.applyConfigurationLoadResult(.resolved(projectResolution), generation: projectGeneration, replacingPanels: true)
         let request = try #require(projectStore.trustRequest)
         #expect(request.controlSummaries.map(\.detail) == [
-            .command("lazygit"),
-            .loginShell,
+            .command(
+                command: "lazygit",
+                workingDirectory: DockSplitStore.resolvedWorkingDirectory(".", baseDirectory: root.path),
+                environment: ["PATH": "/tmp/cmux-bin"]
+            ),
+            .loginShell(
+                workingDirectory: DockSplitStore.resolvedWorkingDirectory("shell", baseDirectory: root.path),
+                environment: ["ZDOTDIR": root.path]
+            ),
             .browser(
                 url: "https://docs.cmux.dev",
                 profileDisplayName: defaultProfileName,

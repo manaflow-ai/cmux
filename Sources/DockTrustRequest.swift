@@ -1,7 +1,7 @@
 struct DockTrustControlSummary: Equatable, Identifiable, Sendable {
     enum Detail: Equatable, Sendable {
-        case command(String)
-        case loginShell
+        case command(command: String, workingDirectory: String, environment: [String: String])
+        case loginShell(workingDirectory: String, environment: [String: String])
         case browser(url: String, profileDisplayName: String, profileIsDefault: Bool, profileID: String)
     }
 

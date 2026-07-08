@@ -805,19 +805,29 @@ final class DockSplitStore: BonsplitDelegate {
             descriptor: descriptor,
             configPath: sourceURL.path,
             controlSummaries: resolvedControls.map {
-                Self.trustControlSummary(for: $0)
+                Self.trustControlSummary(for: $0, baseDirectory: resolution.baseDirectory)
             }
         )
     }
 
-    private static func trustControlSummary(for resolvedControl: ResolvedConfigControl) -> DockTrustControlSummary {
+    private static func trustControlSummary(
+        for resolvedControl: ResolvedConfigControl,
+        baseDirectory: String
+    ) -> DockTrustControlSummary {
         let control = resolvedControl.definition
         let detail: DockTrustControlSummary.Detail
         switch control.variant {
         case .command(let command):
-            detail = .command(command)
+            detail = .command(
+                command: command,
+                workingDirectory: resolvedWorkingDirectory(control.cwd, baseDirectory: baseDirectory),
+                environment: control.env
+            )
         case .terminal:
-            detail = .loginShell
+            detail = .loginShell(
+                workingDirectory: resolvedWorkingDirectory(control.cwd, baseDirectory: baseDirectory),
+                environment: control.env
+            )
         case .browser(let url, let profile):
             if let resolvedProfile = resolvedControl.browserProfile {
                 detail = .browser(
