@@ -68,6 +68,18 @@ mock.module("../services/errors", () => ({
   captureBillingError: mock(() => undefined),
 }));
 
+mock.module("../db/client", () => ({
+  cloudDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => [],
+        }),
+      }),
+    }),
+  }),
+}));
+
 const { POST } = await import("../app/api/testflight/route");
 
 describe("TestFlight route", () => {
