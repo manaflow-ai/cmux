@@ -58,7 +58,7 @@ extension BrowserOmnibarPageFocusRepository {
     static let captureScript = """
     (() => {
       try {
-        const registry = \(Self.addressBarFocusRegistryInstaller);
+        const registry = \(BrowserOmnibarPageFocusRepository.addressBarFocusRegistryInstaller);
         const syncState = (state) => {
           window.__cmuxAddressBarFocusState = state;
           try {
@@ -144,7 +144,7 @@ extension BrowserOmnibarPageFocusRepository {
           return !!el.isContentEditable || tag === "textarea" || (tag === "input" && type !== "hidden");
         };
 
-        const registry = \(Self.addressBarFocusRegistryInstaller);
+        const registry = \(BrowserOmnibarPageFocusRepository.addressBarFocusRegistryInstaller);
         const ensureFocusId = (el) => registry.ensureId(el);
 
         const snapshot = (el) => {
@@ -227,7 +227,7 @@ extension BrowserOmnibarPageFocusRepository {
           return "no_state";
         }
 
-        const registry = \(Self.addressBarFocusRegistryInstaller);
+        const registry = \(BrowserOmnibarPageFocusRepository.addressBarFocusRegistryInstaller);
         const target = registry.find(state.id);
         if (!target) {
           clearState();

@@ -13898,7 +13898,7 @@ class TerminalController {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
-        guard let tab = resolveSidebarMutationTab(target),
+        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key), let tab = resolveSidebarMutationTab(target),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }

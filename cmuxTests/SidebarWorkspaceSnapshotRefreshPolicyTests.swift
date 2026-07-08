@@ -3,7 +3,6 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -49,7 +48,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func contextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
         let current = Self.snapshot(
             title: "old",
@@ -77,7 +75,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == nil)
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
         let current = Self.snapshot(
             remoteConnectionStatusText: "Connected",
@@ -106,7 +103,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -123,7 +119,7 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    private static func snapshot(
+    static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
@@ -133,7 +129,8 @@ import Testing
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
-        mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
+        mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
+        activeCodingAgentCount: Int = 0
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -151,6 +148,7 @@ import Testing
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -163,11 +161,12 @@ import Testing
         )
     }
 
-    private static func presentationKey(
+    static func presentationKey(
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
+        showsAgentActivity: Bool = true,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -182,6 +181,7 @@ import Testing
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
