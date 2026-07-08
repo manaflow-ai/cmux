@@ -3812,7 +3812,12 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
-                self.hasCommittedDocumentSinceWebViewReplacement = true
+                // An about:blank commit is WebKit's placeholder document, not
+                // content; leaving the flag false keeps the restore-stall
+                // detector armed so a restore that dead-ends there retries.
+                if !Self.isAboutBlankURL(webView.url) {
+                    self.hasCommittedDocumentSinceWebViewReplacement = true
+                }
                 // Reset playback tracking only once the new top-level document has
                 // actually replaced the old one. Resetting earlier (on provisional
                 // start) would drop a still-playing page's frames if the
