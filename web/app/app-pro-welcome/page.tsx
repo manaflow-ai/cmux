@@ -62,7 +62,7 @@ export default async function AppProWelcomePage({
               return (
                 <article
                   key={key}
-                  className="flex min-h-40 flex-col justify-between border border-border bg-code-bg p-5"
+                  className="flex min-h-40 flex-col justify-between border border-border p-5"
                 >
                   <div>
                     <h2 className="text-base font-medium">{step.title}</h2>
