@@ -359,11 +359,18 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Equatable, Identifiable {
             menuButtons = nil
         }
         guard let menuButtons else { return nil }
-        return try menuButtons.enumerated().map { index, button in
+        return try menuButtons.enumerated().compactMap { index, button in
             let resolvedButton = try button.button.resolved(
                 actions: actions,
                 codingPath: codingPath + [CmuxSurfaceTabBarMenuCodingKey(index: index)]
             )
+            // Menu items referencing beta built-ins disappear while the beta
+            // flag is off, mirroring how the right-sidebar tabs themselves
+            // hide (covered by testSurfaceTabBarMenuFiltersUnavailableBetaBuiltIns).
+            if let builtIn = resolvedButton.action.builtInActionReference,
+               !builtIn.isAvailable() {
+                return nil
+            }
             return CmuxSurfaceTabBarMenuItem(resolvedButton)
         }
     }

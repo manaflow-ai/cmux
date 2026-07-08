@@ -2114,10 +2114,10 @@ final class CmuxConfigStore: ObservableObject {
             do {
                 let resolved = try resolvedSurfaceTabBarButton(button, actions: actions)
                 resolvedButtons.append(resolved.button)
-                guard resolved.button.terminalCommand != nil else { continue }
-                if let commandSourcePath = resolved.terminalCommandSourcePath {
-                    terminalCommandSourcePaths[resolved.button.id] = commandSourcePath
-                }
+                collectSurfaceTabBarTerminalCommandSourcePaths(
+                    resolved,
+                    into: &terminalCommandSourcePaths
+                )
             } catch {
                 NSLog("[CmuxConfig] %@ ignored: %@", settingName, String(describing: error))
                 return nil
@@ -2128,6 +2128,35 @@ final class CmuxConfigStore: ObservableObject {
             buttons: resolvedButtons,
             terminalCommandSourcePaths: terminalCommandSourcePaths
         )
+    }
+
+    /// Registers trust source paths for every terminal command in the button
+    /// tree, including menu items (whose resolved action reference carries
+    /// the defining config file in `actionSourcePath`).
+    private func collectSurfaceTabBarTerminalCommandSourcePaths(
+        _ entry: ResolvedSurfaceTabBarButtonEntry,
+        into paths: inout [String: String]
+    ) {
+        if entry.button.terminalCommand != nil,
+           let commandSourcePath = entry.terminalCommandSourcePath {
+            paths[entry.button.id] = commandSourcePath
+        }
+        for item in entry.button.menu ?? [] {
+            collectSurfaceTabBarTerminalCommandSourcePaths(item.button, into: &paths)
+        }
+    }
+
+    private func collectSurfaceTabBarTerminalCommandSourcePaths(
+        _ button: CmuxSurfaceTabBarButton,
+        into paths: inout [String: String]
+    ) {
+        if button.terminalCommand != nil,
+           let commandSourcePath = button.actionSourcePath {
+            paths[button.id] = commandSourcePath
+        }
+        for item in button.menu ?? [] {
+            collectSurfaceTabBarTerminalCommandSourcePaths(item.button, into: &paths)
+        }
     }
 
     private func normalizedSurfaceTabBarButtons(
@@ -2141,7 +2170,13 @@ final class CmuxConfigStore: ObservableObject {
 
         var normalizedButtons = buttonsWithoutMore
         let moreButton = buttons.last(where: { $0.action.isBuiltInMoreReference }) ?? .more
-        normalizedButtons.append(moreButton)
+        // A configured non-More button may legally occupy the More button's id
+        // (id validation only checks configured buttons against each other).
+        // Appending the default would then duplicate the id and trap
+        // Dictionary(uniqueKeysWithValues:) in applySurfaceTabBarButtons.
+        if !normalizedButtons.contains(where: { $0.id == moreButton.id }) {
+            normalizedButtons.append(moreButton)
+        }
         return normalizedButtons
     }
 
@@ -2220,30 +2255,61 @@ final class CmuxConfigStore: ObservableObject {
         visibleButtons.reserveCapacity(buttons.count)
 
         for button in buttons {
-            guard let commandName = button.workspaceCommandName else {
-                visibleButtons.append(button)
-                continue
-            }
-
-            guard let command = resolvedWorkspaceCommand(
-                named: commandName,
-                settingName: "surfaceTabBarButtons action",
+            guard let resolved = resolvedSurfaceTabBarWorkspaceCommandButton(
+                button,
                 commands: commands,
-                sourcePaths: sourcePaths
+                sourcePaths: sourcePaths,
+                workspaceCommands: &workspaceCommands
             ) else {
-                NSLog(
-                    "[CmuxConfig] surfaceTabBarButtons action '%@' hidden because workspace command '%@' is unavailable",
-                    button.id,
-                    commandName
-                )
                 continue
             }
-
-            visibleButtons.append(button)
-            workspaceCommands[button.id] = command
+            visibleButtons.append(resolved)
         }
 
         return (visibleButtons, workspaceCommands)
+    }
+
+    /// Resolves workspace commands through the whole button tree: menu items
+    /// share the button schema and may carry workspace commands too. Items
+    /// whose command is unavailable are dropped rather than left inert.
+    private func resolvedSurfaceTabBarWorkspaceCommandButton(
+        _ button: CmuxSurfaceTabBarButton,
+        commands: [CmuxCommandDefinition],
+        sourcePaths: [String: String],
+        workspaceCommands: inout [String: CmuxResolvedCommand]
+    ) -> CmuxSurfaceTabBarButton? {
+        var resolvedButton = button
+        if let menu = button.menu {
+            resolvedButton.menu = menu.compactMap { item in
+                resolvedSurfaceTabBarWorkspaceCommandButton(
+                    item.button,
+                    commands: commands,
+                    sourcePaths: sourcePaths,
+                    workspaceCommands: &workspaceCommands
+                ).map(CmuxSurfaceTabBarMenuItem.init)
+            }
+        }
+
+        guard let commandName = button.workspaceCommandName else {
+            return resolvedButton
+        }
+
+        guard let command = resolvedWorkspaceCommand(
+            named: commandName,
+            settingName: "surfaceTabBarButtons action",
+            commands: commands,
+            sourcePaths: sourcePaths
+        ) else {
+            NSLog(
+                "[CmuxConfig] surfaceTabBarButtons action '%@' hidden because workspace command '%@' is unavailable",
+                button.id,
+                commandName
+            )
+            return nil
+        }
+
+        workspaceCommands[button.id] = command
+        return resolvedButton
     }
 
     func resolvedNewWorkspaceCommand() -> CmuxResolvedCommand? {
