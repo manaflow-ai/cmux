@@ -35,6 +35,7 @@
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
+		F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760030000000000000002 /* AgentHibernationController+Records.swift */; };
 		D36A00010000000000000001 /* AgentHibernationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00010000000000000002 /* AgentHibernationController.swift */; };
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
@@ -42,6 +43,8 @@
 		D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D72260010000000000000002 /* AgentHibernationPortalVisibilityTests.swift */; };
 		F65760020000000000000001 /* AgentHibernationTestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760020000000000000002 /* AgentHibernationTestHelpers.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
+		F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */; };
+		F65760040000000000000001 /* AgentHibernationTranscriptGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */; };
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
 		C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
@@ -1583,12 +1586,15 @@
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
+		F65760030000000000000002 /* AgentHibernationController+Records.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Records.swift"; sourceTree = "<group>"; };
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPlannerSwiftTests.swift; sourceTree = "<group>"; };
 		D72260010000000000000002 /* AgentHibernationPortalVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationPortalVisibilityTests.swift; sourceTree = "<group>"; };
 		F65760020000000000000002 /* AgentHibernationTestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTestHelpers.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
+		F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationTranscriptGuard.swift; sourceTree = "<group>"; };
+		F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTranscriptGuardTests.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
 		A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGateTests.swift; sourceTree = "<group>"; };
 		C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPIDProcessIdentity.swift; sourceTree = "<group>"; };
@@ -3324,7 +3330,9 @@
 				C0DE1A020000000000000002 /* SavedLayoutStore.swift */,
 				9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */,
 				D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */,
+				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
+				F65760050000000000000002 /* AgentHibernationTranscriptGuard.swift */,
 				7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */,
 				7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */,
 				7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */,
@@ -4228,6 +4236,7 @@
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
 				F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */,
+				F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */,
 				D72260010000000000000002 /* AgentHibernationPortalVisibilityTests.swift */,
 				F65760020000000000000002 /* AgentHibernationTestHelpers.swift */,
 				D36A00020000000000000002 /* AgentHibernationTests.swift */,
@@ -5007,8 +5016,10 @@
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
+				F65760030000000000000001 /* AgentHibernationController+Records.swift in Sources */,
 				D36A00010000000000000001 /* AgentHibernationController.swift in Sources */,
 				D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
+				F65760050000000000000001 /* AgentHibernationTranscriptGuard.swift in Sources */,
 				A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */,
 				C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
@@ -6036,6 +6047,7 @@
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				F65760020000000000000001 /* AgentHibernationTestHelpers.swift in Sources */,
 				D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */,
+				F65760040000000000000001 /* AgentHibernationTranscriptGuardTests.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
