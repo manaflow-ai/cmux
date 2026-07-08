@@ -4,12 +4,14 @@ import {
   cssAsset,
   cssFontFamily,
   filterChangedFilesSinceBaseline,
+  filesChangedEventsForTest,
   gitFilesFromOutput,
   gitOutputWithCodes,
   gitOutputWithCodesResult,
   insertDeferredTurnEvents,
   resetAssetCachesForTest,
   resolveFileDiffPath,
+  turnBaselineCountForTest,
 } from "../server";
 import type { AgentEvent } from "../types";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -110,5 +112,17 @@ const attributed = filterChangedFilesSinceBaseline(
   ]),
 );
 assert(attributed.map((f) => f.path).join("|") === "changed.txt|new.txt", `baseline filtering attributed wrong files: ${JSON.stringify(attributed)}`);
+
+const noFilesRoot = join(import.meta.dir, "..", "scratch", "no-files-baseline-test");
+await rm(noFilesRoot, { recursive: true, force: true });
+await mkdir(noFilesRoot, { recursive: true });
+const noFilesSession = {
+  cwd: noFilesRoot,
+  internal: {
+    turnBaselines: new Map([[7, Promise.resolve({ files: new Map() })]]),
+  },
+};
+await filesChangedEventsForTest(noFilesSession, 7, 500);
+assert(turnBaselineCountForTest(noFilesSession) === 0, "no-files turn should retire its baseline");
 
 console.log("server utility assertions passed");

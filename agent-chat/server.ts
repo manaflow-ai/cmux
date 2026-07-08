@@ -62,6 +62,7 @@ const FILES_LIMIT = 5_000;
 const MAX_SESSION_EVENTS = 5_000;
 const GIT_TIMEOUT_MS = 10_000;
 const DONE_FILES_TIMEOUT_MS = 2_000;
+const TURN_BASELINE_TIMEOUT_MS = 3_000;
 const GEMINI_MODELS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
@@ -341,13 +342,14 @@ function sendPrompt(sess: Session, prompt: string) {
   const generation = Number(sess.internal.turnGeneration ?? 0) + 1;
   sess.internal.turnGeneration = generation;
   const baselines = turnBaselines(sess);
-  baselines.set(generation, captureDirtyBaseline(sess.cwd).catch((err) => ({
+  const baseline = captureDirtyBaseline(sess.cwd, TURN_BASELINE_TIMEOUT_MS).catch((err) => ({
     files: new Map<string, DirtyPathState>(),
     failed: String(err instanceof Error ? err.message : err),
-  })));
+  }));
+  baselines.set(generation, baseline);
   turnGenerationContext.run(generation, () => {
     sess.emit({ kind: "user", text: prompt });
-    Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+    baseline.then(() => sess.adapter.send(sess, prompt)).catch((err) => {
       console.error("[agent-chat] send failed", err);
       sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
       // The UI treats "done" as the turn boundary; without it a failed send
@@ -843,34 +845,45 @@ export function filterChangedFilesSinceBaseline(files: ChangedFile[], baseline: 
 }
 
 async function filesChangedEvents(sess: Session, generation: number, timeoutMs = GIT_TIMEOUT_MS): Promise<AgentEvent[]> {
-  const files = await changedFiles(sess.cwd, timeoutMs);
-  if (!files.length) return [];
   const baselines = turnBaselines(sess);
-  const baseline = await (baselines.get(generation) ?? Promise.resolve({
-    files: new Map<string, DirtyPathState>(),
-    failed: "missing turn baseline",
-  }));
-  baselines.delete(generation);
-  let filtered = files;
-  const events: AgentEvent[] = [];
-  if (baseline.failed) {
-    events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${baseline.failed})` });
-  } else {
-    try {
-      filtered = filterChangedFilesSinceBaseline(files, baseline.files, await dirtyState(sess.cwd, timeoutMs));
-    } catch (err) {
-      events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${String(err instanceof Error ? err.message : err)})` });
+  try {
+    const files = await changedFiles(sess.cwd, timeoutMs);
+    if (!files.length) return [];
+    const baseline = await (baselines.get(generation) ?? Promise.resolve({
+      files: new Map<string, DirtyPathState>(),
+      failed: "missing turn baseline",
+    }));
+    let filtered = files;
+    const events: AgentEvent[] = [];
+    if (baseline.failed) {
+      events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${baseline.failed})` });
+    } else {
+      try {
+        filtered = filterChangedFilesSinceBaseline(files, baseline.files, await dirtyState(sess.cwd, timeoutMs));
+      } catch (err) {
+        events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${String(err instanceof Error ? err.message : err)})` });
+      }
     }
+    if (!filtered.length) return events;
+    const key = JSON.stringify(filtered);
+    if (sess.internal.lastFilesChangedKey === key) return events;
+    sess.internal.lastFilesChangedKey = key;
+    // Diffs are intentionally fetched from the current working tree on click;
+    // the files-changed block is turn-attributed, while diff content is best
+    // effort current-tree state.
+    events.push({ kind: "files-changed", files: filtered });
+    return events;
+  } finally {
+    baselines.delete(generation);
   }
-  if (!filtered.length) return events;
-  const key = JSON.stringify(filtered);
-  if (sess.internal.lastFilesChangedKey === key) return events;
-  sess.internal.lastFilesChangedKey = key;
-  // Diffs are intentionally fetched from the current working tree on click;
-  // the files-changed block is turn-attributed, while diff content is best
-  // effort current-tree state.
-  events.push({ kind: "files-changed", files: filtered });
-  return events;
+}
+
+export function turnBaselineCountForTest(sess: { internal: Record<string, unknown> }): number {
+  return (sess.internal.turnBaselines as Map<number, unknown> | undefined)?.size ?? 0;
+}
+
+export async function filesChangedEventsForTest(sess: Pick<Session, "cwd" | "internal">, generation: number, timeoutMs = GIT_TIMEOUT_MS): Promise<AgentEvent[]> {
+  return filesChangedEvents(sess as Session, generation, timeoutMs);
 }
 
 async function emitFilesChanged(sess: Session, timeoutMs = GIT_TIMEOUT_MS) {
