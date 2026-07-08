@@ -687,6 +687,39 @@ struct CmuxConfigDecodingTests {
         ])
     }
 
+    @Test func testDefaultSurfaceTabBarCanExplicitlyHideMoreMenu() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "hideMoreButton": true
+            }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarButtons.map(\.action.builtInActionReference), [
+            .newTerminal,
+            .newBrowser,
+            .splitRight,
+            .splitDown,
+        ])
+    }
+
     @Test func testSurfaceTabBarKeepsConfiguredMoreMenuAtEnd() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
