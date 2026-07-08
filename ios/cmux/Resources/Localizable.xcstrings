@@ -5203,6 +5203,74 @@
         }
       }
     },
+    "mobile.altScreenNotice.button.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explain full-screen terminal sizing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全画面ターミナルのサイズ表示を説明"
+          }
+        }
+      }
+    },
+    "mobile.altScreenNotice.dismissAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Show Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今後表示しない"
+          }
+        }
+      }
+    },
+    "mobile.altScreenNotice.explanation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A full-screen terminal app is running in this session. Full-screen apps mirror the Mac terminal's exact size, so the view may not fill this screen."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションでは全画面ターミナルアプリが実行されています。全画面アプリは Mac 側ターミナルの正確なサイズをそのまま表示するため、この画面いっぱいに広がらない場合があります。"
+          }
+        }
+      }
+    },
+    "mobile.altScreenNotice.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-screen terminal app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全画面ターミナルアプリ"
+          }
+        }
+      }
+    },
     "mobile.terminal.action.alt": {
       "extractionState": "manual",
       "localizations": {

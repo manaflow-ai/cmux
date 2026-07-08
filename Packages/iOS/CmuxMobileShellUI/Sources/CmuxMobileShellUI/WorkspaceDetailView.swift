@@ -42,6 +42,7 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
+    @State private var altScreenNotice = AltScreenNoticeState()
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
@@ -128,6 +129,13 @@ struct WorkspaceDetailView: View {
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
+        }
+        if let selectedTerminalID,
+           store.isAlternateScreen(surfaceID: selectedTerminalID),
+           !altScreenNotice.dismissed {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                AltScreenNoticeButton(dismissNotice: altScreenNotice.dismiss)
+            }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
