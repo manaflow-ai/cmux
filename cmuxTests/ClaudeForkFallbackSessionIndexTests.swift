@@ -78,7 +78,7 @@ struct ClaudeForkFallbackSessionIndexTests {
         // the launch-kind token plus the recorded launch executable identify it.
         let detected = detectedSnapshots(
             fixture: fixture,
-            argv: ["/opt/tools/claude-custom", "--resume", fixture.parentSessionId, "--fork-session"],
+            argv: ["/opt/tools/claude-custom", "--resume", fixture.parentSessionId, "--fork-session", "--model", "sonnet"],
             extraEnvironment: ["CMUX_AGENT_LAUNCH_EXECUTABLE": "/opt/tools/claude-custom"],
             processName: "claude-custom",
             processPath: "/opt/tools/claude-custom"
@@ -89,6 +89,10 @@ struct ClaudeForkFallbackSessionIndexTests {
             panelId: fixture.forkPanelId
         )])
         #expect(entry.snapshot.sessionId == fixture.parentSessionId)
+        // The custom binary is an executable boundary: sanitizer-preserved flags stay,
+        // and the logical executable is bare "claude" (the cmux wrapper resolves
+        // CMUX_CUSTOM_CLAUDE_PATH at exec time).
+        #expect(entry.snapshot.launchCommand?.arguments == ["claude", "--model", "sonnet"])
     }
 
     @Test func forkParentFallbackIgnoresExplicitlyDisabledForkSessionFlag() throws {

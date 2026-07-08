@@ -126,7 +126,8 @@ extension RestorableAgentSessionIndex {
         let launchTail = claudeLaunchTail(
             processName: processName,
             processPath: processPath,
-            arguments: arguments
+            arguments: arguments,
+            environment: environment
         )
         guard let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
             [executablePath] + launchTail,
@@ -170,7 +171,8 @@ extension RestorableAgentSessionIndex {
     private static func claudeLaunchTail(
         processName: String,
         processPath: String?,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]
     ) -> [String] {
         guard !arguments.isEmpty else { return [] }
         if executableBasename(arguments[0]).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
@@ -182,6 +184,19 @@ extension RestorableAgentSessionIndex {
         }
         if executableBasename(processName).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame {
             return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
+        }
+        // Custom claude binaries (accepted via the launch-executable identity check in
+        // processLooksLikeClaude) are an executable boundary too; without this their
+        // sanitizer-preserved flags (e.g. --model) would be dropped from the snapshot.
+        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) {
+            let launchBasename = executableBasename(launchExecutable)
+            if executableBasename(arguments[0]).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame {
+                return Array(arguments.dropFirst())
+            }
+            if let processPath = normalized(processPath),
+               executableBasename(processPath).compare(launchBasename, options: [.caseInsensitive, .literal]) == .orderedSame {
+                return arguments[0].hasPrefix("-") ? arguments : Array(arguments.dropFirst())
+            }
         }
         guard let entrypointIndex = arguments.dropFirst().firstIndex(where: argumentLooksLikeNestedClaudeEntrypoint) else {
             return []
