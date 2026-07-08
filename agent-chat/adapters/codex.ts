@@ -36,6 +36,7 @@ interface CodexState {
   mode: string;
   currentTurnId?: string;
   turnActive: boolean;
+  activeGeneration?: number;
   turnWaiters: ((id: string | null) => void)[];
   commands: CommandEntry[];
 }
@@ -67,7 +68,7 @@ export const codexAdapter: Adapter = {
       { id: "mode", label: "Mode", kind: "select", value: "default", choices: [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }] },
     ],
   },
-  async send(sess, prompt) {
+  async send(sess, prompt, generation?: number) {
     try {
       const srv = await ensureServer();
       const st = await ensureCodexState(sess);
@@ -107,6 +108,7 @@ export const codexAdapter: Adapter = {
       }
       sess.setStatus("running");
       st.turnActive = true;
+      st.activeGeneration = generation;
       await srv.request("turn/start", {
         threadId,
         input: [{ type: "text", text: prompt }],
@@ -120,13 +122,15 @@ export const codexAdapter: Adapter = {
       // Completion arrives via the turn/completed notification.
     } catch (err) {
       const st = sess.internal.codex as CodexState | undefined;
+      const generation = st?.activeGeneration;
       if (st) {
         st.turnActive = false;
         st.currentTurnId = undefined;
+        st.activeGeneration = undefined;
         resolveTurnWaiters(st, null);
       }
       sess.emit({ kind: "error", message: truncate(String(err), 400) });
-      sess.emit({ kind: "done" });
+      sess.emit({ kind: "done", generation } as any);
       sess.setStatus("idle");
     }
   },
@@ -248,11 +252,13 @@ async function startServer(): Promise<AppServer> {
     for (const sess of srv.sessionsByThread.values()) {
       const st = codexState(sess);
       if (st.turnActive) {
+        const generation = st.activeGeneration;
         st.turnActive = false;
         st.currentTurnId = undefined;
+        st.activeGeneration = undefined;
         resolveTurnWaiters(st, null);
         sess.emit({ kind: "error", message: "codex app-server exited mid-turn" });
-        sess.emit({ kind: "done" });
+        sess.emit({ kind: "done", generation } as any);
         sess.setStatus("idle");
       }
       sess.internal.threadId = undefined;
@@ -359,6 +365,8 @@ function handleServerMessage(srv: AppServer, msg: any) {
     case "turn/completed": {
       st.turnActive = false;
       st.currentTurnId = undefined;
+      const generation = st.activeGeneration;
+      st.activeGeneration = undefined;
       resolveTurnWaiters(st, null);
       const u = sess.internal.lastUsage as any;
       const secs = p.turn?.durationMs != null ? `${(p.turn.durationMs / 1000).toFixed(1)}s` : null;
@@ -366,16 +374,18 @@ function handleServerMessage(srv: AppServer, msg: any) {
         u ? `${u.inputTokens ?? 0} in · ${u.outputTokens ?? 0} out` : null,
         secs,
       ].filter(Boolean).join(" · ");
-      sess.emit({ kind: "done", stats });
+      sess.emit({ kind: "done", stats, generation } as any);
       sess.setStatus("idle");
       break;
     }
     case "turn/failed": {
       st.turnActive = false;
       st.currentTurnId = undefined;
+      const generation = st.activeGeneration;
+      st.activeGeneration = undefined;
       resolveTurnWaiters(st, null);
       sess.emit({ kind: "error", message: truncate(p.error?.message ?? p.turn?.error?.message ?? "turn failed", 400) });
-      sess.emit({ kind: "done" });
+      sess.emit({ kind: "done", generation } as any);
       sess.setStatus("idle");
       break;
     }
@@ -449,6 +459,7 @@ function defaultState(autoApprove: boolean): CodexState {
     fastMode: false,
     mode: "default",
     turnActive: false,
+    activeGeneration: undefined,
     turnWaiters: [],
     commands: [],
   };

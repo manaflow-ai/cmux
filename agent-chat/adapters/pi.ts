@@ -17,6 +17,7 @@ interface PiState {
   commands: CommandEntry[];
   initialApplied: boolean;
   activeTurn: boolean;
+  activeGeneration?: number;
 }
 
 export const piAdapter: Adapter = {
@@ -27,12 +28,15 @@ export const piAdapter: Adapter = {
       { id: "thinking", label: "Thinking", kind: "select", value: "minimal", role: "effort", choices: THINKING_CHOICES },
     ],
   },
-  async send(sess, prompt) {
+  async send(sess, prompt, generation?: number) {
     const proc = ensureProc(sess);
     const st = state(sess);
     await applyInitialOptions(sess);
     const type = st.activeTurn ? "steer" : "prompt";
-    if (type === "prompt") st.activeTurn = true;
+    if (type === "prompt") {
+      st.activeTurn = true;
+      st.activeGeneration = generation;
+    }
     proc.stdin.write(JSON.stringify({ type, message: prompt }) + "\n");
     proc.stdin.flush();
     sess.setStatus("running");
@@ -92,6 +96,7 @@ function state(sess: SessionCtx): PiState {
       commands: [],
       initialApplied: false,
       activeTurn: false,
+      activeGeneration: undefined,
     };
     sess.internal.pi = st;
   }
@@ -121,9 +126,11 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
       st.proc = undefined;
       rejectPending(st, "pi process exited");
       if (st.activeTurn) {
+        const generation = st.activeGeneration;
         st.activeTurn = false;
+        st.activeGeneration = undefined;
         sess.emit({ kind: "error", message: "pi process exited mid-turn" });
-        sess.emit({ kind: "done" });
+        sess.emit({ kind: "done", generation } as any);
       }
       sess.setStatus("idle");
     }
@@ -257,8 +264,10 @@ function finishTurn(sess: SessionCtx) {
     sess.setStatus("idle");
     return;
   }
+  const generation = st.activeGeneration;
   st.activeTurn = false;
-  sess.emit({ kind: "done" });
+  st.activeGeneration = undefined;
+  sess.emit({ kind: "done", generation } as any);
   sess.setStatus("idle");
 }
 

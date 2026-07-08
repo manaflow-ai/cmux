@@ -59,6 +59,7 @@ interface ClaudeState {
   initialApplied: boolean;
   commands: CommandEntry[];
   activeTurns: number;
+  activeGenerations: Array<number | undefined>;
 }
 
 export const claudeAdapter: Adapter = {
@@ -72,14 +73,14 @@ export const claudeAdapter: Adapter = {
       { id: "fastMode", label: "Fast", kind: "toggle", value: false },
     ],
   },
-  async send(sess, prompt) {
+  async send(sess, prompt, generation?: number) {
     const proc = ensureProc(sess);
     await applyInitialOptions(sess);
     const msg = {
       type: "user",
       message: { role: "user", content: [{ type: "text", text: prompt }] },
     };
-    beginTurn(sess);
+    beginTurn(sess, generation);
     proc.stdin.write(JSON.stringify(msg) + "\n");
     proc.stdin.flush();
     sess.setStatus("running");
@@ -147,6 +148,7 @@ function state(sess: SessionCtx): ClaudeState {
       initialApplied: false,
       commands: [],
       activeTurns: 0,
+      activeGenerations: [],
     };
     sess.internal.claude = st;
   }
@@ -218,26 +220,31 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
   return proc;
 }
 
-function beginTurn(sess: SessionCtx) {
-  state(sess).activeTurns += 1;
+function beginTurn(sess: SessionCtx, generation?: number) {
+  const st = state(sess);
+  st.activeTurns += 1;
+  st.activeGenerations.push(generation);
 }
 
 function finishTurn(sess: SessionCtx, stats?: string): number {
   const st = state(sess);
   if (st.activeTurns <= 0) return 0;
   st.activeTurns -= 1;
-  sess.emit({ kind: "done", stats });
+  const generation = st.activeGenerations.shift();
+  sess.emit({ kind: "done", stats, generation } as any);
   return st.activeTurns;
 }
 
 function handleProcessClose(sess: SessionCtx, st: ClaudeState, pendingMessage: string, turnError = "claude process exited mid-turn") {
   const wasActive = st.activeTurns > 0;
+  const generation = st.activeGenerations.shift();
   st.activeTurns = 0;
+  st.activeGenerations = [];
   st.proc = undefined;
   rejectPending(st, pendingMessage);
   if (wasActive) {
     sess.emit({ kind: "error", message: turnError });
-    sess.emit({ kind: "done" });
+    sess.emit({ kind: "done", generation } as any);
   }
   sess.setStatus("idle");
 }

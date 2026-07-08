@@ -27,6 +27,7 @@ function makeSession(activeTurn: boolean): { sess: SessionCtx; events: AgentEven
         initialApplied: true,
         commands: [],
         activeTurns: activeTurn ? 1 : 0,
+        activeGenerations: activeTurn ? [1] : [],
       },
     },
     emit(evt) {

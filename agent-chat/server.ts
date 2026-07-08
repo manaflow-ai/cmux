@@ -18,7 +18,6 @@ import { makeAcpAdapter } from "./adapters/acp";
 import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -111,8 +110,8 @@ interface WsData {
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
-const turnGenerationContext = new AsyncLocalStorage<number>();
 type AttributionMode = "new-turn" | "current-turn";
+type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
 const optionCatalog = new Map<string, {
   options: SessionOption[];
   fetchedAt: number;
@@ -321,7 +320,7 @@ function activeAttributionGeneration(sess: Session): number | undefined {
 }
 
 function currentAttributionGeneration(sess: Session): number {
-  return turnGenerationContext.getStore() ?? activeAttributionGeneration(sess) ?? 0;
+  return activeAttributionGeneration(sess) ?? 0;
 }
 
 function beginAttributionTurn(sess: Session, generation: number) {
@@ -341,6 +340,11 @@ function adapterAttributionMode(sess: Session): AttributionMode {
   return fn?.(sess) ?? "new-turn";
 }
 
+function publicDoneEvent(evt: InternalDoneEvent): Extract<AgentEvent, { kind: "done" }> {
+  const { generation: _generation, ...publicEvt } = evt;
+  return publicEvt;
+}
+
 export function insertDeferredTurnEvents(events: AgentEvent[], generations: number[], generation: number, finalEvents: AgentEvent[]): { insertedAt: number; dropped: boolean } {
   if (!finalEvents.length) return { insertedAt: events.length, dropped: false };
   if (events.some((evt, index) => generations[index] === generation && evt.kind === "done")) {
@@ -358,14 +362,11 @@ export function insertDeferredTurnEvents(events: AgentEvent[], generations: numb
   return { insertedAt, dropped: false };
 }
 
-function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
-  // The emitting callback's own async-context generation is authoritative:
-  // with a queued follow-up the active queue holds [old, new], and a fast
-  // second completion must not finalize as the stale head (its done would be
-  // dropped as a duplicate and the session left running).
-  const generation = turnGenerationContext.getStore() ?? activeAttributionGeneration(sess) ?? 0;
+function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
+  const generation = typeof evt.generation === "number" ? evt.generation : 0;
+  const publicEvt = publicDoneEvent(evt);
   if (!generation) {
-    emitSessionEvent(sess, evt);
+    emitSessionEvent(sess, publicEvt);
     return;
   }
   const previousAttribution = sess.internal.filesAttributionRunning as Promise<void> | undefined;
@@ -377,7 +378,7 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
       return [] as AgentEvent[];
     });
     finalEvents.push(...fileEvents);
-    finalEvents.push(evt);
+    finalEvents.push(publicEvt);
     const oldLength = sess.events.length;
     const result = insertDeferredTurnEvents(sess.events, eventGenerations(sess), generation, finalEvents);
     if (result.dropped) return;
@@ -403,14 +404,12 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
 function sendPrompt(sess: Session, prompt: string) {
   const activeGeneration = activeAttributionGeneration(sess);
   if (adapterAttributionMode(sess) === "current-turn" && activeGeneration) {
-    turnGenerationContext.run(activeGeneration, () => {
-      sess.emit({ kind: "user", text: prompt });
-      Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
-        console.error("[agent-chat] send failed", err);
-        sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
-        sess.emit({ kind: "done" });
-        sess.setStatus("idle");
-      });
+    sess.emit({ kind: "user", text: prompt });
+    Promise.resolve((sess.adapter.send as any)(sess, prompt, activeGeneration)).catch((err) => {
+      console.error("[agent-chat] send failed", err);
+      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+      sess.emit({ kind: "done", generation: activeGeneration } as any);
+      sess.setStatus("idle");
     });
     return;
   }
@@ -424,16 +423,14 @@ function sendPrompt(sess: Session, prompt: string) {
   }));
   baselines.set(generation, baseline);
   pruneTurnBaselines(baselines);
-  turnGenerationContext.run(generation, () => {
-    sess.emit({ kind: "user", text: prompt });
-    baseline.then(() => sess.adapter.send(sess, prompt)).catch((err) => {
-      console.error("[agent-chat] send failed", err);
-      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
-      // The UI treats "done" as the turn boundary; without it a failed send
-      // leaves an open streaming block with no footer.
-      sess.emit({ kind: "done" });
-      sess.setStatus("idle");
-    });
+  sess.emit({ kind: "user", text: prompt });
+  baseline.then(() => (sess.adapter.send as any)(sess, prompt, generation)).catch((err) => {
+    console.error("[agent-chat] send failed", err);
+    sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+    // The UI treats "done" as the turn boundary; without it a failed send
+    // leaves an open streaming block with no footer.
+    sess.emit({ kind: "done", generation } as any);
+    sess.setStatus("idle");
   });
 }
 
@@ -449,6 +446,7 @@ async function forkSession(source: Session): Promise<Session> {
   await assertCwd(source.cwd);
   const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions });
   fork.events = source.events.slice();
+  rebuildFileDiffAllowlist(fork);
   try {
     await source.adapter.forkSession(source, fork);
     refreshSession(fork);
@@ -1063,12 +1061,23 @@ function recordFileDiffAllowlist(sess: Session, files: ChangedFile[]) {
   }
 }
 
+function rebuildFileDiffAllowlist(sess: Session) {
+  delete sess.internal.fileDiffAllowlist;
+  for (const evt of sess.events) {
+    if (evt.kind === "files-changed") recordFileDiffAllowlist(sess, evt.files);
+  }
+}
+
 function assertFileDiffAllowed(sess: Session, safePath: string) {
   if (!fileDiffAllowlist(sess).has(safePath)) throw new Error("path was not reported by this session");
 }
 
 export function recordFilesChangedForTest(sess: Pick<Session, "cwd" | "internal">, files: ChangedFile[]) {
   recordFileDiffAllowlist(sess as Session, files);
+}
+
+export function rebuildFileDiffAllowlistForTest(sess: Pick<Session, "cwd" | "events" | "internal">) {
+  rebuildFileDiffAllowlist(sess as Session);
 }
 
 export function fileDiffAllowedForTest(sess: Pick<Session, "internal">, path: string): boolean {

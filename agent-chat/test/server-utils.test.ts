@@ -15,6 +15,7 @@ import {
   insertDeferredTurnEvents,
   recordFilesChangedForTest,
   recordTurnBaselineForTest,
+  rebuildFileDiffAllowlistForTest,
   resetAssetCachesForTest,
   resolveFileDiffPath,
   sendPromptForTest,
@@ -159,12 +160,14 @@ await run(["git", "init"], steerRoot);
 await run(["git", "add", "tracked.txt"], steerRoot);
 await run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "-m", "init"], steerRoot);
 let active = false;
+let activeDoneGeneration: number | undefined;
 let editedResolve!: () => void;
 const edited = new Promise<void>((resolve) => { editedResolve = resolve; });
 const adapter = {
-  send: async (_sess: SessionCtx, prompt: string) => {
+  send: async (_sess: SessionCtx, prompt: string, generation?: number) => {
     if (!active) {
       active = true;
+      activeDoneGeneration = generation;
       await writeFile(join(steerRoot, "tracked.txt"), `before\n${prompt}\n`);
       editedResolve();
     }
@@ -199,10 +202,77 @@ sendPromptForTest(steerSession as any, "edit-before-steer");
 await edited;
 sendPromptForTest(steerSession as any, "steer-text");
 assert((steerSession.internal as any).turnGeneration === 1, `steer should not allocate a new generation, got ${String((steerSession.internal as any).turnGeneration)}`);
-steerSession.emit({ kind: "done" });
+steerSession.emit({ kind: "done", generation: activeDoneGeneration } as any);
 await ((steerSession.internal as any).pendingDoneEmit as Promise<void>);
 const steerFiles = steerSession.events.find((evt) => evt.kind === "files-changed") as Extract<AgentEvent, { kind: "files-changed" }> | undefined;
 assert(steerFiles?.files.some((file) => file.path === "tracked.txt"), `pre-steer edit should be attributed to the active turn: ${JSON.stringify(steerSession.events)}`);
 assert(turnBaselineCountForTest(steerSession) === 0, "completed steered turn should retire its baseline");
+
+const sequentialRoot = join(import.meta.dir, "..", "scratch", "sequential-attribution-test");
+await rm(sequentialRoot, { recursive: true, force: true });
+await mkdir(sequentialRoot, { recursive: true });
+await writeFile(join(sequentialRoot, "first.txt"), "before\n");
+await writeFile(join(sequentialRoot, "second.txt"), "before\n");
+await run(["git", "init"], sequentialRoot);
+await run(["git", "add", "first.txt", "second.txt"], sequentialRoot);
+await run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "-m", "init"], sequentialRoot);
+const sequentialDone: number[] = [];
+const sequentialWaiters: (() => void)[] = [];
+function waitForSequentialDone(): Promise<void> {
+  return new Promise((resolve) => sequentialWaiters.push(resolve));
+}
+const sequentialAdapter = {
+  send: async (sess: SessionCtx, prompt: string, generation?: number) => {
+    const file = prompt.includes("second") ? "second.txt" : "first.txt";
+    await writeFile(join(sequentialRoot, file), `before\n${prompt}\n`);
+    sequentialDone.push(generation ?? 0);
+    sess.emit({ kind: "done", generation } as any);
+    sequentialWaiters.shift()?.();
+  },
+  stop() {},
+  dispose() {},
+  setOption: async () => {},
+} as Adapter;
+const sequentialSession = {
+  id: "sequential-test",
+  provider: "test",
+  cwd: sequentialRoot,
+  title: "sequential test",
+  autoApprove: true,
+  startOptions: {},
+  status: "idle" as SessionStatus,
+  events: [] as AgentEvent[],
+  internal: {},
+  adapter: sequentialAdapter,
+  sockets: new Set(),
+  createdAt: Date.now(),
+  emit(evt: AgentEvent) {
+    if (evt.kind === "done") emitDoneAfterFilesForTest(this as any, evt as any);
+    else emitSessionEventForTest(this as any, evt);
+  },
+  setStatus(status: SessionStatus) {
+    this.status = status;
+  },
+};
+const firstSequentialDone = waitForSequentialDone();
+sendPromptForTest(sequentialSession as any, "first turn");
+await firstSequentialDone;
+await ((sequentialSession.internal as any).pendingDoneEmit as Promise<void>);
+const secondSequentialDone = waitForSequentialDone();
+sendPromptForTest(sequentialSession as any, "second turn");
+await secondSequentialDone;
+await ((sequentialSession.internal as any).pendingDoneEmit as Promise<void>);
+const sequentialFileBlocks = sequentialSession.events.filter((evt) => evt.kind === "files-changed") as Extract<AgentEvent, { kind: "files-changed" }>[];
+assert(sequentialDone.join("|") === "1|2", `adapter should receive explicit generations, got ${sequentialDone.join("|")}`);
+assert(sequentialFileBlocks[0]?.files.some((file) => file.path === "first.txt"), `first turn should attribute first.txt: ${JSON.stringify(sequentialSession.events)}`);
+assert(sequentialFileBlocks[1]?.files.some((file) => file.path === "second.txt"), `second turn should attribute second.txt: ${JSON.stringify(sequentialSession.events)}`);
+
+const forkedSession = {
+  cwd: "/tmp/agent-chat-fork-allowlist-test",
+  events: [{ kind: "files-changed", files: [{ path: "copied.txt", adds: 1, dels: 0, status: "modified" }] }] as AgentEvent[],
+  internal: {},
+};
+rebuildFileDiffAllowlistForTest(forkedSession);
+assert(fileDiffAllowedForTest(forkedSession, "copied.txt"), "forked sessions should allow diffs from copied files-changed history");
 
 console.log("server utility assertions passed");
