@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { cloudVmBillingGrants } from "../db/schema";
+
 const deleteStackUser = mock(async () => {
   routeEvents.push("stack-delete");
   if (stackDeleteError) throw stackDeleteError;
@@ -46,6 +48,7 @@ const deleteCustomer = mock(async (...args: unknown[]) => {
 });
 
 let deletedTableCount = 0;
+let deletedTables: unknown[] = [];
 let routeEvents: string[] = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
@@ -67,7 +70,8 @@ type MockTransaction = {
 };
 
 const mockTransaction: MockTransaction = {
-  delete: () => {
+  delete: (table: unknown) => {
+    deletedTables.push(table);
     deletedTableCount += 1;
     return { where: async () => {} };
   },
@@ -134,6 +138,7 @@ beforeEach(() => {
   cancelSubscription.mockClear();
   deleteCustomer.mockClear();
   deletedTableCount = 0;
+  deletedTables = [];
   routeEvents = [];
   stackDeleteError = null;
   stackUserIds = [];
@@ -178,6 +183,7 @@ describe("account deletion route", () => {
     expect(destroyVm).toHaveBeenCalledWith({ userId: "account-user-1", providerVmId: "personal-vm-2" });
     expect(transaction).toHaveBeenCalledTimes(1);
     expect(deletedTableCount).toBeGreaterThan(10);
+    expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedVaultObjects).toEqual([
       "vault/u/account-user-1/latest.jsonl.zst",
       "vault/u/account-user-1/snapshot.jsonl.zst",

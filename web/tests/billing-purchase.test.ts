@@ -1,10 +1,28 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { billingEmailClaims, stripeCustomers, stripeSubscriptions } from "../db/schema";
-import {
-  applySubscriptionUpdate,
-  recordCheckoutCompletion,
-} from "../services/billing/purchase";
+
+mock.module("../app/lib/stack", () => ({
+  stackServerApp: null,
+}));
+mock.module("../db/client", () => ({
+  cloudDb: () => {
+    throw new Error("test must inject a billing DB");
+  },
+}));
+mock.module("../services/asc/client", () => ({
+  isAscConfigured: () => false,
+}));
+mock.module("../services/asc/testflight", () => ({
+  removeTester: async () => {},
+}));
+mock.module("../services/errors", () => ({
+  captureAscError: () => {},
+}));
+
+const { applySubscriptionUpdate, recordCheckoutCompletion } = await import(
+  "../services/billing/purchase"
+);
 
 const inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
 const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
@@ -469,6 +487,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update,
     };
+    selectResults = [[{ stackUserId: "user_123" }]];
 
     const result = await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,
@@ -495,6 +514,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update: mock(async () => undefined),
     };
+    selectResults = [[{ stackUserId: "user_123" }]];
 
     const result = await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,
@@ -530,6 +550,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update: mock(async () => undefined),
     };
+    selectResults = [[{ stackUserId: "user_123" }]];
 
     await applySubscriptionUpdate(
       userSubscriptionUpdate({ status: "canceled" }) as never,
@@ -544,6 +565,29 @@ describe("recordCheckoutCompletion", () => {
     );
 
     expect(removeTester).not.toHaveBeenCalled();
+  });
+
+  test("skips user subscription webhooks after local billing rows are gone", async () => {
+    const getUser = mock(async () => ({
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    }));
+    selectResults = [[], []];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+    expect(updates.some((update) => update.table === stripeSubscriptions)).toBe(false);
   });
 
   test("does not remove TestFlight access when a Team subscription lapses", async () => {

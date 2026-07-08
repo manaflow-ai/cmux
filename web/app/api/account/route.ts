@@ -6,6 +6,7 @@ import {
   billingEmailClaims,
   cloudVmBaseEvents,
   cloudVmBases,
+  cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNotificationDeliveries,
   cloudVmNotificationEvents,
@@ -196,6 +197,10 @@ async function deleteCmuxOwnedAccountRows(userId: string): Promise<void> {
       isNull(stripeCustomers.stackTeamId),
     ));
 
+    await tx.delete(cloudVmBillingGrants).where(and(
+      eq(cloudVmBillingGrants.billingCustomerType, "user"),
+      eq(cloudVmBillingGrants.billingCustomerId, userId),
+    ));
     await tx.delete(cloudVmNotificationDeliveries).where(eq(cloudVmNotificationDeliveries.userId, userId));
     await tx.delete(cloudVmNotificationEvents).where(eq(cloudVmNotificationEvents.userId, userId));
     await tx.delete(cloudVmUsageEvents).where(personalUsageScope(userId));

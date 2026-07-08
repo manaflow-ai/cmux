@@ -180,20 +180,29 @@ export async function applySubscriptionUpdate(
     return { scope: "team", stackTeamId: teamScope.stackTeamId, isActive };
   }
 
-  const stackUserId =
-    subscription.metadata?.stackUserId ??
-    (await stackUserIdForStripeCustomer(db, customerId));
+  const mappedStackUserId = await stackUserIdForStripeCustomer(db, customerId);
+  const stackUserId = subscription.metadata?.stackUserId ?? mappedStackUserId;
   if (!stackUserId) return { skipped: true };
 
-  await upsertStripeSubscription(db, {
+  const isActive = isActiveStripeSubscriptionStatus(subscription.status);
+  const hasLocalBillingRecord =
+    mappedStackUserId === stackUserId ||
+    (await userStripeSubscriptionExists(db, {
+      subscriptionId: subscription.id,
+      stackUserId,
+    }));
+  if (!hasLocalBillingRecord) return { skipped: true };
+
+  const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
+  if (!user) return { skipped: true };
+
+  await updateExistingStripeSubscription(db, {
     subscription,
     customerId,
     stackUserId,
     scope: "user",
   });
 
-  const isActive = isActiveStripeSubscriptionStatus(subscription.status);
-  const user = await loadStackUser(stackUserId, dependencies.stackApp);
   await syncProPlanMetadata(user, isActive);
   if (!isActive) {
     await removeUserFromTestflightOnLapse(user, stackUserId, dependencies);
@@ -232,11 +241,18 @@ async function loadStackUser(
   stackUserId: string,
   stackApp: StackBillingApp | null | undefined,
 ): Promise<StackBillingUser> {
-  const app = stackApp ?? stackServerApp;
-  if (!app) throw new Error("Stack Auth is not configured");
-  const user = await app.getUser(stackUserId);
+  const user = await loadOptionalStackUser(stackUserId, stackApp);
   if (!user) throw new Error(`Stack user not found for Stripe purchase: ${stackUserId}`);
   return user;
+}
+
+async function loadOptionalStackUser(
+  stackUserId: string,
+  stackApp: StackBillingApp | null | undefined,
+): Promise<StackBillingUser | null> {
+  const app = stackApp ?? stackServerApp;
+  if (!app) throw new Error("Stack Auth is not configured");
+  return app.getUser(stackUserId);
 }
 
 async function loadStackTeam(
@@ -441,41 +457,87 @@ async function upsertStripeSubscription(
     scope: "user" | "team";
   },
 ): Promise<void> {
-  const { subscription } = input;
-  const plan = input.scope === "team" ? TEAM_PLAN_ID : PRO_PLAN_ID;
+  const values = stripeSubscriptionValues(input);
   await db
     .insert(stripeSubscriptions)
-    .values({
-      id: subscription.id,
-      customerId: input.customerId,
-      stackUserId: input.stackUserId,
-      stackTeamId: input.stackTeamId ?? null,
-      status: subscription.status,
-      priceId: subscriptionPriceId(subscription),
-      plan,
-      seats: input.scope === "team" ? subscriptionSeats(subscription) : null,
-      scope: input.scope,
-      currentPeriodEnd: subscriptionCurrentPeriodEnd(subscription),
-      cancelAtPeriodEnd: subscription.cancel_at_period_end,
-      raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
-    })
+    .values(values)
     .onConflictDoUpdate({
       target: stripeSubscriptions.id,
       set: {
-        customerId: input.customerId,
-        stackUserId: input.stackUserId,
-        stackTeamId: input.stackTeamId ?? null,
-        status: subscription.status,
-        priceId: subscriptionPriceId(subscription),
-        plan,
-        seats: input.scope === "team" ? subscriptionSeats(subscription) : null,
-        scope: input.scope,
-        currentPeriodEnd: subscriptionCurrentPeriodEnd(subscription),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
+        ...values,
         updatedAt: sql`now()`,
       },
     });
+}
+
+async function updateExistingStripeSubscription(
+  db: BillingDb,
+  input: {
+    subscription: Stripe.Subscription;
+    customerId: string;
+    stackUserId: string;
+    stackTeamId?: string | null;
+    scope: "user" | "team";
+  },
+): Promise<void> {
+  await db
+    .update(stripeSubscriptions)
+    .set({
+      ...stripeSubscriptionValues(input),
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(stripeSubscriptions.id, input.subscription.id),
+        eq(stripeSubscriptions.stackUserId, input.stackUserId),
+        eq(stripeSubscriptions.scope, input.scope),
+        isNull(stripeSubscriptions.stackTeamId),
+      ),
+    );
+}
+
+function stripeSubscriptionValues(input: {
+  subscription: Stripe.Subscription;
+  customerId: string;
+  stackUserId: string;
+  stackTeamId?: string | null;
+  scope: "user" | "team";
+}) {
+  const { subscription } = input;
+  const plan = input.scope === "team" ? TEAM_PLAN_ID : PRO_PLAN_ID;
+  return {
+    id: subscription.id,
+    customerId: input.customerId,
+    stackUserId: input.stackUserId,
+    stackTeamId: input.stackTeamId ?? null,
+    status: subscription.status,
+    priceId: subscriptionPriceId(subscription),
+    plan,
+    seats: input.scope === "team" ? subscriptionSeats(subscription) : null,
+    scope: input.scope,
+    currentPeriodEnd: subscriptionCurrentPeriodEnd(subscription),
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
+  };
+}
+
+async function userStripeSubscriptionExists(
+  db: BillingDb,
+  input: { subscriptionId: string; stackUserId: string },
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: stripeSubscriptions.id })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.id, input.subscriptionId),
+        eq(stripeSubscriptions.stackUserId, input.stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
+        isNull(stripeSubscriptions.stackTeamId),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
 }
 
 async function attachPurchaseEmailOrRecordClaim(
