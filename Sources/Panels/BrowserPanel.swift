@@ -5786,36 +5786,17 @@ final class BrowserPanel: Panel, ObservableObject {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
+        // The handoff (when a session must be primed) and the fallback original
+        // request both go through finishNavigation, so they share bookkeeping.
         if BrowserAppSessionBridge.shared.beginHandoffNavigationIfNeeded(
-            panelID: id,
-            destinationURL: originalURL,
-            request: request,
+            panelID: id, destinationURL: originalURL, request: request,
             websiteDataStore: webView.configuration.websiteDataStore,
-            navigate: { [weak self] navigationRequest in
-                // Route the session-priming handoff (or the fallback original
-                // request when no session is available) through the same
-                // bookkeeping and remote-proxy rewrite as a normal navigation.
-                self?.finishNavigation(
-                    request: navigationRequest,
-                    originalURL: originalURL,
-                    recordTypedNavigation: recordTypedNavigation
-                )
-            }
-        ) {
-            return
-        }
-        finishNavigation(
-            request: request,
-            originalURL: originalURL,
-            recordTypedNavigation: recordTypedNavigation
-        )
+            navigate: { [weak self] in self?.finishNavigation(request: $0, originalURL: originalURL, recordTypedNavigation: recordTypedNavigation) }
+        ) { return }
+        finishNavigation(request: request, originalURL: originalURL, recordTypedNavigation: recordTypedNavigation)
     }
 
-    private func finishNavigation(
-        request: URLRequest,
-        originalURL: URL,
-        recordTypedNavigation: Bool
-    ) {
+    private func finishNavigation(request: URLRequest, originalURL: URL, recordTypedNavigation: Bool) {
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -5826,9 +5807,7 @@ final class BrowserPanel: Panel, ObservableObject {
             shouldPreloadInitialNavigationInBackground = false
             ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
         }
-        if recordTypedNavigation {
-            historyStore.recordTypedNavigation(url: originalURL)
-        }
+        if recordTypedNavigation { historyStore.recordTypedNavigation(url: originalURL) }
         browserLoadRequest(effectiveRequest, in: webView)
     }
 
