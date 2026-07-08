@@ -811,6 +811,7 @@
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
 		D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */; };
 		13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD3B5F249DECAB446CC71D32 /* MockBridgeInputCapture.swift */; };
+		C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740020000000000000002 /* MouseDownMenuItemView.swift */; };
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
 		596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */; };
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
@@ -2280,6 +2281,7 @@
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverSignposts.swift; sourceTree = "<group>"; };
 		CD3B5F249DECAB446CC71D32 /* MockBridgeInputCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockBridgeInputCapture.swift; sourceTree = "<group>"; };
+		C75740020000000000000002 /* MouseDownMenuItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MouseDownMenuItemView.swift; sourceTree = "<group>"; };
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
 		596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationDeliveryHooks.swift; sourceTree = "<group>"; };
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
@@ -3868,6 +3870,7 @@
 				A5001223 /* UpdateLogStore.swift */,
 				A5001218 /* UpdateTitlebarAccessory.swift */,
 				C10D00120000000000000012 /* TitlebarCloudVMButton.swift */,
+				C75740020000000000000002 /* MouseDownMenuItemView.swift */,
 				C4160A060000000000000002 /* TitlebarChromeGeometryReporting.swift */,
 				C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */,
 				A5001219 /* WindowToolbarController.swift */,
@@ -5376,6 +5379,7 @@
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
 				D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */,
+					C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,
@@ -5723,10 +5727,10 @@
 				C0DE7B350000000000000001 /* TextBoxSubmitActionSettings.swift in Sources */,
 				C0DE5A420000000000000001 /* TextBoxSubmitAvailability.swift in Sources */,
 				F50030050000000000000001 /* TitlebarAccessoryContainerView.swift in Sources */,
-				F50030060000000000000001 /* TitlebarAccessoryHostingView.swift in Sources */,
-				C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */,
-				C10D00110000000000000011 /* TitlebarCloudVMButton.swift in Sources */,
-				F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */,
+					F50030060000000000000001 /* TitlebarAccessoryHostingView.swift in Sources */,
+					C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */,
+					C10D00110000000000000011 /* TitlebarCloudVMButton.swift in Sources */,
+					F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */,
 				C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */,
 				E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */,
 				E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */,

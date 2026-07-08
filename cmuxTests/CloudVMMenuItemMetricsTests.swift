@@ -7,8 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite(.serialized)
 @MainActor
+@Suite(.serialized)
 struct CloudVMMenuItemMetricsTests {
     @Test func mouseDownCloudVMMenuRowMatchesNativeMenuItemHeight() throws {
         let menu = TitlebarCloudVMButton.makeCloudVMMenu()
@@ -19,11 +19,11 @@ struct CloudVMMenuItemMetricsTests {
 
     private static func nativeMenuItemRowHeight() -> Double {
         let oneItemMenu = NSMenu()
-        oneItemMenu.addItem(NSMenuItem(title: "One", action: nil, keyEquivalent: ""))
+        oneItemMenu.addItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""))
 
         let twoItemMenu = NSMenu()
-        twoItemMenu.addItem(NSMenuItem(title: "One", action: nil, keyEquivalent: ""))
-        twoItemMenu.addItem(NSMenuItem(title: "Two", action: nil, keyEquivalent: ""))
+        twoItemMenu.addItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""))
+        twoItemMenu.addItem(NSMenuItem(title: "", action: nil, keyEquivalent: ""))
 
         return twoItemMenu.size.height - oneItemMenu.size.height
     }
