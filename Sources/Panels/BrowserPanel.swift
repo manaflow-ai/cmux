@@ -3222,7 +3222,7 @@ final class BrowserPanel: Panel, ObservableObject {
         ]
     }
 
-    private func refreshWebViewLifecycleState() {
+    func refreshWebViewLifecycleState() {
         let nextState: BrowserWebViewLifecycleState
         if isClosingWebViewLifecycle {
             nextState = .closing
@@ -3367,15 +3367,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let restoreURL = restoredHistoryCurrentURL ?? currentURL
         guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
-            // No restorable document (nil or about:blank): navigating would wait
-            // on a commit that shouldTreatCommitAsDiscardedRestoreCommit ignores,
-            // so reactivate in place instead of leaving the manager discarded.
-            if reactivateDiscardedWebViewWithoutNavigation(reason: "\(reason).no_restore_url") {
-                refreshNavigationAvailability()
-                refreshWebViewLifecycleState()
-                return true
-            }
-            return false
+            return reactivateDiscardedPaneWithoutRestorableURL(reason: reason)
         }
 
         if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, performRestore: {
@@ -3409,6 +3401,7 @@ final class BrowserPanel: Panel, ObservableObject {
             isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive,
             hasCommittedDocument: hasCommittedDocumentSinceWebViewReplacement,
             isNavigationBlockedPendingConsent: isNavigationBlockedPendingConsent,
+            hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
             intentURL: intentURL
         ) else {
             return false
@@ -3441,7 +3434,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    private func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
+    func reactivateDiscardedWebViewWithoutNavigation(reason: String) -> Bool {
         return hiddenWebViewDiscardManager.reactivateWithoutNavigation(reason: reason) {
             shouldRenderWebView = true
         }
@@ -8050,7 +8043,7 @@ extension BrowserPanel {
         return restoredHistoryCurrentURL
     }
 
-    private func refreshNavigationAvailability() {
+    func refreshNavigationAvailability() {
         let availability = restoredSessionHistory.availability(
             nativeCanGoBack: nativeCanGoBack,
             nativeCanGoForward: nativeCanGoForward

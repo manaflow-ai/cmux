@@ -8,6 +8,19 @@ extension BrowserPanel {
         return !Self.isAboutBlankURL(committedURL)
     }
 
+    /// Restore fallback for a discarded pane with no restorable document (nil
+    /// or about:blank restore URL): navigating would wait on a commit that
+    /// ``shouldTreatCommitAsDiscardedRestoreCommit(from:)`` ignores, leaving the
+    /// manager pending forever, so reactivate in place instead.
+    func reactivateDiscardedPaneWithoutRestorableURL(reason: String) -> Bool {
+        guard reactivateDiscardedWebViewWithoutNavigation(reason: "\(reason).no_restore_url") else {
+            return false
+        }
+        refreshNavigationAvailability()
+        refreshWebViewLifecycleState()
+        return true
+    }
+
     nonisolated static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
         guard let date else { return NSNull() }
         let formatter = ISO8601DateFormatter()
@@ -38,6 +51,7 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive: Bool,
         hasCommittedDocument: Bool,
         isNavigationBlockedPendingConsent: Bool,
+        hasRecoverableWebContentTermination: Bool,
         intentURL: URL?
     ) -> Bool {
         guard shouldRenderWebView else { return false }
@@ -47,6 +61,9 @@ extension BrowserPanel {
         guard !isMainFrameProvisionalNavigationActive else { return false }
         guard !hasCommittedDocument else { return false }
         guard !isNavigationBlockedPendingConsent else { return false }
+        // A crashed WebContent process waits for the user's explicit Reload;
+        // auto-healing here would bypass that gate and can re-enter the crash.
+        guard !hasRecoverableWebContentTermination else { return false }
         guard let intentURL else { return false }
         return !isAboutBlankURL(intentURL)
     }

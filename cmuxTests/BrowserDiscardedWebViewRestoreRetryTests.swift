@@ -284,6 +284,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
+            hasRecoverableWebContentTermination: false,
             intentURL: intentURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -294,6 +295,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: true,
             isNavigationBlockedPendingConsent: false,
+            hasRecoverableWebContentTermination: false,
             intentURL: intentURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -304,6 +306,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
+            hasRecoverableWebContentTermination: false,
             intentURL: aboutBlankURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -314,6 +317,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
+            hasRecoverableWebContentTermination: false,
             intentURL: intentURL
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -324,6 +328,7 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
+            hasRecoverableWebContentTermination: false,
             intentURL: nil
         ))
         #expect(!BrowserPanel.shouldHealBlankShell(
@@ -334,6 +339,20 @@ struct BrowserDiscardedWebViewRestoreRetryGreenTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: true,
+            hasRecoverableWebContentTermination: false,
+            intentURL: intentURL
+        ))
+        // A crashed WebContent process must wait for the user's explicit
+        // Reload; blank-shell healing never auto-navigates over that gate.
+        #expect(!BrowserPanel.shouldHealBlankShell(
+            shouldRenderWebView: true,
+            isClosing: false,
+            hasPendingRemoteNavigation: false,
+            isWebViewLoading: false,
+            isMainFrameProvisionalNavigationActive: false,
+            hasCommittedDocument: false,
+            isNavigationBlockedPendingConsent: false,
+            hasRecoverableWebContentTermination: true,
             intentURL: intentURL
         ))
 
