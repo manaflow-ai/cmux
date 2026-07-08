@@ -35,6 +35,7 @@ interface CodexState {
   fastMode: boolean;
   mode: string;
   currentTurnId?: string;
+  turnActive: boolean;
   turnWaiters: ((id: string | null) => void)[];
   commands: CommandEntry[];
 }
@@ -94,7 +95,7 @@ export const codexAdapter: Adapter = {
         }
         threadId = await starting;
       }
-      if (sess.status === "running") {
+      if (codexSendRoute(st) === "steer") {
         const turnId = st.currentTurnId ?? await waitForTurnId(st);
         if (!turnId) throw new Error("codex turn is still starting");
         await srv.request("turn/steer", {
@@ -105,6 +106,7 @@ export const codexAdapter: Adapter = {
         return;
       }
       sess.setStatus("running");
+      st.turnActive = true;
       await srv.request("turn/start", {
         threadId,
         input: [{ type: "text", text: prompt }],
@@ -117,6 +119,12 @@ export const codexAdapter: Adapter = {
       });
       // Completion arrives via the turn/completed notification.
     } catch (err) {
+      const st = sess.internal.codex as CodexState | undefined;
+      if (st) {
+        st.turnActive = false;
+        st.currentTurnId = undefined;
+        resolveTurnWaiters(st, null);
+      }
       sess.emit({ kind: "error", message: truncate(String(err), 400) });
       sess.emit({ kind: "done" });
       sess.setStatus("idle");
@@ -165,6 +173,7 @@ export const codexAdapter: Adapter = {
       ...sourceState,
       turnWaiters: [],
       currentTurnId: undefined,
+      turnActive: false,
       commands: sourceState.commands.slice(),
     };
     target.internal.deltaItems = new Set<string>();
@@ -237,7 +246,11 @@ async function startServer(): Promise<AppServer> {
     for (const p of pending.values()) p.reject(new Error("codex app-server exited"));
     pending.clear();
     for (const sess of srv.sessionsByThread.values()) {
-      if (sess.status === "running") {
+      const st = codexState(sess);
+      if (st.turnActive) {
+        st.turnActive = false;
+        st.currentTurnId = undefined;
+        resolveTurnWaiters(st, null);
         sess.emit({ kind: "error", message: "codex app-server exited mid-turn" });
         sess.emit({ kind: "done" });
         sess.setStatus("idle");
@@ -312,6 +325,7 @@ function handleServerMessage(srv: AppServer, msg: any) {
 
   switch (msg.method) {
     case "turn/started":
+      st.turnActive = true;
       st.currentTurnId = p.turn?.id;
       resolveTurnWaiters(st, st.currentTurnId ?? null);
       break;
@@ -343,6 +357,7 @@ function handleServerMessage(srv: AppServer, msg: any) {
       sess.internal.lastUsage = p.tokenUsage?.total;
       break;
     case "turn/completed": {
+      st.turnActive = false;
       st.currentTurnId = undefined;
       resolveTurnWaiters(st, null);
       const u = sess.internal.lastUsage as any;
@@ -356,6 +371,7 @@ function handleServerMessage(srv: AppServer, msg: any) {
       break;
     }
     case "turn/failed": {
+      st.turnActive = false;
       st.currentTurnId = undefined;
       resolveTurnWaiters(st, null);
       sess.emit({ kind: "error", message: truncate(p.error?.message ?? p.turn?.error?.message ?? "turn failed", 400) });
@@ -432,9 +448,18 @@ function defaultState(autoApprove: boolean): CodexState {
     sandbox: autoApprove ? "workspace-write" : "read-only",
     fastMode: false,
     mode: "default",
+    turnActive: false,
     turnWaiters: [],
     commands: [],
   };
+}
+
+export function codexSendRouteForTest(st: { turnActive?: boolean; currentTurnId?: string }, _sessStatus?: string): "start" | "steer" {
+  return st.turnActive ? "steer" : "start";
+}
+
+function codexSendRoute(st: Pick<CodexState, "turnActive" | "currentTurnId">): "start" | "steer" {
+  return codexSendRouteForTest(st);
 }
 
 function waitForTurnId(st: CodexState): Promise<string | null> {

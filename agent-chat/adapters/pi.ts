@@ -16,6 +16,7 @@ interface PiState {
   sessionFile?: string;
   commands: CommandEntry[];
   initialApplied: boolean;
+  activeTurn: boolean;
 }
 
 export const piAdapter: Adapter = {
@@ -28,8 +29,11 @@ export const piAdapter: Adapter = {
   },
   async send(sess, prompt) {
     const proc = ensureProc(sess);
+    const st = state(sess);
     await applyInitialOptions(sess);
-    proc.stdin.write(JSON.stringify({ type: sess.status === "running" ? "steer" : "prompt", message: prompt }) + "\n");
+    const type = st.activeTurn ? "steer" : "prompt";
+    if (type === "prompt") st.activeTurn = true;
+    proc.stdin.write(JSON.stringify({ type, message: prompt }) + "\n");
     proc.stdin.flush();
     sess.setStatus("running");
   },
@@ -87,6 +91,7 @@ function state(sess: SessionCtx): PiState {
       sessionFile: typeof sess.internal.piSessionFile === "string" ? sess.internal.piSessionFile : undefined,
       commands: [],
       initialApplied: false,
+      activeTurn: false,
     };
     sess.internal.pi = st;
   }
@@ -115,7 +120,8 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     if (st.proc === proc) {
       st.proc = undefined;
       rejectPending(st, "pi process exited");
-      if (sess.status === "running") {
+      if (st.activeTurn) {
+        st.activeTurn = false;
         sess.emit({ kind: "error", message: "pi process exited mid-turn" });
         sess.emit({ kind: "done" });
       }
@@ -319,6 +325,7 @@ function handleLine(sess: SessionCtx, line: string) {
       });
       break;
     case "agent_end":
+      state(sess).activeTurn = false;
       sess.emit({ kind: "done" });
       sess.setStatus("idle");
       break;

@@ -44,6 +44,10 @@ extension AppDelegate {
         preferredWindow: NSWindow?,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled() else {
+            NSSound.beep()
+            return false
+        }
         Task { @MainActor [weak self, weak tabManager] in
             guard let self else { return }
             let isReachable = await self.ensureAgentChatServerAvailable(
