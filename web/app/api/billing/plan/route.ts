@@ -5,7 +5,6 @@ import {
   FREE_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
-  metadataPlanId,
   resolveProPlanStatus,
   type BillingManagementKind,
 } from "../../../../services/billing/pro";
@@ -90,12 +89,8 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
     return { planId: FREE_PLAN_ID, billingManagement: "none" };
   }
   const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
-  const metadataActive = metadataPlanId(team.clientReadOnlyMetadata) === TEAM_PLAN_ID;
   if (stripeActive) {
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
-  }
-  if (metadataActive) {
-    return { planId: TEAM_PLAN_ID, billingManagement: "external" };
   }
   return { planId: FREE_PLAN_ID, billingManagement: "none" };
 }
