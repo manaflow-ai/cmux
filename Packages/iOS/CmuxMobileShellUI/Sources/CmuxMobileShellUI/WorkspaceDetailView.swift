@@ -339,9 +339,11 @@ struct WorkspaceDetailView: View {
     var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
+            canRenameWorkspace: renameWorkspace != nil,
+            canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
-            presentRename: renameWorkspace != nil ? presentRenameFromMenu : nil,
-            toggleReadState: setWorkspaceUnread != nil ? toggleWorkspaceReadStateFromMenu : nil,
+            presentRename: presentRenameFromMenu,
+            toggleReadState: toggleWorkspaceReadStateFromMenu,
             requestClose: requestCloseWorkspaceFromMenu
         )
     }
@@ -632,10 +634,7 @@ struct WorkspaceDetailView: View {
         closeWorkspace?(workspace.id)
     }
 
-    /// Toggle the current workspace's read state on the Mac from the picker menu.
-    /// Flips relative to the workspace's current `hasUnread`; the authoritative
-    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
-    /// count.
+    /// Toggle the current workspace's read state from the picker menu.
     private func toggleWorkspaceReadStateFromMenu() {
         let id = workspace.id
         let markUnread = !workspace.hasUnread
