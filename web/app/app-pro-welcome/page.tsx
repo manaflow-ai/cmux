@@ -62,14 +62,14 @@ export default async function AppProWelcomePage({
               return (
                 <article
                   key={key}
-                  className="flex min-h-40 flex-col justify-between rounded-lg border border-border bg-code-bg p-5"
+                  className="flex min-h-40 flex-col justify-between border border-border bg-code-bg p-5"
                 >
                   <div>
                     <h2 className="text-base font-medium">{step.title}</h2>
                     <p className="mt-2 text-sm leading-6 text-muted">{step.body}</p>
                   </div>
                   <a
-                    className="mt-4 inline-flex w-fit rounded-md px-3 py-2 text-sm font-medium"
+                    className="mt-4 inline-flex w-fit px-3 py-2 text-sm font-medium"
                     style={{
                       backgroundColor: "var(--foreground)",
                       color: "var(--button-foreground)",
@@ -85,7 +85,7 @@ export default async function AppProWelcomePage({
 
           <div className="mt-8 border-t border-border pt-6">
             <a
-              className="inline-flex rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground"
+              className="inline-flex border border-border px-4 py-2 text-sm font-medium text-foreground"
               href="/dashboard"
             >
               {welcome.done}

@@ -4648,7 +4648,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "You unlocked cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Here is where to start.",
+    "body": "Your plan includes cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Start here.",
     "done": "Go to dashboard",
     "steps": {
       "modelGateway": {

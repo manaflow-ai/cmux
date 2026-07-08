@@ -4557,7 +4557,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro が有効です",
     "title": "cmux Pro へようこそ",
-    "body": "Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリを利用できるようになりました。まずはここから始めましょう。",
+    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
     "done": "ダッシュボードへ",
     "steps": {
       "modelGateway": {
