@@ -117,8 +117,7 @@ final class PaneDropTargetView: NSView {
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess,
            let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           // Registry-backed virtual drags reuse this payload without owning a live surface.
-           AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil,
+           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
            !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                pasteboardTypes: sender.draggingPasteboard.types,
                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
@@ -236,8 +235,7 @@ final class PaneDropTargetView: NSView {
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess,
            let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           // Registry-backed virtual drags reuse this payload without owning a live surface.
-           AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil,
+           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
            !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                pasteboardTypes: sender.draggingPasteboard.types,
                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,

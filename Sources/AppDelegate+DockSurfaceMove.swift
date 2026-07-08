@@ -37,6 +37,13 @@ extension AppDelegate {
         return nil
     }
 
+    /// Whether a live surface can leave its current owner and be driven from
+    /// `destinationDock`.
+    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock _: DockSplitStore) -> Bool {
+        guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
+        return canMoveSurfaceIntoDock(source)
+    }
+
     /// Whether the right sidebar (Files / Find / Dock) currently owns input
     /// focus in `workspace`'s window. Lets the workspace's imperative terminal
     /// portal active-state reconcile honor the same focus-exclusivity gate the
@@ -97,6 +104,7 @@ extension AppDelegate {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
+        guard canMoveSurfaceIntoDock(source) else { return false }
         let shouldPreserveSourceWorkspace = shouldPreserveSourceWorkspaceAfterDockMove(
             source,
             destinationDock: destinationDock
@@ -255,6 +263,17 @@ extension AppDelegate {
         case .split(let pane, let orientation, let insertFirst):
             return (pane, nil, (orientation, insertFirst))
         }
+    }
+
+    private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
+        if case .workspace(_, let workspace, _, _) = source,
+           workspace.isRemoteTmuxMirror {
+            // Remote tmux mirror panes are manually driven by the mirror
+            // workspace. Dock has no mirror-owned I/O routing yet, so moving one
+            // would leave the Dock panel detached from its remote owner.
+            return false
+        }
+        return true
     }
 
     private func shouldPreserveSourceWorkspaceAfterDockMove(

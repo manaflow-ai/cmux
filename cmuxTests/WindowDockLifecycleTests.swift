@@ -288,9 +288,9 @@ struct WindowDockLifecycleTests {
         #expect(appDelegate.existingWindowDock(forWindowId: windowId) === dock)
     }
 
-    @Test("External drop clears remote tmux mirror state before replacing last main panel")
+    @Test("External drop keeps remote tmux mirror panes out of Dock")
     @MainActor
-    func externalDropIntoOwnWindowDockDetachesRemoteTmuxMirrorLocally() throws {
+    func externalDropIntoOwnWindowDockRejectsRemoteTmuxMirrorPanel() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
@@ -313,10 +313,10 @@ struct WindowDockLifecycleTests {
             destination: .insert(targetPane: dockPane, targetIndex: nil)
         )) ?? false
 
-        #expect(moved)
-        #expect(dock.containsPanel(panelId))
-        #expect(workspace.panels[panelId] == nil)
-        #expect(!workspace.isRemoteTmuxMirror)
+        #expect(!moved)
+        #expect(!dock.containsPanel(panelId))
+        #expect(workspace.panels[panelId] != nil)
+        #expect(workspace.isRemoteTmuxMirror)
         #expect(workspace.panels.count == 1)
     }
 
