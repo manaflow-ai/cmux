@@ -1,6 +1,12 @@
 // Register (POST) and list (GET) env-layer cache entries. A layer maps a chain
 // hash to a provider snapshot taken after that step succeeded; ownership of the
 // snapshot is re-verified server-side before the layer becomes restorable.
+//
+// Trust model: the chain hash is computed and asserted by the building client;
+// the server cannot recompute it (builds run client-side and it never sees the
+// spec). Enforced invariants are team scoping and snapshot ownership, so a
+// registration can never cross teams; within a team, cache integrity relies on
+// member trust, the same boundary as sharing snapshot ids or repo access.
 
 import { type ProviderId } from "../../../../../services/vms/drivers";
 import {
