@@ -34,6 +34,11 @@ python3 scripts/swift_file_length_budget.py \
   --threshold 5 \
   --write-budget
 
+git -C "$FIXTURE" init -q
+git -C "$FIXTURE" add .
+git -C "$FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm baseline
+BASE_REF="$(git -C "$FIXTURE" rev-parse HEAD)"
+
 if ! grep -Fq $'5\tSources/Big.swift' "$BUDGET"; then
   echo "expected tracked Sources file" >&2
   exit 1
@@ -140,6 +145,164 @@ if ! grep -Fq '+1 Sources/Big.swift' "$TMP_DIR/fail.out"; then
   cat "$TMP_DIR/fail.out" >&2
   exit 1
 fi
+
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --base-ref "$BASE_REF" \
+  --incidental-growth 1 \
+  --hard-cap 10 >"$TMP_DIR/incidental.out"
+
+if ! grep -Fq 'Incidental growth allowed by PR gate' "$TMP_DIR/incidental.out"; then
+  echo "expected incidental growth output" >&2
+  cat "$TMP_DIR/incidental.out" >&2
+  exit 1
+fi
+
+git -C "$FIXTURE" add .
+git -C "$FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm 'allow incidental growth'
+UNCHANGED_BASE_REF="$(git -C "$FIXTURE" rev-parse HEAD)"
+
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --base-ref "$UNCHANGED_BASE_REF" \
+  --incidental-growth 0 \
+  --hard-cap 10 >"$TMP_DIR/unchanged-over-budget.out"
+
+if grep -Fq 'Swift file length budget exceeded' "$TMP_DIR/unchanged-over-budget.out"; then
+  echo "unchanged over-budget file should pass in base-ref mode" >&2
+  cat "$TMP_DIR/unchanged-over-budget.out" >&2
+  exit 1
+fi
+
+mkdir -p "$FIXTURE/.github"
+printf '6\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$FIXTURE/.github/swift-file-length-budget.tsv"
+git -C "$FIXTURE" add .github/swift-file-length-budget.tsv
+git -C "$FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm 'record checked-in budget'
+CHECKED_IN_BUDGET_REF="$(git -C "$FIXTURE" rev-parse HEAD)"
+
+printf '5\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$FIXTURE/.github/swift-file-length-budget.tsv"
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$FIXTURE/.github/swift-file-length-budget.tsv" \
+  --threshold 5 \
+  --base-ref "$CHECKED_IN_BUDGET_REF" \
+  --incidental-growth 0 \
+  --hard-cap 10 >"$TMP_DIR/lowered-budget.out" 2>&1; then
+  echo "expected lowered checked-in budget to fail base-ref check" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'budget lowered below actual count (base budget 6)' "$TMP_DIR/lowered-budget.out"; then
+  echo "expected lowered-budget reason" >&2
+  cat "$TMP_DIR/lowered-budget.out" >&2
+  exit 1
+fi
+
+printf 'threshold crossing\n' >>"$FIXTURE/Sources/Small.swift"
+printf '6\tSources/Big.swift\n5\tSources/Small.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$FIXTURE/.github/swift-file-length-budget.tsv"
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$FIXTURE/.github/swift-file-length-budget.tsv" \
+  --threshold 5 \
+  --base-ref "$CHECKED_IN_BUDGET_REF" \
+  --incidental-growth 1 \
+  --hard-cap 10 >"$TMP_DIR/threshold-crossing.out" 2>&1; then
+  echo "expected below-threshold base file to fail base-ref check" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'reason=newly tracked file' "$TMP_DIR/threshold-crossing.out"; then
+  echo "expected threshold-crossing reason" >&2
+  cat "$TMP_DIR/threshold-crossing.out" >&2
+  exit 1
+fi
+
+sed -i.bak '$d' "$FIXTURE/Sources/Small.swift"
+rm "$FIXTURE/Sources/Small.swift.bak"
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --base-ref "$BASE_REF" \
+  --incidental-growth 0 >"$TMP_DIR/growth-limit.out" 2>&1; then
+  echo "expected incidental growth limit failure" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'PR growth +1 exceeds incidental allowance 0' "$TMP_DIR/growth-limit.out"; then
+  echo "expected growth-limit reason" >&2
+  cat "$TMP_DIR/growth-limit.out" >&2
+  exit 1
+fi
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$BUDGET" \
+  --threshold 5 \
+  --base-ref "$BASE_REF" \
+  --incidental-growth 1 \
+  --hard-cap 5 >"$TMP_DIR/hard-cap.out" 2>&1; then
+  echo "expected hard-cap failure" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'reason=hard cap 5' "$TMP_DIR/hard-cap.out"; then
+  echo "expected hard-cap reason" >&2
+  cat "$TMP_DIR/hard-cap.out" >&2
+  exit 1
+fi
+
+printf 'extra growth\n' >>"$FIXTURE/Sources/Big.swift"
+printf '7\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$TMP_DIR/raised-budget.tsv"
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$TMP_DIR/raised-budget.tsv" \
+  --threshold 5 \
+  --base-ref "$BASE_REF" \
+  --incidental-growth 1 >"$TMP_DIR/raised-budget-bypass.out" 2>&1; then
+  echo "expected raised budget to still fail PR growth check" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'PR growth +2 exceeds incidental allowance 1' "$TMP_DIR/raised-budget-bypass.out"; then
+  echo "expected raised-budget growth reason" >&2
+  cat "$TMP_DIR/raised-budget-bypass.out" >&2
+  exit 1
+fi
+
+python3 - "$FIXTURE/Sources/NewBudgeted.swift" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text("".join(f"budgeted new line {index}\n" for index in range(5)), encoding="utf-8")
+PY
+printf '5\tSources/NewBudgeted.swift\n7\tSources/Big.swift\n6\tCLI/Tool.swift\n7\tPackages/Fixture/Sources/Fixture.swift\n' >"$TMP_DIR/new-file-budget.tsv"
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$FIXTURE" \
+  --budget "$TMP_DIR/new-file-budget.tsv" \
+  --threshold 5 \
+  --base-ref "$BASE_REF" >"$TMP_DIR/new-file-budget-bypass.out" 2>&1; then
+  echo "expected budgeted new large file to fail base-ref check" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'reason=new tracked file' "$TMP_DIR/new-file-budget-bypass.out"; then
+  echo "expected new-file reason" >&2
+  cat "$TMP_DIR/new-file-budget-bypass.out" >&2
+  exit 1
+fi
+
+rm "$FIXTURE/Sources/NewBudgeted.swift"
+sed -i.bak '$d' "$FIXTURE/Sources/Big.swift"
+rm "$FIXTURE/Sources/Big.swift.bak"
 
 printf 'not-a-valid-budget-line\n' >"$TMP_DIR/bad-budget.tsv"
 if python3 scripts/swift_file_length_budget.py \
