@@ -1,5 +1,3 @@
-public import Foundation
-
 /// Failure reasons surfaced back to the mobile workspace-list UI for Mac-backed
 /// workspace and workspace-group mutations.
 public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {

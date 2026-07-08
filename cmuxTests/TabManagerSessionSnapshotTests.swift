@@ -355,7 +355,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             object: manager,
             queue: nil
         ) { _ in
-            observedCanNavigateForward = manager.canNavigateForward
+            observedCanNavigateForward = MainActor.assumeIsolated { manager.canNavigateForward }
         }
         defer {
             NotificationCenter.default.removeObserver(observer)
@@ -3627,7 +3627,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     private static func browserPanelSnapshot(id: UUID) -> SessionPanelSnapshot {
         SessionPanelSnapshot(
             id: id,
-            type: .browser,
+            type: PanelType.browser,
             title: "Browser",
             customTitle: nil,
             directory: nil,
@@ -3654,7 +3654,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     private static func terminalPanelSnapshot(id: UUID) -> SessionPanelSnapshot {
         SessionPanelSnapshot(
             id: id,
-            type: .terminal,
+            type: PanelType.terminal,
             title: "Terminal",
             customTitle: nil,
             directory: nil,
