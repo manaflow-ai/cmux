@@ -30,6 +30,17 @@ extension TerminalController {
         }
     }
 
+    /// Socket-policy justification (skills/cmux-socket-policy): this wrapper and
+    /// `v2MobileWorkspaceDiffFileForControlSocket` run their git work synchronously
+    /// on the main actor because the v2 control socket's mobile-host seam
+    /// (`ControlMobileHostContext`) is a synchronous `@MainActor` protocol invoked
+    /// from the sync `processV2Command` path; a sync witness cannot await the
+    /// detached off-main variants without blocking the main thread anyway. These
+    /// are per-request debug/CLI verbs, not telemetry hot paths (`report_*`-class),
+    /// and the git subprocesses are short-lived with output capped at
+    /// `mobileWorkspaceDiffByteCap`. The iOS data plane (`mobileHostHandleRPC`)
+    /// uses the async `v2MobileWorkspaceDiffStatus` / `v2MobileWorkspaceDiffFile`
+    /// bodies above, which run the same git work off-main in a detached utility task.
     func v2MobileWorkspaceDiffStatusForControlSocket(params: [String: Any]) -> V2CallResult {
         switch mobileWorkspaceDiffSnapshot(params: params) {
         case .failure(let error):

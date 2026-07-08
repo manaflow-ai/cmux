@@ -2,9 +2,6 @@ import CmuxDiffModel
 import CmuxMobileRPC
 import CmuxMobileSupport
 import SwiftUI
-#if canImport(UIKit)
-@preconcurrency import UIKit
-#endif
 
 struct DiffReviewFileView: View {
     @Bindable var session: DiffReviewSession
