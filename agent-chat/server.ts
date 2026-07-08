@@ -59,10 +59,12 @@ const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
 const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
+const FILE_DIFF_ALLOWLIST_LIMIT = 5_000;
 const MAX_SESSION_EVENTS = 5_000;
 const GIT_TIMEOUT_MS = 10_000;
 const DONE_FILES_TIMEOUT_MS = 2_000;
 const TURN_BASELINE_TIMEOUT_MS = 3_000;
+const MAX_TURN_BASELINES = 4;
 const GEMINI_MODELS = [
   { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
   { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
@@ -247,10 +249,15 @@ function createSession(
 function emitSessionEvent(sess: Session, evt: AgentEvent) {
   const generation = turnGenerationContext.getStore() ?? Number(sess.internal.turnGeneration ?? 0);
   const generations = eventGenerations(sess);
+  recordSessionEventSideEffects(sess, evt);
   sess.events.push(evt);
   generations.push(generation);
   capSessionEvents(sess);
   broadcastSessionEvent(sess, evt);
+}
+
+function recordSessionEventSideEffects(sess: Session, evt: AgentEvent) {
+  if (evt.kind === "files-changed") recordFileDiffAllowlist(sess, evt.files);
 }
 
 function eventGenerations(sess: Session): number[] {
@@ -331,6 +338,7 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
     const oldLength = sess.events.length;
     const result = insertDeferredTurnEvents(sess.events, eventGenerations(sess), generation, finalEvents);
     if (result.dropped) return;
+    for (const finalEvt of finalEvents) recordSessionEventSideEffects(sess, finalEvt);
     capSessionEvents(sess);
     if (result.insertedAt >= oldLength) {
       for (const finalEvt of finalEvents) broadcastSessionEvent(sess, finalEvt);
@@ -368,6 +376,7 @@ function sendPrompt(sess: Session, prompt: string) {
     failed: String(err instanceof Error ? err.message : err),
   })).finally(() => clearTimeout(baselineDeadline));
   baselines.set(generation, baseline);
+  pruneTurnBaselines(baselines);
   turnGenerationContext.run(generation, () => {
     sess.emit({ kind: "user", text: prompt });
     baseline.then(() => sess.adapter.send(sess, prompt)).catch((err) => {
@@ -799,6 +808,20 @@ function turnBaselines(sess: Session): Map<number, Promise<DirtyBaseline>> {
   return baselines;
 }
 
+function pruneTurnBaselines(baselines: Map<number, Promise<DirtyBaseline>>) {
+  while (baselines.size > MAX_TURN_BASELINES) {
+    const oldest = baselines.keys().next().value;
+    if (oldest === undefined) return;
+    baselines.delete(oldest);
+  }
+}
+
+export function recordTurnBaselineForTest(sess: { internal: Record<string, unknown> }, generation: number) {
+  const baselines = turnBaselines(sess as Session);
+  baselines.set(generation, Promise.resolve({ files: new Map() }));
+  pruneTurnBaselines(baselines);
+}
+
 async function captureDirtyBaseline(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<DirtyBaseline> {
   return { files: await dirtyState(cwd, timeoutMs) };
 }
@@ -903,6 +926,10 @@ export function turnBaselineCountForTest(sess: { internal: Record<string, unknow
   return (sess.internal.turnBaselines as Map<number, unknown> | undefined)?.size ?? 0;
 }
 
+export function turnBaselineKeysForTest(sess: { internal: Record<string, unknown> }): number[] {
+  return [...((sess.internal.turnBaselines as Map<number, unknown> | undefined)?.keys() ?? [])];
+}
+
 export async function filesChangedEventsForTest(sess: Pick<Session, "cwd" | "internal">, generation: number, timeoutMs = GIT_TIMEOUT_MS): Promise<AgentEvent[]> {
   return filesChangedEvents(sess as Session, generation, timeoutMs);
 }
@@ -919,6 +946,46 @@ export function resolveFileDiffPath(cwd: string, path: string): string {
   const rel = relative(root, target);
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) throw new Error("invalid path");
   return rel.replaceAll("\\", "/");
+}
+
+function fileDiffAllowlist(sess: Session): Set<string> {
+  let allowed = sess.internal.fileDiffAllowlist as Set<string> | undefined;
+  if (!allowed) {
+    allowed = new Set();
+    sess.internal.fileDiffAllowlist = allowed;
+  }
+  return allowed;
+}
+
+function recordFileDiffAllowlist(sess: Session, files: ChangedFile[]) {
+  const allowed = fileDiffAllowlist(sess);
+  for (const file of files) {
+    let safePath: string;
+    try {
+      safePath = resolveFileDiffPath(sess.cwd, file.path);
+    } catch {
+      continue;
+    }
+    if (allowed.has(safePath)) continue;
+    while (allowed.size >= FILE_DIFF_ALLOWLIST_LIMIT) {
+      const oldest = allowed.values().next().value;
+      if (oldest === undefined) break;
+      allowed.delete(oldest);
+    }
+    allowed.add(safePath);
+  }
+}
+
+function assertFileDiffAllowed(sess: Session, safePath: string) {
+  if (!fileDiffAllowlist(sess).has(safePath)) throw new Error("path was not reported by this session");
+}
+
+export function recordFilesChangedForTest(sess: Pick<Session, "cwd" | "internal">, files: ChangedFile[]) {
+  recordFileDiffAllowlist(sess as Session, files);
+}
+
+export function fileDiffAllowedForTest(sess: Pick<Session, "internal">, path: string): boolean {
+  return Boolean((sess.internal.fileDiffAllowlist as Set<string> | undefined)?.has(path));
 }
 
 async function fileDiff(cwd: string, path: string): Promise<string> {
@@ -1332,6 +1399,7 @@ function safeReason(err: unknown): string {
   if (text.includes("unknown provider")) return "unknown provider";
   if (text.includes("no session")) return "no session is available";
   if (text.includes("invalid path")) return "invalid path";
+  if (text.includes("not reported")) return "file was not reported by this session";
   if (text.includes("not a git")) return "not a git repository";
   if (text.includes("timed out") || text.includes("timeout")) return "request timed out";
   if (text.includes("permission") || text.includes("auth") || text.includes("forbidden")) return "permission or authentication failed";
@@ -1506,8 +1574,16 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
         return;
       }
-      Promise.resolve(fileDiff(sess.cwd, path))
-        .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path, diff })))
+      let safePath: string;
+      try {
+        safePath = resolveFileDiffPath(sess.cwd, path);
+        assertFileDiffAllowed(sess, safePath);
+      } catch (err) {
+        sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path });
+        return;
+      }
+      Promise.resolve(fileDiff(sess.cwd, safePath))
+        .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff })))
         .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path }));
       break;
     }

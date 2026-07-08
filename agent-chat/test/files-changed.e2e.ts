@@ -16,6 +16,7 @@ await run(["git", "init"]);
 await run(["git", "add", "tracked.txt"]);
 await run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "-m", "init"]);
 await writeFile(join(root, "untracked.txt"), "new\nfile\n");
+await writeFile(join(root, ".env"), "SECRET_TOKEN=do-not-diff\n");
 
 const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
 let sessionId = "";
@@ -61,6 +62,27 @@ const diff = waitForDiff("tracked.txt");
 ws.send(JSON.stringify({ op: "get-file-diff", sessionId, path: "tracked.txt" }));
 const text = await diff;
 if (!text.includes("tracked.txt") || !/^\+.+/m.test(text)) throw new Error(`unexpected diff: ${text}`);
+
+function waitForDiffError(path: string) {
+  return new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("timed out waiting for file-diff error")), 20_000);
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(String(ev.data));
+      if (msg.kind === "file-diff" && msg.path === path) {
+        clearTimeout(timeout);
+        reject(new Error(`unreported path unexpectedly returned a diff: ${String(msg.diff ?? "")}`));
+      }
+      if (msg.kind === "error" && msg.op === "get-file-diff" && msg.path === path) {
+        clearTimeout(timeout);
+        resolve(String(msg.message ?? ""));
+      }
+    };
+  });
+}
+const refused = waitForDiffError(".env");
+ws.send(JSON.stringify({ op: "get-file-diff", sessionId, path: ".env" }));
+const refusedMessage = await refused;
+if (!/not reported/.test(refusedMessage)) throw new Error(`unexpected unreported diff error: ${refusedMessage}`);
 ws.close();
 console.log("files-changed: OK");
 

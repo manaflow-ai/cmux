@@ -3,15 +3,19 @@ import {
   buildBundles,
   cssAsset,
   cssFontFamily,
+  fileDiffAllowedForTest,
   filterChangedFilesSinceBaseline,
   filesChangedEventsForTest,
   gitFilesFromOutput,
   gitOutputWithCodes,
   gitOutputWithCodesResult,
   insertDeferredTurnEvents,
+  recordFilesChangedForTest,
+  recordTurnBaselineForTest,
   resetAssetCachesForTest,
   resolveFileDiffPath,
   turnBaselineCountForTest,
+  turnBaselineKeysForTest,
 } from "../server";
 import type { AgentEvent } from "../types";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -124,5 +128,15 @@ const noFilesSession = {
 };
 await filesChangedEventsForTest(noFilesSession, 7, 500);
 assert(turnBaselineCountForTest(noFilesSession) === 0, "no-files turn should retire its baseline");
+
+const allowSession = { cwd: "/tmp/agent-chat-allowlist-test", internal: {} };
+recordFilesChangedForTest(allowSession, [{ path: "reported.txt", adds: 1, dels: 0, status: "modified" }]);
+assert(fileDiffAllowedForTest(allowSession, "reported.txt"), "reported files-changed path should be diff-allowed");
+assert(!fileDiffAllowedForTest(allowSession, ".env"), "unreported path should not be diff-allowed");
+
+const steerBaselineSession = { internal: {} };
+for (let i = 1; i <= 9; i++) recordTurnBaselineForTest(steerBaselineSession, i);
+assert(turnBaselineCountForTest(steerBaselineSession) === 4, `steered baselines should be bounded, got ${turnBaselineCountForTest(steerBaselineSession)}`);
+assert(turnBaselineKeysForTest(steerBaselineSession).join("|") === "6|7|8|9", `newest steered baselines should be retained, got ${turnBaselineKeysForTest(steerBaselineSession).join("|")}`);
 
 console.log("server utility assertions passed");
