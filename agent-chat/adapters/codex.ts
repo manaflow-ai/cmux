@@ -458,6 +458,11 @@ export function codexSendRouteForTest(st: { turnActive?: boolean; currentTurnId?
   return st.turnActive ? "steer" : "start";
 }
 
+(codexAdapter as any).attributionMode = (sess: SessionCtx) => {
+  const st = sess.internal.codex as { turnActive?: boolean; currentTurnId?: string } | undefined;
+  return st && codexSendRouteForTest(st) === "steer" ? "current-turn" : "new-turn";
+};
+
 function codexSendRoute(st: Pick<CodexState, "turnActive" | "currentTurnId">): "start" | "steer" {
   return codexSendRouteForTest(st);
 }

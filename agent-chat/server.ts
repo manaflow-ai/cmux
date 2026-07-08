@@ -112,6 +112,7 @@ const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 const turnGenerationContext = new AsyncLocalStorage<number>();
+type AttributionMode = "new-turn" | "current-turn";
 const optionCatalog = new Map<string, {
   options: SessionOption[];
   fetchedAt: number;
@@ -247,7 +248,7 @@ function createSession(
 }
 
 function emitSessionEvent(sess: Session, evt: AgentEvent) {
-  const generation = turnGenerationContext.getStore() ?? Number(sess.internal.turnGeneration ?? 0);
+  const generation = currentAttributionGeneration(sess);
   const generations = eventGenerations(sess);
   recordSessionEventSideEffects(sess, evt);
   sess.events.push(evt);
@@ -299,6 +300,47 @@ function broadcastSessionHistory(sess: Session) {
   for (const ws of sess.sockets) ws.send(payload);
 }
 
+function activeAttributionGenerations(sess: Session): number[] {
+  let generations = sess.internal.activeTurnGenerations as number[] | undefined;
+  if (!generations) {
+    generations = [];
+    sess.internal.activeTurnGenerations = generations;
+  }
+  return generations;
+}
+
+function syncActiveAttributionGeneration(sess: Session) {
+  const generation = activeAttributionGenerations(sess)[0];
+  if (generation) sess.internal.activeTurnGeneration = generation;
+  else delete sess.internal.activeTurnGeneration;
+}
+
+function activeAttributionGeneration(sess: Session): number | undefined {
+  const generations = activeAttributionGenerations(sess);
+  return generations[0] ?? (typeof sess.internal.activeTurnGeneration === "number" ? sess.internal.activeTurnGeneration : undefined);
+}
+
+function currentAttributionGeneration(sess: Session): number {
+  return turnGenerationContext.getStore() ?? activeAttributionGeneration(sess) ?? 0;
+}
+
+function beginAttributionTurn(sess: Session, generation: number) {
+  activeAttributionGenerations(sess).push(generation);
+  syncActiveAttributionGeneration(sess);
+}
+
+function finishAttributionTurn(sess: Session, generation: number) {
+  const generations = activeAttributionGenerations(sess);
+  const index = generations.indexOf(generation);
+  if (index >= 0) generations.splice(index, 1);
+  syncActiveAttributionGeneration(sess);
+}
+
+function adapterAttributionMode(sess: Session): AttributionMode {
+  const fn = (sess.adapter as Adapter & { attributionMode?: (sess: SessionCtx) => AttributionMode }).attributionMode;
+  return fn?.(sess) ?? "new-turn";
+}
+
 export function insertDeferredTurnEvents(events: AgentEvent[], generations: number[], generation: number, finalEvents: AgentEvent[]): { insertedAt: number; dropped: boolean } {
   if (!finalEvents.length) return { insertedAt: events.length, dropped: false };
   if (events.some((evt, index) => generations[index] === generation && evt.kind === "done")) {
@@ -317,22 +359,19 @@ export function insertDeferredTurnEvents(events: AgentEvent[], generations: numb
 }
 
 function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
-  const generation = turnGenerationContext.getStore() ?? Number(sess.internal.turnGeneration ?? 0);
+  const generation = activeAttributionGeneration(sess) ?? turnGenerationContext.getStore() ?? 0;
+  if (!generation) {
+    emitSessionEvent(sess, evt);
+    return;
+  }
+  const previousAttribution = sess.internal.filesAttributionRunning as Promise<void> | undefined;
   const pending = (async () => {
+    if (previousAttribution) await previousAttribution.catch(() => {});
     const finalEvents: AgentEvent[] = [];
-    // Per-call git timeouts do not bound the stat/hash loop inside dirtyState;
-    // race the whole attribution against one hard deadline so done can never
-    // be held hostage by a slow or wedged working tree.
-    let filesDeadline: ReturnType<typeof setTimeout> | undefined;
-    const fileEvents = await Promise.race([
-      filesChangedEvents(sess, generation, DONE_FILES_TIMEOUT_MS),
-      new Promise<AgentEvent[]>((res) => {
-        filesDeadline = setTimeout(() => res([]), DONE_FILES_TIMEOUT_MS + 500);
-      }),
-    ]).catch((err) => {
+    const fileEvents = await filesChangedEvents(sess, generation, DONE_FILES_TIMEOUT_MS).catch((err) => {
       console.error("[agent-chat] files-changed failed", err);
       return [] as AgentEvent[];
-    }).finally(() => clearTimeout(filesDeadline));
+    });
     finalEvents.push(...fileEvents);
     finalEvents.push(evt);
     const oldLength = sess.events.length;
@@ -348,33 +387,37 @@ function emitDoneAfterFiles(sess: Session, evt: Extract<AgentEvent, { kind: "don
   })();
   sess.internal.pendingDoneEmit = pending;
   sess.internal.pendingDoneGeneration = generation;
+  sess.internal.filesAttributionRunning = pending;
   pending.finally(() => {
+    finishAttributionTurn(sess, generation);
     if (sess.internal.pendingDoneEmit === pending) delete sess.internal.pendingDoneEmit;
     if (sess.internal.pendingDoneGeneration === generation) delete sess.internal.pendingDoneGeneration;
+    if (sess.internal.filesAttributionRunning === pending) delete sess.internal.filesAttributionRunning;
   });
 }
 
 function sendPrompt(sess: Session, prompt: string) {
+  const activeGeneration = activeAttributionGeneration(sess);
+  if (adapterAttributionMode(sess) === "current-turn" && activeGeneration) {
+    turnGenerationContext.run(activeGeneration, () => {
+      sess.emit({ kind: "user", text: prompt });
+      Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+        console.error("[agent-chat] send failed", err);
+        sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+        sess.emit({ kind: "done" });
+        sess.setStatus("idle");
+      });
+    });
+    return;
+  }
   const generation = Number(sess.internal.turnGeneration ?? 0) + 1;
   sess.internal.turnGeneration = generation;
+  beginAttributionTurn(sess, generation);
   const baselines = turnBaselines(sess);
-  // The per-call git timeout does not bound the stat/hash loop over up to
-  // FILES_LIMIT dirty paths, so race the WHOLE capture against one end-to-end
-  // deadline: the prompt is delayed at most ~TURN_BASELINE_TIMEOUT_MS and
-  // attribution degrades to the marked all-dirty fallback.
-  let baselineDeadline: ReturnType<typeof setTimeout> | undefined;
-  const baseline = Promise.race([
-    captureDirtyBaseline(sess.cwd, TURN_BASELINE_TIMEOUT_MS),
-    new Promise<DirtyBaseline>((res) => {
-      baselineDeadline = setTimeout(
-        () => res({ files: new Map<string, DirtyPathState>(), failed: "baseline capture timed out" }),
-        TURN_BASELINE_TIMEOUT_MS + 500,
-      );
-    }),
-  ]).catch((err) => ({
+  const baseline = captureDirtyBaseline(sess.cwd, TURN_BASELINE_TIMEOUT_MS).catch((err) => ({
     files: new Map<string, DirtyPathState>(),
     failed: String(err instanceof Error ? err.message : err),
-  })).finally(() => clearTimeout(baselineDeadline));
+  }));
   baselines.set(generation, baseline);
   pruneTurnBaselines(baselines);
   turnGenerationContext.run(generation, () => {
@@ -769,9 +812,12 @@ function statusPath(line: string): { path: string; status: string } | null {
 }
 
 async function changedFiles(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<ChangedFile[]> {
-  if (!(await isGitRepo(cwd, timeoutMs))) return [];
-  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000, timeoutMs).catch(() => "");
-  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000, timeoutMs).catch(() => "");
+  const deadline = makeDeadline(timeoutMs);
+  if (!(await isGitRepo(cwd, remainingTimeout(deadline)))) return [];
+  checkDeadline(deadline);
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000, remainingTimeout(deadline)).catch(() => "");
+  checkDeadline(deadline);
+  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000, remainingTimeout(deadline)).catch(() => "");
   const stats = new Map<string, { adds: number; dels: number }>();
   for (const line of numstat.split(/\r?\n/)) {
     const [adds, dels, ...rest] = line.split("\t");
@@ -799,6 +845,20 @@ interface DirtyBaseline {
   failed?: string;
 }
 
+function makeDeadline(timeoutMs: number): number {
+  return Date.now() + Math.max(0, timeoutMs);
+}
+
+function remainingTimeout(deadline: number): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error("git operation timed out");
+  return remaining;
+}
+
+function checkDeadline(deadline: number) {
+  remainingTimeout(deadline);
+}
+
 function turnBaselines(sess: Session): Map<number, Promise<DirtyBaseline>> {
   let baselines = sess.internal.turnBaselines as Map<number, Promise<DirtyBaseline>> | undefined;
   if (!baselines) {
@@ -823,25 +883,31 @@ export function recordTurnBaselineForTest(sess: { internal: Record<string, unkno
 }
 
 async function captureDirtyBaseline(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<DirtyBaseline> {
-  return { files: await dirtyState(cwd, timeoutMs) };
+  const deadline = makeDeadline(timeoutMs);
+  return { files: await dirtyState(cwd, deadline) };
 }
 
-async function dirtyState(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Map<string, DirtyPathState>> {
-  if (!(await isGitRepo(cwd, timeoutMs))) return new Map();
-  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 200_000, timeoutMs);
+async function dirtyState(cwd: string, deadline = makeDeadline(GIT_TIMEOUT_MS)): Promise<Map<string, DirtyPathState>> {
+  checkDeadline(deadline);
+  if (!(await isGitRepo(cwd, remainingTimeout(deadline)))) return new Map();
+  checkDeadline(deadline);
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 200_000, remainingTimeout(deadline));
   const entries = status.split(/\r?\n/)
     .map(statusPath)
     .filter((entry): entry is { path: string; status: string } => Boolean(entry))
     .slice(0, FILES_LIMIT);
   const existing: string[] = [];
+  const root = resolve(cwd);
   for (const entry of entries) {
-    const path = resolve(cwd, entry.path);
-    const rel = relative(resolve(cwd), path);
+    checkDeadline(deadline);
+    const path = resolve(root, entry.path);
+    const rel = relative(root, path);
     if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
     const st = await stat(path).catch(() => null);
     if (st?.isFile()) existing.push(entry.path);
   }
-  const hashes = await hashDirtyPaths(cwd, existing, timeoutMs);
+  checkDeadline(deadline);
+  const hashes = await hashDirtyPaths(cwd, existing, remainingTimeout(deadline));
   const state = new Map<string, DirtyPathState>();
   for (const entry of entries) {
     state.set(entry.path, {
@@ -890,8 +956,9 @@ export function filterChangedFilesSinceBaseline(files: ChangedFile[], baseline: 
 
 async function filesChangedEvents(sess: Session, generation: number, timeoutMs = GIT_TIMEOUT_MS): Promise<AgentEvent[]> {
   const baselines = turnBaselines(sess);
+  const deadline = makeDeadline(timeoutMs);
   try {
-    const files = await changedFiles(sess.cwd, timeoutMs);
+    const files = await changedFiles(sess.cwd, remainingTimeout(deadline));
     if (!files.length) return [];
     const baseline = await (baselines.get(generation) ?? Promise.resolve({
       files: new Map<string, DirtyPathState>(),
@@ -903,7 +970,7 @@ async function filesChangedEvents(sess: Session, generation: number, timeoutMs =
       events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${baseline.failed})` });
     } else {
       try {
-        filtered = filterChangedFilesSinceBaseline(files, baseline.files, await dirtyState(sess.cwd, timeoutMs));
+        filtered = filterChangedFilesSinceBaseline(files, baseline.files, await dirtyState(sess.cwd, deadline));
       } catch (err) {
         events.push({ kind: "status", text: `files changed baseline unavailable; showing all dirty files (${String(err instanceof Error ? err.message : err)})` });
       }
@@ -932,6 +999,22 @@ export function turnBaselineKeysForTest(sess: { internal: Record<string, unknown
 
 export async function filesChangedEventsForTest(sess: Pick<Session, "cwd" | "internal">, generation: number, timeoutMs = GIT_TIMEOUT_MS): Promise<AgentEvent[]> {
   return filesChangedEvents(sess as Session, generation, timeoutMs);
+}
+
+export async function dirtyStateForTest(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Map<string, DirtyPathState>> {
+  return dirtyState(cwd, makeDeadline(timeoutMs));
+}
+
+export function emitSessionEventForTest(sess: Session, evt: AgentEvent) {
+  emitSessionEvent(sess, evt);
+}
+
+export function emitDoneAfterFilesForTest(sess: Session, evt: Extract<AgentEvent, { kind: "done" }>) {
+  emitDoneAfterFiles(sess, evt);
+}
+
+export function sendPromptForTest(sess: Session, prompt: string) {
+  sendPrompt(sess, prompt);
 }
 
 async function emitFilesChanged(sess: Session, timeoutMs = GIT_TIMEOUT_MS) {

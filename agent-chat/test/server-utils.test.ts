@@ -3,6 +3,9 @@ import {
   buildBundles,
   cssAsset,
   cssFontFamily,
+  dirtyStateForTest,
+  emitDoneAfterFilesForTest,
+  emitSessionEventForTest,
   fileDiffAllowedForTest,
   filterChangedFilesSinceBaseline,
   filesChangedEventsForTest,
@@ -14,10 +17,11 @@ import {
   recordTurnBaselineForTest,
   resetAssetCachesForTest,
   resolveFileDiffPath,
+  sendPromptForTest,
   turnBaselineCountForTest,
   turnBaselineKeysForTest,
 } from "../server";
-import type { AgentEvent } from "../types";
+import type { Adapter, AgentEvent, SessionCtx, SessionStatus } from "../types";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -82,6 +86,14 @@ assert(!capped.includes("[truncated]"), "string git output should not append a d
 const files = gitFilesFromOutput({ text: "src/a.ts\nsrc/b.ts\npartial-or-marker", truncated: true });
 assert(files.join("|") === "src/a.ts|src/b.ts", `truncated git files should drop torn final entries: ${files.join("|")}`);
 
+let deadlineRejected = false;
+try {
+  await dirtyStateForTest(root, 0);
+} catch (err) {
+  deadlineRejected = /timed out/.test(String(err instanceof Error ? err.message : err));
+}
+assert(deadlineRejected, "dirty state should abort when its deadline has expired");
+
 const orderedEvents: AgentEvent[] = [
   { kind: "user", text: "first" },
   { kind: "assistant", text: "first answer" },
@@ -138,5 +150,59 @@ const steerBaselineSession = { internal: {} };
 for (let i = 1; i <= 9; i++) recordTurnBaselineForTest(steerBaselineSession, i);
 assert(turnBaselineCountForTest(steerBaselineSession) === 4, `steered baselines should be bounded, got ${turnBaselineCountForTest(steerBaselineSession)}`);
 assert(turnBaselineKeysForTest(steerBaselineSession).join("|") === "6|7|8|9", `newest steered baselines should be retained, got ${turnBaselineKeysForTest(steerBaselineSession).join("|")}`);
+
+const steerRoot = join(import.meta.dir, "..", "scratch", "steer-attribution-test");
+await rm(steerRoot, { recursive: true, force: true });
+await mkdir(steerRoot, { recursive: true });
+await writeFile(join(steerRoot, "tracked.txt"), "before\n");
+await run(["git", "init"], steerRoot);
+await run(["git", "add", "tracked.txt"], steerRoot);
+await run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "-m", "init"], steerRoot);
+let active = false;
+let editedResolve!: () => void;
+const edited = new Promise<void>((resolve) => { editedResolve = resolve; });
+const adapter = {
+  send: async (_sess: SessionCtx, prompt: string) => {
+    if (!active) {
+      active = true;
+      await writeFile(join(steerRoot, "tracked.txt"), `before\n${prompt}\n`);
+      editedResolve();
+    }
+  },
+  stop() {},
+  dispose() {},
+  setOption: async () => {},
+  attributionMode: () => active ? "current-turn" : "new-turn",
+} as Adapter & { attributionMode: () => "new-turn" | "current-turn" };
+const steerSession = {
+  id: "steer-test",
+  provider: "test",
+  cwd: steerRoot,
+  title: "steer test",
+  autoApprove: true,
+  startOptions: {},
+  status: "idle" as SessionStatus,
+  events: [] as AgentEvent[],
+  internal: {},
+  adapter,
+  sockets: new Set(),
+  createdAt: Date.now(),
+  emit(evt: AgentEvent) {
+    if (evt.kind === "done") emitDoneAfterFilesForTest(this as any, evt);
+    else emitSessionEventForTest(this as any, evt);
+  },
+  setStatus(status: SessionStatus) {
+    this.status = status;
+  },
+};
+sendPromptForTest(steerSession as any, "edit-before-steer");
+await edited;
+sendPromptForTest(steerSession as any, "steer-text");
+assert((steerSession.internal as any).turnGeneration === 1, `steer should not allocate a new generation, got ${String((steerSession.internal as any).turnGeneration)}`);
+steerSession.emit({ kind: "done" });
+await ((steerSession.internal as any).pendingDoneEmit as Promise<void>);
+const steerFiles = steerSession.events.find((evt) => evt.kind === "files-changed") as Extract<AgentEvent, { kind: "files-changed" }> | undefined;
+assert(steerFiles?.files.some((file) => file.path === "tracked.txt"), `pre-steer edit should be attributed to the active turn: ${JSON.stringify(steerSession.events)}`);
+assert(turnBaselineCountForTest(steerSession) === 0, "completed steered turn should retire its baseline");
 
 console.log("server utility assertions passed");

@@ -353,6 +353,10 @@ export function piNextSendTypeForTest(sess: SessionCtx): "prompt" | "steer" {
   return state(sess).activeTurn ? "steer" : "prompt";
 }
 
+(piAdapter as any).attributionMode = (sess: SessionCtx) => (
+  piNextSendTypeForTest(sess) === "steer" ? "current-turn" : "new-turn"
+);
+
 function normalizeModels(models: any): OptionChoice[] {
   if (!Array.isArray(models)) return [];
   return models.map((m) => ({
