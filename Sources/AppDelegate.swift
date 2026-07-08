@@ -870,7 +870,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
-    private let mainWindowVisibleFrameFitRescue = MainWindowVisibleFrameFitRescue()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
@@ -2084,9 +2083,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         // Seed so the first display change after launch can restore geometry.
         lastAppliedConfigurationSignature = currentDisplayConfigurationSignature()
-        mainWindowVisibleFrameFitRescue.seedCurrentTopology(
-            displays: currentDisplayGeometries().available
-        )
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
@@ -3614,21 +3610,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> CGRect {
         let fitCore = MainWindowVisibleFrameFitCore()
         if targetDisplay.visibleFrame.intersects(frame) {
-            if fitCore.fittedFrame(
-                for: frame,
-                displays: availableDisplays,
-                minimumWidth: minWidth,
-                minimumHeight: minHeight
-            ) == nil {
+            if fitCore.fittedFrame(for: frame, displays: availableDisplays, minimumWidth: minWidth, minimumHeight: minHeight) == nil {
                 return frame
             }
-
-            return fitCore.fittedFrame(
-                for: frame,
-                displays: [targetDisplay],
-                minimumWidth: minWidth,
-                minimumHeight: minHeight
-            ) ?? frame
+            return fitCore.fittedFrame(for: frame, displays: [targetDisplay], minimumWidth: minWidth, minimumHeight: minHeight) ?? frame
         }
 
         if let sourceReference = displaySnapshot?.visibleFrame?.cgRect ?? displaySnapshot?.frame?.cgRect {
@@ -17239,6 +17224,7 @@ private extension NSWindow {
             }
             return false
         }
+        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(

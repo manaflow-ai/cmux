@@ -181,10 +181,12 @@ extension AppDelegate {
 #endif
             window.setFrame(corrected, display: true)
         }
-        mainWindowVisibleFrameFitRescue.performFitIfNeeded(
-            displays: displays.available,
-            windows: mainWindows
-        )
+        if signatureChanged {
+            MainWindowVisibleFrameFitRescue().performFitIfNeeded(
+                displays: displays.available,
+                windows: mainWindows
+            )
+        }
     }
 
     /// Restores each window's remembered frame for `signature`, routed through

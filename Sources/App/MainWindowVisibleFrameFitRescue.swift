@@ -9,15 +9,10 @@ import CmuxWindowing
 @MainActor
 final class MainWindowVisibleFrameFitRescue {
     private let fitCore: MainWindowVisibleFrameFitCore
-    private var cachedSignature: [MainWindowVisibleFrameTopologySignatureEntry] = []
 
     /// Owned and invoked by `AppDelegate` from the guarded screen-change path.
     init(fitCore: MainWindowVisibleFrameFitCore = MainWindowVisibleFrameFitCore()) {
         self.fitCore = fitCore
-    }
-
-    func seedCurrentTopology(displays: [SessionDisplayGeometry]) {
-        cachedSignature = fitCore.topologySignature(of: displays)
     }
 
     func performFitIfNeeded(
@@ -25,11 +20,6 @@ final class MainWindowVisibleFrameFitRescue {
         windows: [NSWindow]
     ) {
         guard !displays.isEmpty else { return }
-
-        let signature = fitCore.topologySignature(of: displays)
-        let topologyChanged = signature != cachedSignature
-        cachedSignature = signature
-        guard topologyChanged else { return }
 
         let mainWindows = windows
             .compactMap { $0 as? CmuxMainWindow }
