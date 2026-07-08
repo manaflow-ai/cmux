@@ -1571,21 +1571,24 @@
       "title": "扩展市场",
       "intro": "marketplace 是受支持 Dock TUI 扩展的 registry；只显示已批准仓库。",
       "discoveryTitle": "发现",
-      "discoveryIntro": "网站读取 registry 文件。仓库在其条目被合并后才会显示：",
+      "discoveryIntro": "网站在请求时读取 manaflow-ai/awesome-cmux 的 extensions.json，内置 seed 只作为 fallback。仓库只有在 maintainer 将条目合并到那里后才会显示：",
       "submitTitle": "提交扩展",
       "submitIntro": "从 cmux 运行 CLI submit 以验证仓库并打开 GitHub issue：",
       "submitIssue": "你也可以直接打开表单并粘贴验证输出。",
+      "maintainersTitle": "Maintainer 专用",
+      "maintainersIntro": "批准意味着合并一个把条目加入 manaflow-ai/awesome-cmux extensions.json 的 PR；takedown 则是反向 PR。",
+      "maintainersReviewQueueAction": "审核队列",
       "approvalTitle": "批准",
       "approvalIntro": "批准表示 cmux 已审核该扩展并支持该列表项：",
       "approvalInstall": "我们通过 preview 流程安装并固定 commit。",
       "approvalReview": "我们审核 manifest、命令、许可证和相关代码。",
       "approvalDogfood": "我们试用 panes 以确认行为符合描述。",
-      "approvalMerge": "maintainer 合并把仓库加入 registry 的 PR。",
+      "approvalMerge": "maintainer 合并把仓库加入 manaflow-ai/awesome-cmux extensions.json 的 PR。",
       "installTitle": "安装按钮",
       "installIntro": "图库中的“在 cmux 中安装”按钮是一个仅包含仓库名称的普通 cmux 深层链接：",
       "installConsent": "cmux 应用会打开链接、获取仓库、验证清单、将安装固定到某个提交，并在运行任何内容之前显示应用内同意界面。",
       "takedownsTitle": "下架",
-      "takedownsIntro": "移除也通过 registry PR 完成，并在下次部署时从图库删除。"
+      "takedownsIntro": "移除或 takedown 是针对 manaflow-ai/awesome-cmux extensions.json 的反向 PR。删除仓库条目后，它会在缓存刷新后从公开图库中移除。"
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "每个扩展都已审核并受支持。安装前请阅读<link>信任说明</link>。",
     "supportedLabel": "已支持",
     "submitTitle": "提交扩展以供审核",
-    "submitBody": "运行 submit 验证仓库并打开预填的 GitHub issue；maintainer 合并 registry PR 后即批准。",
+    "submitBody": "运行 submit 验证仓库并打开预填的 GitHub issue；maintainer 合并 awesome-cmux registry PR 后即批准。",
     "submitIssueAction": "打开提交 issue",
     "templateAction": "扩展模板"
   },

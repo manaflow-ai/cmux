@@ -1571,21 +1571,24 @@
       "title": "Marketplace ekstenzija",
       "intro": "Marketplace je kurirani registar podržanih Dock TUI ekstenzija; prikazuju se samo odobreni repozitoriji.",
       "discoveryTitle": "Otkrivanje",
-      "discoveryIntro": "Stranica čita registry fajl. Repozitorij se pojavljuje tek nakon mergea unosa:",
+      "discoveryIntro": "Stranica pri zahtjevu čita manaflow-ai/awesome-cmux extensions.json, a ugrađeni seed koristi samo kao fallback. Repozitorij se pojavljuje tek nakon što maintainer mergea unos tamo:",
       "submitTitle": "Pošalji ekstenziju",
       "submitIntro": "Pokrenite CLI submit iz bilo koje cmux instalacije da validira repozitorij i otvori GitHub issue:",
       "submitIssue": "Možete direktno otvoriti obrazac i zalijepiti izlaz validacije.",
+      "maintainersTitle": "Za maintainere",
+      "maintainersIntro": "Odobrenje znači merge PR-a koji dodaje unos u manaflow-ai/awesome-cmux extensions.json; uklanjanje je obrnuti PR.",
+      "maintainersReviewQueueAction": "Red za pregled",
       "approvalTitle": "Odobrenje",
       "approvalIntro": "Odobrenje znači da je cmux tim pregledao ekstenziju i podržava listing:",
       "approvalInstall": "Instaliramo ekstenziju kroz preview tok i pinujemo commit.",
       "approvalReview": "Pregledamo manifest, naredbe, licencu i relevantni kod.",
       "approvalDogfood": "Isprobamo paneove da potvrdimo opisano ponašanje.",
-      "approvalMerge": "Maintainer spaja PR koji dodaje repozitorij u registry.",
+      "approvalMerge": "Maintainer spaja PR koji dodaje repozitorij u manaflow-ai/awesome-cmux extensions.json.",
       "installTitle": "Dugmad za instalaciju",
       "installIntro": "Dugme \"Instaliraj u cmux\" u galeriji je običan cmux deep link koji sadrži samo naziv repozitorija:",
       "installConsent": "cmux aplikacija otvara link, preuzima repozitorij, validira manifest, fiksira instalaciju na commit i prikazuje ekran za saglasnost u aplikaciji prije nego što se bilo šta pokrene.",
       "takedownsTitle": "Uklanjanja",
-      "takedownsIntro": "Uklanjanje je također registry PR i briše unos iz galerije pri sljedećem deployu."
+      "takedownsIntro": "Uklanjanje je obrnuti PR prema manaflow-ai/awesome-cmux extensions.json. Brisanje unosa repozitorija uklanja ga iz javne galerije nakon osvježavanja cachea."
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "Svaku ekstenziju je cmux tim pregledao i podržao. Pročitajte <link>napomene o povjerenju</link> prije instalacije.",
     "supportedLabel": "Podržano",
     "submitTitle": "Pošaljite ekstenziju na pregled",
-    "submitBody": "Pokrenite submit da validirate repozitorij i otvorite unaprijed popunjen GitHub issue; odobrenje nastaje kada maintainer spoji registry PR.",
+    "submitBody": "Pokrenite submit da validirate repozitorij i otvorite unaprijed popunjen GitHub issue; odobrenje nastaje kada maintainer spoji awesome-cmux registry PR.",
     "submitIssueAction": "Otvori issue za slanje",
     "templateAction": "Predložak ekstenzije"
   },

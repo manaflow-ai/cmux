@@ -5,6 +5,9 @@ import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { DocsSchema } from "../docs-schema";
 
+const extensionReviewQueueUrl =
+  "https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue%20state%3Aopen%20label%3Aextension-submission";
+
 export async function generateMetadata({
   params,
 }: {
@@ -33,7 +36,7 @@ export default function ExtensionsMarketplaceDocsPage() {
 
       <DocsHeading level={2} id="discovery">{t("discoveryTitle")}</DocsHeading>
       <p>{t("discoveryIntro")}</p>
-      <CodeBlock title="web/data/extensions-registry.json" lang="json">{`{
+      <CodeBlock title="manaflow-ai/awesome-cmux/extensions.json" lang="json">{`{
   "extensions": [
     { "repo": "owner/repo", "addedAt": "2026-07-07" }
   ]
@@ -43,6 +46,14 @@ export default function ExtensionsMarketplaceDocsPage() {
       <p>{t("submitIntro")}</p>
       <CodeBlock lang="text">cmux extension submit owner/repo</CodeBlock>
       <p>{t("submitIssue")}</p>
+
+      <DocsHeading level={2} id="maintainers">{t("maintainersTitle")}</DocsHeading>
+      <p>{t("maintainersIntro")}</p>
+      <p>
+        <a href={extensionReviewQueueUrl} target="_blank" rel="noopener noreferrer">
+          {t("maintainersReviewQueueAction")}
+        </a>
+      </p>
 
       <DocsHeading level={2} id="approval">{t("approvalTitle")}</DocsHeading>
       <p>{t("approvalIntro")}</p>
@@ -60,7 +71,7 @@ export default function ExtensionsMarketplaceDocsPage() {
 
       <DocsHeading level={2} id="takedowns">{t("takedownsTitle")}</DocsHeading>
       <p>{t("takedownsIntro")}</p>
-      <CodeBlock lang="text">web/data/extensions-registry.json</CodeBlock>
+      <CodeBlock lang="text">manaflow-ai/awesome-cmux/extensions.json</CodeBlock>
     </>
   );
 }

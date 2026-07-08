@@ -1571,21 +1571,24 @@
       "title": "Erweiterungs-Marktplatz",
       "intro": "Der Marktplatz ist eine kuratierte Registry unterstützter Dock-TUI-Erweiterungen; nur genehmigte Repositories erscheinen.",
       "discoveryTitle": "Entdeckung",
-      "discoveryIntro": "Die Website liest eine Registry-Datei. Ein Repository erscheint erst nach einem gemergten Eintrag:",
+      "discoveryIntro": "Die Website liest manaflow-ai/awesome-cmux extensions.json zur Request-Zeit und nutzt den gebündelten Seed nur als Fallback. Ein Repository erscheint erst, nachdem ein Maintainer dort einen Eintrag merged:",
       "submitTitle": "Erweiterung einreichen",
       "submitIntro": "Führe CLI submit aus einer cmux-Installation aus, um das Repository zu validieren und ein GitHub-Issue zu öffnen:",
       "submitIssue": "Du kannst das Formular auch direkt öffnen und die Validierungsausgabe einfügen.",
+      "maintainersTitle": "Für Maintainer",
+      "maintainersIntro": "Genehmigung bedeutet, einen PR zu mergen, der den Eintrag zu manaflow-ai/awesome-cmux extensions.json hinzufügt; Takedown ist der umgekehrte PR.",
+      "maintainersReviewQueueAction": "Review-Warteschlange",
       "approvalTitle": "Genehmigung",
       "approvalIntro": "Genehmigung bedeutet, dass das cmux-Team die Erweiterung geprüft hat und die Listung unterstützt:",
       "approvalInstall": "Wir installieren über den Preview-Flow und pinnen den Commit.",
       "approvalReview": "Wir prüfen Manifest, Befehle, Lizenz und relevanten Code.",
       "approvalDogfood": "Wir testen die Panes ausreichend, um das Verhalten zu bestätigen.",
-      "approvalMerge": "Ein Maintainer merged einen PR, der das Repository zur Registry hinzufügt.",
+      "approvalMerge": "Ein Maintainer merged einen PR, der das Repository zu manaflow-ai/awesome-cmux extensions.json hinzufügt.",
       "installTitle": "Install-Buttons",
       "installIntro": "Der „In cmux installieren“-Button der Galerie ist ein einfacher cmux-Deeplink, der nur den Repository-Namen enthält:",
       "installConsent": "Die cmux-App öffnet den Link, ruft das Repository ab, validiert das Manifest, pinnt die Installation auf einen Commit und zeigt den Zustimmungsdialog in der App an, bevor irgendetwas ausgeführt wird.",
       "takedownsTitle": "Entfernungen",
-      "takedownsIntro": "Entfernung ist ebenfalls ein Registry-PR und entfernt den Eintrag beim nächsten Deploy."
+      "takedownsIntro": "Entfernung oder Takedown ist der umgekehrte PR gegen manaflow-ai/awesome-cmux extensions.json. Das Löschen des Repository-Eintrags entfernt ihn nach der Cache-Aktualisierung aus der öffentlichen Galerie."
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "Jede gelistete Erweiterung wurde geprüft und unterstützt. Lies die <link>Vertrauenshinweise</link> vor der Installation.",
     "supportedLabel": "Unterstützt",
     "submitTitle": "Erweiterung zur Prüfung einreichen",
-    "submitBody": "Führe submit aus, um dein Repository zu validieren und ein vorausgefülltes GitHub-Issue zu öffnen; genehmigt wird es durch einen gemergten Registry-PR.",
+    "submitBody": "Führe submit aus, um dein Repository zu validieren und ein vorausgefülltes GitHub-Issue zu öffnen; genehmigt wird es, wenn ein Maintainer einen awesome-cmux-Registry-PR merged.",
     "submitIssueAction": "Einreichungs-Issue öffnen",
     "templateAction": "Erweiterungsvorlage"
   },

@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { buildAlternates } from "../../../../i18n/seo";
 import { ExtensionsGallery } from "./extensions-gallery";
 
@@ -21,15 +22,17 @@ export default function ExtensionsPage() {
   const t = useTranslations("extensions");
 
   return (
-    <>
-      <div className="mb-10">
-        <p className="mb-3 text-xs font-medium uppercase tracking-[0.16em] text-muted">
-          {t("sectionMarker")}
+    <div className="min-h-screen">
+      <SiteHeader section={t("sectionMarker")} />
+      <main className="w-full max-w-6xl mx-auto px-6 py-10">
+        <h1 className="text-2xl font-semibold tracking-tight mb-2">
+          {t("title")}
+        </h1>
+        <p className="max-w-3xl text-muted text-[15px] mb-6">
+          {t("intro")}
         </p>
-        <h1>{t("title")}</h1>
-        <p>{t("intro")}</p>
-      </div>
-      <ExtensionsGallery />
-    </>
+        <ExtensionsGallery />
+      </main>
+    </div>
   );
 }

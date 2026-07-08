@@ -1571,21 +1571,24 @@
       "title": "Uzantı pazarı",
       "intro": "Marketplace, desteklenen Dock TUI uzantılarının registry’sidir; yalnızca onaylı repository’ler görünür.",
       "discoveryTitle": "Keşif",
-      "discoveryIntro": "Site registry dosyasını okur. Repository, girdisi merge edildikten sonra görünür:",
+      "discoveryIntro": "Site istek sırasında manaflow-ai/awesome-cmux extensions.json dosyasını okur ve gömülü seed’i yalnızca fallback olarak kullanır. Repository ancak maintainer girdiyi orada merge ettikten sonra görünür:",
       "submitTitle": "Uzantı gönder",
       "submitIntro": "cmux içinden CLI submit çalıştırarak repository’yi doğrulayın ve GitHub issue açın:",
       "submitIssue": "Formu doğrudan açıp doğrulama çıktısını yapıştırabilirsiniz.",
+      "maintainersTitle": "Maintainer’lar için",
+      "maintainersIntro": "Onay, girdiyi manaflow-ai/awesome-cmux extensions.json dosyasına ekleyen PR’ın merge edilmesidir; takedown bunun ters PR’ıdır.",
+      "maintainersReviewQueueAction": "Review kuyruğu",
       "approvalTitle": "Onay",
       "approvalIntro": "Onay, cmux’un uzantıyı incelediği ve listelemeyi desteklediği anlamına gelir:",
       "approvalInstall": "Preview akışıyla kurar ve commit’i pinleriz.",
       "approvalReview": "Manifest, komutlar, lisans ve ilgili kodu inceleriz.",
       "approvalDogfood": "Panes’i deneyerek davranışı doğrularız.",
-      "approvalMerge": "Maintainer repository’yi registry’ye ekleyen PR’ı merge eder.",
+      "approvalMerge": "Maintainer repository’yi manaflow-ai/awesome-cmux extensions.json dosyasına ekleyen PR’ı merge eder.",
       "installTitle": "Yükleme düğmeleri",
       "installIntro": "Galerideki \"cmux'ta yükle\" düğmesi, yalnızca depo adını içeren düz bir cmux derin bağlantısıdır:",
       "installConsent": "cmux uygulaması bağlantıyı açar, depoyu getirir, manifestoyu doğrular, yüklemeyi bir commit'e sabitler ve herhangi bir şey çalıştırmadan önce uygulama içi onay ekranını gösterir.",
       "takedownsTitle": "Kaldırmalar",
-      "takedownsIntro": "Kaldırma da registry PR’ıdır ve sonraki deploy’da galeriden çıkarır."
+      "takedownsIntro": "Kaldırma veya takedown, manaflow-ai/awesome-cmux extensions.json için ters PR’dır. Repository girdisini silmek, cache yenilendikten sonra onu herkese açık galeriden çıkarır."
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "Her uzantı incelenmiş ve desteklenmiştir. Kurulumdan önce <link>güven notlarını</link> okuyun.",
     "supportedLabel": "Destekleniyor",
     "submitTitle": "İnceleme için uzantı gönder",
-    "submitBody": "submit komutuyla repository’yi doğrulayıp önceden doldurulmuş GitHub issue açın; onay, registry PR’ı merge edilince gerçekleşir.",
+    "submitBody": "submit komutuyla repository’yi doğrulayıp önceden doldurulmuş GitHub issue açın; onay, awesome-cmux registry PR’ı merge edilince gerçekleşir.",
     "submitIssueAction": "Gönderim issue’sunu aç",
     "templateAction": "Uzantı şablonu"
   },

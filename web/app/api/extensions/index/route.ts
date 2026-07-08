@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { env } from "@/app/env";
 import registryJson from "@/data/extensions-registry.json";
 import {
+  type ExtensionsRegistry,
   extensionsRegistrySchema,
   extensionsIndexResponseSchema,
   githubRepositorySchema,
@@ -23,6 +24,8 @@ export const runtime = "nodejs";
 export const revalidate = 1800;
 
 const cacheControl = "public, s-maxage=1800, stale-while-revalidate=3600";
+export const awesomeCmuxRegistryUrl =
+  "https://raw.githubusercontent.com/manaflow-ai/awesome-cmux/main/extensions.json";
 
 class ExtensionsIndexUpstreamError extends Data.TaggedError("ExtensionsIndexUpstreamError")<{
   readonly error: string;
@@ -69,14 +72,7 @@ export async function GET(request: Request): Promise<Response> {
 
 function loadExtensionsIndex(span: Span): Effect.Effect<ExtensionsIndexResponse, ExtensionsIndexError> {
   return Effect.gen(function* () {
-    const registry = yield* Effect.try({
-      try: () => extensionsRegistrySchema.parse(registryJson),
-      catch: (cause) =>
-        new ExtensionsIndexValidationError({
-          error: "extensions_registry_invalid",
-          cause,
-        }),
-    });
+    const registry = yield* loadExtensionsRegistry(span);
 
     yield* Effect.sync(() =>
       setSpanAttributes(span, { "cmux.extensions.registry_count": registry.extensions.length }),
@@ -127,6 +123,101 @@ function loadExtensionsIndex(span: Span): Effect.Effect<ExtensionsIndexResponse,
           cause,
         }),
     });
+  });
+}
+
+export function loadExtensionsRegistry(
+  span?: Span,
+): Effect.Effect<ExtensionsRegistry, ExtensionsIndexValidationError> {
+  return fetchAwesomeCmuxRegistry(span).pipe(
+    Effect.catchAll((error) =>
+      Effect.gen(function* () {
+        yield* Effect.sync(() => {
+          if (span) recordSpanError(span, error);
+        });
+        return yield* parseBundledRegistry(span);
+      }),
+    ),
+  );
+}
+
+function fetchAwesomeCmuxRegistry(
+  span?: Span,
+): Effect.Effect<ExtensionsRegistry, ExtensionsIndexError> {
+  return Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(awesomeCmuxRegistryUrl, {
+          headers: rawGithubHeaders(),
+          next: { revalidate },
+          signal: AbortSignal.timeout(10_000),
+        }),
+      catch: (cause) =>
+        new ExtensionsIndexUpstreamError({
+          error: "extensions_registry_unavailable",
+          cause,
+        }),
+    });
+
+    yield* Effect.sync(() => {
+      if (span) {
+        setSpanAttributes(span, {
+          "cmux.extensions.registry_upstream_status_code": response.status,
+        });
+      }
+    });
+
+    if (!response.ok) {
+      return yield* Effect.fail(
+        new ExtensionsIndexUpstreamError({
+          error: "extensions_registry_unavailable",
+          status: response.status,
+        }),
+      );
+    }
+
+    const raw = yield* Effect.tryPromise({
+      try: () => response.json() as Promise<unknown>,
+      catch: (cause) =>
+        new ExtensionsIndexUpstreamError({
+          error: "extensions_registry_invalid_json",
+          cause,
+        }),
+    });
+
+    const registry = yield* Effect.try({
+      try: () => extensionsRegistrySchema.parse(raw),
+      catch: (cause) =>
+        new ExtensionsIndexValidationError({
+          error: "extensions_registry_invalid",
+          cause,
+        }),
+    });
+
+    yield* Effect.sync(() => {
+      if (span) setSpanAttributes(span, { "cmux.extensions.registry_source": "awesome-cmux" });
+    });
+
+    return registry;
+  });
+}
+
+function parseBundledRegistry(
+  span?: Span,
+): Effect.Effect<ExtensionsRegistry, ExtensionsIndexValidationError> {
+  return Effect.try({
+    try: () => {
+      const registry = extensionsRegistrySchema.parse(registryJson);
+      if (span) {
+        setSpanAttributes(span, { "cmux.extensions.registry_source": "bundled" });
+      }
+      return registry;
+    },
+    catch: (cause) =>
+      new ExtensionsIndexValidationError({
+        error: "extensions_registry_invalid",
+        cause,
+      }),
   });
 }
 
@@ -198,4 +289,11 @@ function githubHeaders(): HeadersInit {
     headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
   }
   return headers;
+}
+
+function rawGithubHeaders(): HeadersInit {
+  return {
+    Accept: "application/json",
+    "User-Agent": "cmux-extensions-index (https://github.com/manaflow-ai/cmux)",
+  };
 }

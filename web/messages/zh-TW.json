@@ -1571,21 +1571,24 @@
       "title": "擴充功能市集",
       "intro": "marketplace 是支援 Dock TUI 擴充功能的 registry；只顯示已核准 repository。",
       "discoveryTitle": "探索",
-      "discoveryIntro": "網站讀取 registry 檔案。repository 在其項目被合併後才會顯示：",
+      "discoveryIntro": "網站在請求時讀取 manaflow-ai/awesome-cmux 的 extensions.json，內建 seed 只作為 fallback。repository 只有在 maintainer 將項目合併到那裡後才會顯示：",
       "submitTitle": "提交擴充功能",
       "submitIntro": "從 cmux 執行 CLI submit 以驗證 repository 並開啟 GitHub issue：",
       "submitIssue": "你也可以直接開啟表單並貼上驗證輸出。",
+      "maintainersTitle": "Maintainer 專用",
+      "maintainersIntro": "核准代表合併一個把項目加入 manaflow-ai/awesome-cmux extensions.json 的 PR；takedown 則是反向 PR。",
+      "maintainersReviewQueueAction": "審核佇列",
       "approvalTitle": "核准",
       "approvalIntro": "核准表示 cmux 已審核該擴充功能並支援該列表項目：",
       "approvalInstall": "我們透過 preview 流程安裝並固定 commit。",
       "approvalReview": "我們審核 manifest、指令、授權與相關程式碼。",
       "approvalDogfood": "我們試用 panes 以確認行為符合描述。",
-      "approvalMerge": "maintainer 合併把 repository 加入 registry 的 PR。",
+      "approvalMerge": "maintainer 合併把 repository 加入 manaflow-ai/awesome-cmux extensions.json 的 PR。",
       "installTitle": "安裝按鈕",
       "installIntro": "圖庫中的「在 cmux 中安裝」按鈕是一個僅包含儲存庫名稱的普通 cmux 深層連結：",
       "installConsent": "cmux 應用程式會開啟連結、取得儲存庫、驗證資訊清單、將安裝固定到某個提交，並在執行任何內容之前顯示應用程式內的同意畫面。",
       "takedownsTitle": "下架",
-      "takedownsIntro": "移除也透過 registry PR 完成，並在下次部署時從圖庫刪除。"
+      "takedownsIntro": "移除或 takedown 是針對 manaflow-ai/awesome-cmux extensions.json 的反向 PR。刪除 repository 項目後，它會在快取刷新後從公開圖庫中移除。"
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "每個擴充功能都已審核並受支援。安裝前請閱讀<link>信任說明</link>。",
     "supportedLabel": "已支援",
     "submitTitle": "提交擴充功能以供審核",
-    "submitBody": "執行 submit 驗證 repository 並開啟預填 GitHub issue；maintainer 合併 registry PR 後即核准。",
+    "submitBody": "執行 submit 驗證 repository 並開啟預填 GitHub issue；maintainer 合併 awesome-cmux registry PR 後即核准。",
     "submitIssueAction": "開啟提交 issue",
     "templateAction": "擴充功能範本"
   },

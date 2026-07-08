@@ -1571,21 +1571,24 @@
       "title": "Marketplace des extensions",
       "intro": "La marketplace est un registre organisé d’extensions Dock TUI prises en charge; seuls les dépôts approuvés apparaissent.",
       "discoveryTitle": "Découverte",
-      "discoveryIntro": "Le site lit un fichier de registre. Un dépôt apparaît seulement après fusion de son entrée :",
+      "discoveryIntro": "Le site lit manaflow-ai/awesome-cmux extensions.json à chaque requête et n’utilise le seed intégré qu’en secours. Un dépôt apparaît seulement après qu’un maintainer y fusionne son entrée :",
       "submitTitle": "Soumettre une extension",
       "submitIntro": "Exécutez CLI submit depuis une installation cmux pour valider le dépôt et ouvrir une issue GitHub :",
       "submitIssue": "Vous pouvez aussi ouvrir le formulaire directement et coller la sortie de validation.",
+      "maintainersTitle": "Pour les maintainers",
+      "maintainersIntro": "L’approbation consiste à fusionner une PR qui ajoute l’entrée à manaflow-ai/awesome-cmux extensions.json; le retrait est la PR inverse.",
+      "maintainersReviewQueueAction": "File de revue",
       "approvalTitle": "Approbation",
       "approvalIntro": "L’approbation signifie que l’équipe cmux a examiné l’extension et soutient le listing :",
       "approvalInstall": "Nous installons via le flux d’aperçu et épinglons le commit.",
       "approvalReview": "Nous examinons manifeste, commandes, licence et code pertinent.",
       "approvalDogfood": "Nous testons les panneaux pour confirmer le comportement décrit.",
-      "approvalMerge": "Un maintainer fusionne une PR ajoutant le dépôt au registre.",
+      "approvalMerge": "Un maintainer fusionne une PR ajoutant le dépôt à manaflow-ai/awesome-cmux extensions.json.",
       "installTitle": "Boutons d'installation",
       "installIntro": "Le bouton « Installer dans cmux » de la galerie est un simple lien profond cmux contenant uniquement le nom du dépôt :",
       "installConsent": "L'application cmux ouvre le lien, récupère le dépôt, valide le manifeste, épingle l'installation sur un commit et affiche l'écran de consentement dans l'application avant d'exécuter quoi que ce soit.",
       "takedownsTitle": "Retraits",
-      "takedownsIntro": "La suppression passe aussi par une PR du registre et retire l’entrée au prochain déploiement."
+      "takedownsIntro": "La suppression ou le retrait est la PR inverse contre manaflow-ai/awesome-cmux extensions.json. Supprimer l’entrée du dépôt la retire de la galerie publique après rafraîchissement du cache."
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "Chaque extension a été examinée et prise en charge. Lisez les <link>notes de confiance</link> avant l’installation.",
     "supportedLabel": "Pris en charge",
     "submitTitle": "Soumettre une extension pour examen",
-    "submitBody": "Lancez submit pour valider votre dépôt et ouvrir une issue GitHub préremplie; l’approbation arrive quand un maintainer fusionne une PR du registre.",
+    "submitBody": "Lancez submit pour valider votre dépôt et ouvrir une issue GitHub préremplie; l’approbation arrive quand un maintainer fusionne une PR du registre awesome-cmux.",
     "submitIssueAction": "Ouvrir l’issue de soumission",
     "templateAction": "Modèle d’extension"
   },

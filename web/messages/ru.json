@@ -1571,21 +1571,24 @@
       "title": "Маркетплейс расширений",
       "intro": "Marketplace — курируемый реестр поддерживаемых Dock TUI-расширений; видны только одобренные репозитории.",
       "discoveryTitle": "Обнаружение",
-      "discoveryIntro": "Сайт читает файл реестра. Репозиторий появляется после merge его записи:",
+      "discoveryIntro": "Сайт при запросе читает manaflow-ai/awesome-cmux extensions.json, а встроенный seed использует только как fallback. Репозиторий появляется только после того, как maintainer сливает запись там:",
       "submitTitle": "Отправить расширение",
       "submitIntro": "Запустите CLI submit из cmux, чтобы проверить репозиторий и открыть GitHub issue:",
       "submitIssue": "Можно также открыть форму напрямую и вставить вывод проверки.",
+      "maintainersTitle": "Для maintainers",
+      "maintainersIntro": "Одобрение означает merge PR, добавляющего запись в manaflow-ai/awesome-cmux extensions.json; takedown — это обратный PR.",
+      "maintainersReviewQueueAction": "Очередь review",
       "approvalTitle": "Одобрение",
       "approvalIntro": "Одобрение означает, что cmux проверил расширение и поддерживает listing:",
       "approvalInstall": "Мы устанавливаем через preview-flow и закрепляем commit.",
       "approvalReview": "Мы проверяем manifest, команды, лицензию и код.",
       "approvalDogfood": "Мы тестируем panes, чтобы подтвердить поведение.",
-      "approvalMerge": "Maintainer сливает PR, добавляющий репозиторий в реестр.",
+      "approvalMerge": "Maintainer сливает PR, добавляющий репозиторий в manaflow-ai/awesome-cmux extensions.json.",
       "installTitle": "Кнопки установки",
       "installIntro": "Кнопка «Установить в cmux» в галерее — это обычная глубокая ссылка cmux, содержащая только имя репозитория:",
       "installConsent": "Приложение cmux открывает ссылку, получает репозиторий, проверяет манифест, закрепляет установку за коммитом и показывает экран согласия в приложении, прежде чем что-либо выполнять.",
       "takedownsTitle": "Удаление по запросу",
-      "takedownsIntro": "Удаление тоже делается PR реестра и убирает запись при следующем deploy."
+      "takedownsIntro": "Удаление или takedown — это обратный PR к manaflow-ai/awesome-cmux extensions.json. Удаление записи репозитория убирает ее из публичной галереи после обновления cache."
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "Каждое расширение проверено и поддерживается. Прочитайте <link>заметки о доверии</link> перед установкой.",
     "supportedLabel": "Поддерживается",
     "submitTitle": "Отправить расширение на проверку",
-    "submitBody": "Запустите submit, чтобы проверить репозиторий и открыть заранее заполненную GitHub issue; одобрение происходит после merge PR реестра.",
+    "submitBody": "Запустите submit, чтобы проверить репозиторий и открыть заранее заполненную GitHub issue; одобрение происходит после merge PR реестра awesome-cmux.",
     "submitIssueAction": "Открыть issue отправки",
     "templateAction": "Шаблон расширения"
   },

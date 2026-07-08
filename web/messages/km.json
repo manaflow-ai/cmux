@@ -1571,21 +1571,24 @@
       "title": "ទីផ្សារផ្នែកបន្ថែម",
       "intro": "marketplace គឺជា registry ដែលបានជ្រើសរើសសម្រាប់ Dock TUI ដែលគាំទ្រ; បង្ហាញតែ repository ដែលអនុម័ត។",
       "discoveryTitle": "ការរកឃើញ",
-      "discoveryIntro": "គេហទំព័រអាន registry file។ repository បង្ហាញបន្ទាប់ពី merge ធាតុរបស់វា:",
+      "discoveryIntro": "គេហទំព័រអាន manaflow-ai/awesome-cmux extensions.json ពេលមាន request ហើយប្រើ seed ដែលភ្ជាប់មកជា fallback ប៉ុណ្ណោះ។ repository បង្ហាញបន្ទាប់ពី maintainer merge ធាតុនៅទីនោះ:",
       "submitTitle": "ផ្ញើផ្នែកបន្ថែម",
       "submitIntro": "រត់ CLI submit ពី cmux ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue:",
       "submitIssue": "អ្នកអាចបើក form ដោយផ្ទាល់ ហើយបិទភ្ជាប់លទ្ធផលផ្ទៀងផ្ទាត់។",
+      "maintainersTitle": "សម្រាប់ maintainer",
+      "maintainersIntro": "ការអនុម័តមានន័យថា merge PR ដែលបន្ថែមធាតុទៅ manaflow-ai/awesome-cmux extensions.json; takedown គឺ PR បញ្ច្រាស។",
+      "maintainersReviewQueueAction": "ជួរត្រួតពិនិត្យ",
       "approvalTitle": "ការអនុម័ត",
       "approvalIntro": "ការអនុម័តមានន័យថា cmux បានពិនិត្យ និងគាំទ្រការរាយបញ្ជី:",
       "approvalInstall": "យើងដំឡើងតាម preview flow ហើយ pin commit។",
       "approvalReview": "យើងពិនិត្យ manifest, commands, license និង code ពាក់ព័ន្ធ។",
       "approvalDogfood": "យើងសាកល្បង panes ដើម្បីបញ្ជាក់អាកប្បកិរិយា។",
-      "approvalMerge": "maintainer merge PR បន្ថែម repository ទៅ registry។",
+      "approvalMerge": "maintainer merge PR ដែលបន្ថែម repository ទៅ manaflow-ai/awesome-cmux extensions.json។",
       "installTitle": "ប៊ូតុងដំឡើង",
       "installIntro": "ប៊ូតុង \"ដំឡើងក្នុង cmux\" នៅក្នុងវិចិត្រសាលគឺជាតំណភ្ជាប់ជ្រៅ cmux ធម្មតាដែលមានតែឈ្មោះឃ្លាំងកូដប៉ុណ្ណោះ៖",
       "installConsent": "កម្មវិធី cmux បើកតំណភ្ជាប់ ទាញយកឃ្លាំងកូដ ផ្ទៀងផ្ទាត់ manifest ភ្ជាប់ការដំឡើងទៅ commit មួយ ហើយបង្ហាញអេក្រង់យល់ព្រមក្នុងកម្មវិធីមុនពេលដំណើរការអ្វីមួយ។",
       "takedownsTitle": "ការដកចេញ",
-      "takedownsIntro": "ការដកចេញក៏ជា registry PR ហើយនឹងលុបពីវិចិត្រសាលពេល deploy បន្ទាប់។"
+      "takedownsIntro": "ការដកចេញ ឬ takedown គឺ PR បញ្ច្រាសលើ manaflow-ai/awesome-cmux extensions.json។ ការលុបធាតុ repository នឹងយកវាចេញពីវិចិត្រសាលសាធារណៈបន្ទាប់ពី cache refresh។"
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "ផ្នែកបន្ថែមទាំងអស់ត្រូវបានពិនិត្យ និងគាំទ្រ។ អាន <link>កំណត់សម្គាល់ទំនុកចិត្ត</link> មុនដំឡើង។",
     "supportedLabel": "បានគាំទ្រ",
     "submitTitle": "ផ្ញើផ្នែកបន្ថែមសម្រាប់ពិនិត្យ",
-    "submitBody": "រត់ submit ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue ដែលបំពេញរួច; អនុម័តពេល maintainer merge registry PR។",
+    "submitBody": "រត់ submit ដើម្បីផ្ទៀងផ្ទាត់ repository និងបើក GitHub issue ដែលបំពេញរួច; អនុម័តពេល maintainer merge awesome-cmux registry PR។",
     "submitIssueAction": "បើក issue ផ្ញើ",
     "templateAction": "គំរូផ្នែកបន្ថែម"
   },

@@ -1571,21 +1571,24 @@
       "title": "Utvidelsesmarkedsplass",
       "intro": "Marketplace er et kuratert registry over støttede Dock TUI-utvidelser; bare godkjente repoer vises.",
       "discoveryTitle": "Oppdagelse",
-      "discoveryIntro": "Nettstedet leser en registry-fil. Et repo vises først etter at oppføringen merges:",
+      "discoveryIntro": "Nettstedet leser manaflow-ai/awesome-cmux extensions.json ved forespørsel og bruker den innebygde seed-en bare som fallback. Et repo vises først etter at en maintainer merger oppføringen der:",
       "submitTitle": "Send inn en utvidelse",
       "submitIntro": "Kjør CLI submit fra en cmux-installasjon for å validere repoet og åpne en GitHub-issue:",
       "submitIssue": "Du kan også åpne skjemaet direkte og lime inn valideringsutdata.",
+      "maintainersTitle": "For maintainere",
+      "maintainersIntro": "Godkjenning betyr å merge en PR som legger oppføringen til manaflow-ai/awesome-cmux extensions.json; fjerning er den motsatte PR-en.",
+      "maintainersReviewQueueAction": "Review-kø",
       "approvalTitle": "Godkjenning",
       "approvalIntro": "Godkjenning betyr at cmux-teamet har gjennomgått utvidelsen og støtter oppføringen:",
       "approvalInstall": "Vi installerer via preview-flyten og pinner committen.",
       "approvalReview": "Vi gjennomgår manifest, kommandoer, lisens og relevant kode.",
       "approvalDogfood": "Vi tester panes nok til å bekrefte oppførselen.",
-      "approvalMerge": "En maintainer merger en PR som legger repoet til registry.",
+      "approvalMerge": "En maintainer merger en PR som legger repoet til manaflow-ai/awesome-cmux extensions.json.",
       "installTitle": "Installasjonsknapper",
       "installIntro": "Galleriets «Installer i cmux»-knapp er en vanlig cmux-dyplenke som bare inneholder repository-navnet:",
       "installConsent": "cmux-appen åpner lenken, henter repositoryet, validerer manifestet, fester installasjonen til en commit og viser samtykkeskjermen i appen før noe kjøres.",
       "takedownsTitle": "Fjerninger",
-      "takedownsIntro": "Fjerning er også en registry-PR og fjerner oppføringen ved neste deploy."
+      "takedownsIntro": "Fjerning eller takedown er den motsatte PR-en mot manaflow-ai/awesome-cmux extensions.json. Når repooppføringen slettes, fjernes den fra det offentlige galleriet etter cache-oppdatering."
     }
   },
   "legal": {
@@ -1710,7 +1713,7 @@
     "trustNote": "Alle oppførte utvidelser er gjennomgått og støttet. Les <link>tillitsnotatene</link> før installasjon.",
     "supportedLabel": "Støttet",
     "submitTitle": "Send inn en utvidelse for gjennomgang",
-    "submitBody": "Kjør submit for å validere repoet og åpne en forhåndsutfylt GitHub-issue; godkjenning skjer når en maintainer merger en registry-PR.",
+    "submitBody": "Kjør submit for å validere repoet og åpne en forhåndsutfylt GitHub-issue; godkjenning skjer når en maintainer merger en awesome-cmux registry-PR.",
     "submitIssueAction": "Åpne innsending-issue",
     "templateAction": "Utvidelsesmal"
   },
