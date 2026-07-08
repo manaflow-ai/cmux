@@ -214,21 +214,26 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_REF="$BASE_SHA"
+            if MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"; then
+              BASE_REF="$MERGE_BASE"
+            fi
             python3 scripts/swift_file_length_budget.py \
               --budget .github/swift-file-length-budget.tsv \
-              --base-ref "$BASE_SHA"
+              --base-ref "$BASE_REF"
           elif [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
             python3 scripts/swift_file_length_budget.py \
               --budget .github/swift-file-length-budget.tsv \
               --base-ref "$BEFORE_SHA"
-          elif git rev-parse --verify --quiet origin/main >/dev/null; then
+          elif git rev-parse --verify --quiet origin/main >/dev/null && MERGE_BASE="$(git merge-base origin/main HEAD)"; then
             python3 scripts/swift_file_length_budget.py \
               --budget .github/swift-file-length-budget.tsv \
-              --base-ref origin/main
+              --base-ref "$MERGE_BASE"
           else
             python3 scripts/swift_file_length_budget.py \
               --budget .github/swift-file-length-budget.tsv
