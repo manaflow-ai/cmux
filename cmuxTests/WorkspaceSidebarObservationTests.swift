@@ -344,6 +344,29 @@ struct WorkspaceSidebarObservationTests {
 
         #expect(count == 2)
     }
+
+    @Test func visibleActiveCodingAgentCountReturnsZeroWhenSettingIsDisabled() {
+        let panelId = UUID()
+        let statesByPanelId = [
+            panelId: [
+                "codex": AgentHibernationLifecycleState.running,
+                "claude_code": AgentHibernationLifecycleState.running,
+            ],
+        ]
+
+        #expect(
+            SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: false,
+                statesByPanelId: statesByPanelId
+            ) == 0
+        )
+        #expect(
+            SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: true,
+                statesByPanelId: statesByPanelId
+            ) == 2
+        )
+    }
 }
 
 // Mutable flag captured by Observation's Sendable onChange closure in this test.

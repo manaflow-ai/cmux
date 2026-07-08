@@ -13216,6 +13216,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let usesVerticalBranchLayout: Bool
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
+        let showsAgentActivity: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
@@ -13740,6 +13741,7 @@ struct TabItemView: View, Equatable {
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -14948,7 +14950,8 @@ struct TabItemView: View, Equatable {
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
-            activeCodingAgentCount: SidebarAgentActivitySummary.activeCodingAgentCount(
+            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: showsAgentActivity,
                 statesByPanelId: tab.agentLifecycleStatesByPanelId
             ),
             compactGitBranchSummaryText: compactGitBranchSummaryText,
