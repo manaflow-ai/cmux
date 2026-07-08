@@ -1,4 +1,4 @@
-package cmuxmux
+package cmux
 
 import (
 	"bufio"
