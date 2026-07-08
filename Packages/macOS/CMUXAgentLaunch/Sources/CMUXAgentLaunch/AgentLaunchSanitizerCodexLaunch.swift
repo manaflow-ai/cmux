@@ -79,8 +79,11 @@ extension AgentLaunchSanitizer {
     /// The marker also identifies which wrapper injected it, so when the
     /// script basename is not itself an agent name (Claude Code's real npm
     /// entrypoint is `.../@anthropic-ai/claude-code/cli.js`), the agent name
-    /// derived from the marker is used. Basename wins first so a wrapped agent
-    /// that shares another agent's hook plumbing still unwraps to its own name.
+    /// derived from the marker is used — but only when the script also lives
+    /// inside that agent's own npm package directory, so hook-looking argv
+    /// contents on an unrelated script can never rewrite it into an agent.
+    /// Basename wins first so a wrapped agent that shares another agent's
+    /// hook plumbing still unwraps to its own name.
     public static func unwrappedJavaScriptRuntimeAgentArgv(
         _ argv: [String],
         isKnownAgentExecutableName: (String) -> Bool
@@ -99,7 +102,8 @@ extension AgentLaunchSanitizer {
         } else if let strippedName = scriptName.removingSingleJavaScriptExtension(),
                   isKnownAgentExecutableName(strippedName) {
             matchedName = strippedName
-        } else if isKnownAgentExecutableName(markerAgentName) {
+        } else if isKnownAgentExecutableName(markerAgentName),
+                  scriptPathIsAgentPackageEntrypoint(argv[scriptIndex], agentName: markerAgentName) {
             matchedName = markerAgentName
         } else {
             return nil
@@ -249,6 +253,20 @@ private func containsCmuxInjectedClaudeHookSettings(_ argv: [String]) -> Bool {
 /// paths / `hooks claude` subcommands).
 private func isCmuxInjectedClaudeHookSettingsValue(_ value: String) -> Bool {
     value.contains("claude-hook") || value.contains("hooks claude")
+}
+
+/// The npm package directory each marker agent's runtime entrypoint lives in.
+/// The marker-derived fallback name is only trusted when the script path sits
+/// inside its agent's own package, so an unrelated script whose argv happens
+/// to contain hook-looking contents is never rewritten into an agent command.
+private let cmuxWrapperAgentPackageDirectories: [String: String] = [
+    "codex": "node_modules/@openai/codex/",
+    "claude": "node_modules/@anthropic-ai/claude-code/",
+]
+
+private func scriptPathIsAgentPackageEntrypoint(_ path: String, agentName: String) -> Bool {
+    guard let packageDirectory = cmuxWrapperAgentPackageDirectories[agentName] else { return false }
+    return path.contains(packageDirectory)
 }
 
 private func javaScriptRuntimeScriptArgumentIndex(_ argv: [String]) -> Int? {
